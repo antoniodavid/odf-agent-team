@@ -1,0 +1,23 @@
+name: odf-verify
+agent: odoo_qa_engineer
+tests:
+  - name: "verify with tests"
+    input:
+      task: "Verify the sale discount module implementation. Run tests, check OCA compliance, build spec matrix."
+      context:
+        version: 18
+        files: ["models/sale_order.py", "tests/test_discount.py"]
+    expected:
+      skill_resolution: "self-discovered"
+      expected_skills: ["odf-verify"]
+      status_in: ["ok", "warning", "failed"]
+
+  - name: "quick code review"
+    input:
+      task: "Review the stock move module for security issues and OCA compliance"
+      context:
+        version: 18
+        files: ["models/stock_move.py", "security/ir.model.access.csv"]
+    expected:
+      skill_resolution: "self-discovered"
+      status_in: ["ok", "warning", "failed"]

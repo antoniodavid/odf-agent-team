@@ -1,0 +1,23 @@
+name: odf-chained-pr
+agent: odoo_code_reviewer
+tests:
+  - name: "under 400 lines is single PR"
+    input:
+      task: "Review PR with 250 lines changed. Small bugfix."
+      context:
+        version: 18
+        files: ["models/sale_order.py"]
+    expected:
+      skill_resolution: "self-discovered"
+      status_in: ["ok"]
+
+  - name: "over 400 lines proposes split"
+    input:
+      task: "Split PR with 850 lines into chained PRs. New module is too large for single review."
+      context:
+        version: 18
+        files: []
+    expected:
+      skill_resolution: "self-discovered"
+      expected_skills: ["oca-chained-pr"]
+      status_in: ["ok"]

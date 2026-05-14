@@ -1,0 +1,1265 @@
+{
+  "version": 1,
+  "last_updated": "2026-05-14T20:30:00Z",
+  "skills": [
+    {
+      "name": "oca-governance-pr-workflow",
+      "title": "OCA PR Workflow",
+      "category": "governance",
+      "triggers": [
+        "PR",
+        "pull request",
+        "merge",
+        "review",
+        "submit",
+        "branch",
+        "push"
+      ],
+      "compact_rules": "OCA PR workflow. Replaces caveman-commit for OCA projects.\n- Workflow: issue approved -> branch from ver -> implement -> commit OCA format -> PR with template -> CI + review\n- Branch naming: {type}/{module}-{desc} with types: fix/, imp/, add/, ref/, mig/\n- PR body must include: Description, Related Issue (Closes #N), OCA Compliance Checklist\n- Checklist: version format, license AGPL-3, author includes OCA, tests passing, OCA commit format\n- Maturity levels: Alpha/Beta=1 review, Stable=2 reviews+5 days+tests, Mature=Stable+docs+changelog+2 contributors\n- Don't force push after review starts. Don't squash without asking.",
+      "path": "skills/oca/01-oca-governance/oca-pr-workflow.md",
+      "odoo_versions": [
+        14,
+        15,
+        16,
+        17,
+        18,
+        19
+      ],
+      "sdd_phase": null,
+      "version": "2.0",
+      "changelog": [
+        {
+          "version": "2.0",
+          "date": "2026-05-14",
+          "change": "Restructured to gentle-ai standard (Output Contract, Decision Gates, Hard Rules)"
+        }
+      ],
+      "last_updated": "2026-05-14"
+    },
+    {
+      "name": "oca-governance-commit-messages",
+      "title": "OCA Commit Messages",
+      "category": "governance",
+      "triggers": [
+        "commit",
+        "git",
+        "message",
+        "history"
+      ],
+      "compact_rules": "OCA commit message format. Replaces caveman-commit for Odoo projects.\n- Format: [TAG] module_name: short description (max 50 chars)\n- Tags: [FIX] bug fix, [ADD] new feature, [IMP] improvement, [REF] refactoring, [REM] remove, [MIG] migration, [MOV] move, [MERGE], [DOC], [TEST], [SEC], [PERF]\n- Use imperative mood: 'Fix' not 'Fixed'\n- Body explains WHY not WHAT (max 80 chars/line)\n- One logical change per commit\n- Multi-module: [IMP] mod1, mod2: description\n- Close issues: Closes #123\n- No past tense, no periods in subject, no 'Fix pep8' commits",
+      "path": "skills/oca/01-oca-governance/oca-commit-messages.md",
+      "odoo_versions": [
+        14,
+        15,
+        16,
+        17,
+        18,
+        19
+      ],
+      "sdd_phase": null,
+      "version": "2.0",
+      "changelog": [
+        {
+          "version": "2.0",
+          "date": "2026-05-14",
+          "change": "Added full OCA commit reference (12 tags, imperative mood, multi-module, squash rules)"
+        },
+        {
+          "version": "1.0",
+          "date": "2026-04-01",
+          "change": "Initial version with basic format"
+        }
+      ],
+      "last_updated": "2026-05-14"
+    },
+    {
+      "name": "oca-contributing-guidelines",
+      "title": "OCA Contributing Guidelines",
+      "category": "governance",
+      "triggers": [
+        "contribute",
+        "guidelines",
+        "best practices",
+        "naming",
+        "conventions",
+        "module structure"
+      ],
+      "compact_rules": "Consolidated OCA contributing guidelines.\n- Module names: singular, base_ prefix, l10n_CC_ for localization\n- Files: models/<model>.py, views/<model>_views.xml\n- XML IDs: <model>_view_<type>, <model>_action, <model>_menu\n- Manifest: version={ver}.0.1.0.0, license=AGPL-3, author includes OCA, website=github.com/OCA/<repo>\n- Import order: stdlib, third-party, odoo, addons, local, unknown with try/except\n- Model order: _name/_inherit, fields, _sql_constraints, defaults, compute/search, constraints/onchange, CRUD, actions, business\n- Method naming: _compute_<field>, _inverse_<field>, _search_<field>, _default_<field>, _onchange_<field>, _check_<name>, action_<name>\n- Fields: Many2one=_id, One2many/Many2many=_ids, no string= if same as name\n- SQL: ALWAYS use parameters %s, NEVER concatenate strings, NEVER cr.commit()\n- Tests: @tagged('post_install', '-at_install'), TransactionCase, setUpClass, one test per method",
+      "path": "skills/oca/02-development-style/oca-contributing-guidelines.md",
+      "odoo_versions": [
+        14,
+        15,
+        16,
+        17,
+        18,
+        19
+      ],
+      "sdd_phase": null,
+      "version": "1.0",
+      "changelog": [
+        {
+          "version": "1.0",
+          "date": "2026-05-14",
+          "change": "Created from OCA contributing docs in obsidian vault"
+        }
+      ],
+      "last_updated": "2026-05-14"
+    },
+    {
+      "name": "oca-python-style",
+      "title": "OCA Python Style",
+      "category": "style",
+      "triggers": [
+        ".py",
+        "python",
+        "models/",
+        "controller/",
+        "wizard/"
+      ],
+      "compact_rules": "- Import order: stdlib, third-party, odoo, odoo.addons\n- Use _() for all user-facing strings\n- No bare except clauses\n- Max line length 88 chars\n- Field naming: _id (Many2one), _ids (X2many)\n- Method naming: _compute_{field}, action_{name}, _check_{constraint}",
+      "path": "skills/oca/02-development-style/oca-python-style.md",
+      "odoo_versions": [
+        14,
+        15,
+        16,
+        17,
+        18,
+        19
+      ],
+      "sdd_phase": "IMPLEMENT",
+      "version": "1.0",
+      "changelog": [
+        {
+          "version": "1.0",
+          "date": "2026-04-01",
+          "change": "Initial version"
+        }
+      ],
+      "last_updated": "2026-05-14"
+    },
+    {
+      "name": "oca-xml-style",
+      "title": "OCA XML Style",
+      "category": "style",
+      "triggers": [
+        ".xml",
+        "views/",
+        "data/",
+        "security/"
+      ],
+      "compact_rules": "- Use xpath for view inheritance (expr + position)\n- No string= if same as field name capitalized\n- Group restrictions with groups= attribute\n- Proper view naming: model_name.view_type",
+      "path": "skills/oca/02-development-style/oca-xml-style.md",
+      "odoo_versions": [
+        14,
+        15,
+        16,
+        17,
+        18,
+        19
+      ],
+      "sdd_phase": "IMPLEMENT",
+      "version": "1.0",
+      "changelog": [
+        {
+          "version": "1.0",
+          "date": "2026-04-01",
+          "change": "Initial version"
+        }
+      ],
+      "last_updated": "2026-05-14"
+    },
+    {
+      "name": "oca-manifest-format",
+      "title": "OCA Manifest Format",
+      "category": "style",
+      "triggers": [
+        "__manifest__.py",
+        "manifest",
+        "module",
+        "depends"
+      ],
+      "compact_rules": "- Version format: {ver}.0.1.0.0\n- License: AGPL-3 or LGPL-3\n- Author must include OCA if contributing\n- List all dependencies explicitly\n- Data files in correct order (security before views)",
+      "path": "skills/oca/02-development-style/oca-manifest-format.md",
+      "odoo_versions": [
+        14,
+        15,
+        16,
+        17,
+        18,
+        19
+      ],
+      "sdd_phase": "DESIGN",
+      "version": "1.0",
+      "changelog": [
+        {
+          "version": "1.0",
+          "date": "2026-04-01",
+          "change": "Initial version"
+        }
+      ],
+      "last_updated": "2026-05-14"
+    },
+    {
+      "name": "computed-field-patterns",
+      "title": "Computed Field Patterns",
+      "category": "patterns/models",
+      "triggers": [
+        "computed",
+        "depends",
+        "store",
+        "inverse",
+        "compute"
+      ],
+      "compact_rules": "- Use @api.depends with explicit field paths\n- Set store=True if field is searched/grouped\n- Use compute_sudo=True if needs elevated privileges\n- Handle empty recordsets (for record in self:)\n- Inverse method for writable computed fields",
+      "path": "skills/oca/03-patterns/models/computed-field-patterns.md",
+      "odoo_versions": [
+        14,
+        15,
+        16,
+        17,
+        18,
+        19
+      ],
+      "sdd_phase": "DESIGN",
+      "version": "1.0",
+      "changelog": [
+        {
+          "version": "1.0",
+          "date": "2026-04-01",
+          "change": "Initial version"
+        }
+      ],
+      "last_updated": "2026-05-14"
+    },
+    {
+      "name": "inheritance-patterns",
+      "title": "Model Inheritance Patterns",
+      "category": "patterns/models",
+      "triggers": [
+        "inherit",
+        "extend",
+        "override",
+        "_inherit",
+        "_inherits"
+      ],
+      "compact_rules": "- _inherit: Extension (add fields/methods)\n- _inherits: Delegation (polymorphism)\n- _name + _inherit: New model from parent\n- Always call super() in overridden methods\n- Use _sql_constraints for database-level constraints",
+      "path": "skills/oca/03-patterns/models/inheritance-patterns.md",
+      "odoo_versions": [
+        14,
+        15,
+        16,
+        17,
+        18,
+        19
+      ],
+      "sdd_phase": "DESIGN",
+      "version": "1.0",
+      "changelog": [
+        {
+          "version": "1.0",
+          "date": "2026-04-01",
+          "change": "Initial version"
+        }
+      ],
+      "last_updated": "2026-05-14"
+    },
+    {
+      "name": "constraint-patterns",
+      "title": "Constraint Patterns",
+      "category": "patterns/models",
+      "triggers": [
+        "constraint",
+        "validation",
+        "check",
+        "_sql_constraints"
+      ],
+      "compact_rules": "- @api.constrains for Python-level validation\n- _sql_constraints for DB-level unique constraints\n- Raise ValidationError with user-friendly message\n- Constraints run on create AND write\n- Avoid expensive operations in constraints",
+      "path": "skills/oca/03-patterns/models/constraint-patterns.md",
+      "odoo_versions": [
+        14,
+        15,
+        16,
+        17,
+        18,
+        19
+      ],
+      "sdd_phase": "DESIGN",
+      "version": "1.0",
+      "changelog": [
+        {
+          "version": "1.0",
+          "date": "2026-04-01",
+          "change": "Initial version"
+        }
+      ],
+      "last_updated": "2026-05-14"
+    },
+    {
+      "name": "security-guide",
+      "title": "Odoo Security Guide",
+      "category": "patterns/security",
+      "triggers": [
+        "security",
+        "access",
+        "rule",
+        "group",
+        "ir.model.access",
+        "ir.rule"
+      ],
+      "compact_rules": "- Define ir.model.access.csv for ALL new models\n- Add ir.rule for multi-company restrictions\n- Use groups= attribute on views/buttons\n- NEVER use sudo() without justification\n- Check access rights before operations",
+      "path": "skills/oca/05-version/odoo-security-guide.md",
+      "odoo_versions": [
+        14,
+        15,
+        16,
+        17,
+        18,
+        19
+      ],
+      "sdd_phase": "DESIGN",
+      "version": "1.0",
+      "changelog": [
+        {
+          "version": "1.0",
+          "date": "2026-04-01",
+          "change": "Initial version"
+        }
+      ],
+      "last_updated": "2026-05-14"
+    },
+    {
+      "name": "odoo-view-patterns",
+      "title": "Odoo View Patterns",
+      "category": "patterns/views",
+      "triggers": [
+        "view",
+        "form",
+        "tree",
+        "kanban",
+        "search",
+        "xml"
+      ],
+      "compact_rules": "- Inherit via xpath (expr + position)\n- Use attrs/invisible for dynamic visibility (version-dependent)\n- Inline views for One2many fields\n- Smart buttons with type=object/action\n- Chatter integration with mail.thread",
+      "path": "skills/oca/03-patterns/views/odoo-view-patterns.md",
+      "odoo_versions": [
+        14,
+        15,
+        16,
+        17,
+        18,
+        19
+      ],
+      "sdd_phase": "DESIGN",
+      "version": "1.0",
+      "changelog": [
+        {
+          "version": "1.0",
+          "date": "2026-04-01",
+          "change": "Initial version"
+        }
+      ],
+      "last_updated": "2026-05-14"
+    },
+    {
+      "name": "owl-components",
+      "title": "OWL Component Patterns",
+      "category": "patterns/frontend",
+      "triggers": [
+        "OWL",
+        "component",
+        "JavaScript",
+        "JS",
+        "widget",
+        "static/src"
+      ],
+      "compact_rules": "- Use correct OWL version for target Odoo (1.x v15, 2.x v16-17, 3.x v18+)\n- Register components in correct registries\n- Use services via useService()\n- Props validation with static props\n- Lifecycle hooks: setup(), willStart(), willUpdateProps()",
+      "path": "skills/oca/03-patterns/frontend/odoo-owl-components.md",
+      "odoo_versions": [
+        15,
+        16,
+        17,
+        18,
+        19
+      ],
+      "sdd_phase": "DESIGN",
+      "version": "1.0",
+      "changelog": [
+        {
+          "version": "1.0",
+          "date": "2026-04-01",
+          "change": "Initial version"
+        }
+      ],
+      "last_updated": "2026-05-14"
+    },
+    {
+      "name": "odoo-test-patterns",
+      "title": "Odoo Test Patterns",
+      "category": "patterns/testing",
+      "triggers": [
+        "test",
+        "TransactionCase",
+        "SavepointCase",
+        "HttpCase",
+        "tests/"
+      ],
+      "compact_rules": "- TransactionCase: each test in rolled-back transaction\n- SavepointCase: for tests needing commit\n- HttpCase: for browser/tour testing\n- Use Form helper for onchange testing\n- Tag tests: @tagged('post_install', '-at_install')\n- Minimum 80% coverage for new modules",
+      "path": "skills/oca/04-testing/odoo-test-patterns.md",
+      "odoo_versions": [
+        14,
+        15,
+        16,
+        17,
+        18,
+        19
+      ],
+      "sdd_phase": "IMPLEMENT",
+      "version": "1.0",
+      "changelog": [
+        {
+          "version": "1.0",
+          "date": "2026-04-01",
+          "change": "Initial version"
+        }
+      ],
+      "last_updated": "2026-05-14"
+    },
+    {
+      "name": "oca-compliance-check",
+      "title": "OCA Compliance Check",
+      "category": "patterns/testing",
+      "triggers": [
+        "compliance",
+        "pylint",
+        "pre-commit",
+        "oca",
+        "review"
+      ],
+      "compact_rules": "- Run pre-commit run -a before PR\n- pylint-odoo: no odoolint errors\n- Manifest: correct version, license, author\n- Security: access rights for all models\n- Tests: tests/__init__.py exists, tests cover happy path + edge cases",
+      "path": "skills/oca/04-testing/oca-compliance-check.md",
+      "odoo_versions": [
+        14,
+        15,
+        16,
+        17,
+        18,
+        19
+      ],
+      "sdd_phase": "VERIFY",
+      "version": "1.0",
+      "changelog": [
+        {
+          "version": "1.0",
+          "date": "2026-04-01",
+          "change": "Initial version"
+        }
+      ],
+      "last_updated": "2026-05-14"
+    },
+    {
+      "name": "odoo-version-knowledge",
+      "title": "Odoo Version Knowledge",
+      "category": "patterns/version",
+      "triggers": [
+        "version",
+        "migration",
+        "upgrade",
+        "Odoo 16",
+        "Odoo 17",
+        "Odoo 18"
+      ],
+      "compact_rules": "- v14: @api.multi deprecated, track_visibility exists\n- v15: @api.multi REMOVED, tracking=True, OWL 1.x\n- v16: Command class, attrs deprecated, OWL 2.x\n- v17: attrs REMOVED, @api.model_create_multi mandatory, direct invisible=expr\n- v18: _check_company_auto, check_company=True, type hints recommended, SQL() builder\n- v19: Full type annotations REQUIRED, SQL() builder REQUIRED, OWL 3.x",
+      "path": "skills/oca/05-version/odoo-version-knowledge.md",
+      "odoo_versions": [
+        14,
+        15,
+        16,
+        17,
+        18,
+        19
+      ],
+      "sdd_phase": "ASSESS",
+      "version": "1.0",
+      "changelog": [
+        {
+          "version": "1.0",
+          "date": "2026-04-01",
+          "change": "Initial version"
+        }
+      ],
+      "last_updated": "2026-05-14"
+    },
+    {
+      "name": "odf-assess",
+      "title": "Assess Odoo Requirement",
+      "category": "odf",
+      "triggers": [
+        "assess",
+        "requirement",
+        "feasibility",
+        "specification"
+      ],
+      "compact_rules": "Standard vs custom decision. Version MUST be confirmed before analysis.\n- Standard Odoo first: settings, automation, server actions, studio\n- REQ-XX numbered requirements with RFC 2119 (MUST/SHALL/SHOULD)\n- Given/When/Then scenarios per requirement\n- strategy: standard \u2192 config guide. strategy: custom \u2192 functional spec only\n- NEVER write code \u2014 only specs or guides",
+      "path": "skills/odf-assess/SKILL.md",
+      "odoo_versions": [
+        14,
+        15,
+        16,
+        17,
+        18,
+        19
+      ],
+      "sdd_phase": "ASSESS",
+      "version": "2.0",
+      "changelog": [
+        {
+          "version": "2.0",
+          "date": "2026-05-14",
+          "change": "Restructured: 249\u219250 lines, Output Contract, Decision Gates for standard vs custom"
+        },
+        {
+          "version": "1.0",
+          "date": "2026-04-01",
+          "change": "Initial assessment flow"
+        }
+      ],
+      "last_updated": "2026-05-14"
+    },
+    {
+      "name": "odf-design",
+      "title": "Design Odoo Module",
+      "category": "odf",
+      "triggers": [
+        "design",
+        "architecture",
+        "task breakdown"
+      ],
+      "compact_rules": "Read source BEFORE designing. Link every task to REQ-XX.\n- Architecture decisions with rationale + rejected alternatives\n- Data model: models + fields. Views: type + action\n- Every model MUST have ir.model.access.csv\n- Every feature MUST have >=1 test task\n- 3 phases: Foundation (models+security) \u2192 Views \u2192 Tests+Polish\n- Multi-module: primary first, secondary after. Task IDs: A1.1, B1.1",
+      "path": "skills/odf-design/SKILL.md",
+      "odoo_versions": [
+        14,
+        15,
+        16,
+        17,
+        18,
+        19
+      ],
+      "sdd_phase": "DESIGN",
+      "version": "2.0",
+      "changelog": [
+        {
+          "version": "2.0",
+          "date": "2026-05-14",
+          "change": "Restructured: 248\u219249 lines, architecture decisions table"
+        },
+        {
+          "version": "1.0",
+          "date": "2026-04-01",
+          "change": "Initial design flow"
+        }
+      ],
+      "last_updated": "2026-05-14"
+    },
+    {
+      "name": "odf-implement",
+      "title": "Implement Odoo Tasks",
+      "category": "odf",
+      "triggers": [
+        "implement",
+        "code",
+        "write",
+        "develop",
+        "build"
+      ],
+      "compact_rules": "Implement assigned tasks in batches following spec + design.\n- Read REQ-XX from assess before implementing each task\n- Follow design decisions. If wrong: NOTE IT, don't silently deviate\n- Tests with code: same commit as behavior they verify\n- Smoke tests per batch: pre-commit + pylint-odoo on changed files\n- Mark tasks [x] as you go. If blocked: status: blocked",
+      "path": "skills/odf-implement/SKILL.md",
+      "odoo_versions": [
+        14,
+        15,
+        16,
+        17,
+        18,
+        19
+      ],
+      "sdd_phase": "IMPLEMENT",
+      "version": "2.0",
+      "changelog": [
+        {
+          "version": "2.0",
+          "date": "2026-05-14",
+          "change": "Restructured: 266\u219253 lines, smoke tests per batch"
+        },
+        {
+          "version": "1.0",
+          "date": "2026-04-01",
+          "change": "Initial implementation flow"
+        }
+      ],
+      "last_updated": "2026-05-14"
+    },
+    {
+      "name": "odf-verify",
+      "title": "Verify Odoo Implementation",
+      "category": "odf",
+      "triggers": [
+        "verify",
+        "test",
+        "qa gate",
+        "quality"
+      ],
+      "compact_rules": "Quality gate: run real tests + linting + compliance + adversarial review.\n- Execute tests (static analysis alone is not verification)\n- Every REQ-XX must have a PASSING test (COMPLIANT) or it's UNTESTED (CRITICAL)\n- Judgment Day: 3 review passes (reviewer \u2192 maintainer \u2192 attacker), flag discrepancies\n- Pre-commit: run -a. CRITICAL if non-auto-fixable failures\n- Never fix issues \u2014 only report. Orchestrator decides",
+      "path": "skills/odf-verify/SKILL.md",
+      "odoo_versions": [
+        14,
+        15,
+        16,
+        17,
+        18,
+        19
+      ],
+      "sdd_phase": "VERIFY",
+      "version": "2.0",
+      "changelog": [
+        {
+          "version": "2.0",
+          "date": "2026-05-14",
+          "change": "Restructured + Judgment Day adversarial review (3-pass: reviewer, maintainer, attacker)"
+        },
+        {
+          "version": "1.0",
+          "date": "2026-04-01",
+          "change": "Initial verification flow"
+        }
+      ],
+      "last_updated": "2026-05-14"
+    },
+    {
+      "name": "skill-resolver",
+      "title": "Skill Resolver Protocol",
+      "category": "shared",
+      "triggers": [
+        "delegate",
+        "sub-agent",
+        "inject",
+        "standards"
+      ],
+      "compact_rules": "- Read odf-registry.json before EVERY delegation\n- Match by code context (file types) + task context (actions)\n- Inject ## Project Standards block into sub-agent prompt\n- Keep to max 5 skill blocks (prioritize code context)\n- Sub-agents MUST report skill resolution status in return envelope",
+      "path": "skills/_shared/skill-resolver.md",
+      "odoo_versions": [
+        16,
+        17,
+        18,
+        19
+      ],
+      "sdd_phase": null,
+      "version": "1.0",
+      "changelog": [
+        {
+          "version": "1.0",
+          "date": "2026-04-01",
+          "change": "Initial version"
+        }
+      ],
+      "last_updated": "2026-05-14"
+    },
+    {
+      "name": "odf-agent-builder",
+      "title": "ODF Agent Builder",
+      "category": "odf",
+      "triggers": [
+        "create agent",
+        "new specialist",
+        "custom agent",
+        "build agent",
+        "agent for"
+      ],
+      "compact_rules": "Generate custom Odoo sub-agents from NL description.\n- Parse: Domain + Expertise + Triggers + Phase\n- Check duplicates in registry + Engram before gen\n- Enrich with NotebookLM (models, fields, workflows, version diffs)\n- Generate via opencode run (120s timeout), split on ---AGENT---\n- Validate required sections in SKILL.md + AGENT.md\n- Install: write files + update registry + persist to Engram",
+      "path": "skills/odf-agent-builder/SKILL.md",
+      "odoo_versions": [
+        16,
+        17,
+        18,
+        19
+      ],
+      "sdd_phase": null,
+      "version": "2.0",
+      "changelog": [
+        {
+          "version": "2.0",
+          "date": "2026-05-14",
+          "change": "Restructured: 222\u219260 lines, added frontmatter + Decision Gates"
+        },
+        {
+          "version": "1.0",
+          "date": "2026-04-01",
+          "change": "Initial agent builder flow"
+        }
+      ],
+      "last_updated": "2026-05-14"
+    },
+    {
+      "name": "odoo-stock-lot-specialist",
+      "title": "Odoo Stock Lot/Serial Specialist",
+      "category": "business/inventory",
+      "triggers": [
+        "stock",
+        "lot",
+        "serial",
+        "tracking",
+        "traceability",
+        "fefo",
+        "expiration",
+        "picking",
+        "inventory"
+      ],
+      "compact_rules": "\\n- NEVER validate transfers without lot/serial assignment if product tracking requires it\\n- ALWAYS configure removal strategy at category OR location level (not both inconsistently)\\n- NEVER deliver lots past `expiration_date` (block at validation)\\n- ALWAYS enforce serial uniqueness at database level (constrain quantity=1)\\n- For FEFO: `removal_date` drives reservation, NOT `expiration_date`\\n- Use `stock.quant` for lot/location availability checks\\n- Handle `stock.move.line` correctly for lot/serial assignments\\n- Follow OCA style: `_()` for user-facing strings, proper field naming\\n- For v16+: Use `Command` class for x2many lot operations\\n- NEVER modify core Odoo files \u2014 only custom modules\\n",
+      "path": "skills/odoo_stock_lot_specialist/SKILL.md",
+      "odoo_versions": [
+        16,
+        17,
+        18,
+        19
+      ],
+      "sdd_phase": "DESIGN",
+      "version": "1.0",
+      "changelog": [
+        {
+          "version": "1.0",
+          "date": "2026-04-01",
+          "change": "Initial version"
+        }
+      ],
+      "last_updated": "2026-05-14"
+    },
+    {
+      "name": "odf-fix",
+      "title": "ODF Bugfix Flow",
+      "category": "odf",
+      "triggers": [
+        "fix",
+        "bug",
+        "error",
+        "broken",
+        "hotfix"
+      ],
+      "compact_rules": "3-step: DIAGNOSE \u2192 FIX \u2192 VERIFY. No gates.\n- Root cause first: identify before modifying code\n- Include test that fails without the fix\n- Scope >3 files or needs arch change: stop, suggest /odf-new\n- One fix per invocation. Security/data issues: CRITICAL flag",
+      "path": "skills/odf-fix/SKILL.md",
+      "odoo_versions": [
+        14,
+        15,
+        16,
+        17,
+        18,
+        19
+      ],
+      "sdd_phase": null,
+      "version": "2.0",
+      "changelog": [
+        {
+          "version": "2.0",
+          "date": "2026-05-14",
+          "change": "Restructured: Activation Contract \u2192 Hard Rules \u2192 Decision Gates \u2192 Execution Steps \u2192 Output Contract"
+        },
+        {
+          "version": "1.0",
+          "date": "2026-04-01",
+          "change": "Initial 3-step DIAGNOSE\u2192FIX\u2192VERIFY flow"
+        }
+      ],
+      "last_updated": "2026-05-14"
+    },
+    {
+      "name": "odf-explore",
+      "title": "ODF Codebase Exploration",
+      "category": "odf",
+      "triggers": [
+        "explore",
+        "research",
+        "investigate",
+        "how does"
+      ],
+      "compact_rules": "Research Odoo codebase. Local source first, never guess.\n- fff to find modules, fff_grep for patterns\n- Read models/ + views/ + tests/ before concluding\n- Determine standard coverage: Yes/No/Partial\n- Output: modules+models found, standard assessment, recommendation",
+      "path": "skills/odf-explore/SKILL.md",
+      "odoo_versions": [
+        14,
+        15,
+        16,
+        17,
+        18,
+        19
+      ],
+      "sdd_phase": null,
+      "version": "2.0",
+      "changelog": [
+        {
+          "version": "2.0",
+          "date": "2026-05-14",
+          "change": "Restructured: 235\u219243 lines, Output Contract, fff/fff_grep instructions"
+        },
+        {
+          "version": "1.0",
+          "date": "2026-04-01",
+          "change": "Initial exploration flow"
+        }
+      ],
+      "last_updated": "2026-05-14"
+    },
+    {
+      "name": "odf-init",
+      "title": "ODF Project Init",
+      "category": "odf",
+      "triggers": [
+        "init",
+        "setup",
+        "detect",
+        "project context"
+      ],
+      "compact_rules": "Detect + persist Odoo project context to Engram.\n- Version: __manifest__.py \u2192 odoo-bin \u2192 Dockerfile \u2192 ask\n- Modules: find __manifest__.py, classify (custom/oca)\n- Test runner: odoo-bin \u2192 Docker \u2192 pytest-odoo\n- Persist YAML even partial. Upsert via topic_key",
+      "path": "skills/odf-init/SKILL.md",
+      "odoo_versions": [
+        14,
+        15,
+        16,
+        17,
+        18,
+        19
+      ],
+      "sdd_phase": null,
+      "version": "2.0",
+      "changelog": [
+        {
+          "version": "2.0",
+          "date": "2026-05-14",
+          "change": "Restructured: 274\u219250 lines, decision gates for detection"
+        },
+        {
+          "version": "1.0",
+          "date": "2026-04-01",
+          "change": "Initial project init"
+        }
+      ],
+      "last_updated": "2026-05-14"
+    },
+    {
+      "name": "odf-qa",
+      "title": "ODF QA Workflow",
+      "category": "odf",
+      "triggers": [
+        "qa",
+        "test strategy",
+        "coverage",
+        "quality"
+      ],
+      "compact_rules": "4 phases: QA-PLAN \u2192 QA-REVIEW \u2192 QA-AGGREGATE \u2192 QA-REPORT.\n- Parse REQ-XX from assess, design test scenarios\n- Run actual coverage tools, don't estimate\n- Every test maps to REQ-XX for traceability\n- Check isolation: TransactionCase required\n- Quality gates: coverage >=80%, critical paths 100%",
+      "path": "skills/odf-qa/SKILL.md",
+      "odoo_versions": [
+        14,
+        15,
+        16,
+        17,
+        18,
+        19
+      ],
+      "sdd_phase": null,
+      "version": "2.0",
+      "changelog": [
+        {
+          "version": "2.0",
+          "date": "2026-05-14",
+          "change": "Restructured: 311\u219255 lines, 4-phase QA workflow"
+        },
+        {
+          "version": "1.0",
+          "date": "2026-04-01",
+          "change": "Initial QA workflow"
+        }
+      ],
+      "last_updated": "2026-05-14"
+    },
+    {
+      "name": "oca-work-unit-commits",
+      "title": "OCA Work Unit Commits",
+      "category": "governance",
+      "triggers": [
+        "commit",
+        "git",
+        "message",
+        "work unit",
+        "pr split"
+      ],
+      "compact_rules": "OCA commit format: [TAG] module: desc (\u226450 chars). Replaces conventional-commits for OCA.\n- Tags: FIX, ADD, IMP, REF, REM, MIG, MOV, DOC, TEST, SEC, PERF\n- Imperative mood. Body: WHY not WHAT\n- One work unit per commit: tests+docs with code\n- >400 lines: split or chained PRs\n- Closes #N. No Co-Authored-By",
+      "path": "skills/oca/01-oca-governance/oca-work-unit-commits.md",
+      "odoo_versions": [
+        14,
+        15,
+        16,
+        17,
+        18,
+        19
+      ],
+      "sdd_phase": null,
+      "version": "1.0",
+      "changelog": [
+        {
+          "version": "1.0",
+          "date": "2026-05-14",
+          "change": "Created from gentle-ai pattern: work-unit commits with OCA format"
+        }
+      ],
+      "last_updated": "2026-05-14"
+    },
+    {
+      "name": "oca-cognitive-doc-design",
+      "title": "OCA Cognitive Doc Design",
+      "category": "governance",
+      "triggers": [
+        "spec",
+        "design doc",
+        "report",
+        "pr description",
+        "documentation"
+      ],
+      "compact_rules": "Design docs that reduce reviewer cognitive load.\n- Lead with answer: outcome/decision/action first, context after\n- Progressive disclosure: happy path \u2192 details \u2192 edge cases\n- Chunking: small sections, short lists\n- Tables+checklists > prose\n- Spec: Business Need \u2192 Coverage \u2192 Reqs \u2192 Out of Scope. Design: ADRs \u2192 Data Model \u2192 Views \u2192 Tasks",
+      "path": "skills/oca/02-development-style/oca-cognitive-doc-design.md",
+      "odoo_versions": [
+        14,
+        15,
+        16,
+        17,
+        18,
+        19
+      ],
+      "sdd_phase": null,
+      "version": "1.0",
+      "changelog": [
+        {
+          "version": "1.0",
+          "date": "2026-05-14",
+          "change": "Created from gentle-ai pattern: docs with low cognitive load"
+        }
+      ],
+      "last_updated": "2026-05-14"
+    },
+    {
+      "name": "oca-comment-writer",
+      "title": "OCA Comment Writer",
+      "category": "governance",
+      "triggers": [
+        "comment",
+        "review feedback",
+        "pr comment",
+        "issue reply"
+      ],
+      "compact_rules": "Write warm, direct collaboration comments for OCA PRs.\n- Start with actionable point. Don't recap the whole PR.\n- Warm and direct: sound like a teammate, not a bot\n- Keep it short: 1-3 paragraphs or bullet list\n- Explain WHY when requesting changes\n- Request change: observation \u2192 why matters \u2192 next action\n- Approve: positive assessment \u2192 optional suggestion",
+      "path": "skills/oca/02-development-style/oca-comment-writer.md",
+      "odoo_versions": [
+        14,
+        15,
+        16,
+        17,
+        18,
+        19
+      ],
+      "sdd_phase": null,
+      "version": "1.0",
+      "changelog": [
+        {
+          "version": "1.0",
+          "date": "2026-05-14",
+          "change": "Created from gentle-ai pattern: warm, direct collaboration comments"
+        }
+      ],
+      "last_updated": "2026-05-14"
+    },
+    {
+      "name": "odf-tdd",
+      "title": "ODF Strict TDD",
+      "category": "odf",
+      "triggers": [
+        "tdd",
+        "test-first",
+        "red-green-refactor",
+        "test before code"
+      ],
+      "compact_rules": "Strict TDD opt-in. Tests BEFORE code (red-green-refactor).\n- Every REQ-XX must have test task paired with implementation task\n- Write failing test FIRST, then implement to make it pass\n- VERIFY rejects code without matching tests when TDD on\n- Toggle with /odf-tdd on|off",
+      "path": "skills/odf-tdd/SKILL.md",
+      "odoo_versions": [
+        14,
+        15,
+        16,
+        17,
+        18,
+        19
+      ],
+      "sdd_phase": null,
+      "version": "1.0",
+      "changelog": [
+        {
+          "version": "1.0",
+          "date": "2026-05-14",
+          "change": "Initial TDD enforcement skill"
+        }
+      ],
+      "last_updated": "2026-05-14"
+    },
+    {
+      "name": "oca-chained-pr",
+      "title": "OCA Chained PRs",
+      "category": "governance",
+      "triggers": [
+        "chained",
+        "stacked pr",
+        "pr over 400",
+        "review slice",
+        "size exception"
+      ],
+      "compact_rules": "Split PRs >400 lines into reviewable chained PRs.\n- PR >400 lines \u2192 must split unless size:exception\n- Each PR: \u226460min review, tests+docs with unit\n- State boundaries: start, end, deps, follow-up, out-of-scope\n- Strategies: \u2264400\u2192single, stacked to main, feature branch chain\n- Dependency diagram with \ud83d\udccd on current PR",
+      "path": "skills/oca/01-oca-governance/oca-chained-pr.md",
+      "odoo_versions": [
+        14,
+        15,
+        16,
+        17,
+        18,
+        19
+      ],
+      "sdd_phase": null,
+      "version": "1.0",
+      "changelog": [
+        {
+          "version": "1.0",
+          "date": "2026-05-14",
+          "change": "Initial chained PR skill from gentle-ai pattern"
+        }
+      ],
+      "last_updated": "2026-05-14"
+    }
+  ],
+  "notebooklm_sources": {
+    "sales": "b34dc214-1c84-45c0-ab8f-58435ccc2870",
+    "accounting": "6b4a76b5-e71c-4162-b96f-2bb91fdf976b",
+    "inventory": "2c4e0de7-3424-4ddb-bb7b-1e7cc3164ee3",
+    "technical": "1767f062-a3d3-48fa-a175-941ef279a49d",
+    "manufacturing": "2c4e0de7-3424-4ddb-bb7b-1e7cc3164ee3",
+    "pos": "0b6e2d27-5111-4b4e-b2bd-cc3ec711161c"
+  },
+  "profiles": [
+    {
+      "name": "default",
+      "active": true,
+      "phases": {
+        "ASSESS": {
+          "model": "opencode-go/deepseek-r1",
+          "temperature": 0.3,
+          "reasoning": true
+        },
+        "QA-PLAN": {
+          "model": "opencode-go/kimi-k2.6",
+          "temperature": 0.2,
+          "reasoning": false
+        },
+        "DESIGN": {
+          "model": "opencode-go/kimi-k2.6",
+          "temperature": 0.25,
+          "reasoning": false
+        },
+        "IMPLEMENT": {
+          "model": "opencode-go/kimi-k2.6",
+          "temperature": 0.1,
+          "reasoning": false
+        },
+        "VERIFY": {
+          "model": "opencode-go/deepseek-r1",
+          "temperature": 0.2,
+          "reasoning": true
+        }
+      }
+    },
+    {
+      "name": "cheap",
+      "active": false,
+      "phases": {
+        "ASSESS": {
+          "model": "opencode-go/kimi-k2.6",
+          "temperature": 0.3,
+          "reasoning": false
+        },
+        "QA-PLAN": {
+          "model": "opencode-go/kimi-k2.6",
+          "temperature": 0.2,
+          "reasoning": false
+        },
+        "DESIGN": {
+          "model": "opencode-go/kimi-k2.6",
+          "temperature": 0.25,
+          "reasoning": false
+        },
+        "IMPLEMENT": {
+          "model": "opencode-go/kimi-k2.6",
+          "temperature": 0.1,
+          "reasoning": false
+        },
+        "VERIFY": {
+          "model": "opencode-go/kimi-k2.6",
+          "temperature": 0.2,
+          "reasoning": false
+        }
+      }
+    }
+  ],
+  "project_conventions": {
+    "local_source_paths": [
+      "~/Workspace/Odoo/O19/",
+      "~/Workspace/Odoo/O18/",
+      "~/Workspace/Odoo/O17/",
+      "~/Workspace/Odoo/O16/"
+    ],
+    "oca_guidelines": "~/Documents/obsidian-vault/02-Areas/OCA/",
+    "odoo_patterns": "~/Documents/obsidian-vault/03-Resources/Odoo-Patterns/"
+  },
+  "agents": [
+    {
+      "name": "odoo_orchestrator",
+      "mode": "primary",
+      "description": "ODF Orchestrator \u2014 coordinates sub-agents, never writes code",
+      "phases": [
+        "ALL"
+      ],
+      "model": null,
+      "path": "agent/odoo_orchestrator.md",
+      "installed": true
+    },
+    {
+      "name": "odoo_functional_consultant",
+      "mode": "subagent",
+      "description": "Standard vs custom assessment, functional analysis",
+      "phases": [
+        "ASSESS"
+      ],
+      "model": null,
+      "path": "agent/odoo_functional_consultant.md",
+      "installed": true
+    },
+    {
+      "name": "odoo_backend_engineer",
+      "mode": "subagent",
+      "description": "Python models, views, security, tests, OCA compliance",
+      "phases": [
+        "DESIGN",
+        "IMPLEMENT"
+      ],
+      "model": null,
+      "path": "agent/odoo_backend_engineer.md",
+      "installed": true
+    },
+    {
+      "name": "odoo_frontend_engineer",
+      "mode": "subagent",
+      "description": "OWL, JS/TS, SCSS, QWeb, all view types",
+      "phases": [
+        "DESIGN",
+        "IMPLEMENT"
+      ],
+      "model": null,
+      "path": "agent/odoo_frontend_engineer.md",
+      "installed": true
+    },
+    {
+      "name": "odoo_qa_engineer",
+      "mode": "subagent",
+      "description": "Test strategy, coverage analysis, quality gates",
+      "phases": [
+        "QA-PLAN",
+        "VERIFY"
+      ],
+      "model": null,
+      "path": "agent/odoo_qa_engineer.md",
+      "installed": true
+    },
+    {
+      "name": "odoo_api_integrator",
+      "mode": "subagent",
+      "description": "HTTP controllers, webhooks, external APIs",
+      "phases": [
+        "DESIGN",
+        "IMPLEMENT"
+      ],
+      "model": null,
+      "path": "agent/odoo_api_integrator.md",
+      "installed": true
+    },
+    {
+      "name": "odoo_dba_devops",
+      "mode": "subagent",
+      "description": "PostgreSQL, Docker, Nginx, performance",
+      "phases": [
+        "ANY"
+      ],
+      "model": null,
+      "path": "agent/odoo_dba_devops.md",
+      "installed": true
+    },
+    {
+      "name": "odoo_upgrade_migrator",
+      "mode": "subagent",
+      "description": "OpenUpgrade, version upgrades, migrations, data ETL",
+      "phases": [
+        "ANY"
+      ],
+      "model": null,
+      "path": "agent/odoo_upgrade_migrator.md",
+      "installed": true
+    },
+    {
+      "name": "odoo_code_reviewer",
+      "mode": "subagent",
+      "description": "Comprehensive Odoo module code reviewer",
+      "phases": [
+        "VERIFY"
+      ],
+      "model": null,
+      "path": "agent/odoo_code_reviewer.md",
+      "installed": true
+    },
+    {
+      "name": "odoo_context_gatherer",
+      "mode": "subagent",
+      "description": "Gather Odoo development patterns and version context",
+      "phases": [
+        "ASSESS"
+      ],
+      "model": null,
+      "path": "agent/odoo_context_gatherer.md",
+      "installed": true
+    },
+    {
+      "name": "odoo_skill_finder",
+      "mode": "subagent",
+      "description": "Pattern/skill lookup fallback utility",
+      "phases": [
+        "DESIGN",
+        "IMPLEMENT"
+      ],
+      "model": null,
+      "path": "agent/odoo_skill_finder.md",
+      "installed": true
+    },
+    {
+      "name": "odoo_stock_lot_specialist",
+      "mode": "subagent",
+      "description": "Odoo Stock Lot/Serial Specialist \u2014 Lot tracking, traceability, FEFO, expiration management",
+      "phases": [
+        "DESIGN",
+        "IMPLEMENT"
+      ],
+      "model": null,
+      "path": "agent/odoo_stock_lot_specialist.md",
+      "installed": true
+    }
+  ],
+  "flags": {
+    "strict_tdd": false,
+    "tdd_enforced_since": null,
+    "pr_size_budget": 400
+  }
+}

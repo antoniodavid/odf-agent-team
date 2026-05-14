@@ -1,0 +1,23 @@
+name: odf-assess
+agent: odoo_functional_consultant
+tests:
+  - name: "standard vs custom decision"
+    input:
+      task: "Assess the requirement: add a discount field to sale orders applying percentage discount to total. Can standard Odoo do this?"
+      context:
+        version: 18
+        files: []
+    expected:
+      skill_resolution: "self-discovered"
+      expected_skills: ["odf-assess"]
+      status_in: ["ok"]
+
+  - name: "standard feature assessment"
+    input:
+      task: "Assess if multi-company inventory transfers are supported in standard Odoo"
+      context:
+        version: 17
+        files: []
+    expected:
+      skill_resolution: "self-discovered"
+      status_in: ["ok"]

@@ -1,0 +1,25 @@
+name: odf-tdd
+agent: odoo_backend_engineer
+tests:
+  - name: "TDD mode enables test enforcement"
+    input:
+      task: "Implement discount field with Strict TDD. Write test first."
+      context:
+        version: 18
+        files: ["models/sale_order.py", "tests/test_discount.py"]
+        strict_tdd: true
+    expected:
+      skill_resolution: "self-discovered"
+      expected_skills: ["odf-tdd"]
+      status_in: ["ok"]
+
+  - name: "TDD mode off allows code first"
+    input:
+      task: "Implement discount field without tests (TDD is off)"
+      context:
+        version: 18
+        files: ["models/sale_order.py"]
+        strict_tdd: false
+    expected:
+      skill_resolution: "self-discovered"
+      status_in: ["ok"]

@@ -1,0 +1,26 @@
+name: odf-fix
+agent: odoo_backend_engineer
+tests:
+  - name: "bugfix with OCA commit"
+    input:
+      task: "Fix sale tax rounding error in sale.order line. The tax wasn't rounding to 2 decimal places."
+      context:
+        version: 18
+        files: ["models/sale_order.py"]
+    expected:
+      skill_resolution: "self-discovered"
+      expected_skills: ["odf-fix"]
+      status_in: ["ok", "blocked"]
+      has_diagnosis: true
+      diagnosis_has: ["sale", "tax", "rounding"]
+
+  - name: "known error with stack trace"
+    input:
+      task: "There's an error when confirming sale orders: KeyError: 'partner_shipping_id'"
+      context:
+        version: 17
+        files: ["models/sale_order.py"]
+    expected:
+      skill_resolution: "self-discovered"
+      status_in: ["ok", "blocked"]
+      has_diagnosis: true

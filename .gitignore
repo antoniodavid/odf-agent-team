@@ -1,0 +1,29 @@
+# Repo: odf-agent-team — root .gitignore
+
+# Backups
+backups/
+
+# Metrics
+metrics/
+
+# Node
+node_modules/
+.package-lock.json
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Cache
+.registry-cache.json
+*.backup.*
+.pre-version.*
+
+# Engram
+.engram/
