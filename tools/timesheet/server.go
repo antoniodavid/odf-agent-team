@@ -20,12 +20,14 @@ type APIPromptDetail struct {
 }
 
 type APIBlock struct {
-	Start       string           `json:"start"`
-	End         string           `json:"end"`
-	Duration    string           `json:"duration"`
-	DurationSec int              `json:"duration_sec"`
-	Prompts     int              `json:"prompts"`
-	PromptTexts []APIPromptDetail `json:"prompt_texts,omitempty"`
+	Start        string           `json:"start"`
+	End          string           `json:"end"`
+	Duration     string           `json:"duration"`
+	DurationSec  int              `json:"duration_sec"`
+	HumanDurationSec int          `json:"human_duration_sec"`
+	DurationHuman string          `json:"duration_human"`
+	Prompts      int              `json:"prompts"`
+	PromptTexts  []APIPromptDetail `json:"prompt_texts,omitempty"`
 }
 
 type APIDay struct {
@@ -33,6 +35,8 @@ type APIDay struct {
 	Project     string     `json:"project"`
 	TotalTime   string     `json:"total_time"`
 	TotalSec    int        `json:"total_sec"`
+	TotalHuman  string     `json:"total_human"`
+	HumanSec    int        `json:"human_sec"`
 	Blocks      []APIBlock `json:"blocks"`
 	Goal        string     `json:"goal"`
 	Tasks       []string   `json:"tasks"`
@@ -44,39 +48,49 @@ type APIProject struct {
 	Project   string   `json:"project"`
 	TotalTime string   `json:"total_time"`
 	TotalSec  int      `json:"total_sec"`
+	TotalHuman string  `json:"total_human"`
+	HumanSec  int      `json:"human_sec"`
 	DayCount  int      `json:"day_count"`
 	Days      []APIDay `json:"days"`
 }
 
 type APITimesheetResponse struct {
-	Period    string       `json:"period"`
-	Generated string       `json:"generated"`
-	Since     string       `json:"since"`
-	Until     string       `json:"until"`
-	Projects  []APIProject `json:"projects"`
+	Period     string       `json:"period"`
+	Generated  string       `json:"generated"`
+	Since      string       `json:"since"`
+	Until      string       `json:"until"`
+	HumanRatio float64      `json:"human_ratio"`
+	Projects   []APIProject `json:"projects"`
 }
 
-func toAPIResponse(totals []ProjectTotal, since, until time.Time) APITimesheetResponse {
+func toAPIResponse(totals []ProjectTotal, since, until time.Time, humanRatio float64) APITimesheetResponse {
 	resp := APITimesheetResponse{
-		Period:    fmt.Sprintf("%s to %s", since.Format("2006-01-02"), until.Format("2006-01-02")),
-		Generated: time.Now().Format(time.RFC3339),
-		Since:     since.Format("2006-01-02"),
-		Until:     until.Format("2006-01-02"),
+		Period:     fmt.Sprintf("%s to %s", since.Format("2006-01-02"), until.Format("2006-01-02")),
+		Generated:  time.Now().Format(time.RFC3339),
+		Since:      since.Format("2006-01-02"),
+		Until:      until.Format("2006-01-02"),
+		HumanRatio: humanRatio,
 	}
 
 	for _, pt := range totals {
+		humanSec := int(float64(pt.TotalTime.Seconds()) * humanRatio)
 		p := APIProject{
-			Project:   pt.Project,
-			TotalTime: formatDuration(pt.TotalTime),
-			TotalSec:  int(pt.TotalTime.Seconds()),
-			DayCount:  pt.Days,
+			Project:    pt.Project,
+			TotalTime:  formatDuration(pt.TotalTime),
+			TotalSec:   int(pt.TotalTime.Seconds()),
+			TotalHuman: formatDuration(time.Duration(humanSec) * time.Second),
+			HumanSec:   humanSec,
+			DayCount:   pt.Days,
 		}
 		for _, d := range pt.DayDetails {
+			dHumanSec := int(float64(d.TotalTime.Seconds()) * humanRatio)
 			day := APIDay{
 				Date:        d.Date,
 				Project:     d.Project,
 				TotalTime:   formatDuration(d.TotalTime),
 				TotalSec:    int(d.TotalTime.Seconds()),
+				TotalHuman:  formatDuration(time.Duration(dHumanSec) * time.Second),
+				HumanSec:    dHumanSec,
 				Goal:        d.Goal,
 				Tasks:       d.Tasks,
 				Prompts:     d.Prompts,
@@ -90,13 +104,16 @@ func toAPIResponse(totals []ProjectTotal, since, until time.Time) APITimesheetRe
 						Text:      p.Text,
 					}
 				}
+				bHumanSec := int(float64(b.Duration.Seconds()) * humanRatio)
 				day.Blocks = append(day.Blocks, APIBlock{
-					Start:       b.Start.Format(time.RFC3339),
-					End:         b.End.Format(time.RFC3339),
-					Duration:    formatDuration(b.Duration),
-					DurationSec: int(b.Duration.Seconds()),
-					Prompts:     b.PromptCount,
-					PromptTexts: prompts,
+					Start:            b.Start.Format(time.RFC3339),
+					End:              b.End.Format(time.RFC3339),
+					Duration:         formatDuration(b.Duration),
+					DurationSec:      int(b.Duration.Seconds()),
+					HumanDurationSec: bHumanSec,
+					DurationHuman:    formatDuration(time.Duration(bHumanSec) * time.Second),
+					Prompts:          b.PromptCount,
+					PromptTexts:      prompts,
 				})
 			}
 			p.Days = append(p.Days, day)
@@ -166,7 +183,7 @@ func startServer(cfg Config) error {
 		summaryMap := buildSummaryMap(summaries)
 		dayList := buildDayActivities(prompts, summaryMap, time.Duration(idleGap)*time.Minute, time.Duration(minBlock)*time.Second)
 		totals := aggregateProjects(dayList)
-		resp := toAPIResponse(totals, since, until)
+		resp := toAPIResponse(totals, since, until, cfg.HumanRatio)
 
 		json.NewEncoder(w).Encode(resp)
 	})

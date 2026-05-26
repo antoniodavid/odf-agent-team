@@ -20,6 +20,7 @@ type Config struct {
 	Format      string
 	Serve       bool
 	Port        int
+	HumanRatio  float64
 }
 
 func parseFlags() Config {
@@ -32,6 +33,7 @@ func parseFlags() Config {
 	flag.StringVar(&cfg.Format, "format", "markdown", "Output format: markdown, text, json")
 	flag.BoolVar(&cfg.Serve, "serve", false, "Start web server")
 	flag.IntVar(&cfg.Port, "port", 8080, "Server port (with --serve)")
+	flag.Float64Var(&cfg.HumanRatio, "human-ratio", 3.0, "Estimated human time multiplier (AI:Human)")
 	flag.Parse()
 
 	if cfg.DBPath == "" {
@@ -89,7 +91,7 @@ func main() {
 
 	switch cfg.Format {
 	case "json":
-		renderJSON(totals, cfg.Days)
+		renderJSON(totals, cfg.Days, cfg.HumanRatio)
 	case "text":
 		renderText(totals)
 	default:
@@ -368,10 +370,10 @@ func renderText(totals []ProjectTotal) {
 	}
 }
 
-func renderJSON(totals []ProjectTotal, days int) {
+func renderJSON(totals []ProjectTotal, days int, humanRatio float64) {
 	now := time.Now()
 	since := now.AddDate(0, 0, -days)
-	resp := toAPIResponse(totals, since, now)
+	resp := toAPIResponse(totals, since, now, humanRatio)
 	enc := json.NewEncoder(os.Stdout)
 	enc.SetIndent("", "  ")
 	enc.Encode(resp)
