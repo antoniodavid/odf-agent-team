@@ -5,22 +5,29 @@ import (
 	"time"
 )
 
+type PromptDetail struct {
+	Timestamp time.Time `json:"timestamp"`
+	Text      string    `json:"text"`
+}
+
 type ActivityBlock struct {
-	Start     time.Time
-	End       time.Time
-	Duration  time.Duration
-	PromptIDs int
+	Start       time.Time
+	End         time.Time
+	Duration    time.Duration
+	PromptCount int
+	Prompts     []PromptDetail
 }
 
 type DayActivity struct {
-	Date       string
-	Project    string
-	Blocks     []ActivityBlock
-	TotalTime  time.Duration
-	Goal       string
-	Tasks      []string
-	BasedOn    []string
-	Prompts    int
+	Date        string
+	Project     string
+	Blocks      []ActivityBlock
+	TotalTime   time.Duration
+	Goal        string
+	Tasks       []string
+	BasedOn     []string
+	Prompts     int
+	PromptTexts []string
 }
 
 type ProjectTotal struct {
@@ -30,43 +37,55 @@ type ProjectTotal struct {
 	DayDetails []DayActivity
 }
 
-func calcActivityBlocks(timestamps []time.Time, idleGap time.Duration, minBlock time.Duration) []ActivityBlock {
-	if len(timestamps) == 0 {
+func calcActivityBlocks(events []PromptEvent, idleGap time.Duration, minBlock time.Duration) []ActivityBlock {
+	if len(events) == 0 {
 		return nil
 	}
 
-	var blocks []ActivityBlock
-	blockStart := timestamps[0]
-	blockEnd := timestamps[0]
-	promptCount := 1
+	parseTime := func(ts string) time.Time {
+		t, err := time.Parse("2006-01-02 15:04:05", ts)
+		if err != nil {
+			t, _ = time.Parse(time.RFC3339, ts)
+		}
+		return t
+	}
 
-	for i := 1; i < len(timestamps); i++ {
-		gap := timestamps[i].Sub(timestamps[i-1])
+	var blocks []ActivityBlock
+	blockStart := parseTime(events[0].CreatedAt)
+	blockPrompts := []PromptDetail{
+		{Timestamp: blockStart, Text: events[0].Content},
+	}
+	lastTime := blockStart
+
+	for i := 1; i < len(events); i++ {
+		t := parseTime(events[i].CreatedAt)
+		gap := t.Sub(lastTime)
 		if gap <= idleGap {
-			blockEnd = timestamps[i]
-			promptCount++
+			lastTime = t
+			blockPrompts = append(blockPrompts, PromptDetail{Timestamp: t, Text: events[i].Content})
 		} else {
-			blocks = appendBlock(blocks, blockStart, blockEnd, promptCount, minBlock)
-			blockStart = timestamps[i]
-			blockEnd = timestamps[i]
-			promptCount = 1
+			blocks = appendBlock(blocks, blockStart, lastTime, blockPrompts, minBlock)
+			blockStart = t
+			blockPrompts = []PromptDetail{{Timestamp: t, Text: events[i].Content}}
+			lastTime = t
 		}
 	}
 
-	blocks = appendBlock(blocks, blockStart, blockEnd, promptCount, minBlock)
+	blocks = appendBlock(blocks, blockStart, lastTime, blockPrompts, minBlock)
 	return blocks
 }
 
-func appendBlock(blocks []ActivityBlock, start, end time.Time, count int, minBlock time.Duration) []ActivityBlock {
+func appendBlock(blocks []ActivityBlock, start, end time.Time, prompts []PromptDetail, minBlock time.Duration) []ActivityBlock {
 	duration := end.Sub(start)
 	if minBlock > 0 && duration < minBlock {
 		duration = minBlock
 	}
 	return append(blocks, ActivityBlock{
-		Start:     start,
-		End:       end,
-		Duration:  duration,
-		PromptIDs: count,
+		Start:       start,
+		End:         end,
+		Duration:    duration,
+		PromptCount: len(prompts),
+		Prompts:     prompts,
 	})
 }
 

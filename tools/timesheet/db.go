@@ -11,6 +11,7 @@ import (
 type PromptEvent struct {
 	Project   string `json:"project"`
 	CreatedAt string `json:"created_at"`
+	Content   string `json:"content"`
 }
 
 type SessionSummary struct {
@@ -22,7 +23,7 @@ type SessionSummary struct {
 
 func getPrompts(dbPath string, since time.Time, until time.Time, project string) ([]PromptEvent, error) {
 	query := fmt.Sprintf(`
-		SELECT project, created_at
+		SELECT project, created_at, content
 		FROM user_prompts
 		WHERE created_at >= %s AND created_at <= %s
 		%s

@@ -18,6 +18,8 @@ type Config struct {
 	IdleGapMins int
 	MinBlockSec int
 	Format      string
+	Serve       bool
+	Port        int
 }
 
 func parseFlags() Config {
@@ -28,6 +30,8 @@ func parseFlags() Config {
 	flag.IntVar(&cfg.IdleGapMins, "idle-gap", 30, "Minutes of inactivity to split a block")
 	flag.IntVar(&cfg.MinBlockSec, "min-block", 120, "Minimum seconds per block (default 120)")
 	flag.StringVar(&cfg.Format, "format", "markdown", "Output format: markdown, text, json")
+	flag.BoolVar(&cfg.Serve, "serve", false, "Start web server")
+	flag.IntVar(&cfg.Port, "port", 8080, "Server port (with --serve)")
 	flag.Parse()
 
 	if cfg.DBPath == "" {
@@ -50,6 +54,14 @@ func main() {
 	if _, err := os.Stat(cfg.DBPath); os.IsNotExist(err) {
 		fmt.Fprintf(os.Stderr, "Database not found: %s\n", cfg.DBPath)
 		os.Exit(1)
+	}
+
+	if cfg.Serve {
+		if err := startServer(cfg); err != nil {
+			fmt.Fprintf(os.Stderr, "Server error: %v\n", err)
+			os.Exit(1)
+		}
+		return
 	}
 
 	until := time.Now()
@@ -95,24 +107,31 @@ func buildSummaryMap(summaries []SessionSummary) map[string][]SessionSummary {
 	return m
 }
 
+func parsePromptTime(ts string) (time.Time, bool) {
+	t, err := time.Parse("2006-01-02 15:04:05", ts)
+	if err != nil {
+		t, err = time.Parse(time.RFC3339, ts)
+		if err != nil {
+			return time.Time{}, false
+		}
+	}
+	return t, true
+}
+
 func buildDayActivities(prompts []PromptEvent, summaries map[string][]SessionSummary, idleGap time.Duration, minBlock time.Duration) []DayActivity {
-	// Group prompts by project+date
 	type promptGroup struct {
 		project string
 		date    string
-		times   []time.Time
+		events  []PromptEvent
 	}
 
 	groupMap := make(map[string]*promptGroup)
 	var groupKeys []string
 
 	for _, p := range prompts {
-		t, err := time.Parse("2006-01-02 15:04:05", p.CreatedAt)
-		if err != nil {
-			t, err = time.Parse(time.RFC3339, p.CreatedAt)
-			if err != nil {
-				continue
-			}
+		t, ok := parsePromptTime(p.CreatedAt)
+		if !ok {
+			continue
 		}
 		date := t.Format("2006-01-02")
 		key := p.Project + "|" + date
@@ -121,7 +140,7 @@ func buildDayActivities(prompts []PromptEvent, summaries map[string][]SessionSum
 			groupMap[key] = &promptGroup{project: p.Project, date: date}
 			groupKeys = append(groupKeys, key)
 		}
-		groupMap[key].times = append(groupMap[key].times, t)
+		groupMap[key].events = append(groupMap[key].events, p)
 	}
 
 	sort.Strings(groupKeys)
@@ -129,28 +148,32 @@ func buildDayActivities(prompts []PromptEvent, summaries map[string][]SessionSum
 	var days []DayActivity
 	for _, key := range groupKeys {
 		g := groupMap[key]
-		if len(g.times) == 0 {
+		if len(g.events) == 0 {
 			continue
 		}
-		sort.Slice(g.times, func(i, j int) bool {
-			return g.times[i].Before(g.times[j])
-		})
 
-		blocks := calcActivityBlocks(g.times, idleGap, minBlock)
+		blocks := calcActivityBlocks(g.events, idleGap, minBlock)
 		total := sumDuration(blocks)
 
+		var promptTexts []string
+		for _, e := range g.events {
+			if e.Content != "" {
+				promptTexts = append(promptTexts, e.Content)
+			}
+		}
+
 		day := DayActivity{
-			Date:      g.date,
-			Project:   g.project,
-			Blocks:    blocks,
-			TotalTime: total,
-			Prompts:   len(g.times),
+			Date:        g.date,
+			Project:     g.project,
+			Blocks:      blocks,
+			TotalTime:   total,
+			Prompts:     len(g.events),
+			PromptTexts: promptTexts,
 		}
 
 		// Extract goal and tasks from summaries (merge all for the day)
 		summaryKey := g.project + "|" + g.date
 		if ss, ok := summaries[summaryKey]; ok && len(ss) > 0 {
-			// Pick the most detailed summary as goal
 			for _, s := range ss {
 				g := extractGoal(s.Content)
 				if len(g) > len(day.Goal) {
@@ -163,8 +186,14 @@ func buildDayActivities(prompts []PromptEvent, summaries map[string][]SessionSum
 		}
 
 		// Fallback: use first few prompts as description
-		if day.Goal == "" && len(g.times) > 0 {
-			day.BasedOn = extractPromptSummary(g.times)
+		if day.Goal == "" && len(g.events) > 0 {
+			times := make([]time.Time, len(g.events))
+			for i, e := range g.events {
+				if t, ok := parsePromptTime(e.CreatedAt); ok {
+					times[i] = t
+				}
+			}
+			day.BasedOn = extractPromptSummary(times)
 		}
 
 		days = append(days, day)
@@ -340,70 +369,10 @@ func renderText(totals []ProjectTotal) {
 }
 
 func renderJSON(totals []ProjectTotal, days int) {
-	type blockJSON struct {
-		Start     string `json:"start"`
-		End       string `json:"end"`
-		Duration  string `json:"duration"`
-		PromptIDs int    `json:"prompts"`
-	}
-
-	type dayJSON struct {
-		Date      string     `json:"date"`
-		Project   string     `json:"project"`
-		TotalTime string     `json:"total_time"`
-		Blocks    []blockJSON `json:"blocks"`
-		Goal      string     `json:"goal"`
-		Tasks     []string   `json:"tasks"`
-		Prompts   int        `json:"prompt_count"`
-	}
-
-	type totalJSON struct {
-		Project   string    `json:"project"`
-		TotalTime string    `json:"total_time"`
-		DayCount  int       `json:"day_count"`
-		DayList   []dayJSON `json:"days"`
-	}
-
-	type outputJSON struct {
-		Period    string      `json:"period"`
-		Generated string      `json:"generated"`
-		Projects  []totalJSON `json:"projects"`
-	}
-
-	out := outputJSON{
-		Period:    fmt.Sprintf("last_%d_days", days),
-		Generated: time.Now().Format(time.RFC3339),
-	}
-
-	for _, pt := range totals {
-		tj := totalJSON{
-			Project:   pt.Project,
-			TotalTime: formatDuration(pt.TotalTime),
-			DayCount:  pt.Days,
-		}
-		for _, d := range pt.DayDetails {
-			dj := dayJSON{
-				Date:      d.Date,
-				Project:   d.Project,
-				TotalTime: formatDuration(d.TotalTime),
-				Goal:      d.Goal,
-				Tasks:     d.Tasks,
-				Prompts:   d.Prompts,
-			}
-			for _, b := range d.Blocks {
-				dj.Blocks = append(dj.Blocks, blockJSON{
-					Start:     b.Start.Format(time.RFC3339),
-					End:       b.End.Format(time.RFC3339),
-					Duration:  formatDuration(b.Duration),
-					PromptIDs: b.PromptIDs,
-				})
-			}
-			tj.DayList = append(tj.DayList, dj)
-		}
-		out.Projects = append(out.Projects, tj)
-	}
-
+	now := time.Now()
+	since := now.AddDate(0, 0, -days)
+	resp := toAPIResponse(totals, since, now)
 	enc := json.NewEncoder(os.Stdout)
 	enc.SetIndent("", "  ")
-	enc.Encode(out)
+	enc.Encode(resp)
 }
