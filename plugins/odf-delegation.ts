@@ -442,10 +442,27 @@ function matchSkills(
   return matches.slice(0, 5)
 }
 
-function formatCompactRules(skills: ODFSkill[]): string {
-  if (skills.length === 0) return ""
+// Karpathy-inspired precision guardrails — always injected first
+const KARPATHY_COMPACT_RULES = [
+  "- State assumptions explicitly before implementing. If uncertain, ask.",
+  "- If multiple interpretations exist, present all — do NOT pick silently.",
+  "- No features beyond what was asked. No abstractions for single-use code.",
+  "- No 'flexibility' or 'configurability' that wasn't requested.",
+  "- Don't 'improve' adjacent code, comments, or formatting.",
+  "- Don't refactor things that aren't broken. Match existing style.",
+  "- Every changed line must trace directly to the task requirement.",
+  "- Transform 'fix bug' → 'write failing test first, then make it pass'.",
+  "- For multi-step: state plan with verification per step.",
+  "- If 200 lines could be 50, rewrite it smaller.",
+].join("\n")
 
+function formatCompactRules(skills: ODFSkill[]): string {
   const sections: string[] = ["## Project Standards (auto-resolved)\n"]
+
+  // Precision guardrails always injected first (karpathy-precision)
+  sections.push("### Precision Guardrails")
+  sections.push(KARPATHY_COMPACT_RULES)
+  sections.push("")
 
   for (const skill of skills) {
     sections.push(`### ${skill.title}`)
@@ -907,7 +924,7 @@ You have ODF-specific tools for structured Odoo development:
 - \`odf_delegate(phase, prompt, context_files)\` — Delegate to phase-specific agent with auto skill injection + metrics
 - \`odf_skill_inject(context_files, task_description)\` — Get compact rules for manual injection
 - \`odf_skill_resolve(phase, task, context_files)\` — Preview what skills/agent/profile would match (debugging)
-- \`odf_registry_read(query, type)\` — Query the ODF skill/agent registry (29 skills, 12 agents)
+- \`odf_registry_read(query, type)\` — Query the ODF skill/agent registry (31 skills, 12 agents)
 - \`odf_notebooklm_lookup(domain)\` — Resolve domain to NotebookLM notebook ID
 - \`odf_profile_select(phase)\` — Get optimal model/temperature for a phase from the active profile
 
