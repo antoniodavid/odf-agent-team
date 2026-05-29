@@ -84,18 +84,26 @@ func toAPIResponse(totals []ProjectTotal, since, until time.Time, humanRatio flo
 		}
 		for _, d := range pt.DayDetails {
 			dHumanSec := int(float64(d.TotalTime.Seconds()) * humanRatio)
-			day := APIDay{
-				Date:        d.Date,
-				Project:     d.Project,
-				TotalTime:   formatDuration(d.TotalTime),
-				TotalSec:    int(d.TotalTime.Seconds()),
-				TotalHuman:  formatDuration(time.Duration(dHumanSec) * time.Second),
-				HumanSec:    dHumanSec,
-				Goal:        d.Goal,
-				Tasks:       d.Tasks,
-				Prompts:     d.Prompts,
-				PromptTexts: d.PromptTexts,
-			}
+		tasks := d.Tasks
+		if tasks == nil {
+			tasks = []string{}
+		}
+		promptTexts := d.PromptTexts
+		if promptTexts == nil {
+			promptTexts = []string{}
+		}
+		day := APIDay{
+			Date:        d.Date,
+			Project:     d.Project,
+			TotalTime:   formatDuration(d.TotalTime),
+			TotalSec:    int(d.TotalTime.Seconds()),
+			TotalHuman:  formatDuration(time.Duration(dHumanSec) * time.Second),
+			HumanSec:    dHumanSec,
+			Goal:        d.Goal,
+			Tasks:       tasks,
+			Prompts:     d.Prompts,
+			PromptTexts: promptTexts,
+		}
 			for _, b := range d.Blocks {
 				prompts := make([]APIPromptDetail, len(b.Prompts))
 				for i, p := range b.Prompts {
