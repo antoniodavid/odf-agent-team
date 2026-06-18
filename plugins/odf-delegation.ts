@@ -76,6 +76,21 @@ interface ODFProfile {
   description: string
 }
 
+interface ODFPackage {
+  name: string
+  version: string
+  description: string
+  repository: string
+  dependencies: Record<string, string>
+}
+
+interface ODFCommand {
+  name: string
+  description: string
+  path: string
+  triggers?: string[]
+}
+
 interface ODFRegistry {
   version: number
   last_updated: string
@@ -83,6 +98,18 @@ interface ODFRegistry {
   agents: ODFAgent[]
   profiles?: ODFProfile[]
   notebooklm_sources?: Record<string, string>
+  package?: ODFPackage
+  commands?: ODFCommand[]
+  flags?: Record<string, boolean | string | number>
+}
+
+function resolvePath(registryDir: string, entryPath: string): string {
+  if (!entryPath) return ""
+  if (path.isAbsolute(entryPath)) return entryPath
+  if (entryPath.startsWith("~/")) {
+    return path.join(os.homedir(), entryPath.slice(2))
+  }
+  return path.resolve(registryDir, entryPath)
 }
 
 async function loadRegistry(): Promise<ODFRegistry | null> {
@@ -93,6 +120,16 @@ async function loadRegistry(): Promise<ODFRegistry | null> {
   try {
     const data = await fs.readFile(REGISTRY_PATH, "utf8")
     const parsed = JSON.parse(data) as ODFRegistry
+    const registryDir = path.dirname(REGISTRY_PATH)
+
+    // Resolve relative skill/agent paths against the registry directory
+    for (const skill of parsed.skills || []) {
+      skill.path = resolvePath(registryDir, skill.path)
+    }
+    for (const agent of parsed.agents || []) {
+      agent.path = resolvePath(registryDir, agent.path)
+    }
+
     registryCache = parsed
     registryCacheTime = now
     startRegistryWatcher()
@@ -267,6 +304,7 @@ interface DelegationMetrics {
   duration_ms: number
   token_estimate: number
   status: "ok" | "fallback" | "error" | "timeout"
+  task_api_source: "ctx.task" | "toolCtx.task" | "sdk" | "unavailable"
   error?: string
 }
 
@@ -565,17 +603,69 @@ function resolveAgent(registry: ODFRegistry, phase: string, taskKeywords: string
 }
 
 // ==========================================
+// TASK INVOCATION AND FALLBACK
+// ==========================================
+
+type TaskApi = (input: {
+  agent: string
+  prompt: string
+  context_files?: string[]
+}) => Promise<unknown>
+
+function findTaskApi(toolCtx: ToolContext, client?: OpencodeClient): { taskApi: TaskApi; source: DelegationMetrics["task_api_source"] } | null {
+  if (typeof (toolCtx as any).task === "function") {
+    return { taskApi: (toolCtx as any).task as TaskApi, source: "toolCtx.task" }
+  }
+  if (client && typeof (client as any).task === "function") {
+    return { taskApi: (client as any).task as TaskApi, source: "ctx.task" }
+  }
+  return null
+}
+
+async function invokeTask(
+  taskApi: TaskApi,
+  agentName: string,
+  prompt: string,
+  contextFiles?: string[]
+): Promise<{ status: string; result: unknown }> {
+  const result = await taskApi({ agent: agentName, prompt, context_files: contextFiles })
+  return { status: "delegated", result }
+}
+
+function buildFallbackOutput(
+  phase: string,
+  agentName: string,
+  skills: ODFSkill[],
+  enrichedPrompt: string
+): string {
+  return `ODF Delegation (fallback — task() unavailable):
+
+Phase: ${phase}
+Agent: ${agentName}
+Skills injected: ${skills.length > 0 ? skills.map(s => s.name).join(", ") : "none"}
+Status: fallback
+
+Use task() with agent="${agentName}" and the enriched prompt below:
+
+---ENCRYPTED_PROMPT_START---
+${enrichedPrompt}
+---ENCRYPTED_PROMPT_END---`
+}
+
+const ALLOWED_PHASES = ["ASSESS", "QA-PLAN", "DESIGN", "IMPLEMENT", "VERIFY"]
+
+// ==========================================
 // TOOL CREATORS
 // ==========================================
 
-function createODFDelegate(): ReturnType<typeof tool> {
+function createODFDelegate(client?: OpencodeClient): ReturnType<typeof tool> {
   return tool({
     description: `Delegate an ODF task to the appropriate phase-specific agent.
 
 This tool:
 1. Reads the ODF registry to find the best agent for the phase
 2. Injects relevant skill compact rules into the prompt
-3. Delegates via the native task tool
+3. Delegates via the native task tool when available, or falls back to an instruction envelope
 
 Use this instead of generic task() for ODF workflow delegation.`,
     args: {
@@ -593,6 +683,10 @@ Use this instead of generic task() for ODF workflow delegation.`,
     async execute(args: { phase: string; prompt: string; context_files?: string[] }, toolCtx: ToolContext): Promise<string> {
       if (!toolCtx?.sessionID) {
         return "❌ odf_delegate requires sessionID"
+      }
+
+      if (!ALLOWED_PHASES.includes(args.phase)) {
+        return `❌ Invalid phase "${args.phase}". Allowed: ${ALLOWED_PHASES.join(", ")}`
       }
 
       const startTime = Date.now()
@@ -625,8 +719,58 @@ Use this instead of generic task() for ODF workflow delegation.`,
         ? `${rules}\n\n---\n\n${args.prompt}\n\n## Skill Resolution Status\nReport: injected (received from odf-delegation plugin)`
         : `${args.prompt}\n\n## Skill Resolution Status\nReport: none (no matching skills in registry)`
 
-      // Record metrics (F1)
       const duration = Date.now() - startTime
+      const taskApiInfo = findTaskApi(toolCtx, client)
+
+      if (taskApiInfo) {
+        try {
+          const taskResult = await invokeTask(taskApiInfo.taskApi, agentName, enrichedPrompt, args.context_files)
+          recordMetrics({
+            timestamp: new Date().toISOString(),
+            session_id: toolCtx.sessionID,
+            phase: args.phase,
+            agent: agentName,
+            skills_injected: skills.map(s => s.name),
+            skill_resolution: skills.length > 0 ? "injected" : "none",
+            duration_ms: Date.now() - startTime,
+            token_estimate: estimateTokens(enrichedPrompt),
+            status: "ok",
+            task_api_source: taskApiInfo.source,
+          })
+          return JSON.stringify({
+            status: "delegated",
+            phase: args.phase,
+            agent: agentName,
+            skills_injected: skills.map(s => s.name),
+            task_api_source: taskApiInfo.source,
+            result: taskResult.result,
+          }, null, 2)
+        } catch (err) {
+          const errorMessage = err instanceof Error ? err.message : String(err)
+          recordMetrics({
+            timestamp: new Date().toISOString(),
+            session_id: toolCtx.sessionID,
+            phase: args.phase,
+            agent: agentName,
+            skills_injected: skills.map(s => s.name),
+            skill_resolution: skills.length > 0 ? "injected" : "none",
+            duration_ms: Date.now() - startTime,
+            token_estimate: estimateTokens(enrichedPrompt),
+            status: "error",
+            task_api_source: taskApiInfo.source,
+            error: errorMessage,
+          })
+          return JSON.stringify({
+            status: "error",
+            phase: args.phase,
+            agent: agentName,
+            task_api_source: taskApiInfo.source,
+            message: errorMessage,
+          }, null, 2)
+        }
+      }
+
+      // Fallback: task() not available
       recordMetrics({
         timestamp: new Date().toISOString(),
         session_id: toolCtx.sessionID,
@@ -636,22 +780,11 @@ Use this instead of generic task() for ODF workflow delegation.`,
         skill_resolution: skills.length > 0 ? "injected" : "none",
         duration_ms: duration,
         token_estimate: estimateTokens(enrichedPrompt),
-        status: "ok",
+        status: "fallback",
+        task_api_source: "unavailable",
       })
 
-      // Note: We return the enriched prompt and agent name.
-      // The orchestrator should then use the standard task() tool with these values.
-      return `ODF Delegation prepared:
-
-Phase: ${args.phase}
-Agent: ${agentName}
-Skills injected: ${skills.length > 0 ? skills.map(s => s.name).join(", ") : "none"}
-
-Use task() with agent="${agentName}" and the enriched prompt below:
-
----ENCRYPTED_PROMPT_START---
-${enrichedPrompt}
----ENCRYPTED_PROMPT_END---`
+      return buildFallbackOutput(args.phase, agentName, skills, enrichedPrompt)
     },
   })
 }
@@ -976,7 +1109,7 @@ Sub-agents receive \`## Project Standards (auto-resolved)\` in their prompt.
 // ==========================================
 
 export const OdfDelegationPlugin: Plugin = async (ctx) => {
-  const { directory } = ctx
+  const { directory, client } = ctx
 
   // Ensure registry exists (log warning if not)
   try {
@@ -1049,7 +1182,7 @@ export const OdfDelegationPlugin: Plugin = async (ctx) => {
 
   return {
     tool: {
-      odf_delegate: createODFDelegate(),
+      odf_delegate: createODFDelegate(client),
       odf_skill_inject: createODFSkillInject(),
       odf_skill_resolve: createODFSkillResolve(),
       odf_registry_read: createODFRegistryRead(),
@@ -1066,3 +1199,19 @@ export const OdfDelegationPlugin: Plugin = async (ctx) => {
 }
 
 export default OdfDelegationPlugin
+
+// Exported for unit testing
+export {
+  resolvePath,
+  matchSkills,
+  resolveAgent,
+  formatCompactRules,
+  invokeTask,
+  findTaskApi,
+  createODFDelegate,
+  ALLOWED_PHASES,
+  type ODFRegistry,
+  type ODFSkill,
+  type ODFAgent,
+  type DelegationMetrics,
+}
