@@ -1,11 +1,11 @@
 {
   "name": "odf-agent-team",
-  "version": "1.1.0",
+  "version": "1.0.0",
   "description": "OpenCode skill/agent pack for structured Odoo development workflows",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/adruban/odf-agent-team.git"
+    "url": "https://github.com/antoniodavid/odf-agent-team"
   },
   "engines": {
     "node": ">=18.0.0"
@@ -21,8 +21,6 @@
     "yaml": "^2.7.0"
   },
   "devDependencies": {
-    "@opencode-ai/plugin": "^1.17.8",
-    "@opencode-ai/sdk": "^1.17.8",
     "@types/node": "^22.13.0",
     "typescript": "^5.7.3",
     "vitest": "^3.0.5"
