@@ -1,0 +1,278 @@
+change: odf-orchestrator-deployment-experience
+version: 1.0.0
+slice: 1
+slice_name: Plugin real delegation + package manifest + unit tests
+status: passed
+verdict: PASS WITH WARNINGS
+mode: Standard
+strict_tdd: false
+artifact_store: openspec
+review_budget_lines: 400
+
+executive_summary: |
+  Slice 1 verification is successful. All 23 new plugin unit tests and all 36
+  existing YAML scenario tests pass, and `npx tsc --noEmit` reports no TypeScript
+  errors. The refactored `odf_delegate` tool attempts a real OpenCode `task()`
+  call, falls back to an enriched instruction envelope when `task()` is
+  unavailable, preserves skill/agent resolution, and records metrics with the
+  new `task_api_source` field. A `package.json` manifest and `tsconfig.json`
+  were added and match the functional installer requirements.
+
+  Two warnings remain: the Slice 1 code diff (655 changed lines) exceeds the
+  400-line per-PR budget that was pre-resolved as a feature-branch-chain
+  boundary, and `odf_delegate` does not currently inject the selected SDD
+  profile (model/temperature) into the delegated prompt even though the
+  delegation-plugin spec says it must.
+
+completeness:
+  tasks_total: 9
+  tasks_complete: 9
+  tasks_incomplete: 0
+  slices_remaining: [2, 3, 4, 5]
+
+evidence:
+  - command: node scripts/odf-test-runner.js
+    status: passed
+    summary: 36 existing YAML scenario tests passed, 0 failed, 0 skipped
+    output: |
+      Results: 36 passed, 0 failed, 0 skipped
+
+  - command: npm test
+    status: passed
+    summary: 23 plugin unit tests passed; 36 YAML scenario tests passed
+    output: |
+      plugins/odf-delegation.test.ts (23 tests) 266ms
+      Test Files  1 passed (1)
+      Tests  23 passed (23)
+      Results: 36 passed, 0 failed, 0 skipped
+
+  - command: npx tsc --noEmit
+    status: passed
+    summary: TypeScript type check clean
+    output: |
+      TypeScript: No errors found
+
+  - command: git diff main...feature/odf-orchestrator-deployment-experience --numstat -- package.json tsconfig.json plugins/odf-delegation.ts plugins/odf-delegation.test.ts scripts/odf-test-runner.js .gitignore
+    status: exceeded_budget
+    summary: Slice 1 code diff is 655 changed lines (insertions + deletions)
+    output: |
+      2	1	.gitignore
+      34	0	package.json
+      342	0	plugins/odf-delegation.test.ts
+      168	19	plugins/odf-delegation.ts
+      52	19	scripts/odf-test-runner.js
+      18	0	tsconfig.json
+
+spec_compliance_matrix:
+  - capability: odf-delegation-plugin
+    requirement: DELEG-01 Real task() invocation
+    scenario: Delegate DESIGN phase
+    test: plugins/odf-delegation.test.ts > createODFDelegate > returns a delegated result envelope when task() is available
+    result: COMPLIANT
+
+  - capability: odf-delegation-plugin
+    requirement: DELEG-02 Manual fallback
+    scenario: task() not exposed
+    test: plugins/odf-delegation.test.ts > createODFDelegate > returns a fallback instruction envelope when task() is unavailable
+    result: COMPLIANT
+
+  - capability: odf-delegation-plugin
+    requirement: DELEG-03 Skill and profile injection
+    scenario: Backend model task
+    test: plugins/odf-delegation.test.ts > matchSkills / createODFDelegate skill injection tests
+    result: PARTIAL
+    note: Skill compact rules are injected and tested, but the selected SDD profile (model/temperature) is not injected into the delegated prompt.
+
+  - capability: odf-delegation-plugin
+    requirement: DELEG-04 Metrics recording
+    scenario: Successful delegation
+    test: plugins/odf-delegation.test.ts > createODFDelegate (all paths exercise recordMetrics)
+    result: PARTIAL
+    note: Metrics are recorded with status and task_api_source on all paths, but no test asserts the metrics buffer contents.
+
+  - capability: odf-delegation-plugin
+    requirement: DELEG-05 Deterministic agent resolution
+    scenario: Repeated call
+    test: plugins/odf-delegation.test.ts > resolveAgent > is deterministic for the same inputs
+    result: COMPLIANT
+
+  - capability: odf-delegation-plugin
+    requirement: DELEG-06 Existing tools unchanged
+    scenario: Manual skill injection
+    test: Static code review + existing YAML skill_resolution tests
+    result: COMPLIANT
+    note: Helper tool creators (odf_skill_inject, odf_skill_resolve, odf_registry_read, odf_notebooklm_lookup, odf_profile_select) retain their original signatures and behaviour.
+
+  - capability: odf-delegation-plugin
+    requirement: DELEG-N01 Backward compatibility
+    scenario: task() not exposed
+    test: plugins/odf-delegation.test.ts > createODFDelegate > returns a fallback instruction envelope when task() is unavailable
+    result: COMPLIANT
+
+  - capability: odf-delegation-plugin
+    requirement: DELEG-N02 Test coverage
+    scenario: Unit tests for resolution and task() invocation
+    test: plugins/odf-delegation.test.ts (23 tests)
+    result: COMPLIANT
+
+  - capability: odf-installer
+    requirement: INST-05 package.json manifest
+    scenario: Install dependencies / npm test runs
+    test: npm test + package.json review
+    result: COMPLIANT
+    note: Functionally satisfies acceptance; fields differ from the installer design (version, repo URL, extra dev dependencies).
+
+  - capability: odf-installer
+    requirement: INST-01 Idempotent installation
+    scenario: Re-run installer
+    test: (not in Slice 1)
+    result: UNTESTED
+
+  - capability: odf-installer
+    requirement: INST-02 Prerequisites check
+    scenario: Missing python3
+    test: (not in Slice 1)
+    result: UNTESTED
+
+  - capability: odf-installer
+    requirement: INST-03 Deploy ODF pack files
+    scenario: Fresh install
+    test: (not in Slice 1)
+    result: UNTESTED
+
+  - capability: odf-installer
+    requirement: INST-04 Self-test on install
+    scenario: Install completes
+    test: (not in Slice 1)
+    result: UNTESTED
+
+  - capability: odf-installer
+    requirement: INST-06 Non-interactive mode
+    scenario: CI install
+    test: (not in Slice 1)
+    result: UNTESTED
+
+design_coherence:
+  - decision: Single-file plugin refactor
+    followed: true
+    notes: plugins/odf-delegation.ts remains one file with internal sections.
+
+  - decision: Real task() lives inside odf_delegate
+    followed: true
+    notes: createODFDelegate().execute() resolves agent/skills, then calls invokeTask(); findTaskApi probes toolCtx.task and client.task.
+
+  - decision: Manual fallback for task()
+    followed: true
+    notes: buildFallbackOutput returns a marked instruction envelope with phase, agent, skills, and enriched prompt.
+
+  - decision: Relative registry paths with absolute fallback
+    followed: partial
+    notes: resolvePath() is implemented and covered by tests; odf-registry.json paths themselves are not yet converted to relative (Slice 2).
+
+  - decision: package metadata read
+    followed: true
+    notes: ODFRegistry type includes optional package and commands fields; legacy registries without them still load.
+
+  - decision: Helper tools unchanged
+    followed: true
+    notes: createODFSkillInject, createODFSkillResolve, createODFRegistryRead, createODFNotebookLMLookup, createODFProfileSelect are unchanged except for registry type widening.
+
+correctness:
+  - item: Real task() invocation attempted
+    status: implemented
+    evidence: findTaskApi(toolCtx, client) -> invokeTask(taskApi, agent, prompt, context_files)
+
+  - item: Fallback to enriched prompt exists
+    status: implemented
+    evidence: 'buildFallbackOutput(...) returns "ODF Delegation (fallback — task() unavailable): ... ---ENCRYPTED_PROMPT_START---"'
+
+  - item: Skill matching and agent resolution preserved
+    status: implemented
+    evidence: matchSkills() and resolveAgent() are unchanged in behaviour and covered by existing YAML + new unit tests.
+
+  - item: Metrics updated correctly
+    status: implemented
+    evidence: recordMetrics() called with status ok|fallback|error and task_api_source in all execute() paths.
+
+  - item: package.json matches installer spec
+    status: implemented_with_deviations
+    evidence: Declares metadata, yaml ^2.7.0, test script that runs the ODF runner, plugin/sdk peer deps. Differs from design in version, repository URL, and extra dev dependencies (vitest, plugin/sdk as dev deps).
+
+  - item: Existing ODF functionality not broken
+    status: verified
+    evidence: All 36 existing YAML scenario tests pass; odf_skill_inject/resolve/read/notebooklm/profile_select signatures unchanged.
+
+issues_found:
+  CRITICAL: []
+  WARNING:
+    - id: W01
+      title: SDD profile not injected into delegated prompt
+      description: |
+        DELEG-03 requires odf_delegate to inject the selected profile
+        (model/temperature) into the delegated prompt. The current
+        implementation only injects skill compact rules; getProfileByPhase is
+        used only by odf_profile_select and odf_skill_resolve.
+      impact: Spec scenario "Backend model task" is only partially satisfied.
+      remediation: Add profile block to the enriched prompt before calling
+        invokeTask(), or update the spec/design to remove this requirement.
+
+    - id: W02
+      title: Slice 1 diff exceeds 400-line review budget
+      description: |
+        The Slice 1 code diff totals 655 changed lines (518 patch lines), above
+        the default 400-line budget. The session preflight resolved this as a
+        feature-branch-chain slice boundary, so it is not a blocker, but
+        reviewers should be aware.
+      impact: Budget risk flagged in proposal/tasks; mitigated by pre-resolved
+        chain strategy.
+      remediation: Already pre-resolved; future slices should still aim for
+        smaller work units.
+
+    - id: W03
+      title: package.json fields differ from installer design
+      description: |
+        Actual package.json uses version 1.1.0, repository
+        adruban/odf-agent-team, test script "node scripts/odf-test-runner.js --plugin-tests",
+        and devDependencies including @opencode-ai/plugin/sdk and vitest.
+        The installer design specified version 1.0.0, repository
+        antoniodavid/odf-agent-team, test script without --plugin-tests, and
+        narrower dev dependencies.
+      impact: Functional acceptance (npm test runs, deps declared) is met, but
+        the manifest does not match the design specification exactly.
+      remediation: Align version/repository/test-script with design, or update
+        the design to reflect the chosen manifest.
+
+  SUGGESTION:
+    - id: S01
+      title: Add metrics assertion tests
+      description: Export or spy on recordMetrics and assert that the buffer
+        receives the expected status, task_api_source, and fields after each
+        odf_delegate path.
+
+    - id: S02
+      title: Add task() timeout handling
+      description: The metrics enum includes "timeout", but no timeout logic
+        is implemented. Consider a Promise.race with a configurable timeout in
+        invokeTask() to satisfy the design status_values list.
+
+    - id: S03
+      title: Update spec/design if profile injection is intentionally omitted
+      description: If profile injection is deliberately not part of the
+        delegated prompt, remove it from DELEG-03 to keep spec and code
+        consistent.
+
+next_recommended: |
+  Proceed to sdd-apply Slice 2 (preflight gate + orchestrator agent) after
+  deciding whether to resolve W01 (profile injection) in Slice 1 or adjust the
+  spec in Slice 2. The current Slice 1 is safe to merge as the foundation for
+  later slices.
+
+skill_resolution:
+  primary: sdd-verify
+  supporting:
+    - sdd-apply
+    - chained-pr
+    - work-unit-commits
+
+reported_at: "2026-06-18T00:37:00Z"
+reported_by: sdd-verify executor
