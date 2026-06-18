@@ -1,6 +1,23 @@
 {
   "version": 1,
   "last_updated": "2026-06-18T00:00:00Z",
+  "package": {
+    "name": "odf-agent-team",
+    "version": "1.0.0",
+    "description": "OpenCode skill/agent pack for structured Odoo development workflows",
+    "repository": "https://github.com/antoniodavid/odf-agent-team",
+    "dependencies": {
+      "yaml": "^2.7.0",
+      "@opencode-ai/plugin": "^1.15.0",
+      "@opencode-ai/sdk": "^1.15.0"
+    }
+  },
+  "flags": {
+    "strict_tdd": false,
+    "tdd_enforced_since": null,
+    "pr_size_budget": 400,
+    "use_relative_paths": true
+  },
   "skills": [
     {
       "name": "oca-governance-pr-workflow",
@@ -1296,10 +1313,5 @@
       "path": "command/odf-explore.md",
       "triggers": ["/odf-explore"]
     }
-  ],
-  "flags": {
-    "strict_tdd": false,
-    "tdd_enforced_since": null,
-    "pr_size_budget": 400
-  }
+  ]
 }
