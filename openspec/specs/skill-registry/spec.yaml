@@ -1,0 +1,122 @@
+capability: skill-registry
+change: odf-orchestrator-deployment-experience
+version: 1.0.0
+status: spec
+type: modified
+
+summary: |
+  Extend odf-registry.json to support relative skill/agent paths and to carry
+  package.json metadata. Maintain backward compatibility with absolute paths.
+
+requirements:
+  functional:
+    - id: REG-01
+      name: Relative paths
+      strength: MUST
+      description: |
+        Registry skill and agent entries MAY use paths relative to the
+        registry file location. The plugin MUST resolve them correctly.
+      acceptance:
+        - Relative paths are resolved to absolute paths at runtime.
+        - Absolute paths continue to work.
+      scenarios:
+        - name: Relative skill path
+          given: A skill entry has path "skills/odf-assess/SKILL.md"
+          when: loadRegistry resolves the path
+          then: It becomes ~/.config/opencode/skills/odf-assess/SKILL.md
+
+    - id: REG-02
+      name: Absolute path fallback
+      strength: MUST
+      description: |
+        If a registry path is absolute, the plugin MUST use it unchanged.
+      scenarios:
+        - name: Legacy absolute path
+          given: An entry has path "/home/user/.config/opencode/skills/..."
+          when: The plugin loads the registry
+          then: The absolute path is used as-is
+
+    - id: REG-03
+      name: package.json metadata
+      strength: MUST
+      description: |
+        The registry MUST include a package section with name, version,
+        description, repository, and dependencies metadata.
+      acceptance:
+        - package.version matches registry version.
+        - package.dependencies lists runtime dependencies.
+      scenarios:
+        - name: Registry read
+          given: odf_registry_read returns registry metadata
+          when: Package section is inspected
+          then: Name, version, and dependencies are present
+
+    - id: REG-04
+      name: Plugin path resolution
+      strength: MUST
+      description: |
+        loadRegistry and file-reading tools in the plugin MUST resolve
+        relative paths against the directory containing odf-registry.json.
+      acceptance:
+        - Resolution works when registry is in ~/.config/opencode.
+      scenarios:
+        - name: Load skill file
+          given: Registry path is relative and registry is at ~/.config/opencode/odf-registry.json
+          when: The plugin reads a skill file
+          then: It finds the file at the resolved absolute path
+
+    - id: REG-05
+      name: Registry refresh writes relative paths
+      strength: SHOULD
+      description: |
+        /odf-registry-refresh SHOULD write relative paths when the registry
+        is configured to use them.
+      scenarios:
+        - name: Refresh after relative path config
+          given: The registry is set to relative paths
+          when: /odf-registry-refresh runs
+          then: New skill entries use relative paths
+
+  non_functional:
+    - id: REG-N01
+      name: Backward compatibility
+      strength: MUST
+      description: Existing installs with absolute paths MUST continue to work without migration.
+    - id: REG-N02
+      name: Metadata stability
+      strength: MUST
+      description: Adding package metadata MUST NOT break registry parsing by old plugin versions.
+
+interface_contracts:
+  inputs:
+    - odf-registry.json with relative or absolute path strings
+    - registry base directory (from REGISTRY_PATH)
+  outputs:
+    - Resolved absolute paths used by plugin
+    - Registry object including package metadata
+
+error_cases:
+  - Relative path resolves to non-existent file -> log warning and skip entry.
+  - Registry missing package section -> treat as legacy registry, default metadata.
+  - Absolute path file missing -> log warning as before.
+  - Base directory cannot be determined -> fall back to absolute path behavior.
+
+edge_cases:
+  - Mixed relative and absolute paths in same registry -> each resolved independently.
+  - Path starts with ./ -> resolve normally.
+  - Empty path -> skip entry.
+  - Registry installed in non-default location -> resolution uses actual registry directory.
+
+dependencies:
+  - odf-delegation-plugin (consumer of registry)
+  - command/odf-registry-refresh.md
+
+affected_files:
+  - odf-registry.json
+  - plugins/odf-delegation.ts
+  - command/odf-registry-refresh.md
+
+test_approach:
+  - Unit tests for resolvePath(registryDir, entryPath) covering relative, absolute, ./, and missing.
+  - Validate registry JSON schema includes package section.
+  - Run node scripts/odf-test-runner.js.

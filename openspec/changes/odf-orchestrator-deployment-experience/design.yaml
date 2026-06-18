@@ -1,0 +1,654 @@
+change: odf-orchestrator-deployment-experience
+version: 1.0.0
+status: design
+artifact_store: openspec
+
+design:
+  technical_approach: |
+    Add a thin, conversational orchestrator agent that owns the ODF workflow
+    lifecycle. The orchestrator runs a hard preflight gate, persists decisions
+    to OpenSpec/Engram, and delegates phases via the plugin's odf_delegate tool.
+    Refactor plugins/odf-delegation.ts so odf_delegate internally invokes the
+    OpenCode native task() API, with a deterministic agent/skill resolution and
+    a manual fallback when task() is unavailable. Complement this with native
+    command wrappers, an idempotent install.sh, a package.json manifest, and
+    registry-relative path resolution while keeping absolute paths as fallback.
+
+  architecture_overview:
+    diagram: |
+      ┌─────────────────────────────────────────────────────────────────────┐
+      │                        User / OpenCode Chat                         │
+      └──────────────┬──────────────────────────────────────────────────────┘
+                     │ /odf-new, /odf-continue, /odf-status, /odf-explore
+                     ▼
+      ┌──────────────────────────────┐
+      │   command/*.md definitions   │  ← parse args, route to orchestrator
+      └──────────────┬───────────────┘
+                     │
+                     ▼
+      ┌──────────────────────────────┐
+      │  agent/odoo_orchestrator.md  │  ← preflight gate, state machine, gates
+      └──────────────┬───────────────┘
+                     │ odf_delegate(phase, prompt, context_files)
+                     ▼
+      ┌──────────────────────────────┐
+      │  plugins/odf-delegation.ts   │  ← resolve agent/skills, call task()
+      └───────┬──────────────┬───────┘
+              │              │
+              ▼              ▼
+      ┌──────────────┐ ┌──────────────┐
+      │ odf-registry │ │  OpenCode    │
+      │    .json     │ │   task()     │
+      └──────────────┘ └──────┬───────┘
+                              │
+                              ▼
+                     ┌─────────────────┐
+                     │  phase agents   │  ← odoo_backend_engineer, etc.
+                     └────────┬────────┘
+                              │
+                              ▼
+                     ┌─────────────────┐
+                     │  skills/*.md    │  ← injected compact rules
+                     └─────────────────┘
+
+    component_responsibilities:
+      - component: command/*.md
+        responsibility: |
+          Surface native slash commands to the user. Parse arguments, validate
+          required inputs, and hand off to the orchestrator agent. They do NOT
+          contain business logic — only routing and usage docs.
+      - component: agent/odoo_orchestrator.md
+        responsibility: |
+          Conversational state machine. Enforces preflight, loads/stores change
+          state, shows approval gates, decides next phase, and calls
+          odf_delegate. Never writes code/specs/designs directly.
+      - component: plugins/odf-delegation.ts
+        responsibility: |
+          ODF-specific delegation engine. Loads registry, resolves agent and
+          skills, injects compact rules, records metrics, and invokes task().
+          Keeps helper tools (skill_inject, skill_resolve, registry_read,
+          notebooklm_lookup, profile_select) unchanged.
+      - component: odf-registry.json
+        responsibility: |
+          Source of truth for skills, agents, profiles, commands, and package
+          metadata. Relative paths are resolved against the registry directory;
+          absolute paths pass through unchanged.
+      - component: install.sh + package.json
+        responsibility: |
+          Idempotent deployment of the ODF pack. Validates prerequisites, backs
+          up existing config, merges files, runs self-tests, and declares Node
+          dependencies / test script.
+      - component: scripts/odf-test-runner.js
+        responsibility: |
+          Regression runner for YAML agent scenarios and plugin unit tests.
+          Extended to load plugin tests and orchestrator command scenarios.
+
+  component_contracts:
+    orchestrator_to_plugin:
+      caller: agent/odoo_orchestrator.md
+      callee: plugins/odf-delegation.ts (odf_delegate tool)
+      inputs:
+        - name: phase
+          type: enum(ASSESS, QA-PLAN, DESIGN, IMPLEMENT, VERIFY)
+          required: true
+        - name: prompt
+          type: string
+          required: true
+        - name: context_files
+          type: string[]
+          required: false
+      outputs:
+        success:
+          status: delegated
+          result: "task() result envelope from the phase agent"
+        fallback:
+          status: fallback
+          result: "enriched prompt + agent name + instructions to call task()"
+        error:
+          status: error
+          result: "error message + recovery hint"
+
+    plugin_to_task:
+      caller: plugins/odf-delegation.ts
+      callee: OpenCode native task() API
+      inputs:
+        - name: agent
+          type: string
+          source: resolved from registry
+        - name: prompt
+          type: string
+          source: original prompt + injected compact rules
+        - name: context_files
+          type: string[]
+          source: passed through
+      outputs:
+        - name: result envelope
+          type: JSON-serializable object
+          fields:
+            - status
+            - executive_summary
+            - artifacts
+            - risks
+
+    orchestrator_to_storage:
+      caller: agent/odoo_orchestrator.md
+      callee: OpenSpec/Engram
+      inputs:
+        - change name
+        - preflight record
+        - phase state
+      outputs:
+        - persisted state.yaml / Engram topic odf/{change}/state
+
+    commands_to_orchestrator:
+      caller: command/*.md
+      callee: agent/odoo_orchestrator.md
+      inputs:
+        - command name
+        - parsed arguments (change-name, description, --fast, topic, etc.)
+      outputs:
+        - conversational prompt that starts the workflow
+
+    registry_to_plugin:
+      caller: plugins/odf-delegation.ts
+      callee: odf-registry.json
+      inputs:
+        - registry file path (default ~/.config/opencode/odf-registry.json)
+      outputs:
+        - skills[] with relative or absolute path
+        - agents[] with relative or absolute path
+        - profiles[] with active flag and per-phase model/temperature
+        - package { name, version, description, repository, dependencies }
+
+  data_flow:
+    /odf-new:
+      steps:
+        - |
+          command/odf-new.md parses change-name, optional description,
+          optional --fast flag.
+        - |
+          Orchestrator loads project config (odf-init/{project}) and any
+          existing change state.
+        - |
+          If preflight is missing/invalid, the orchestrator runs the preflight
+          gate (questions + validation + persistence).
+        - |
+          Preflight record is written to
+          openspec/changes/{change}/state.yaml and/or Engram
+          odf/{change}/state.
+        - |
+          Orchestrator builds an ASSESS prompt that includes preflight choices,
+          project config, and prior learnings.
+        - |
+          Orchestrator calls odf_delegate(phase=ASSESS, prompt, context_files).
+        - |
+          Plugin resolves agent/skills, injects compact rules, invokes
+          task(agent=odoo_functional_consultant, prompt).
+        - |
+          ASSESS agent returns result envelope. Orchestrator updates state with
+          strategy and artifact flags.
+        - |
+          Orchestrator shows summary gate. If user approves (or --fast), it
+          proceeds to DESIGN; otherwise it stops and waits.
+        - |
+          DESIGN/IMPLEMENT/VERIFY repeat the delegate-update-gate cycle.
+
+    /odf-continue:
+      steps:
+        - command/odf-continue.md parses optional change-name.
+        - Orchestrator loads active changes from storage.
+        - If no name, pick most recently updated active change (or list if ambiguous).
+        - If preflight is incomplete, run preflight first.
+        - Determine next pending phase from state.
+        - Call odf_delegate for that phase.
+        - Update state and show gate.
+
+    /odf-status:
+      steps:
+        - command/odf-status.md parses optional change-name.
+        - Orchestrator reads active changes from storage.
+        - Renders table or single-change detail.
+
+    /odf-explore:
+      steps:
+        - command/odf-explore.md parses topic, --version, --module.
+        - Orchestrator delegates a short research task via odf_delegate
+          (phase=EXPLORE, not a formal workflow phase).
+        - Returns exploration report and suggests /odf-new or configuration.
+
+  preflight_schema:
+    storage_format: |
+      OpenSpec: openspec/changes/{change}/state.yaml
+      Engram: topic_key odf/{change}/state
+    record:
+      change:
+        type: string
+        description: Sanitized change identifier (kebab-case).
+      execution_mode:
+        type: enum
+        values: [interactive, batch]
+        default: interactive
+      artifact_store:
+        type: enum
+        values: [openspec, engram, hybrid]
+        default: openspec
+      delivery_strategy:
+        type: enum
+        values: [ask-always, ask-on-risk, auto-chain, single-pr]
+        default: ask-on-risk
+      review_budget_lines:
+        type: integer
+        default: 400
+        min: 100
+        max: 5000
+      odoo_version:
+        type: enum
+        values: [16, 17, 18, 19]
+        default: inferred from project or 18
+      tdd_mode:
+        type: boolean
+        default: false
+      solution_strategy:
+        type: enum
+        values: [standard, custom, pending]
+        default: pending
+      chain_strategy:
+        type: enum
+        values: [none, chained, feature-branch]
+        default: none
+      persisted_at:
+        type: string
+        format: ISO8601
+    validation:
+      - required fields: [change, execution_mode, artifact_store, delivery_strategy, review_budget_lines, odoo_version, tdd_mode, solution_strategy, chain_strategy]
+      - odoo_version must be one of the supported values.
+      - review_budget_lines must be a positive integer within range.
+      - Empty required fields trigger a re-ask.
+      - Invalid enum values show allowed values and re-ask.
+    defaults_inference:
+      - |
+        If odf-init/{project} exists, pre-fill:
+        odoo_version, artifact_store, tdd_mode, test_command, lint_command.
+      - |
+        If __manifest__.py is found in process.cwd(), infer odoo_version from
+        the major version field.
+      - |
+        delivery_strategy and review_budget_lines come from
+        odf-registry.json flags or project config.
+
+  plugin_refactoring_plan:
+    current_state: |
+      odf_delegate returns an enriched prompt and agent name as text. The
+      orchestrator is expected to call task() manually.
+    target_state: |
+      odf_delegate internally invokes the OpenCode task() API and returns the
+      delegated agent's result envelope. A manual fallback is kept for
+      environments where task() is not exposed.
+    split_strategy: |
+      Keep the plugin as a single file to minimize churn, but reorganize it
+      internally into clear sections:
+        1. Registry loading and path resolution
+        2. Agent/skill/profile resolution
+        3. Prompt enrichment and compact-rules formatting
+        4. task() invocation and fallback
+        5. Metrics recording
+        6. Tool creators (existing helpers remain unchanged)
+    where_real_task_lives: |
+      Inside the execute() function of createODFDelegate() in
+      plugins/odf-delegation.ts. The ToolContext exposes the OpenCode client
+      surface; task() is invoked through ctx.task or toolCtx.task depending on
+      the @opencode-ai/plugin SDK version. The implementation attempts both
+      and falls back to the instruction-only output if neither is available.
+    fallback_behavior: |
+      When task() is unavailable, odf_delegate returns the same enriched prompt
+      and agent name it returns today, clearly marked with status: fallback.
+      The orchestrator can then still call task() manually.
+    helper_tools_unchanged:
+      - odf_skill_inject
+      - odf_skill_resolve
+      - odf_registry_read
+      - odf_notebooklm_lookup
+      - odf_profile_select
+
+  registry_changes:
+    relative_path_format:
+      - |
+        Skill and agent entries MAY use paths relative to the directory
+        containing odf-registry.json.
+      - |
+        Example: "skills/odf-assess/SKILL.md" resolves to
+        ~/.config/opencode/skills/odf-assess/SKILL.md when the registry is at
+        ~/.config/opencode/odf-registry.json.
+      - |
+        Paths starting with ./ are normalized before resolution.
+    absolute_path_fallback:
+      - |
+        If a path is absolute (starts with / or ~), it is used unchanged.
+        Legacy installs continue to work without migration.
+    package_metadata:
+      new_section: package
+      fields:
+        - name: string
+        - version: string
+        - description: string
+        - repository: string
+        - dependencies: object
+          example:
+            yaml: "^2.7.0"
+            "@opencode-ai/plugin": "^0.x"
+            "@opencode-ai/sdk": "^0.x"
+    resolution_function: |
+      resolvePath(registryDir: string, entryPath: string): string {
+        if (!entryPath) return "";
+        if (path.isAbsolute(entryPath)) return entryPath;
+        // Expand leading ~/ to homedir
+        if (entryPath.startsWith("~/")) {
+          return path.join(os.homedir(), entryPath.slice(2));
+        }
+        return path.resolve(registryDir, entryPath);
+      }
+    backward_compatibility:
+      - Old plugin versions ignore the package section; existing entries stay valid.
+      - Mixed relative/absolute entries in the same registry are resolved independently.
+
+  installer_design:
+    idempotency:
+      - Safe to run multiple times.
+      - Each run creates a timestamped backup before overwriting.
+      - Directories are merged, not blindly replaced.
+      - Existing user files outside ODF paths are untouched.
+    prerequisites:
+      - python3 (required)
+      - curl or wget (required)
+      - Node.js 18+ (verified when package.json is present)
+    flow:
+      - step: 1
+        action: Validate prerequisites and non-interactive flags.
+      - step: 2
+        action: Create timestamped backup of existing ODF files.
+      - step: 3
+        action: Download source archive or use local files when ODF_SOURCE_DIR is set.
+      - step: 4
+        action: Merge agent/, skills/, plugins/, command/, scripts/, and odf-registry.json into ODF_DIR.
+      - step: 5
+        action: Verify registry and plugin are present.
+      - step: 6
+        action: Run npm install if package.json exists (idempotent).
+      - step: 7
+        action: Run scripts/odf-test-runner.js as self-test.
+      - step: 8
+        action: Print status report and backup path.
+    backup_rollback:
+      - backup_location: "${ODF_DIR}/backups/install-YYYYMMDD_HHMMSS"
+      - rollback_command: "cp -r ${BACKUP_DIR}/* ${ODF_DIR}/"
+      - install.sh keeps the previous backup; failures do not auto-delete it.
+    noninteractive_support:
+      - flag: --yes
+      - env: ODF_INSTALL_NONINTERACTIVE=1
+    custom_dir_support:
+      - env: ODF_DIR overrides default ~/.config/opencode.
+      - env: ODF_SOURCE_DIR uses local source instead of downloading.
+
+  file_structure:
+    new_files:
+      - path: install.sh
+        description: Idempotent ODF pack installer (modifies existing file significantly).
+      - path: package.json
+        description: Node manifest with yaml, plugin/sdk peer deps, and test script.
+      - path: openspec/changes/odf-orchestrator-deployment-experience/design.yaml
+        description: This design artifact.
+      - path: openspec/changes/odf-orchestrator-deployment-experience/state.yaml
+        description: Runtime workflow state for the orchestrator change itself.
+      - path: openspec/specs/orchestrator-agent/design.yaml
+        description: Design for the orchestrator agent capability.
+      - path: openspec/specs/odf-preflight/design.yaml
+        description: Design for the preflight gate capability.
+      - path: openspec/specs/odf-delegation-plugin/design.yaml
+        description: Design for the real task() delegation plugin.
+      - path: openspec/specs/odf-cli-commands/design.yaml
+        description: Design for native /odf-* commands.
+      - path: openspec/specs/odf-installer/design.yaml
+        description: Design for install.sh + package.json.
+      - path: openspec/specs/skill-registry/design.yaml
+        description: Design for relative path + package metadata registry.
+      - path: plugins/odf-delegation.test.ts
+        description: Unit tests for agent resolution, skill matching, task() fallback, metrics.
+      - path: scripts/odf-agent-tests/orchestrator.yaml
+        description: YAML scenario tests for orchestrator state transitions and gates.
+      - path: scripts/odf-agent-tests/odf-cli.yaml
+        description: YAML scenario tests for command parsing and wiring.
+    modified_files:
+      - path: plugins/odf-delegation.ts
+        description: Add real task() invocation, fallback, path resolution, package metadata read.
+      - path: agent/odoo_orchestrator.md
+        description: Add preflight gate, state persistence via OpenSpec, approval gates, resume logic.
+      - path: command/odf-new.md
+        description: Wire to orchestrator, add --fast flag, preflight trigger.
+      - path: command/odf-continue.md
+        description: Resume from persisted state, handle multiple active changes.
+      - path: command/odf-status.md
+        description: Read OpenSpec/Engram state, render table/detail.
+      - path: command/odf-explore.md
+        description: Route exploration through orchestrator.
+      - path: odf-registry.json
+        description: Convert skill/agent paths to relative, add package section, add command entries.
+      - path: scripts/odf-test-runner.js
+        description: Load and run plugin unit tests in addition to YAML scenarios.
+    deleted_files: []
+
+  error_handling_and_rollback:
+    layer_user_command:
+      - error: Missing required argument
+        response: Show usage example and abort.
+      - error: Existing change name
+        response: Warn and offer resume or rename.
+    layer_preflight:
+      - error: Missing required answer
+        response: Re-prompt; block delegation.
+      - error: Invalid enum value
+        response: Show allowed values and re-prompt.
+      - error: Persistence failure
+        response: Report error, keep answers in conversation, block delegation.
+      - error: Project config read failure
+        response: Fall back to manual questions.
+    layer_orchestrator:
+      - error: No active change for /odf-continue
+        response: Inform user and suggest /odf-new.
+      - error: Multiple active changes and no name
+        response: List active changes and ask user to pick.
+      - error: odf_delegate returns error
+        response: Show error, keep state unchanged, offer retry.
+      - error: Phase agent returns blocked
+        response: Surface blocker, stop workflow, allow manual intervention.
+      - error: User aborts at approval gate
+        response: State remains at last completed phase.
+    layer_plugin:
+      - error: Registry not found
+        response: Return error with setup hint (/odf-init).
+      - error: task() unavailable
+        response: Return fallback output with enriched prompt and agent.
+      - error: task() throws
+        response: Record error metric and return error message.
+      - error: No installed agent matches
+        response: Fall back to default agent for the phase.
+    layer_installer:
+      - error: Missing prerequisite
+        response: Print clear error and exit non-zero.
+      - error: Download failure
+        response: Exit with error and backup location.
+      - error: Registry missing after install
+        response: Report failure.
+      - error: Self-test fails
+        response: Report failure but keep backup.
+      - error: Permission denied
+        response: Exit with helpful message.
+    rollback_plan: |
+      Revert odf-delegation.ts to instruction-only output, remove new command
+      wiring from registry, delete install.sh/package.json changes, and restore
+      previous odf-registry.json from backup. Existing skill/agent markdown
+      files remain untouched.
+
+  testing_strategy:
+    unit_tests:
+      target: plugins/odf-delegation.test.ts
+      coverage:
+        - resolveAgent() defaults and keyword matching
+        - matchSkills() version filtering and scoring
+        - resolvePath() relative, absolute, ./, missing
+        - formatCompactRules() output shape
+        - task() invocation with stub ToolContext
+        - fallback when task() is undefined
+        - metrics recording shape
+      runner: npm test -> node scripts/odf-test-runner.js --plugin-tests
+    integration_tests:
+      target: scripts/odf-agent-tests/*.yaml
+      scenarios:
+        - orchestrator.yaml: preflight blocking, state transitions, approval gates, resume
+        - odf-cli.yaml: command parsing, --fast wiring, missing args, multiple active changes
+        - odf-installer.yaml: dry-run install in temp HOME, backup creation, self-test invocation
+      runner: node scripts/odf-test-runner.js
+    regression_tests:
+      target: existing 36 test cases
+      runner: node scripts/odf-test-runner.js
+    manual_smoke_test:
+      - Fresh install in temp HOME.
+      - Run /odf-new my-feature and verify preflight runs.
+      - Verify odf_delegate calls task() and returns a result envelope.
+
+  implementation_sequencing:
+    slice_1_plugin_and_package:
+      order: 1
+      dependencies: []
+      deliverables:
+        - package.json with dependencies and test script
+        - plugins/odf-delegation.ts real task() invocation + fallback
+        - plugins/odf-delegation.test.ts unit tests
+        - scripts/odf-test-runner.js plugin test loader
+      unlocks: orchestrator, commands
+    slice_2_registry_relative_paths:
+      order: 2
+      dependencies: [slice_1]
+      deliverables:
+        - resolvePath() helper in plugin
+        - odf-registry.json relative paths + package section
+        - Registry path resolution tests
+    slice_3_preflight_and_state:
+      order: 3
+      dependencies: [slice_1]
+      deliverables:
+        - Preflight schema validation utilities
+        - openspec/changes/{change}/state.yaml persistence helper
+        - Engram persistence helper
+    slice_4_orchestrator:
+      order: 4
+      dependencies: [slice_1, slice_3]
+      deliverables:
+        - agent/odoo_orchestrator.md preflight gate + state machine
+        - orchestrator.yaml scenario tests
+    slice_5_cli_commands:
+      order: 5
+      dependencies: [slice_4]
+      deliverables:
+        - command/odf-new.md wiring + --fast
+        - command/odf-continue.md resume logic
+        - command/odf-status.md state reader
+        - command/odf-explore.md orchestrator route
+        - odf-cli.yaml scenario tests
+        - odf-registry.json command entries
+    slice_6_installer:
+      order: 6
+      dependencies: [slice_2, slice_5]
+      deliverables:
+        - install.sh idempotent flow + --yes + ODF_DIR override
+        - install.sh self-test integration
+        - installer dry-run tests
+    slice_7_verify_and_archive:
+      order: 7
+      dependencies: [slice_1..6]
+      deliverables:
+        - Full regression run
+        - Design/task artifact verification
+        - Archive-ready state
+
+  design_decisions_and_tradeoffs:
+    - decision: Single-file plugin refactor instead of splitting into modules
+      choice: Keep plugins/odf-delegation.ts as one file; reorganize sections internally.
+      alternatives:
+        - Split into plugins/lib/registry.ts, plugins/lib/resolver.ts, etc.
+      rejected_reason: |
+        The project has no plugin build step or bundler. Splitting would require
+        adding an import graph and possibly a build step, increasing deployment
+        complexity. Internal sections are sufficient.
+
+    - decision: OpenSpec as default state store with Engram mirror
+      choice: Persist state to openspec/changes/{change}/state.yaml by default; optionally mirror to Engram.
+      alternatives:
+        - Engram-only persistence
+        - Filesystem-only persistence
+      rejected_reason: |
+        Proposal mandates OpenSpec default and Engram optional. OpenSpec files
+        survive compaction and are visible in the repo; Engram mirror supports
+        conversational context.
+
+    - decision: Real task() lives inside odf_delegate tool
+      choice: odf_delegate invokes task() directly and returns the agent result.
+      alternatives:
+        - Keep instruction-only output and let orchestrator call task()
+        - Add a separate odf_task tool
+      rejected_reason: |
+        The proposal requires real task() invocation. A separate tool would
+        fragment the API. Returning the result envelope makes the orchestrator
+        contract simpler.
+
+    - decision: Relative registry paths with absolute fallback
+      choice: Resolve skill/agent paths relative to registry directory; keep absolute paths unchanged.
+      alternatives:
+        - Always absolute paths
+        - Always relative paths
+      rejected_reason: |
+        Relative paths make the registry portable across machines. Absolute
+        fallback preserves existing installs without a migration step.
+
+    - decision: Manual fallback for task()
+      choice: When task() is unavailable, return enriched prompt + agent with fallback marker.
+      alternatives:
+        - Fail hard
+        - Silently skip delegation
+      rejected_reason: |
+        OpenCode plugin SDK versions may expose task() differently. Fallback
+        keeps the tool usable while surfacing the limitation.
+
+    - decision: Thin orchestrator agent in markdown
+      choice: Keep the orchestrator as an agent markdown file rather than code.
+      alternatives:
+        - Implement orchestrator logic in TypeScript
+        - Build a standalone CLI
+      rejected_reason: |
+        Project convention places coordination logic in agent markdown files.
+        A code-based orchestrator would require new plugin hooks and exceed MVP
+        scope. The standalone CLI was explicitly rejected in the proposal.
+
+  open_questions:
+    - |
+      Exact signature of task() in the installed @opencode-ai/plugin SDK
+      version: needs a prototype call in slice 1 to confirm ctx.task vs
+      toolCtx.task.
+    - |
+      Whether OpenSpec state.yaml should be committed to the repo or gitignored.
+      Decision: keep it in the repo for audit trail, matching proposal artifact list.
+
+  risks:
+    - description: OpenCode task() API constraints may limit plugin delegation
+      likelihood: medium
+      mitigation: Prototype task() call first; keep manual fallback.
+    - description: Registry path changes may break existing users
+      likelihood: medium
+      mitigation: Maintain absolute-path fallback; preserve current installs.
+    - description: Scope creep toward standalone CLI
+      likelihood: high
+      mitigation: Enforce MVP boundaries and 400-line review budget.
+    - description: Plugin tests lack framework
+      likelihood: low
+      mitigation: Add minimal Node harness in package.json.
+
+  next_recommended_phase: sdd-tasks

@@ -1,0 +1,172 @@
+capability: odf-preflight
+change: odf-orchestrator-deployment-experience
+version: 1.0.0
+status: design
+type: new
+
+summary: |
+  Hard gate that captures ODF-specific choices before any workflow phase is
+  delegated. Choices are persisted with change state and reused on resume.
+
+design:
+  technical_approach: |
+    Implement the preflight gate as a set of deterministic rules inside
+    agent/odoo_orchestrator.md and a small validation helper in
+    plugins/odf-delegation.ts (or a standalone scripts/lib/preflight.js). The
+    gate collects required choices, validates them, allows amendment, and
+    persists the record before delegation.
+
+  schema:
+    version: "1.0.0"
+    required_fields:
+      - change
+      - execution_mode
+      - artifact_store
+      - delivery_strategy
+      - review_budget_lines
+      - odoo_version
+      - tdd_mode
+      - solution_strategy
+      - chain_strategy
+      - persisted_at
+    fields:
+      change:
+        type: string
+        validation: kebab-case, non-empty
+      execution_mode:
+        type: enum
+        values: [interactive, batch]
+        default: interactive
+      artifact_store:
+        type: enum
+        values: [openspec, engram, hybrid]
+        default: openspec
+      delivery_strategy:
+        type: enum
+        values: [ask-always, ask-on-risk, auto-chain, single-pr]
+        default: ask-on-risk
+      review_budget_lines:
+        type: integer
+        default: 400
+        min: 100
+        max: 5000
+      odoo_version:
+        type: enum
+        values: [16, 17, 18, 19]
+        default: 18
+      tdd_mode:
+        type: boolean
+        default: false
+      solution_strategy:
+        type: enum
+        values: [standard, custom, pending]
+        default: pending
+      chain_strategy:
+        type: enum
+        values: [none, chained, feature-branch]
+        default: none
+      persisted_at:
+        type: string
+        format: ISO8601
+
+  validation_rules:
+    - |
+      change must be non-empty and contain only lowercase letters, numbers,
+      hyphens, and underscores.
+    - |
+      odoo_version must be one of 16, 17, 18, 19.
+    - |
+      review_budget_lines must be a positive integer between 100 and 5000.
+    - |
+      All enum fields must match allowed values exactly.
+    - |
+      Empty required fields trigger a re-prompt with the field name and allowed
+      values.
+
+  defaults_and_inference:
+    sources:
+      - source: odf-init/{project} (Engram/OpenSpec)
+        fields: [odoo_version, artifact_store, tdd_mode]
+      - source: __manifest__.py in process.cwd()
+        fields: [odoo_version]
+      - source: odf-registry.json flags
+        fields: [pr_size_budget -> review_budget_lines]
+      - source: hardcoded defaults
+        fields: [execution_mode, delivery_strategy, chain_strategy]
+    fallback: |
+      If inference fails, use hardcoded defaults and ask the user only for
+      fields that cannot be defaulted.
+
+  conversation_flow:
+    new_change:
+      - Ask change name (if not provided by /odf-new).
+      - Ask/infer Odoo version.
+      - Ask execution mode (default interactive).
+      - Ask artifact store (default openspec).
+      - Ask delivery strategy (default ask-on-risk).
+      - Ask review budget (default 400).
+      - Ask TDD mode (default false).
+      - Ask chain strategy (default none).
+      - Show summary and allow amendment.
+      - Persist record.
+    resume:
+      - Load existing preflight record.
+      - If complete, proceed.
+      - If incomplete, ask missing fields only.
+
+  persistence:
+    openspec:
+      path: openspec/changes/{change}/state.yaml
+      key: preflight
+    engram:
+      topic_key: odf/{change}/state
+      merge_policy: |
+        Upsert; only update fields that changed. Changing artifact_store
+        mid-workflow applies only to new artifacts.
+
+  amendment_flow:
+    - |
+      Before first delegation, the orchestrator shows a summary of preflight
+      answers and asks: "Edit any answer? (yes/no)".
+    - |
+      If the user edits a field, re-validate and re-persist.
+    - |
+      After the first phase has started, preflight fields can still be amended
+      but a warning is shown that some artifacts may already exist.
+
+  error_handling:
+    - error: Missing required answer
+      response: Re-prompt user with specific field.
+    - error: Invalid enum value
+      response: Show allowed values and re-prompt.
+    - error: Persistence failure
+      response: Report error and block delegation.
+    - error: Project config read failure
+      response: Fall back to manual questions.
+
+  file_changes:
+    - path: agent/odoo_orchestrator.md
+      action: modify
+      description: Add preflight gate conversation flow and validation rules.
+    - path: scripts/lib/preflight.js
+      action: create
+      description: Optional Node helper for validation and defaults inference.
+    - path: openspec/changes/{change}/state.yaml
+      action: create
+      description: Stores preflight record under the preflight key.
+
+  testing:
+    - path: scripts/odf-agent-tests/preflight.yaml
+      coverage:
+        - Missing answers block delegation
+        - Invalid Odoo version rejected
+        - Defaults inferred from project config
+        - Amendment before delegation
+        - Persistence idempotency
+
+  dependencies:
+    - orchestrator-agent
+    - odf-init project config (optional)
+
+  next_step: |
+    Implement validation helper and orchestrator preflight section.

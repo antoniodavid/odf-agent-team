@@ -1,0 +1,139 @@
+capability: odf-installer
+change: odf-orchestrator-deployment-experience
+version: 1.0.0
+status: spec
+type: new
+
+summary: |
+  Idempotent install.sh script and package.json manifest that deploy the ODF
+  Agent Team into ~/.config/opencode/ and declare Node dependencies.
+
+requirements:
+  functional:
+    - id: INST-01
+      name: Idempotent installation
+      strength: MUST
+      description: |
+        install.sh MUST be safe to run multiple times without duplicating
+        files or breaking an existing installation.
+      acceptance:
+        - Subsequent runs update files and preserve backups.
+      scenarios:
+        - name: Re-run installer
+          given: ODF is already installed
+          when: install.sh runs again
+          then: It backs up current config and installs fresh files
+
+    - id: INST-02
+      name: Prerequisites check
+      strength: MUST
+      description: |
+        install.sh MUST verify python3 and curl or wget are available before
+        installing. Node 18+ MUST be verified when package.json is present.
+      acceptance:
+        - Missing prerequisites produce a clear error and exit.
+      scenarios:
+        - name: Missing python3
+          given: python3 is not installed
+          when: install.sh checks prerequisites
+          then: It prints an error and exits non-zero
+
+    - id: INST-03
+      name: Deploy ODF pack files
+      strength: MUST
+      description: |
+        install.sh MUST copy agent/, skills/, plugins/, command/, scripts/,
+        and odf-registry.json into ~/.config/opencode/.
+      acceptance:
+        - Directories are merged, not replaced blindly.
+        - Existing user files outside ODF paths are untouched.
+      scenarios:
+        - name: Fresh install
+          given: ~/.config/opencode has no ODF files
+          when: install.sh runs
+          then: All ODF directories and registry are present
+
+    - id: INST-04
+      name: Self-test on install
+      strength: MUST
+      description: |
+        install.sh MUST run the test runner after installation when
+        scripts/odf-test-runner.js is present.
+      acceptance:
+        - Test output is shown to the user.
+        - Test failures are reported but do not delete the install.
+      scenarios:
+        - name: Install completes
+          given: Installation succeeded
+          when: Self-test runs
+          then: Pass/fail summary is printed
+
+    - id: INST-05
+      name: package.json manifest
+      strength: MUST
+      description: |
+        package.json MUST declare package metadata, dependencies (yaml,
+        @opencode-ai/plugin, @opencode-ai/sdk as applicable), and a test script.
+      acceptance:
+        - npm test runs the ODF test runner.
+        - Dependencies match plugin imports.
+      scenarios:
+        - name: Install dependencies
+          given: package.json exists
+          when: npm install runs
+          then: Required packages are available
+
+    - id: INST-06
+      name: Non-interactive mode
+      strength: SHOULD
+      description: |
+        install.sh SHOULD support a non-interactive mode via --yes flag or
+        ODF_INSTALL_NONINTERACTIVE environment variable.
+      scenarios:
+        - name: CI install
+          given: install.sh --yes is invoked
+          when: Confirmation prompt appears
+          then: It is auto-accepted
+
+  non_functional:
+    - id: INST-N01
+      name: Backup before modify
+      strength: MUST
+      description: install.sh MUST back up existing ODF config before overwriting.
+    - id: INST-N02
+      name: Portability
+      strength: SHOULD
+      description: install.sh SHOULD work on Linux and macOS with bash.
+
+interface_contracts:
+  inputs:
+    - Optional flags: --yes
+    - Environment: ODF_INSTALL_NONINTERACTIVE=1
+  outputs:
+    - Installed files in ~/.config/opencode/
+    - Backup directory path
+    - Console status report
+
+error_cases:
+  - Download failure -> exit with error and backup location.
+  - Registry missing after install -> report failure.
+  - Self-test fails -> report failure but keep backup.
+  - Permission denied -> exit with helpful message.
+
+edge_cases:
+  - Partial existing install -> merge and overwrite ODF files only.
+  - No network on re-run -> use local files if available or fail cleanly.
+  - Custom ODF_DIR via environment -> support ODF_DIR override.
+
+dependencies:
+  - skill-registry (registry format)
+  - odf-cli-commands and other capabilities (files to install)
+
+affected_files:
+  - install.sh
+  - package.json
+
+test_approach:
+  - Dry-run install in a temporary HOME directory.
+  - Assert files copied, backup created, and self-test invoked.
+  - Run with bash -n and shellcheck if available.

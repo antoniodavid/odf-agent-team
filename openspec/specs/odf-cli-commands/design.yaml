@@ -1,0 +1,130 @@
+capability: odf-cli-commands
+change: odf-orchestrator-deployment-experience
+version: 1.0.0
+status: design
+type: new
+
+summary: |
+  Native command definitions for /odf-new, /odf-continue, /odf-status, and
+  /odf-explore that wire user input to the orchestrator and preflight gate.
+
+design:
+  technical_approach: |
+    Update the existing command/*.md files (odf-new.md, odf-continue.md,
+    odf-status.md, odf-explore.md) so they parse arguments consistently and
+    hand off to the orchestrator agent. Add command entries to
+    odf-registry.json so the registry refresh picks them up.
+
+  command_contracts:
+    /odf-new:
+      syntax: /odf-new <change-name> ["description"] [--fast]
+      parsing:
+        - change-name: required, first positional token
+        - description: optional, quoted positional or remaining tokens
+        - --fast: optional flag
+      orchestrator_handoff: |
+        "Start change {change-name}. Description: {description}. Fast mode: {fast}."
+      errors:
+        - missing change-name -> show usage
+        - existing change-name -> warn, offer resume/rename
+
+    /odf-continue:
+      syntax: /odf-continue [change-name]
+      parsing:
+        - change-name: optional
+      orchestrator_handoff: |
+        "Continue change {change-name or latest active}."
+      errors:
+        - named change not active -> list active changes
+        - no active changes -> suggest /odf-new
+
+    /odf-status:
+      syntax: /odf-status [change-name]
+      parsing:
+        - change-name: optional
+      orchestrator_handoff: |
+        "Show status for {change-name or all active changes}."
+      errors:
+        - state read failure -> suggest /odf-init
+
+    /odf-explore:
+      syntax: /odf-explore <topic> [--version N] [--module M]
+      parsing:
+        - topic: required, first positional token or quoted string
+        - --version: optional
+        - --module: optional
+      orchestrator_handoff: |
+        "Explore topic '{topic}' for Odoo {version} in module {module}."
+      errors:
+        - missing topic -> show usage
+        - unknown version -> ask or default to project version
+
+  markdown_structure:
+    each_command:
+      - frontmatter with description and usage
+      - Parse Arguments section
+      - Orchestrator Instructions section
+      - Output Format section
+      - Error Cases section
+
+  registry_registration:
+    new_entries:
+      - name: odf-new
+        path: command/odf-new.md
+        description: Start new Odoo feature/module with ODF workflow
+      - name: odf-continue
+        path: command/odf-continue.md
+        description: Continue ODF workflow from last completed phase
+      - name: odf-status
+        path: command/odf-status.md
+        description: Show status of active ODF changes
+      - name: odf-explore
+        path: command/odf-explore.md
+        description: Deep investigation of Odoo codebase
+    section: |
+      Add a "commands" array to odf-registry.json with name, description, path,
+      and triggers. /odf-registry-refresh uses these entries to update the
+      registry.
+
+  backward_compatible_aliases:
+    - |
+      Existing commands (/odf-apply, /odf-verify, /odf-fix, etc.) remain
+      unchanged. They may later be wired to the orchestrator but are not in
+      scope for this change.
+
+  file_changes:
+    - path: command/odf-new.md
+      action: modify
+      description: Add --fast flag, preflight trigger, orchestrator wiring.
+    - path: command/odf-continue.md
+      action: modify
+      description: Add resume from persisted state, multiple active changes handling.
+    - path: command/odf-status.md
+      action: modify
+      description: Add OpenSpec/Engram state reader, table/detail rendering.
+    - path: command/odf-explore.md
+      action: modify
+      description: Add orchestrator route for exploration.
+    - path: odf-registry.json
+      action: modify
+      description: Add commands array with new/modified command entries.
+
+  testing:
+    - path: scripts/odf-agent-tests/odf-cli.yaml
+      coverage:
+        - /odf-new argument parsing
+        - /odf-new --fast wiring
+        - /odf-new missing name
+        - /odf-continue specific vs latest
+        - /odf-continue no active changes
+        - /odf-status table vs detail
+        - /odf-explore topic/version/module parsing
+
+  dependencies:
+    - orchestrator-agent
+    - odf-preflight
+    - odf-delegation-plugin
+    - skill-registry
+
+  next_step: |
+    Update each command markdown and add command entries to the registry.

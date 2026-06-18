@@ -1,0 +1,87 @@
+change: odf-orchestrator-deployment-experience
+version: 1.0.0
+status: spec
+artifact_store: openspec
+
+executive_summary: |
+  This change adds a conversational ODF orchestrator with a hard preflight
+  gate, turns odf_delegate into a real task() invoker, registers native CLI
+  commands, ships an idempotent installer with package.json, and updates the
+  skill registry to support relative paths and package metadata.
+
+capabilities:
+  - name: orchestrator-agent
+    path: openspec/specs/orchestrator-agent/spec.yaml
+    type: new
+  - name: odf-preflight
+    path: openspec/specs/odf-preflight/spec.yaml
+    type: new
+  - name: odf-delegation-plugin
+    path: openspec/specs/odf-delegation-plugin/spec.yaml
+    type: modified
+  - name: odf-cli-commands
+    path: openspec/specs/odf-cli-commands/spec.yaml
+    type: new
+  - name: odf-installer
+    path: openspec/specs/odf-installer/spec.yaml
+    type: new
+  - name: skill-registry
+    path: openspec/specs/skill-registry/spec.yaml
+    type: modified
+
+cross_cutting_acceptance_criteria:
+  - /odf-new triggers orchestrator and runs preflight.
+  - odf_delegate calls task() and returns the delegated agent's result.
+  - install.sh deploys the ODF pack idempotently.
+  - Existing ODF tests (36 cases) still pass.
+  - New plugin unit tests are added and pass.
+  - Proposal/spec/design/task artifacts are stored in OpenSpec.
+
+integration_scenarios:
+  - name: End-to-end new feature
+    given: User runs /odf-new my-feature on an Odoo 18 project
+    when: Preflight completes and user approves phases
+    then: ASSESS -> DESIGN -> IMPLEMENT -> VERIFY run via odf_delegate
+  - name: Resume after interruption
+    given: A change state exists at phase DESIGN
+    when: User runs /odf-continue
+    then: Orchestrator resumes DESIGN without re-running preflight
+  - name: Fresh install
+    given: User runs install.sh on a new machine
+    when: Install completes and self-test passes
+    then: /odf-new is available and uses relative registry paths
+
+dependencies_between_capabilities:
+  - orchestrator-agent depends on odf-preflight and odf-delegation-plugin.
+  - odf-cli-commands depend on orchestrator-agent.
+  - odf-delegation-plugin depends on skill-registry.
+  - odf-installer depends on all other capabilities (files to deploy).
+
+affected_files_summary:
+  new:
+    - install.sh
+    - package.json
+    - openspec/specs/*/spec.yaml
+  modified:
+    - agent/odoo_orchestrator.md
+    - command/odf-new.md
+    - command/odf-continue.md
+    - command/odf-status.md
+    - command/odf-explore.md
+    - plugins/odf-delegation.ts
+    - odf-registry.json
+    - scripts/odf-test-runner.js
+
+test_approach:
+  - Unit tests for plugin delegation, registry path resolution, and installer dry-run.
+  - YAML scenario tests for orchestrator, preflight, and CLI commands.
+  - Full regression run: node scripts/odf-test-runner.js.
+  - Manual smoke test: fresh install in temp HOME, then /odf-new.
+
+risks:
+  - OpenCode task() API constraints may limit plugin delegation; mitigation: prototype task() first and keep fallback.
+  - Registry path changes may break existing users; mitigation: maintain absolute-path fallback.
+  - Scope creep toward standalone CLI; mitigation: enforce MVP boundaries and 400-line review budget.
+  - Plugin tests lack framework; mitigation: add minimal Node harness in package.json.
+
+next_recommended_phase: sdd-design

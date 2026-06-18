@@ -1,0 +1,142 @@
+capability: odf-delegation-plugin
+change: odf-orchestrator-deployment-experience
+version: 1.0.0
+status: spec
+type: modified
+
+summary: |
+  Refactor the odf_delegate tool so it invokes the OpenCode native task()
+  API internally instead of returning instructions. Keeps instruction fallback
+  and existing helper tools.
+
+requirements:
+  functional:
+    - id: DELEG-01
+      name: Real task() invocation
+      strength: MUST
+      description: |
+        odf_delegate MUST call the OpenCode task() API with the resolved
+        agent, enriched prompt, and context files.
+      acceptance:
+        - The tool returns the delegated agent's result envelope.
+        - The caller does not need to invoke task() manually.
+      scenarios:
+        - name: Delegate DESIGN phase
+          given: odf_delegate receives phase=DESIGN and a prompt
+          when: The tool resolves agent and skills
+          then: It calls task(agent=odoo_backend_engineer, prompt=...) and returns the result
+
+    - id: DELEG-02
+      name: Manual fallback
+      strength: MUST
+      description: |
+        If task() is unavailable or the plugin context lacks it, odf_delegate
+        MUST fall back to returning the enriched prompt and agent name.
+      acceptance:
+        - Fallback output is clearly marked.
+        - The caller can still delegate manually.
+      scenarios:
+        - name: task() not exposed
+          given: Plugin SDK does not expose task()
+          when: odf_delegate executes
+          then: It returns the prepared prompt with instructions to call task()
+
+    - id: DELEG-03
+      name: Skill and profile injection
+      strength: MUST
+      description: |
+        odf_delegate MUST inject matching skill compact rules and selected
+        profile (model/temperature) into the delegated prompt.
+      acceptance:
+        - Up to 5 matching skills are injected.
+        - Profile selection uses the active profile from the registry.
+      scenarios:
+        - name: Backend model task
+          given: Task mentions "create model" and context files include .py
+          when: odf_delegate runs matchSkills
+          then: Python style and computed field rules are injected
+
+    - id: DELEG-04
+      name: Metrics recording
+      strength: MUST
+      description: |
+        odf_delegate MUST record delegation metrics including phase, agent,
+        skills injected, duration, token estimate, and status.
+      acceptance:
+        - Metrics are flushed to the local log file.
+        - Status reflects ok, fallback, error, or timeout.
+      scenarios:
+        - name: Successful delegation
+          given: task() completes without error
+          when: The tool finishes
+          then: A metric entry with status ok is appended
+
+    - id: DELEG-05
+      name: Deterministic agent resolution
+      strength: MUST
+      description: |
+        Agent resolution MUST be deterministic for the same registry, phase,
+        and task keywords.
+      scenarios:
+        - name: Repeated call
+          given: Same phase and prompt
+          when: odf_delegate is called twice
+          then: Both calls resolve to the same agent
+
+    - id: DELEG-06
+      name: Existing tools unchanged
+      strength: MUST
+      description: |
+        odf_skill_inject, odf_skill_resolve, odf_registry_read,
+        odf_notebooklm_lookup, and odf_profile_select MUST continue to work.
+      scenarios:
+        - name: Manual skill injection
+          given: User calls odf_skill_inject
+          when: Registry is loaded
+          then: It returns compact rules as before
+
+  non_functional:
+    - id: DELEG-N01
+      name: Backward compatibility
+      strength: MUST
+      description: Existing consumers of odf_delegate MUST still receive usable output.
+    - id: DELEG-N02
+      name: Test coverage
+      strength: MUST
+      description: The delegation logic MUST have unit tests for resolution and task() invocation.
+
+interface_contracts:
+  inputs:
+    - phase: ASSESS|QA-PLAN|DESIGN|IMPLEMENT|VERIFY
+    - prompt: detailed prompt string
+    - context_files: optional list of file paths
+  outputs:
+    - On success: delegated agent result envelope (from task())
+    - On fallback: enriched prompt + agent + skills injected
+
+error_cases:
+  - Registry not found -> return error with setup hint.
+  - Invalid phase -> reject with allowed phases.
+  - task() throws -> record error metric and return error message.
+  - No installed agent matches -> fall back to default agent.
+
+edge_cases:
+  - Empty context_files -> match by task keywords only.
+  - No skills match -> delegate without skill injection.
+  - Custom agent registered for phase -> use custom agent over default.
+  - task() returns blocked status -> pass through unchanged.
+
+dependencies:
+  - "@opencode-ai/plugin/sdk exposing task()"
+  - odf-registry.json (agent/skill/profiles)
+  - skill-registry (relative path resolution)
+
+affected_files:
+  - plugins/odf-delegation.ts
+  - package.json
+  - scripts/odf-test-runner.js (new tests)
+
+test_approach:
+  - Add plugins/odf-delegation.test.ts using a stub task() implementation.
+  - Test agent resolution, skill matching, metrics, and fallback.
+  - Run npm test (or node scripts/odf-test-runner.js).

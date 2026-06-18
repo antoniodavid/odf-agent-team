@@ -1,0 +1,159 @@
+capability: odf-installer
+change: odf-orchestrator-deployment-experience
+version: 1.0.0
+status: design
+type: new
+
+summary: |
+  Idempotent install.sh script and package.json manifest that deploy the ODF
+  Agent Team into ~/.config/opencode/ and declare Node dependencies.
+
+design:
+  technical_approach: |
+    Refactor the existing install.sh to be fully idempotent, support
+    non-interactive mode, verify Node 18+ when package.json is present, run
+    npm install, and run the self-test. Create package.json at the repository
+    root with metadata, dependencies (yaml, plugin/sdk peer deps), and a test
+    script.
+
+  install.sh_flow:
+    step_1_prerequisites:
+      action: Check python3, curl/wget, Node 18+ (if package.json present).
+      failure: Print error and exit non-zero.
+    step_2_noninteractive:
+      action: |
+        If --yes or ODF_INSTALL_NONINTERACTIVE=1, skip confirmation prompt.
+    step_3_backup:
+      action: |
+        Create timestamped backup directory ${ODF_DIR}/backups/install-YYYYMMDD_HHMMSS.
+        Copy odf-registry.json, agent/, skills/, plugins/, command/, scripts/
+        if they exist.
+    step_4_source:
+      action: |
+        If ODF_SOURCE_DIR is set, use local files. Otherwise download
+        ${REPO}/archive/${BRANCH}.tar.gz and extract.
+    step_5_merge:
+      action: |
+        Merge agent/, skills/, plugins/, command/, scripts/ into ODF_DIR.
+        Copy odf-registry.json. Never delete files not in source.
+    step_6_node_dependencies:
+      action: |
+        If package.json exists in source, copy it and run npm install in
+        ODF_DIR (or in source dir if ODF_SOURCE_DIR is used).
+    step_7_verify:
+      action: |
+        Check registry and plugin exist. Print skill/agent counts.
+    step_8_self_test:
+      action: |
+        Run node scripts/odf-test-runner.js. Report pass/fail summary.
+        Failures do NOT delete the install.
+    step_9_report:
+      action: Print status, backup path, next steps.
+
+  idempotency_mechanisms:
+    - Timestamped backups on every run.
+    - Directory merge instead of rm -rf.
+    - package.json + npm install are idempotent.
+    - Existing user files outside ODF paths untouched.
+
+  environment_variables:
+    - name: ODF_DIR
+      default: "${HOME}/.config/opencode"
+      description: Override target installation directory.
+    - name: ODF_SOURCE_DIR
+      default: ""
+      description: Use local source instead of downloading from GitHub.
+    - name: ODF_INSTALL_NONINTERACTIVE
+      default: ""
+      description: Set to 1 to skip confirmation prompt.
+    - name: REPO
+      default: "https://github.com/antoniodavid/odf-agent-team"
+      description: GitHub repository for downloads.
+    - name: BRANCH
+      default: "main"
+      description: Git branch for downloads.
+
+  cli_flags:
+    - flag: --yes
+      description: Auto-accept confirmation prompt.
+
+  backup_and_rollback:
+    backup_path: "${ODF_DIR}/backups/install-YYYYMMDD_HHMMSS"
+    contents:
+      - odf-registry.json
+      - agent/
+      - skills/
+      - plugins/
+      - command/
+      - scripts/
+    rollback: |
+      Manual: cp -r ${BACKUP_DIR}/* ${ODF_DIR}/
+    retention: |
+      Keep all backups. User can prune old backups with /odf-backup or
+      manually.
+
+  package.json:
+    fields:
+      name: "odf-agent-team"
+      version: "1.0.0"
+      description: "OpenCode skill/agent pack for Odoo development"
+      repository:
+        type: git
+        url: "https://github.com/antoniodavid/odf-agent-team"
+      scripts:
+        test: "node scripts/odf-test-runner.js"
+      dependencies:
+        yaml: "^2.7.0"
+      peerDependencies:
+        "@opencode-ai/plugin": "^0.x"
+        "@opencode-ai/sdk": "^0.x"
+      devDependencies:
+        "@types/node": "^20.x"
+        typescript: "^5.x"
+    purpose: |
+      Declare Node deps for test runner and plugin type checking. Plugin
+      peer deps document the expected OpenCode SDK surface.
+
+  error_handling:
+    - error: Missing python3
+      response: Print install command and exit 1.
+    - error: Missing curl/wget
+      response: Print install command and exit 1.
+    - error: Node version < 18
+      response: Print upgrade message and exit 1.
+    - error: Download failure
+      response: Print error and backup location; exit 1.
+    - error: Registry missing after install
+      response: Report failure.
+    - error: Self-test fails
+      response: Report failure but keep backup; exit 1.
+    - error: Permission denied
+      response: Print helpful message; exit 1.
+
+  file_changes:
+    - path: install.sh
+      action: modify
+      description: Idempotent flow, --yes, ODF_DIR override, Node check, npm install, self-test.
+    - path: package.json
+      action: create
+      description: Node manifest with deps and test script.
+
+  testing:
+    - path: scripts/odf-agent-tests/odf-installer.yaml
+      coverage:
+        - Dry-run install in temp HOME
+        - Backup created
+        - Files copied
+        - Self-test invoked
+        - Re-run idempotency
+    - command: bash -n install.sh
+      description: Syntax check.
+    - command: shellcheck install.sh
+      description: Optional lint if shellcheck is available.
+
+  dependencies:
+    - skill-registry
+    - odf-cli-commands and other capabilities (files to install)
+
+  next_step: |
+    Refactor install.sh and create package.json, then add installer tests.
