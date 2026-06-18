@@ -16,7 +16,7 @@ review_workload_forecast:
     PR 4 → Slice 4 (installer + registry relative paths)
     PR 5 → Slice 5 (verification + docs)
   delivery_strategy: ask-always
-  chain_strategy: pending
+  chain_strategy: feature-branch-chain
 
 # Guard contract — exact plain-text lines for downstream automation
 forecast_guards: |
@@ -62,22 +62,31 @@ slices:
     tasks:
       - id: 1.1
         step: Create package.json with metadata, yaml dependency, test script, and peer/dev dependencies.
+        status: complete
       - id: 1.2
         step: Prototype task() signature against the installed @opencode-ai/plugin SDK (ctx.task vs toolCtx.task vs sdk import).
+        status: complete
       - id: 1.3
         step: Add resolvePath() helper to plugins/odf-delegation.ts for registry-relative, absolute, ~/ and ./ paths.
+        status: complete
       - id: 1.4
         step: Extend ODFRegistry type with optional package metadata and commands array.
+        status: complete
       - id: 1.5
         step: Refactor createODFDelegate().execute() to resolve agent/skills, inject compact rules, then call invokeTask().
+        status: complete
       - id: 1.6
         step: 'Implement task() fallback returning enriched prompt + agent with status: fallback when task() is unavailable.'
+        status: complete
       - id: 1.7
         step: Update recordMetrics() to capture task_api_source and status values ok|fallback|error|timeout.
+        status: complete
       - id: 1.8
         step: Write plugins/odf-delegation.test.ts covering resolveAgent, matchSkills, resolvePath, formatCompactRules, task() invocation, fallback, and metrics shape.
+        status: complete
       - id: 1.9
         step: Extend scripts/odf-test-runner.js to discover and run plugins/odf-delegation.test.ts when --plugin-tests is passed.
+        status: complete
     acceptance_criteria:
       - npm test runs the ODF test runner.
       - plugins/odf-delegation.test.ts passes all cases.

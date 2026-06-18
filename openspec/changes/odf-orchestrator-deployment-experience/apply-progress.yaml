@@ -1,0 +1,124 @@
+change: odf-orchestrator-deployment-experience
+version: 1.0.0
+status: apply-progress
+artifact_store: openspec
+
+slice: 1
+slice_name: Plugin real delegation + package manifest + unit tests
+
+mode: Standard
+strict_tdd: false
+
+completed_tasks:
+  - id: 1.1
+    step: Create package.json with metadata, yaml dependency, test script, and peer/dev dependencies.
+    status: complete
+    evidence: package.json created; npm install succeeded; npm test runs.
+  - id: 1.2
+    step: Prototype task() signature against the installed @opencode-ai/plugin SDK (ctx.task vs toolCtx.task vs sdk import).
+    status: complete
+    evidence: SDK inspection shows ToolContext has no task(); plugin client (ctx.client) has no typed task(); implementation probes toolCtx.task then client.task and falls back.
+  - id: 1.3
+    step: Add resolvePath() helper to plugins/odf-delegation.ts for registry-relative, absolute, ~/ and ./ paths.
+    status: complete
+    evidence: resolvePath() implemented and covered by unit tests.
+  - id: 1.4
+    step: Extend ODFRegistry type with optional package metadata and commands array.
+    status: complete
+    evidence: ODFRegistry now includes optional package and commands fields; loadRegistry resolves relative paths.
+  - id: 1.5
+    step: Refactor createODFDelegate().execute() to resolve agent/skills, inject compact rules, then call invokeTask().
+    status: complete
+    evidence: createODFDelegate receives client, findTaskApi selects task API, invokeTask calls task(agent, prompt, context_files), success returns result envelope.
+  - id: 1.6
+    step: "Implement task() fallback returning enriched prompt + agent with status: fallback when task() is unavailable."
+    status: complete
+    evidence: buildFallbackOutput returns marked instruction envelope; unit test verifies fallback output.
+  - id: 1.7
+    step: Update recordMetrics() to capture task_api_source and status values ok|fallback|error|timeout.
+    status: complete
+    evidence: DelegationMetrics includes task_api_source; all code paths record status and source.
+  - id: 1.8
+    step: Write plugins/odf-delegation.test.ts covering resolveAgent, matchSkills, resolvePath, formatCompactRules, task() invocation, fallback, and metrics shape.
+    status: complete
+    evidence: 23 plugin unit tests pass.
+  - id: 1.9
+    step: Extend scripts/odf-test-runner.js to discover and run plugins/odf-delegation.test.ts when --plugin-tests is passed.
+    status: complete
+    evidence: --plugin-tests spawns vitest; npm test runs plugin tests + YAML scenarios.
+
+files_changed:
+  - path: package.json
+    action: created
+    description: Node manifest with yaml dependency, peer/dev deps, and npm test script
+  - path: tsconfig.json
+    action: created
+    description: TypeScript config for plugin and scripts
+  - path: plugins/odf-delegation.ts
+    action: modified
+    description: Real task() invocation, fallback, resolvePath, package/commands types, metrics update
+  - path: plugins/odf-delegation.test.ts
+    action: created
+    description: Unit tests for delegation logic
+  - path: scripts/odf-test-runner.js
+    action: modified
+    description: ESM conversion and --plugin-tests support
+  - path: .gitignore
+    action: modified
+    description: Ignore package-lock.json and .atl/ cache
+
+test_results:
+  - command: npm test
+    status: passed
+    summary: 23 plugin unit tests passed; 36 YAML scenario tests passed
+  - command: node scripts/odf-test-runner.js
+    status: passed
+    summary: 36 existing YAML scenario tests passed
+  - command: npx tsc --noEmit
+    status: passed
+    summary: TypeScript type check clean
+
+deviations_from_design:
+  - description: SDK task() not found in ToolContext or client types
+    reason: Prototype confirmed OpenCode 1.17.8 SDK does not expose task() on PluginInput.client or ToolContext. Implementation probes both at runtime and falls back.
+  - description: Kept plugin as single file
+    reason: Matches design decision to avoid build step complexity.
+
+remaining_tasks:
+  - slice: 2
+    tasks:
+      - Preflight gate + orchestrator agent
+  - slice: 3
+    tasks:
+      - Native /odf-* commands
+  - slice: 4
+    tasks:
+      - Installer + registry relative paths
+  - slice: 5
+    tasks:
+      - Verification + documentation
+
+workload_pr_boundary:
+  mode: feature-branch-chain
+  current_work_unit: Slice 1
+  boundary: feature/odf-orchestrator-deployment-experience contains Slice 1 only
+  review_budget_note: |
+    Slice 1 is ~650 changed/added lines (package.json, tsconfig.json, plugin refactor,
+    plugin tests, runner update), exceeding the 400-line per-PR budget. This was
+    pre-resolved as a single Slice 1 PR boundary in session preflight.
+
+next_recommended: sdd-apply Slice 2 (preflight gate + orchestrator agent)
+
+risks:
+  - description: task() API signature unconfirmed in production OpenCode runtime
+    mitigation: Runtime probe + deterministic fallback preserves usability.
+  - description: Existing consumers may expect old text-only odf_delegate output
+    mitigation: Fallback path preserves old format; success path is a documented change.
+  - description: Slice 1 exceeds 400-line review budget
+    mitigation: Pre-resolved as a feature-branch-chain slice; commits split by work unit.
+
+skill_resolution:
+  primary: sdd-apply
+  supporting:
+    - chained-pr
+    - work-unit-commits
