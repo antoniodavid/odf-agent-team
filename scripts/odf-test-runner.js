@@ -18,6 +18,7 @@ import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
 import * as preflight from './lib/preflight.js';
 import * as orchestrator from './lib/orchestrator.js';
+import * as cli from './odf-cli.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -189,8 +190,8 @@ function runPluginTests() {
     return;
   }
 
-  console.log('\n🔌 Running plugin unit tests...');
-  const result = spawnSync('npx', ['vitest', 'run', PLUGIN_TESTS], {
+  console.log('\n🔌 Running unit tests...');
+  const result = spawnSync('npx', ['vitest', 'run'], {
     stdio: 'inherit',
     shell: false,
     cwd: path.join(__dirname, '..'),
@@ -296,6 +297,72 @@ function runOrchestratorSuite(suite) {
 }
 
 // ==========================================
+// CLI command scenario tests
+// ==========================================
+
+function runCliSuite(suite) {
+  console.log(`\n📋 ${suite.name} (CLI parsing scenarios)`);
+
+  for (const tc of (suite.tests || [])) {
+    console.log(`\n  Test: "${tc.name}"`);
+
+    const parsed = cli.parseCommand(tc.input.argv);
+
+    if (tc.expected.error) {
+      test('returns an error', () => {
+        return Boolean(parsed.error);
+      });
+      continue;
+    }
+
+    test('command matches expected', () => {
+      return parsed.command === tc.expected.command;
+    });
+
+    if (tc.expected.change !== undefined) {
+      test('change matches expected', () => {
+        return parsed.change === tc.expected.change;
+      });
+    }
+
+    if (tc.expected.description !== undefined) {
+      test('description matches expected', () => {
+        return parsed.description === tc.expected.description;
+      });
+    }
+
+    if (tc.expected.fast !== undefined) {
+      test('fast flag matches expected', () => {
+        return parsed.fast === tc.expected.fast;
+      });
+    }
+
+    if (tc.expected.topic !== undefined) {
+      test('topic matches expected', () => {
+        return parsed.topic === tc.expected.topic;
+      });
+    }
+
+    if (tc.expected.version !== undefined) {
+      test('version matches expected', () => {
+        return parsed.version === tc.expected.version;
+      });
+    }
+
+    if (tc.expected.module !== undefined) {
+      test('module matches expected', () => {
+        return parsed.module === tc.expected.module;
+      });
+    }
+
+    test('orchestrator prompt contains command', () => {
+      const prompt = cli.buildOrchestratorPrompt(parsed);
+      return prompt.includes(parsed.command) && !prompt.startsWith('❌');
+    });
+  }
+}
+
+// ==========================================
 // Main
 // ==========================================
 
@@ -333,6 +400,8 @@ async function main() {
           runPreflightSuite(suite);
         } else if (suite.type === 'orchestrator') {
           runOrchestratorSuite(suite);
+        } else if (suite.type === 'cli') {
+          runCliSuite(suite);
         } else {
           runTestSuite(suite);
         }

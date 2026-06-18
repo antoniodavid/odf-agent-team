@@ -27,7 +27,6 @@ function makeState(overrides: Record<string, unknown> = {}) {
     },
     artifacts: {
       assess: false,
-      qa_plan: false,
       design: false,
       implement: false,
       qa_review: false,
@@ -151,8 +150,8 @@ describe('orchestrator state machine', () => {
     it('renders detail for a change', () => {
       const detail = renderStatusDetail('my-change', makeState());
       expect(detail).toContain('Estado ODF: my-change');
-      expect(detail).toContain('Fase actual: init');
-      expect(detail).toContain('Siguiente fase: assess');
+      expect(detail).toContain('- **Fase actual**: init');
+      expect(detail).toContain('- **Siguiente fase**: assess');
     });
   });
 

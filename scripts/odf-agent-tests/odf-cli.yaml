@@ -1,0 +1,94 @@
+name: odf-cli-commands
+type: cli
+agent: odoo_orchestrator
+tests:
+  - name: "parse odf-new with change name"
+    input:
+      argv: ["new", "sale-discount-field"]
+    expected:
+      command: "odf-new"
+      change: "sale-discount-field"
+      description: null
+      fast: false
+
+  - name: "parse odf-new with description"
+    input:
+      argv: ["new", "sale-discount-field", "Add configurable discount"]
+    expected:
+      command: "odf-new"
+      change: "sale-discount-field"
+      description: "Add configurable discount"
+      fast: false
+
+  - name: "parse odf-new --fast"
+    input:
+      argv: ["new", "pos-custom-receipt", "--fast"]
+    expected:
+      command: "odf-new"
+      change: "pos-custom-receipt"
+      description: null
+      fast: true
+
+  - name: "parse odf-new missing name returns error"
+    input:
+      argv: ["new"]
+    expected:
+      error: true
+
+  - name: "parse odf-continue specific change"
+    input:
+      argv: ["continue", "sale-discount-field"]
+    expected:
+      command: "odf-continue"
+      change: "sale-discount-field"
+
+  - name: "parse odf-continue latest active"
+    input:
+      argv: ["continue"]
+    expected:
+      command: "odf-continue"
+      change: null
+
+  - name: "parse odf-status all"
+    input:
+      argv: ["status"]
+    expected:
+      command: "odf-status"
+      change: null
+
+  - name: "parse odf-status specific change"
+    input:
+      argv: ["status", "sale-discount-field"]
+    expected:
+      command: "odf-status"
+      change: "sale-discount-field"
+
+  - name: "parse odf-explore topic"
+    input:
+      argv: ["explore", "inventory valuation methods"]
+    expected:
+      command: "odf-explore"
+      topic: "inventory valuation methods"
+      version: null
+      module: null
+
+  - name: "parse odf-explore with version and module"
+    input:
+      argv: ["explore", "tax calculation", "--version", "18", "--module", "sale"]
+    expected:
+      command: "odf-explore"
+      topic: "tax calculation"
+      version: 18
+      module: "sale"
+
+  - name: "parse odf-explore missing topic returns error"
+    input:
+      argv: ["explore"]
+    expected:
+      error: true
+
+  - name: "parse unknown command returns error"
+    input:
+      argv: ["fix", "bug-name"]
+    expected:
+      error: true
