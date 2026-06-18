@@ -178,12 +178,19 @@ describe("matchSkills", () => {
   })
 })
 
+describe("ALLOWED_PHASES", () => {
+  it("includes EXPLORE as a valid delegation phase", () => {
+    expect(ALLOWED_PHASES).toContain("EXPLORE")
+  })
+})
+
 describe("resolveAgent", () => {
   it("returns default agents when keywords are empty", () => {
     expect(resolveAgent(baseRegistry, "ASSESS", [])).toBe("odoo_functional_consultant")
     expect(resolveAgent(baseRegistry, "DESIGN", [])).toBe("odoo_backend_engineer")
     expect(resolveAgent(baseRegistry, "IMPLEMENT", [])).toBe("odoo_backend_engineer")
     expect(resolveAgent(baseRegistry, "VERIFY", [])).toBe("odoo_qa_engineer")
+    expect(resolveAgent(baseRegistry, "EXPLORE", [])).toBe("odoo_functional_consultant")
   })
 
   it("matches custom agents by description keywords", () => {
@@ -608,5 +615,29 @@ describe("createODFDelegate", () => {
     expect(envelope.profile.name).toBe("cheap")
     expect(envelope.profile.model).toBe("opencode-go/kimi-k2.6")
     expect(envelope.profile.reasoning).toBe(false)
+  })
+
+  it("accepts EXPLORE phase and delegates to the functional consultant agent", async () => {
+    const { createODFDelegate, clearMetricsBuffer, getMetricsBuffer } = await import("./odf-delegation.js")
+    clearMetricsBuffer()
+    const taskResult = { status: "ok", executive_summary: "explored" }
+    const taskApi = vi.fn().mockResolvedValue(taskResult)
+    const toolCtx = { sessionID: "s1", task: taskApi } as any
+
+    const delegateTool = createODFDelegate(undefined)
+    const output = await delegateTool.execute(
+      { phase: "EXPLORE", prompt: "Explore how Odoo computes taxes", context_files: [] },
+      toolCtx
+    )
+
+    const envelope = JSON.parse(output as string)
+    expect(envelope.status).toBe("delegated")
+    expect(envelope.phase).toBe("EXPLORE")
+    expect(envelope.agent).toBe("odoo_functional_consultant")
+
+    const metrics = getMetricsBuffer()
+    expect(metrics.length).toBe(1)
+    expect(metrics[0].phase).toBe("EXPLORE")
+    expect(metrics[0].agent).toBe("odoo_functional_consultant")
   })
 })

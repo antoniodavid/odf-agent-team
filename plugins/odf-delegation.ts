@@ -714,6 +714,7 @@ function resolveAgent(registry: ODFRegistry, phase: string, taskKeywords: string
       DESIGN: "odoo_backend_engineer",
       IMPLEMENT: "odoo_backend_engineer",
       VERIFY: "odoo_qa_engineer",
+      EXPLORE: "odoo_functional_consultant",
     }
     return defaults[phase] || "odoo_backend_engineer"
   }
@@ -739,6 +740,7 @@ function resolveAgent(registry: ODFRegistry, phase: string, taskKeywords: string
     DESIGN: "odoo_backend_engineer",
     IMPLEMENT: "odoo_backend_engineer",
     VERIFY: "odoo_qa_engineer",
+    EXPLORE: "odoo_functional_consultant",
   }
 
   return defaults[phase] || "odoo_backend_engineer"
@@ -805,7 +807,7 @@ ${enrichedPrompt}
 ---FALLBACK_PROMPT_END---`
 }
 
-const ALLOWED_PHASES = ["ASSESS", "QA-PLAN", "DESIGN", "IMPLEMENT", "VERIFY"]
+const ALLOWED_PHASES = ["ASSESS", "QA-PLAN", "DESIGN", "IMPLEMENT", "VERIFY", "EXPLORE"]
 
 // ==========================================
 // TOOL CREATORS
@@ -824,7 +826,7 @@ Use this instead of generic task() for ODF workflow delegation.`,
     args: {
       phase: tool.schema
         .string()
-        .describe("ODF phase: ASSESS, QA-PLAN, DESIGN, IMPLEMENT, VERIFY"),
+        .describe("ODF phase: ASSESS, QA-PLAN, DESIGN, IMPLEMENT, VERIFY, EXPLORE"),
       prompt: tool.schema
         .string()
         .describe("The full detailed prompt for the agent."),
@@ -1087,7 +1089,7 @@ Use this for debugging:
     args: {
       phase: tool.schema
         .string()
-        .describe("ODF phase: ASSESS, QA-PLAN, DESIGN, IMPLEMENT, VERIFY"),
+        .describe("ODF phase: ASSESS, QA-PLAN, DESIGN, IMPLEMENT, VERIFY, EXPLORE"),
       task: tool.schema
         .string()
         .describe("Task description to analyze"),
@@ -1274,6 +1276,7 @@ You have ODF-specific tools for structured Odoo development:
 | DESIGN | odoo_backend_engineer |
 | IMPLEMENT | odoo_backend_engineer |
 | VERIFY | odoo_qa_engineer |
+| EXPLORE | odoo_functional_consultant |
 
 Custom agents in the registry override defaults when their triggers match.
 
