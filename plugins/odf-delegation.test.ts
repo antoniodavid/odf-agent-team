@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"
 import * as path from "node:path"
 import * as fs from "node:fs/promises"
+import * as fsSync from "node:fs"
 import * as os from "node:os"
 
 // These pure functions do not depend on the registry file path, so they can be
@@ -14,6 +15,9 @@ import {
   invokeTask,
   findTaskApi,
   getProfileByPhase,
+  recordMetrics,
+  getMetricsBuffer,
+  clearMetricsBuffer,
   ALLOWED_PHASES,
   type ODFRegistry,
   type ODFSkill,
@@ -102,14 +106,6 @@ describe("resolvePath", () => {
     expect(resolvePath(registryDir, "")).toBe("")
   })
 
-  it("passes absolute paths through unchanged", () => {
-    expect(resolvePath(registryDir, "/absolute/path/to/skill.md")).toBe("/absolute/path/to/skill.md")
-  })
-
-  it("expands ~/ to the user home directory", () => {
-    expect(resolvePath(registryDir, "~/Workspace/skill.md")).toBe(path.join(os.homedir(), "Workspace/skill.md"))
-  })
-
   it("resolves relative paths against the registry directory", () => {
     expect(resolvePath(registryDir, "skills/odf-assess/SKILL.md")).toBe(
       path.resolve(registryDir, "skills/odf-assess/SKILL.md")
@@ -120,6 +116,33 @@ describe("resolvePath", () => {
     expect(resolvePath(registryDir, "./skills/odf-assess/SKILL.md")).toBe(
       path.resolve(registryDir, "./skills/odf-assess/SKILL.md")
     )
+  })
+
+  it("expands ~/ paths that stay within the ODF config directory", () => {
+    expect(resolvePath(registryDir, "~/.config/opencode/skills/odf-assess/SKILL.md")).toBe(
+      path.join(os.homedir(), ".config/opencode/skills/odf-assess/SKILL.md")
+    )
+  })
+
+  it("allows absolute paths inside the allowed roots", () => {
+    expect(resolvePath(registryDir, "/home/user/.config/opencode/skills/x/SKILL.md")).toBe(
+      "/home/user/.config/opencode/skills/x/SKILL.md"
+    )
+  })
+
+  it("rejects paths containing .. segments", () => {
+    expect(resolvePath(registryDir, "../skills/odf-assess/SKILL.md")).toBe("")
+    expect(resolvePath(registryDir, "skills/../odf-assess/SKILL.md")).toBe("")
+  })
+
+  it("rejects absolute paths outside allowed roots", () => {
+    expect(resolvePath(registryDir, "/etc/passwd")).toBe("")
+    expect(resolvePath(registryDir, "/tmp/secret.md")).toBe("")
+  })
+
+  it("rejects ~/ paths outside allowed roots", () => {
+    expect(resolvePath(registryDir, "~/Workspace/skill.md")).toBe("")
+    expect(resolvePath(registryDir, "~/.ssh/id_rsa")).toBe("")
   })
 })
 
@@ -288,6 +311,82 @@ describe("findTaskApi", () => {
   })
 })
 
+describe("recordMetrics", () => {
+  const originalHome = process.env.HOME
+  let tempHome: string
+
+  beforeEach(async () => {
+    tempHome = await fs.mkdtemp(path.join(os.tmpdir(), "odf-metrics-"))
+    process.env.HOME = tempHome
+    process.env.ODF_CONFIG_DIR = ""
+    clearMetricsBuffer()
+  })
+
+  afterEach(async () => {
+    process.env.HOME = originalHome
+    delete process.env.ODF_CONFIG_DIR
+    delete process.env.ODF_METRICS_BUFFER_CAP
+    clearMetricsBuffer()
+    await fs.rm(tempHome, { recursive: true, force: true })
+  })
+
+  const makeMetric = (overrides: Partial<Parameters<typeof recordMetrics>[0]> = {}) => ({
+    timestamp: new Date().toISOString(),
+    session_id: "session-abc-123",
+    phase: "DESIGN",
+    agent: "odoo_backend_engineer",
+    skills_injected: ["odf-design"],
+    skill_resolution: "injected" as const,
+    duration_ms: 100,
+    token_estimate: 50,
+    status: "ok" as const,
+    task_api_source: "toolCtx.task" as const,
+    ...overrides,
+  })
+
+  it("hashes session_id instead of storing it raw", () => {
+    recordMetrics(makeMetric())
+    const buffered = getMetricsBuffer()
+    expect(buffered.length).toBe(1)
+    expect(buffered[0].session_hash).toMatch(/^[0-9a-f]{8}$/)
+  })
+
+  it("sanitizes and truncates error messages", () => {
+    const longError = "x".repeat(300)
+    recordMetrics(makeMetric({ status: "error", error: longError }))
+    const buffered = getMetricsBuffer()
+    expect(buffered[0].error).toHaveLength(203)
+    expect(buffered[0].error).toMatch(/\.\.\.$/)
+  })
+
+  it("flushes synchronously when the buffer cap is reached", () => {
+    process.env.ODF_METRICS_BUFFER_CAP = "2"
+    recordMetrics(makeMetric())
+    recordMetrics(makeMetric())
+    // Two entries hit the cap, so a synchronous flush fires and empties the buffer.
+    expect(getMetricsBuffer().length).toBe(0)
+
+    const metricsDir = path.join(tempHome, ".config", "opencode", "metrics")
+    const files = fsSync.readdirSync(metricsDir)
+    expect(files.length).toBe(1)
+    const logFile = path.join(metricsDir, files[0])
+    const lines = fsSync.readFileSync(logFile, "utf8").trim().split("\n")
+    expect(lines.length).toBe(2)
+    const first = JSON.parse(lines[0])
+    expect(first.session_hash).toMatch(/^[0-9a-f]{8}$/)
+    expect(first.session_id).toBeUndefined()
+  })
+
+  it("never stores the raw session_id in the JSONL log", () => {
+    process.env.ODF_METRICS_BUFFER_CAP = "1"
+    recordMetrics(makeMetric({ session_id: "super-secret-session" }))
+    const metricsDir = path.join(tempHome, ".config", "opencode", "metrics")
+    const files = fsSync.readdirSync(metricsDir)
+    const content = fsSync.readFileSync(path.join(metricsDir, files[0]), "utf8")
+    expect(content).not.toContain("super-secret-session")
+  })
+})
+
 describe("createODFDelegate", () => {
   const originalHome = process.env.HOME
   let tempHome: string
@@ -356,7 +455,7 @@ describe("createODFDelegate", () => {
     expect(output).toContain("fallback")
     expect(output).toContain("Status: fallback")
     expect(output).toContain("Agent: odoo_backend_engineer")
-    expect(output).toContain("---ENCRYPTED_PROMPT_START---")
+    expect(output).toContain("---FALLBACK_PROMPT_START---")
 
     const metrics = getMetricsBuffer()
     expect(metrics.length).toBe(1)
@@ -398,6 +497,34 @@ describe("createODFDelegate", () => {
 
     expect(output).toContain("Invalid phase")
     expect(output).toContain(ALLOWED_PHASES.join(", "))
+  })
+
+  it("rejects context_files that escape the workspace root", async () => {
+    const { createODFDelegate } = await import("./odf-delegation.js")
+    const toolCtx = { sessionID: "s1" } as any
+
+    const delegateTool = createODFDelegate(undefined)
+    const output = await delegateTool.execute(
+      { phase: "DESIGN", prompt: "Design a model", context_files: ["/etc/passwd"] },
+      toolCtx
+    )
+
+    expect(output).toContain("context_files")
+    expect(output).toContain("escapes workspace root")
+  })
+
+  it("rejects context_files containing .. segments", async () => {
+    const { createODFDelegate } = await import("./odf-delegation.js")
+    const toolCtx = { sessionID: "s1" } as any
+
+    const delegateTool = createODFDelegate(undefined)
+    const output = await delegateTool.execute(
+      { phase: "DESIGN", prompt: "Design a model", context_files: ["models/../../secret.py"] },
+      toolCtx
+    )
+
+    expect(output).toContain("context_files")
+    expect(output).toContain("path traversal")
   })
 
   it("falls back when client.task is provided but toolCtx.task is not", async () => {

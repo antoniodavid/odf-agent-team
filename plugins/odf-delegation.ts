@@ -14,16 +14,47 @@ import * as fs from "node:fs/promises"
 import * as fsSync from "node:fs"
 import * as path from "node:path"
 import * as os from "node:os"
+import * as nodeCrypto from "node:crypto"
 import { type Plugin, type ToolContext, tool } from "@opencode-ai/plugin"
 import type { createOpencodeClient } from "@opencode-ai/sdk"
 
 export type OpencodeClient = ReturnType<typeof createOpencodeClient>
 
 // ==========================================
+// CONFIGURATION / SAFE PATHS
+// ==========================================
+
+/**
+ * Return the ODF configuration directory.
+ *
+ * Uses ODF_CONFIG_DIR when it is set and absolute. Falls back to
+ * ~/.config/opencode. The resolved path is always absolute.
+ */
+function getOdfConfigDir(): string {
+  const envDir = process.env.ODF_CONFIG_DIR?.trim()
+  if (envDir) {
+    if (path.isAbsolute(envDir)) {
+      return path.normalize(envDir)
+    }
+    console.warn(`[odf-delegation] ODF_CONFIG_DIR "${envDir}" is not absolute; falling back to default.`)
+  }
+  return path.join(os.homedir(), ".config", "opencode")
+}
+
+function isWithinRoot(candidate: string, root: string): boolean {
+  const normalizedRoot = path.normalize(root)
+  const normalizedCandidate = path.normalize(candidate)
+  return (
+    normalizedCandidate === normalizedRoot ||
+    normalizedCandidate.startsWith(normalizedRoot + path.sep)
+  )
+}
+
+// ==========================================
 // ODF REGISTRY
 // ==========================================
 
-const REGISTRY_PATH = path.join(os.homedir(), ".config", "opencode", "odf-registry.json")
+const REGISTRY_PATH = path.join(getOdfConfigDir(), "odf-registry.json")
 
 // Registry cache with TTL (5 seconds) to avoid disk reads on every tool call
 let registryCache: ODFRegistry | null = null
@@ -103,13 +134,39 @@ interface ODFRegistry {
   flags?: Record<string, boolean | string | number>
 }
 
+/**
+ * Resolve a registry path safely.
+ *
+ * Rules:
+ * - Reject empty paths.
+ * - Reject any path containing ".." segments (path traversal).
+ * - Absolute paths are allowed only if they live under the registry directory
+ *   or the ODF config directory.
+ * - "~/" is expanded relative to the user's home directory and then checked
+ *   against the same allowed roots.
+ * - Relative paths are resolved against the registry directory and must stay
+ *   within the allowed roots.
+ */
 function resolvePath(registryDir: string, entryPath: string): string {
   if (!entryPath) return ""
-  if (path.isAbsolute(entryPath)) return entryPath
-  if (entryPath.startsWith("~/")) {
-    return path.join(os.homedir(), entryPath.slice(2))
+  if (entryPath.includes("..")) return ""
+
+  const allowedRoots = [path.normalize(registryDir), getOdfConfigDir()]
+
+  let resolved: string
+  if (path.isAbsolute(entryPath)) {
+    resolved = path.normalize(entryPath)
+  } else if (entryPath.startsWith("~/")) {
+    resolved = path.normalize(path.join(os.homedir(), entryPath.slice(2)))
+  } else {
+    resolved = path.resolve(registryDir, entryPath)
   }
-  return path.resolve(registryDir, entryPath)
+
+  if (!allowedRoots.some(root => isWithinRoot(resolved, root))) {
+    return ""
+  }
+
+  return resolved
 }
 
 async function loadRegistry(): Promise<ODFRegistry | null> {
@@ -134,7 +191,11 @@ async function loadRegistry(): Promise<ODFRegistry | null> {
     registryCacheTime = now
     startRegistryWatcher()
     return parsed
-  } catch {
+  } catch (err) {
+    if (err && (err as NodeJS.ErrnoException).code === "ENOENT") {
+      return null
+    }
+    console.warn(`[odf-delegation] Registry at ${REGISTRY_PATH} is unreadable or corrupt: ${err}`)
     return null
   }
 }
@@ -192,7 +253,7 @@ async function detectOdooVersion(projectDir: string): Promise<number | null> {
 // ==========================================
 
 async function discoverUnregisteredSkills(registry: ODFRegistry): Promise<string[]> {
-  const skillsDir = path.join(os.homedir(), ".config", "opencode", "skills")
+  const skillsDir = path.join(getOdfConfigDir(), "skills")
   const unregistered: string[] = []
 
   try {
@@ -217,7 +278,7 @@ async function discoverUnregisteredSkills(registry: ODFRegistry): Promise<string
 // CACHE FINGERPRINT (P0.3: Startup perf)
 // ==========================================
 
-const CACHE_FILE = path.join(os.homedir(), ".config", "opencode", ".registry-cache.json")
+const CACHE_FILE = path.join(getOdfConfigDir(), ".registry-cache.json")
 
 interface CacheEntry {
   path: string
@@ -263,7 +324,7 @@ async function hasSkillsChanged(): Promise<boolean> {
   const cache = await loadRegistryCache()
   if (!cache) return true
 
-  const skillsDir = path.join(os.homedir(), ".config", "opencode", "skills")
+  const skillsDir = path.join(getOdfConfigDir(), "skills")
   try {
     const entries = await fs.readdir(skillsDir, { recursive: true })
     const skillFiles = entries.filter(e => e.endsWith("SKILL.md"))
@@ -296,7 +357,7 @@ async function hasSkillsChanged(): Promise<boolean> {
 
 interface DelegationMetrics {
   timestamp: string
-  session_id: string
+  session_hash: string
   phase: string
   agent: string
   skills_injected: string[]
@@ -308,35 +369,87 @@ interface DelegationMetrics {
   error?: string
 }
 
+type DelegationMetricInput = Omit<DelegationMetrics, "session_hash"> & {
+  session_id: string
+  error?: string
+}
+
 let metricsBuffer: DelegationMetrics[] = []
 const METRICS_FLUSH_INTERVAL = 30_000 // flush every 30s
 let metricsTimer: ReturnType<typeof setInterval> | null = null
+
+function getMetricsBufferCap(): number {
+  const parsed = parseInt(process.env.ODF_METRICS_BUFFER_CAP || "1000", 10)
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 1000
+}
+
+function getMetricsDir(): string {
+  return path.join(getOdfConfigDir(), "metrics")
+}
 
 function estimateTokens(text: string): number {
   return Math.ceil(text.length / 4)
 }
 
+function hashSession(sessionId: string): string {
+  return nodeCrypto.createHash("sha256").update(sessionId).digest("hex").slice(0, 8)
+}
+
+function sanitizeError(error?: string): string | undefined {
+  if (!error) return undefined
+  const safe = error.replace(/\r?\n/g, " ").replace(/"/g, "'").trim()
+  return safe.length > 200 ? safe.slice(0, 200) + "..." : safe
+}
+
+/**
+ * Metrics policy:
+ * - Buffer is capped at ODF_METRICS_BUFFER_CAP (default 1000 entries).
+ *   When the cap is reached the buffer is flushed synchronously to disk
+ *   (backpressure) so memory stays bounded.
+ * - session_id is hashed (sha256, first 8 hex chars) before persistence;
+ *   the raw session_id never appears in the JSONL log.
+ * - Error messages are truncated to 200 characters and newlines are replaced
+ *   with spaces so each log line remains a single JSON object.
+ * - Metrics are written to ${ODF_CONFIG_DIR}/metrics. The directory should be
+ *   protected by normal filesystem permissions (user-owned, not world-readable).
+ * - Retention is daily JSONL files; downstream consumers should rotate or purge
+ *   old files according to their own policy.
+ */
+function flushMetricsSync(): void {
+  if (metricsBuffer.length === 0) return
+  const batch = metricsBuffer.splice(0)
+  try {
+    const metricsDir = getMetricsDir()
+    fsSync.mkdirSync(metricsDir, { recursive: true })
+    const today = new Date().toISOString().split("T")[0]
+    const logFile = path.join(metricsDir, `delegations-${today}.jsonl`)
+    const lines = batch.map(m => JSON.stringify(m)).join("\n") + "\n"
+    fsSync.appendFileSync(logFile, lines, "utf8")
+  } catch (err) {
+    // Metrics logging is best-effort. If sync flush fails we drop the batch
+    // rather than letting the buffer grow unbounded.
+    console.warn(`[odf-delegation] Metrics flush failed: ${err}`)
+  }
+}
+
 function startMetricsFlusher(): void {
   if (metricsTimer) return
-  metricsTimer = setInterval(async () => {
-    if (metricsBuffer.length === 0) return
-    const batch = metricsBuffer.splice(0)
-    try {
-      // Save metrics to a local JSON log file
-      const metricsDir = path.join(os.homedir(), ".config", "opencode", "metrics")
-      await fs.mkdir(metricsDir, { recursive: true })
-      const today = new Date().toISOString().split("T")[0]
-      const logFile = path.join(metricsDir, `delegations-${today}.jsonl`)
-      const lines = batch.map(m => JSON.stringify(m)).join("\n") + "\n"
-      await fs.appendFile(logFile, lines, "utf8")
-    } catch {
-      // Metrics logging is best-effort
-    }
+  metricsTimer = setInterval(() => {
+    flushMetricsSync()
   }, METRICS_FLUSH_INTERVAL)
 }
 
-function recordMetrics(metric: DelegationMetrics): void {
-  metricsBuffer.push(metric)
+function recordMetrics(metric: DelegationMetricInput): void {
+  const { session_id, ...rest } = metric
+  const sanitized: DelegationMetrics = {
+    ...rest,
+    session_hash: hashSession(session_id),
+    error: sanitizeError(metric.error),
+  }
+  metricsBuffer.push(sanitized)
+  if (metricsBuffer.length >= getMetricsBufferCap()) {
+    flushMetricsSync()
+  }
 }
 
 // ==========================================
@@ -351,7 +464,7 @@ interface LearningInsight {
 }
 
 async function learnFromMetrics(): Promise<LearningInsight[]> {
-  const metricsDir = path.join(os.homedir(), ".config", "opencode", "metrics")
+  const metricsDir = getMetricsDir()
   const insights: Map<string, { successes: number; total: number; durations: number[] }> = new Map()
 
   try {
@@ -679,9 +792,9 @@ Status: fallback
 
 Use task() with agent="${agentName}" and the enriched prompt below:
 
----ENCRYPTED_PROMPT_START---
+---FALLBACK_PROMPT_START---
 ${enrichedPrompt}
----ENCRYPTED_PROMPT_END---`
+---FALLBACK_PROMPT_END---`
 }
 
 const ALLOWED_PHASES = ["ASSESS", "QA-PLAN", "DESIGN", "IMPLEMENT", "VERIFY"]
@@ -729,10 +842,22 @@ Use this instead of generic task() for ODF workflow delegation.`,
         return `❌ Invalid phase "${args.phase}". Allowed: ${ALLOWED_PHASES.join(", ")}`
       }
 
+      // Validate context_files stay within the workspace root
+      const workspaceRoot = process.cwd()
+      for (const file of args.context_files || []) {
+        if (file.includes("..")) {
+          return `❌ context_files entry "${file}" contains path traversal`
+        }
+        const resolvedFile = path.resolve(workspaceRoot, file)
+        if (!isWithinRoot(resolvedFile, workspaceRoot)) {
+          return `❌ context_files entry "${file}" escapes workspace root`
+        }
+      }
+
       const startTime = Date.now()
       const registry = await loadRegistry()
       if (!registry) {
-        return "❌ ODF registry not found. Run /odf-init or check ~/.config/opencode/odf-registry.json"
+        return `❌ ODF registry not found. Run /odf-init or check ${REGISTRY_PATH}`
       }
 
       // Detect Odoo version from project
@@ -1186,7 +1311,7 @@ export const OdfDelegationPlugin: Plugin = async (ctx) => {
     const cache = await loadRegistryCache()
     if (!cache || cache.permissions_fingerprint !== fp) {
       // Skills changed — save new fingerprint for faster next startup
-      const skillsDir = path.join(os.homedir(), ".config", "opencode", "skills")
+  const skillsDir = path.join(getOdfConfigDir(), "skills")
       const newCache: RegistryCache = {
         timestamp: new Date().toISOString(),
         last_refresh: new Date().toISOString(),

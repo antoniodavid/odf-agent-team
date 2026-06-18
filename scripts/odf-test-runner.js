@@ -12,6 +12,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import os from 'node:os';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
@@ -19,7 +20,7 @@ import YAML from 'yaml';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const REGISTRY_PATH = path.join(process.env.HOME, '.config', 'opencode', 'odf-registry.json');
+const REGISTRY_PATH = path.join(os.homedir(), '.config', 'opencode', 'odf-registry.json');
 const TESTS_DIR = path.join(__dirname, 'odf-agent-tests');
 const PLUGIN_TESTS = path.join(__dirname, '..', 'plugins', 'odf-delegation.test.ts');
 
