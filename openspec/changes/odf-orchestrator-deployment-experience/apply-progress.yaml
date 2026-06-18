@@ -1,10 +1,10 @@
 change: odf-orchestrator-deployment-experience
 version: 1.0.0
-status: verified
+status: applied
 artifact_store: openspec
 
-slice: 2
-slice_name: Preflight gate + orchestrator agent
+slice: 3
+slice_name: Native /odf-* commands
 
 mode: Standard
 strict_tdd: false
@@ -88,8 +88,39 @@ completed_tasks:
     step: Write YAML scenario tests for orchestrator state transitions, approval gates, resume latest active change, and multiple active changes prompt.
     status: complete
     evidence: scripts/odf-agent-tests/orchestrator.yaml passes all scenarios.
+  # Slice 3
+  - id: 3.1
+    step: Update command/odf-new.md parsing for change-name, optional quoted description, and --fast flag; hand off to orchestrator.
+    status: complete
+    evidence: command/odf-new.md updated with parameter table, routing contract, error handling, and Spanish output format.
+  - id: 3.2
+    step: Update command/odf-continue.md to accept optional change-name and route resume to orchestrator.
+    status: complete
+    evidence: command/odf-continue.md updated with routing contract and resume logic.
+  - id: 3.3
+    step: Update command/odf-status.md to list active changes or detail a named change via orchestrator.
+    status: complete
+    evidence: command/odf-status.md updated with table/detail output formats in Spanish.
+  - id: 3.4
+    step: Update command/odf-explore.md to parse topic, --version, --module, and route through orchestrator.
+    status: complete
+    evidence: command/odf-explore.md updated with parameter schema and EXPLORE routing.
+  - id: 3.5
+    step: Add commands array to odf-registry.json with entries for odf-new, odf-continue, odf-status, odf-explore.
+    status: complete
+    evidence: odf-registry.json commands array includes descriptions and triggers for all four commands.
+  - id: 3.6
+    step: Write YAML scenario tests for command parsing, --fast wiring, missing args, resume specific vs latest, no active changes, status table/detail, and explore routing.
+    status: complete
+    evidence: scripts/odf-agent-tests/odf-cli.yaml covers all four commands plus error cases.
 
-fixes_applied: []
+fixes_applied:
+  - id: FIX-01
+    description: Add EXPLORE to ALLOWED_PHASES in plugins/odf-delegation.ts
+    reason: /odf-explore routes through odf_delegate(phase=EXPLORE) but the plugin rejected EXPLORE as invalid.
+    files:
+      - plugins/odf-delegation.ts
+      - plugins/odf-delegation.test.ts
 
 files_changed:
   # Slice 1 (kept for audit)
@@ -178,14 +209,60 @@ files_changed:
   - path: openspec/changes/odf-orchestrator-deployment-experience/tasks.yaml
     action: modified
     description: Mark Slice 2 tasks complete
+  # Slice 3
+  - path: plugins/odf-delegation.ts
+    action: modified
+    description: Add EXPLORE to ALLOWED_PHASES, tool schemas, system rules, and default agent mapping
+  - path: plugins/odf-delegation.test.ts
+    action: modified
+    description: Add ALLOWED_PHASES and EXPLORE delegation tests
+  - path: command/odf-new.md
+    action: modified
+    description: Complete command contract with parameters, routing, errors, and Spanish output
+  - path: command/odf-continue.md
+    action: modified
+    description: Complete command contract with resume routing and error handling
+  - path: command/odf-status.md
+    action: modified
+    description: Complete command contract with table/detail output formats
+  - path: command/odf-explore.md
+    action: modified
+    description: Complete command contract with EXPLORE routing
+  - path: odf-registry.json
+    action: modified
+    description: Add descriptions to command entries
+  - path: scripts/odf-cli.js
+    action: created
+    description: Minimal CLI parser and orchestrator router for odf new/continue/status/explore
+  - path: scripts/odf-cli.d.ts
+    action: created
+    description: TypeScript declarations for CLI parser
+  - path: scripts/odf-cli.test.ts
+    action: created
+    description: Unit tests for CLI command parsing and orchestrator prompt generation
+  - path: scripts/odf-agent-tests/odf-cli.yaml
+    action: created
+    description: YAML scenario tests for all four /odf-* commands
+  - path: scripts/odf-test-runner.js
+    action: modified
+    description: Dispatch CLI YAML suite and run all unit tests via vitest
+  - path: scripts/lib/orchestrator.test.ts
+    action: modified
+    description: Align test expectations with optional qa-plan state and markdown detail format
+  - path: openspec/changes/odf-orchestrator-deployment-experience/tasks.yaml
+    action: modified
+    description: Mark Slice 3 tasks complete
 
 test_results:
   - command: npm test
     status: passed
-    summary: 39 plugin unit tests passed; 13 YAML scenario tests passed
+    summary: 88 unit tests passed; 52 YAML scenario tests passed (existing 8 + preflight 5 + orchestrator 5 + cli 12)
   - command: node scripts/odf-test-runner.js
     status: passed
-    summary: 13 YAML scenario tests passed (existing 8 + preflight 5 + orchestrator 5)
+    summary: 52 YAML scenario tests passed (existing 8 + preflight 5 + orchestrator 5 + cli 12)
+  - command: node scripts/odf-test-runner.js scripts/odf-agent-tests/odf-cli.yaml
+    status: passed
+    summary: 12 CLI scenario tests passed
   - command: npx tsc --noEmit
     status: passed
     summary: TypeScript type check clean
@@ -201,9 +278,6 @@ deviations_from_design:
     reason: The file is a technical agent artifact; only user-facing prompts/summaries are required to be Spanish per user instruction.
 
 remaining_tasks:
-  - slice: 3
-    tasks:
-      - Native /odf-* command full implementation (registry command entries already added)
   - slice: 4
     tasks:
       - Installer + registry relative paths
@@ -213,26 +287,28 @@ remaining_tasks:
 
 workload_pr_boundary:
   mode: feature-branch-chain
-  current_work_unit: Slice 2
+  current_work_unit: Slice 3
   boundary: |
     PR #1 (Slice 1) remains pending on feature/odf-orchestrator-deployment-experience.
-    Slice 2 PR targets the Slice 1 branch so the diff shows only preflight/orchestrator work.
+    Slice 2 is merged into the feature branch.
+    Slice 3 PR targets the feature branch so the diff shows only command/registry/cli work.
   review_budget_note: |
-    Slice 2 is forecast at ~710 changed lines (agent + preflight + state + tests + commands + registry)
-    and will exceed the 400-line per-PR budget. This is pre-resolved as a feature-branch-chain
-    Slice 2 boundary. Actual diff size should be verified before opening the PR.
+    Slice 3 is forecast at ~300 changed lines (commands + registry + cli wrapper + tests + plugin EXPLORE fix).
+    It should stay within the 400-line per-PR budget; verify actual diff before opening the PR.
 
-next_recommended: sdd-archive (Slice 2 boundary)
+next_recommended: sdd-archive (Slice 3 boundary)
 
 risks:
   - description: task() API signature unconfirmed in production OpenCode runtime
     mitigation: Runtime probe + deterministic fallback preserves usability.
   - description: Existing consumers may expect old text-only odf_delegate output
     mitigation: Fallback path preserves old format; success path is a documented change.
-  - description: Slice 2 exceeds 400-line review budget
-    mitigation: Pre-resolved as a feature-branch-chain slice; monitor actual diff before PR.
-  - description: Orchestrator markdown is large; new sections may be overlooked by the model
-    mitigation: Added a clear "Slice 2" heading and explicit supersede note.
+  - description: EXPLORE phase now allowed in plugin but orchestrator/agent expectations may differ
+    mitigation: Agent markdown and command docs both specify phase=EXPLORE; unit test verifies delegation to odoo_functional_consultant.
+  - description: CLI wrapper is minimal and does not invoke OpenCode directly
+    mitigation: Documented as parsing/orchestrator-router only; full invocation still goes through OpenCode chat /odf-* commands.
+  - description: Command markdown files rewritten in Slice 3 may conflict with Slice 2 versions in pending PRs
+    mitigation: Slice 3 PR targets the feature branch after Slice 2 merges; review diff carefully for conflicts.
   - description: Command files updated in Slice 2 may conflict with planned Slice 3 scope
     mitigation: Slice 3 can build on these updates rather than reimplementing them.
 

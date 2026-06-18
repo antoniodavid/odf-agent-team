@@ -201,16 +201,22 @@ slices:
     tasks:
       - id: 3.1
         step: Update command/odf-new.md parsing for change-name, optional quoted description, and --fast flag; hand off to orchestrator.
+        status: complete
       - id: 3.2
         step: Update command/odf-continue.md to accept optional change-name and route resume to orchestrator.
+        status: complete
       - id: 3.3
         step: Update command/odf-status.md to list active changes or detail a named change via orchestrator.
+        status: complete
       - id: 3.4
         step: Update command/odf-explore.md to parse topic, --version, --module, and route through orchestrator.
+        status: complete
       - id: 3.5
         step: Add commands array to odf-registry.json with entries for odf-new, odf-continue, odf-status, odf-explore.
+        status: complete
       - id: 3.6
         step: Write YAML scenario tests for command parsing, --fast wiring, missing args, resume specific vs latest, no active changes, status table/detail, and explore routing.
+        status: complete
     acceptance_criteria:
       - /odf-new <name> ["desc"] [--fast] triggers orchestrator preflight.
       - /odf-continue [name] resumes the correct active change.
