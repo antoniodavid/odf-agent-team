@@ -1,0 +1,133 @@
+capability: odf-preflight
+change: odf-orchestrator-deployment-experience
+version: 1.0.0
+status: spec
+type: new
+
+summary: |
+  Hard gate that captures ODF-specific choices before a workflow phase is
+  delegated. Choices are persisted with the change state and reused on resume.
+
+requirements:
+  functional:
+    - id: PREF-01
+      name: Capture required ODF choices
+      strength: MUST
+      description: |
+        The preflight gate MUST collect execution mode, artifact store,
+        delivery strategy, review budget, Odoo version, TDD mode, solution
+        strategy, and chain strategy.
+      acceptance:
+        - All required fields are present before delegation.
+        - Each field has a defined default or is explicitly answered.
+      scenarios:
+        - name: New change preflight
+          given: User runs /odf-new my-feature
+          when: The preflight gate executes
+          then: It prompts for each required choice not already known
+
+    - id: PREF-02
+      name: Validate required answers
+      strength: MUST
+      description: |
+        The preflight gate MUST block phase delegation until every required
+        choice is valid.
+      acceptance:
+        - Invalid Odoo version is rejected.
+        - Empty required fields trigger a re-ask.
+      scenarios:
+        - name: Missing version
+          given: Odoo version cannot be auto-detected and user left it blank
+          when: Validation runs
+          then: The gate asks again and does not allow continuation
+
+    - id: PREF-03
+      name: Persist preflight record
+      strength: MUST
+      description: |
+        The preflight gate MUST persist answers with the change state before
+        the orchestrator delegates any phase.
+      acceptance:
+        - Persisted record uses deterministic topic/path.
+        - Resume reads the same record.
+      scenarios:
+        - name: Preflight completed
+          given: User answered all preflight questions
+          when: The gate saves the record
+          then: The orchestrator proceeds to ASSESS
+
+    - id: PREF-04
+      name: Infer defaults from project context
+      strength: SHOULD
+      description: |
+        The gate SHOULD infer Odoo version, artifact store, and TDD mode from
+        the persisted odf-init project config when available.
+      scenarios:
+        - name: Project config exists
+          given: odf-init/{project} exists in Engram/OpenSpec
+          when: Preflight runs
+          then: Version and test runner defaults are pre-filled
+
+    - id: PREF-05
+      name: Allow amendment before delegation
+      strength: SHOULD
+      description: |
+        The gate SHOULD allow the user to review and amend answers before
+        the first phase is delegated.
+      scenarios:
+        - name: Review answers
+          given: User completed all questions
+          when: Preflight shows summary
+          then: User can edit any answer before confirming
+
+  non_functional:
+    - id: PREF-N01
+      name: Idempotent persistence
+      strength: MUST
+      description: Saving the same preflight answers multiple times MUST NOT create duplicates.
+    - id: PREF-N02
+      name: Deterministic schema
+      strength: MUST
+      description: The preflight record schema MUST be versioned and documented.
+
+interface_contracts:
+  inputs:
+    - change-name from /odf-new
+    - existing odf-init/{project} config (optional)
+    - user answers via conversation
+  outputs:
+    - preflight record:
+        change: <name>
+        execution_mode: interactive|batch
+        artifact_store: openspec|engram|hybrid
+        delivery_strategy: ask-always|ask-on-risk|auto-chain|single-pr
+        review_budget_lines: number
+        odoo_version: 16|17|18|19
+        tdd_mode: true|false
+        solution_strategy: standard|custom|pending
+        chain_strategy: none|chained|feature-branch
+        persisted_at: ISO8601
+
+error_cases:
+  - Missing required answer -> re-prompt user.
+  - Invalid enum value -> show allowed values and re-prompt.
+  - Persistence failure -> report error and block delegation.
+  - Project config read failure -> fall back to manual questions.
+
+edge_cases:
+  - User runs /odf-continue on a change with incomplete preflight -> run preflight first.
+  - User changes artifact store preference mid-workflow -> apply only to new artifacts.
+  - TDD mode toggled after preflight -> record updated for subsequent phases.
+
+dependencies:
+  - orchestrator-agent (invokes preflight)
+  - odf-init project config (optional source of defaults)
+
+affected_files:
+  - agent/odoo_orchestrator.md
+  - openspec/changes/odf-orchestrator-deployment-experience/state.yaml
+
+test_approach:
+  - Unit tests for validation logic in plugins or scripts.
+  - YAML scenarios covering missing answers, defaults, and amendments.
+  - Run node scripts/odf-test-runner.js.

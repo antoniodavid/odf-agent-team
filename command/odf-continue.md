@@ -1,50 +1,70 @@
 ---
 description: "Continue ODF workflow from last completed phase. Usage: /odf-continue [change-name]"
+triggers: ["/odf-continue"]
+agent: odoo_orchestrator
 ---
 
-# ODF: Continue Change
+# /odf-continue — Continuar cambio ODF
 
-Resume the ODF workflow from wherever it was left off.
+Reanuda el flujo de trabajo ODF desde la última fase completada del cambio activo más reciente o de un cambio nombrado.
 
-## Parse Arguments
-
-```
-/odf-continue              — Resume the most recent active change
-/odf-continue sale-discount — Resume a specific change by name
-```
-
-## Orchestrator Instructions
-
-1. **Recover state** from Engram:
-   ```
-   mem_search(query: "odf/*/state") — list active changes
-   mem_get_observation(id) — full state YAML
-   ```
-2. **Determine next phase** from state:
-   - If assess=true, design=false — run DESIGN
-   - If design=true, implement=false — run IMPLEMENT
-   - If implement=true, verify=false — run VERIFY
-   - If verify=true — change is complete
-3. **Launch next phase** via the appropriate skill + sub-agent
-4. **Show gate** after phase completion
-
-## If Multiple Active Changes
+## Uso
 
 ```
-Active ODF changes:
-  1. sale-discount — Phase: DESIGN (ready for IMPLEMENT)
-  2. pos-custom-receipt — Phase: ASSESS (ready for DESIGN)
-
-Which change to continue? (or specify: /odf-continue sale-discount)
+/odf-continue              — Reanuda el cambio activo más reciente
+/odf-continue <change-name> — Reanuda un cambio específico
 ```
 
-## Output
+## Parámetros
+
+| Parámetro | Requerido | Tipo | Descripción |
+|-----------|-----------|------|-------------|
+| `change-name` | No | string | Nombre del cambio a continuar. Si se omite, se usa el más reciente |
+
+## Ejemplos
+
+- `/odf-continue`
+- `/odf-continue sale-discount-field`
+
+## Instrucciones para el orquestador
+
+1. **Cargar cambios activos** desde `openspec/changes/*/state.yaml` (y/o Engram `odf/*/state`).
+2. **Ordenar** por `last_updated` descendente.
+3. **Seleccionar cambio**:
+   - Si se proporciona nombre: cargar ese cambio; error si no está activo.
+   - Si no hay nombre: elegir el más reciente.
+   - Si hay varios activos y no hay nombre: listarlos y pedir al usuario.
+4. **Verificar preflight**: si está incompleto, ejecutar el preflight gate primero.
+5. **Determinar la siguiente fase** desde `state.artifacts`:
+   - preflight incompleto → `preflight`
+   - assess=false → `ASSESS`
+   - design=false → `DESIGN`
+   - implement=false → `IMPLEMENT`
+   - verify=false → `VERIFY`
+   - todos true → sugerir archivar
+6. **Delegar la siguiente fase** vía `odf_delegate(phase, prompt, context_files)`.
+7. **Mostrar puerta de aprobación** después de la fase.
+
+## Contrato de enrutamiento
+
+- Entrada: comando `/odf-continue` con nombre opcional.
+- Salida: prompt conversacional con:
+  - `command: odf-continue`
+  - `change: <change-name|latest>`
+
+## Manejo de errores
+
+- **Cambio nombrado no activo**: listar activos y sugerir `/odf-new`.
+- **Sin cambios activos**: informar y sugerir `/odf-new <nombre>`.
+- **Error de `odf_delegate`**: mostrar mensaje, mantener estado, ofrecer reintentar.
+
+## Formato de salida
 
 ```
-ODF: Continuing "{change-name}"
+ODF: Continuando "{change-name}"
 
-  Last phase: {phase}
-  Next phase: {next-phase}
-  Delegating to: {agent}
-  ...
+Última fase: {phase}
+Siguiente fase: {next-phase}
+Agente: {agent}
+...
 ```

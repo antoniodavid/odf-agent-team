@@ -1,0 +1,159 @@
+capability: orchestrator-agent
+change: odf-orchestrator-deployment-experience
+version: 1.0.0
+status: spec
+type: new
+
+summary: |
+  Conversational coordinator that owns the ODF workflow lifecycle.
+  It runs a mandatory preflight gate, persists decisions, delegates phases
+  through the odf-delegation plugin, shows approval gates, and resumes work.
+
+requirements:
+  functional:
+    - id: ORCH-01
+      name: Preflight gate enforcement
+      strength: MUST
+      description: |
+        The orchestrator MUST NOT delegate a phase until the ODF preflight
+        gate has collected and validated all required choices for the change.
+      acceptance:
+        - Preflight answers are persisted before any delegation.
+        - Missing answers block delegation with a clarifying question.
+      scenarios:
+        - name: New change starts after preflight
+          given: User invoked /odf-new with a change name
+          when: The orchestrator runs the preflight gate
+          then: It asks any unanswered preflight questions and waits for answers
+        - name: Existing preflight allows progress
+          given: A change has a persisted preflight record
+          when: The orchestrator resumes the workflow
+          then: It skips preflight and delegates the next phase
+
+    - id: ORCH-02
+      name: Phase delegation via real task()
+      strength: MUST
+      description: |
+        The orchestrator MUST delegate each approved phase through the
+        odf_delegate plugin tool, which invokes the native task() API.
+      acceptance:
+        - Delegation includes phase, enriched prompt, agent name and context files.
+        - The plugin returns the task() result, not instructions.
+      scenarios:
+        - name: Approved phase runs
+          given: User approved the DESIGN phase
+          when: The orchestrator calls odf_delegate with phase=DESIGN
+          then: The selected agent executes the phase and returns a result envelope
+
+    - id: ORCH-03
+      name: Conversational approval gates
+      strength: MUST
+      description: |
+        The orchestrator MUST show a concise phase summary and ask for user
+        approval before moving to the next phase, unless fast mode is active.
+      acceptance:
+        - Summary contains status, strategy, risks, and next phase.
+        - User can approve, request details, or abort.
+      scenarios:
+        - name: Standard gate after ASSESS
+          given: ASSESS completed with strategy custom
+          when: Orchestrator presents the summary
+          then: It asks "Proceed to DESIGN?" and waits for confirmation
+        - name: Fast mode skips intermediate gates
+          given: /odf-new was invoked with --fast
+          when: ASSESS completes
+          then: The orchestrator proceeds to DESIGN without stopping
+
+    - id: ORCH-04
+      name: State persistence
+      strength: MUST
+      description: |
+        The orchestrator MUST persist workflow state after every phase
+        transition to OpenSpec/Engram.
+      acceptance:
+        - State includes current phase, artifact flags, task progress, timestamps.
+      scenarios:
+        - name: Phase completed
+          given: DESIGN phase finished successfully
+          when: The orchestrator updates the change state
+          then: design flag is true, current phase is DESIGN, timestamp recorded
+
+    - id: ORCH-05
+      name: Resume from persisted state
+      strength: MUST
+      description: |
+        The orchestrator MUST resume an active change from its last completed
+        phase when /odf-continue is invoked.
+      acceptance:
+        - Without a name, it resumes the most recently updated active change.
+        - With a name, it resumes that change if active.
+      scenarios:
+        - name: Resume latest active change
+          given: Two active changes exist and change A was updated last
+          when: User runs /odf-continue
+          then: Change A continues from its next pending phase
+
+    - id: ORCH-06
+      name: Non-ODF request handling
+      strength: SHOULD
+      description: |
+        The orchestrator SHOULD route simple Odoo questions to the appropriate
+        agent or answer directly instead of starting a full workflow.
+      scenarios:
+        - name: Simple how-to question
+          given: User asks "How does Odoo compute taxes?"
+          when: The orchestrator detects a research question
+          then: It delegates a short answer without creating a change
+
+  non_functional:
+    - id: ORCH-N01
+      name: Backward compatibility
+      strength: MUST
+      description: Existing ODF commands and agents continue to work unchanged.
+    - id: ORCH-N02
+      name: Thin orchestrator
+      strength: MUST
+      description: The orchestrator MUST NOT write code, specs, or designs directly.
+    - id: ORCH-N03
+      name: Storage default
+      strength: MUST
+      description: OpenSpec is the default artifact store; Engram remains optional.
+
+interface_contracts:
+  inputs:
+    - command: /odf-new <change-name> [description] [--fast]
+    - command: /odf-continue [change-name]
+    - command: /odf-status [change-name]
+    - command: /odf-explore <topic> [--version N] [--module M]
+    - preflight record persisted by odf-preflight
+  outputs:
+    - Conversational prompt with phase summary and gate
+    - odf_delegate call with phase, prompt, context_files
+    - Updated change state in OpenSpec/Engram
+
+error_cases:
+  - Preflight incomplete -> ask remaining questions, do not delegate.
+  - No active change for /odf-continue -> inform user and suggest /odf-new.
+  - odf_delegate returns error -> show error, keep state unchanged, offer retry.
+  - Multiple active changes and no name -> list changes and ask user to pick.
+
+edge_cases:
+  - User aborts at approval gate -> state remains at last completed phase.
+  - Phase agent returns blocked -> orchestrator surfaces blocker and stops.
+  - /odf-status with no active changes -> show empty state with setup tip.
+  - Fast mode reaches IMPLEMENT -> still pause before implementation per proposal.
+
+dependencies:
+  - odf-preflight (must run first)
+  - odf-delegation-plugin (real task() invocation)
+  - odf-cli-commands (command definitions)
+  - odf-registry.json (agent/skill resolution)
+
+affected_files:
+  - agent/odoo_orchestrator.md
+  - openspec/changes/odf-orchestrator-deployment-experience/state.yaml
+
+test_approach:
+  - Add YAML test scenarios in scripts/odf-agent-tests/orchestrator.yaml.
+  - Verify preflight blocking, state transitions, and approval gates.
+  - Run node scripts/odf-test-runner.js --agent=odoo_orchestrator.

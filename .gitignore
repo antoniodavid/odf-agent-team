@@ -8,7 +8,6 @@ metrics/
 
 # Node
 node_modules/
-.package-lock.json
 
 # OS
 .DS_Store
@@ -24,6 +23,7 @@ Thumbs.db
 .registry-cache.json
 *.backup.*
 .pre-version.*
+.atl/
 
 # Engram
 .engram/

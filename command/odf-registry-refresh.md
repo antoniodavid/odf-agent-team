@@ -12,7 +12,9 @@ Examples:
 
 ## What This Does
 
-Scans `~/.config/opencode/skills/` for all SKILL.md files. Compares fingerprints (path + mtime + size) against `.registry-cache.json`. Updates `odf-registry.json` with any changes. Creates a backup before modifying.
+Scans `~/.config/opencode/skills/` for all SKILL.md files under `odf-*`, `oca/`, and `odoo_*` directories. Compares fingerprints (path + mtime + size) against `.registry-cache.json`. Updates `odf-registry.json` with any changes. Creates a backup before modifying.
+
+When `registry.flags.use_relative_paths` is `true` (the default for new installs), skill and agent paths are stored relative to the directory containing `odf-registry.json`. Absolute legacy paths are preserved unchanged.
 
 ## Orchestrator Instructions
 
@@ -26,6 +28,7 @@ Scans `~/.config/opencode/skills/` for all SKILL.md files. Compares fingerprints
 2. **Scan skills**:
    ```
    Find all SKILL.md recursively in ~/.config/opencode/skills/
+   Include directories matching: odf-*, oca, odoo_*
    For each:
      Read frontmatter: name, description, triggers, license, version
      Read ## Rules section → compact_rules
@@ -34,7 +37,15 @@ Scans `~/.config/opencode/skills/` for all SKILL.md files. Compares fingerprints
      Compute fingerprint: {path, mtime, size}
    ```
 
-3. **Diff against current registry**:
+3. **Resolve path format**:
+   ```
+   IF registry.flags.use_relative_paths IS true:
+     Store path relative to ~/.config/opencode/
+   ELSE:
+     Store absolute path
+   ```
+
+4. **Diff against current registry**:
    ```
    FOR EACH scanned skill:
      IF new → add to skills array
@@ -45,14 +56,14 @@ Scans `~/.config/opencode/skills/` for all SKILL.md files. Compares fingerprints
      Mark removed: true
    ```
 
-4. **Backup before write**:
+5. **Backup before write**:
    ```
    cp odf-registry.json odf-registry.json.backup.$(date +%Y%m%d_%H%M%S)
    ```
 
-5. **Write updated registry** + update `.registry-cache.json`
+6. **Write updated registry** + update `.registry-cache.json`
 
-6. **Persist to Engram**:
+7. **Persist to Engram**:
    ```
    mem_save(
      title: "odf/registry/{timestamp}",
@@ -63,7 +74,7 @@ Scans `~/.config/opencode/skills/` for all SKILL.md files. Compares fingerprints
    )
    ```
 
-7. **Show summary**:
+8. **Show summary**:
    ```
    ODF: Registry Refreshed
      Skills scanned: {N}
@@ -71,4 +82,5 @@ Scans `~/.config/opencode/skills/` for all SKILL.md files. Compares fingerprints
      Updated: {N}
      Removed: {N}
      Total in registry: {N}
+     use_relative_paths: {true|false}
    ```

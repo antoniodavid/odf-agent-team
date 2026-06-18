@@ -1,0 +1,284 @@
+change: odf-orchestrator-deployment-experience
+version: 1.0.0
+slice: 4
+slice_name: Installer + registry relative paths
+status: passed
+final_verdict: PASS WITH WARNINGS
+artifact_store: openspec
+report_type: verify-report
+
+executive_summary: |
+  Slice 4 verification is complete. All automated checks pass: 118 YAML
+  scenario assertions, 92 unit tests, TypeScript type check, bash syntax check,
+  install.sh --dry-run, and the registry validator. install.sh is idempotent,
+  supports --yes/--dry-run/--force, validates Node.js 18+, creates timestamped
+  backups, merges directories, and runs npm install plus the ODF self-test.
+  odf-registry.json carries package metadata, commands, and
+  flags.use_relative_paths=true, with all registered paths resolving and
+  existing after install. The only outstanding issue is the pre-identified
+  400-line review-budget exception for this slice.
+
+mode: Standard
+strict_tdd: false
+
+completion:
+  total_tasks: 11
+  completed_tasks: 11
+  incomplete_tasks: 0
+  task_status: |
+    All Slice 4 tasks (4.1–4.11) are marked complete in tasks.yaml and
+    apply-progress.yaml, with implementation evidence present in the repo.
+
+evidence:
+  - command: node scripts/odf-test-runner.js
+    status: passed
+    summary: 118 YAML scenario assertions passed, 0 failed, 0 skipped
+    details: |
+      Ran all YAML suites including odf-assess, odf-chained-pr, odf-cli-commands,
+      odf-fix, odf-tdd, odf-verify, odf-orchestrator-state-machine,
+      odf-preflight, ODF Installer Scenarios, and ODF Registry Relative Paths.
+
+  - command: npm test
+    status: passed
+    summary: 92 unit tests passed; 118 YAML scenario assertions passed
+    details: |
+      Vitest ran 92 unit tests across plugins/odf-delegation.test.ts,
+      scripts/lib/preflight.test.ts, scripts/lib/orchestrator.test.ts,
+      scripts/odf-cli.test.ts, and scripts/lib/installer.test.ts. The ODF YAML
+      runner then executed 118 scenario assertions.
+
+  - command: npx tsc --noEmit
+    status: passed
+    summary: TypeScript type check clean, no errors
+
+  - command: bash -n install.sh
+    status: passed
+    summary: Bash syntax check clean
+
+  - command: ./install.sh --dry-run
+    status: passed
+    summary: Dry-run exits 0 and prints a plan without modifying the target directory
+    details: |
+      Dry-run reported the target directory, existing install status, files that
+      would be copied, and the self-test that would run. No changes were written
+      to ~/.config/opencode. Note that the script still downloads the source
+      tarball to a temporary directory during dry-run.
+
+  - command: node scripts/odf-registry-validate.js
+    status: passed
+    summary: All registered paths resolve and exist after installing updated registry
+    details: |
+      Validated the registry at ~/.config/opencode/odf-registry.json. Package
+      metadata and flags.use_relative_paths were present, and every skill,
+      agent, command, and capability path resolved to an existing file.
+
+spec_compliance_matrix:
+  - capability: odf-installer
+    requirements:
+      - id: INST-01
+        name: Idempotent installation
+        status: COMPLIANT
+        evidence: |
+          install.sh merges directories via copy_dir, creates a new timestamped
+          backup on each run, and the YAML/unit tests verify re-run idempotency.
+
+      - id: INST-02
+        name: Prerequisites check
+        status: COMPLIANT
+        evidence: |
+          check_prerequisites verifies python3 and curl/wget. check_node_version
+          rejects Node.js < 18 when package.json is present. Unit tests verify
+          the Node version gate.
+
+      - id: INST-03
+        name: Deploy ODF pack files
+        status: COMPLIANT
+        evidence: |
+          install_files copies agent/, skills/, plugins/, command/, scripts/,
+          openspec/, odf-registry.json, and package.json into ODF_DIR. The
+          installer YAML suite asserts these files exist after install.
+
+      - id: INST-04
+        name: Self-test on install
+        status: COMPLIANT
+        evidence: |
+          run_self_test executes node scripts/odf-test-runner.js after
+          installation unless ODF_SKIP_SELFTEST=1. Failures are reported and the
+          install is kept.
+
+      - id: INST-05
+        name: package.json manifest
+        status: COMPLIANT
+        evidence: |
+          package.json declares name, version, description, repository, engines,
+          scripts.test, dependencies (yaml), devDependencies, and plugin/sdk
+          peerDependencies.
+
+      - id: INST-06
+        name: Non-interactive mode
+        status: COMPLIANT
+        evidence: |
+          --yes and ODF_INSTALL_NONINTERACTIVE=1 set INSTALL_YES=true and skip
+          the confirmation prompt.
+
+  - capability: skill-registry
+    requirements:
+      - id: REG-01
+        name: Relative paths
+        status: COMPLIANT
+        evidence: |
+          odf-registry.json stores skill, agent, command, and capability paths
+          relative to the registry directory. resolvePath in
+          plugins/odf-delegation.ts and scripts/odf-registry-validate.js resolve
+          them against the registry directory.
+
+      - id: REG-02
+        name: Absolute path fallback
+        status: COMPLIANT
+        evidence: |
+          resolvePath allows absolute paths and ~/ paths when they resolve
+          inside the registry directory or ODF_CONFIG_DIR. Unit tests cover
+          absolute legacy paths and reject paths outside allowed roots.
+
+      - id: REG-03
+        name: package.json metadata
+        status: COMPLIANT
+        evidence: |
+          odf-registry.json contains package { name, version, description,
+          repository, dependencies } and the registry validator confirms its
+          presence.
+
+      - id: REG-04
+        name: Plugin path resolution
+        status: COMPLIANT
+        evidence: |
+          loadRegistry resolves skill.path and agent.path with resolvePath.
+          createODFSkillInject and createODFSkillResolve use the resolved paths.
+          Unit and YAML tests validate resolution.
+
+      - id: REG-05
+        name: Registry refresh writes relative paths
+        status: COMPLIANT_VIA_INSTRUCTION
+        evidence: |
+          command/odf-registry-refresh.md instructs the orchestrator to emit
+          relative paths when flags.use_relative_paths is true. No automated
+          refresh test is included in this slice.
+
+design_coherence:
+  - topic: Installer idempotency
+    status: ALIGNED
+    notes: |
+      Timestamped backups, directory merge, Node version check, npm install,
+      and self-test match the installer design. ODF_SKIP_NPM and
+      ODF_SKIP_SELFTEST are documented deviations that keep CI tests fast.
+
+  - topic: Registry relative paths
+    status: ALIGNED
+    notes: |
+      resolvePath() in the plugin resolves relative, absolute, and ~/ paths and
+      rejects traversal. odf-registry.json uses relative paths by default and
+      exposes flags.use_relative_paths=true.
+
+  - topic: Registry validation
+    status: ALIGNED
+    notes: |
+      scripts/odf-registry-validate.js checks skills, agents, commands, and
+      capabilities; relative paths are resolved against the registry directory
+      and constrained to allowed roots.
+
+  - topic: Registry sync script
+    status: ALIGNED_WITH_GAP
+    notes: |
+      scripts/odf-registry-sync.sh scans skills/ and writes relative paths when
+      use_relative_paths is true. It only updates skills already in the
+      registry and does not refresh agent entries, matching its historical
+      scope.
+
+security_risk_pass:
+  status: passed
+  findings:
+    - area: Path traversal
+      result: No unsafe traversal found.
+      details: |
+        resolvePath in the plugin and registry validator reject ".." segments
+        and confine resolved paths to the registry directory and ODF_CONFIG_DIR.
+        install.sh only copies known ODF directories.
+
+    - area: Shell injection
+      result: No dynamic shell execution with user input.
+      details: |
+        install.sh uses cp/curl/wget with fixed directory names; user flags are
+        parsed by a case statement and never interpolated into shell commands.
+        odf-registry-sync.sh uses jq --arg for safe variable substitution.
+
+    - area: Backup retention
+      result: Backups are preserved on failure.
+      details: |
+        install.sh does not delete backups when self-test fails; the backup path
+        is printed in the summary.
+
+    - area: Registry validator root confinement
+      result: Allowed-root check present.
+      details: |
+        scripts/odf-registry-validate.js mirrors the plugin's resolvePath logic,
+        rejecting paths with ".." and paths outside the registry or config
+        directory.
+
+issues:
+  critical: []
+  warning:
+    - id: WARN-01
+      title: Slice 4 diff exceeds 400-line review budget
+      description: |
+        Diff against main for the Slice 4 files shows 10 files changed,
+        +1217/-217 lines, which is above the 400-line per-PR budget documented
+        in tasks.yaml.
+      mitigation: |
+        This was pre-flagged as a size:exception in apply-progress.yaml. The PR
+        targets the feature branch so reviewers see only Slice 4 work. If
+        reviewers prefer, split the installer refactor from registry/sync
+        changes.
+  suggestion:
+    - id: SUG-01
+      title: install.sh dry-run still downloads the source archive
+      description: |
+        Dry-run prints a plan without modifying the target, but it still fetches
+        the tarball from REPO/BRANCH into a temporary directory.
+      mitigation: |
+        Consider skipping the download in dry-run mode when ODF_SOURCE_DIR is
+        not set, or document that dry-run may perform network I/O.
+
+    - id: SUG-02
+      title: install.sh backup does not cover openspec/ or package.json
+      description: |
+        create_backup copies odf-registry.json and the agent/skills/plugins/
+        command/scripts directories, but install_files also copies openspec/ and
+        package.json. These are not included in the backup.
+      mitigation: |
+        Add openspec/ and package.json to the backup step so a full rollback can
+        restore every file the installer overwrites.
+
+    - id: SUG-03
+      title: odf-registry-sync.sh scans all .md files, not only SKILL.md
+      description: |
+        The script's find command matches -name '*.md', while the command
+        documentation and registry convention refer specifically to SKILL.md
+        files.
+      mitigation: |
+        Tighten the find filter to -name 'SKILL.md' to avoid accidentally
+        ingesting non-skill markdown files.
+
+next_recommended: sdd-archive
+note: |
+  Slice 5 (verification + documentation) still has unchecked tasks in
+  tasks.yaml. Archive should follow after those final documentation and README
+  updates are completed and verified.
+
+skill_resolution:
+  primary: sdd-verify
+  supporting:
+    - sdd-archive
+    - chained-pr
+
+reported_at: "2026-06-18T21:45:26Z"
+reported_by: sdd-verify

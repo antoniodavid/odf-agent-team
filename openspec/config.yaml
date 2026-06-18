@@ -1,0 +1,51 @@
+schema: spec-driven
+project: odf-agent-team
+version: 1.0.0
+
+context: |
+  ODF Agent Team — OpenCode skill/agent pack for Odoo development.
+  Stack: TypeScript plugin, Node.js test runner, Bash scripts, Markdown skills.
+  Architecture: Registry-driven (odf-registry.json) with 31 skills, 12 agents, 2 profiles.
+  Plugin: plugins/odf-delegation.ts provides odf_delegate/skill injection tools.
+  Commands: Markdown definitions in command/; agents in agent/.
+  Target: Odoo 14-19 modules developed in external workspaces (~/Workspace/Odoo/O{16-19}).
+
+rules:
+  proposal:
+    - Include impact on registry (skills/agents/commands) if changed
+    - Note Odoo version scope if relevant
+  specs:
+    - Use Given/When/Then for scenarios
+    - Use RFC 2119 keywords (MUST, SHALL, SHOULD, MAY)
+  design:
+    - Follow LLM-first skill structure (frontmatter, Activation, Hard Rules, Decision Gates, Execution Steps, Output Contract, References)
+    - For agent changes, include role, phases, triggers, model guidance
+  tasks:
+    - Group by phase; keep tasks completable in one session
+    - Registry updates are separate tasks
+  apply:
+    guidelines:
+      - Follow existing markdown/skill conventions
+      - Update odf-registry.json when adding skills/agents/commands
+    tdd: false
+    test_command: "node scripts/odf-test-runner.js"
+  verify:
+    test_command: "node scripts/odf-test-runner.js"
+    build_command: ""
+    coverage_threshold: 0
+  archive:
+    - Warn before removing or renaming skills/agents (breaking change for installed users)
+
+testing:
+  strict_tdd: false
+  runner: node scripts/odf-test-runner.js
+  framework: ODF Agent Observatory (Node.js/YAML)
+  layers:
+    unit: false
+    integration: false
+    e2e: false
+  coverage: false
+  quality:
+    linter: false
+    type_checker: false
+    formatter: false

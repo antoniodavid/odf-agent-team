@@ -1,0 +1,149 @@
+capability: skill-registry
+change: odf-orchestrator-deployment-experience
+version: 1.0.0
+status: design
+type: modified
+
+summary: |
+  Extend odf-registry.json to support relative skill/agent paths and to carry
+  package.json metadata. Maintain backward compatibility with absolute paths.
+
+design:
+  technical_approach: |
+    Add a resolvePath() helper to plugins/odf-delegation.ts and use it when
+    loading the registry. Add a top-level "package" object to
+    odf-registry.json. Convert skill and agent paths from absolute to relative
+    where they are under the registry directory. Update
+    command/odf-registry-refresh.md to emit relative paths when configured.
+
+  registry_schema_changes:
+    new_top_level_section:
+      name: package
+      fields:
+        - name: name
+          type: string
+          value: "odf-agent-team"
+        - name: version
+          type: string
+          value: "1.0.0"
+        - name: description
+          type: string
+        - name: repository
+          type: string
+        - name: dependencies
+          type: object
+          example:
+            yaml: "^2.7.0"
+    new_top_level_section_2:
+      name: commands
+      items:
+        - name: string
+          description: string
+          path: string
+          triggers: string[]
+    existing_sections_unchanged:
+      - version
+      - last_updated
+      - skills
+      - agents
+      - profiles
+      - notebooklm_sources
+      - project_conventions
+      - flags
+
+  path_resolution:
+    helper_function: |
+      function resolvePath(registryDir: string, entryPath: string): string {
+        if (!entryPath) return "";
+        if (path.isAbsolute(entryPath)) return entryPath;
+        if (entryPath.startsWith("~/")) {
+          return path.join(os.homedir(), entryPath.slice(2));
+        }
+        return path.resolve(registryDir, entryPath);
+      }
+    registry_directory_source: |
+      Derived from REGISTRY_PATH at runtime:
+      const registryDir = path.dirname(REGISTRY_PATH);
+    application:
+      - |
+        loadRegistry() resolves every skill.path and agent.path before
+        returning the registry object.
+      - |
+        createODFSkillInject() and createODFSkillResolve() use the resolved
+        paths.
+      - |
+        Paths inside project_conventions remain as configured (may be absolute
+        or ~-relative).
+
+  relative_path_conversion:
+    rules:
+      - |
+        If a path is under the registry directory, store it relative to that
+        directory.
+      - |
+        Example: ~/.config/opencode/skills/odf-assess/SKILL.md becomes
+        skills/odf-assess/SKILL.md.
+      - |
+        Paths starting with ./ are normalized.
+      - |
+        Absolute paths outside the registry directory remain absolute.
+
+  backward_compatibility:
+    - |
+      Absolute paths continue to work unchanged.
+    - |
+      Registries without a package section load successfully; defaults are
+      applied.
+    - |
+      Old plugin versions ignore the package section.
+    - |
+      Mixed relative/absolute entries in the same registry are resolved
+      independently.
+
+  registry_refresh:
+    behavior: |
+      /odf-registry-refresh scans skills/ and agents/ under ODF_DIR and writes
+      relative paths when the registry is configured with relative paths.
+    config_flag: |
+      Add registry.flags.use_relative_paths (default true for new installs,
+      false for legacy until migration).
+
+  error_handling:
+    - error: Relative path resolves to non-existent file
+      response: Log warning and skip entry.
+    - error: Registry missing package section
+      response: Treat as legacy registry, default metadata.
+    - error: Absolute path file missing
+      response: Log warning as before.
+    - error: Base directory cannot be determined
+      response: Fall back to absolute path behavior.
+
+  file_changes:
+    - path: odf-registry.json
+      action: modify
+      description: Add package section, commands array, convert paths to relative.
+    - path: plugins/odf-delegation.ts
+      action: modify
+      description: Add resolvePath() and apply it to skill/agent paths.
+    - path: command/odf-registry-refresh.md
+      action: modify
+      description: Write relative paths when configured.
+
+  testing:
+    - path: plugins/odf-delegation.test.ts
+      coverage:
+        - resolvePath relative
+        - resolvePath absolute
+        - resolvePath ./
+        - resolvePath missing
+        - resolvePath ~/
+    - path: scripts/odf-agent-tests/registry.yaml
+      action: create
+      description: Validate registry JSON schema includes package and commands.
+
+  dependencies:
+    - odf-delegation-plugin (consumer)
+    - command/odf-registry-refresh.md
+
+  next_step: |
+    Implement resolvePath(), update odf-registry.json, and adjust refresh command.

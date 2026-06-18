@@ -1,0 +1,242 @@
+change: odf-orchestrator-deployment-experience
+version: 1.0.0
+slice: 2
+slice_name: Preflight gate + orchestrator agent
+status: passed
+final_verdict: PASS WITH WARNINGS
+artifact_store: openspec
+report_type: verify-report
+
+executive_summary: |
+  Slice 2 implementation is functionally complete and all automated tests pass.
+  The preflight gate, orchestrator state-machine helpers, command wrappers,
+  registry updates, and scenario tests are in place and conform to the spec/design.
+  Two warnings remain: the Slice 2 diff still exceeds the 400-line per-PR review
+  budget (pre-resolved as a feature-branch-chain slice), and /odf-explore routing
+  references an EXPLORE phase that the current plugin rejects. No critical issues
+  were found and no fixes are required before archive, though the EXPLORE mismatch
+  should be addressed in Slice 3.
+
+mode: Standard
+strict_tdd: false
+
+completion:
+  total_tasks: 10
+  completed_tasks: 10
+  incomplete_tasks: 0
+  task_status: |
+    All Slice 2 tasks (2.1–2.10) are marked complete in tasks.yaml and
+    apply-progress.yaml, with implementation evidence present in the repo.
+
+evidence:
+  - command: node scripts/odf-test-runner.js
+    status: passed
+    summary: 52 YAML scenario tests passed (existing + preflight + orchestrator)
+    details: |
+      Existing suites: 8 scenarios passed.
+      Preflight suite: 5 scenarios / 16 assertions passed.
+      Orchestrator suite: 5 scenarios / 5 assertions passed.
+
+  - command: npm test
+    status: passed
+    summary: 91 total tests passed
+    details: |
+      Plugin unit tests (vitest): 39 passed.
+      YAML scenario tests: 52 passed.
+
+  - command: npx tsc --noEmit
+    status: passed
+    summary: TypeScript type check clean, no errors
+
+  - command: git diff --stat 63ded08..HEAD -- . ':!package-lock.json'
+    status: warning
+    summary: 2,184 insertions, 291 deletions across 25 files
+    details: |
+      Including package-lock.json: 4,251 insertions, 291 deletions across 26 files.
+      This exceeds the 400-line per-PR review budget; mitigated by the pre-resolved
+      feature-branch-chain strategy documented in tasks.yaml.
+
+spec_compliance_matrix:
+  - capability: odf-preflight
+    requirements:
+      - id: PREF-01
+        name: Capture required ODF choices
+        status: COMPLIANT
+        evidence: scripts/lib/preflight.js defines PREFLIGHT_FIELDS with all 8 dimensions and defaults matching openspec/specs/odf-preflight/design.yaml.
+
+      - id: PREF-02
+        name: Validate required answers
+        status: COMPLIANT
+        evidence: validatePreflight rejects missing fields, invalid enum values, and out-of-range review_budget_lines. Covered by scripts/lib/preflight.test.ts and scripts/odf-agent-tests/preflight.yaml.
+
+      - id: PREF-03
+        name: Persist preflight record
+        status: COMPLIANT
+        evidence: savePreflight and loadPreflight round-trip preflight records inside openspec/changes/{change}/state.yaml. Unit test covers round-trip.
+
+      - id: PREF-04
+        name: Infer defaults from project context
+        status: COMPLIANT
+        evidence: inferDefaults merges projectConfig (odoo_version, artifact_store, tdd_mode) and detects version from __manifest__.py. Covered by preflight.yaml defaults inference scenario.
+
+      - id: PREF-05
+        name: Allow amendment before delegation
+        status: COMPLIANT_VIA_INSTRUCTION
+        evidence: renderPreflightSummary and renderPreflightPrompt helpers exist; agent/odoo_orchestrator.md documents amendment flow. No automated test exercises the chat amendment loop.
+
+      - id: PREF-N01
+        name: Idempotent persistence
+        status: COMPLIANT
+        evidence: savePreflight merges with existing state and overwrites the preflight key; no duplicate records are created.
+
+      - id: PREF-N02
+        name: Deterministic schema
+        status: COMPLIANT
+        evidence: PREFLIGHT_VERSION and PREFLIGHT_FIELDS provide a documented, versioned schema.
+
+  - capability: orchestrator-agent
+    requirements:
+      - id: ORCH-01
+        name: Preflight gate enforcement
+        status: COMPLIANT
+        evidence: orchestrator.js isPreflightComplete and getNextPhase force 'preflight' until valid. orchestrator.yaml covers incomplete preflight.
+
+      - id: ORCH-02
+        name: Phase delegation via real task()
+        status: COMPLIANT
+        evidence: plugins/odf-delegation.ts invokes the native task() API with fallback; 39 plugin unit tests pass, including task() invocation, fallback, and error paths.
+
+      - id: ORCH-03
+        name: Conversational approval gates
+        status: COMPLIANT_VIA_INSTRUCTION
+        evidence: agent/odoo_orchestrator.md defines standard and --fast gate behavior. Fast-mode exception is documented. No automated chat gate test exists.
+
+      - id: ORCH-04
+        name: State persistence
+        status: COMPLIANT
+        evidence: updateStateAfterPhase updates phase, artifacts, timestamps, and strategy. savePreflight persists to state.yaml. Covered by orchestrator.test.ts.
+
+      - id: ORCH-05
+        name: Resume from persisted state
+        status: COMPLIANT
+        evidence: selectActiveChange and loadActiveChanges sort by last_updated and select latest or named change. orchestrator.yaml covers both cases.
+
+      - id: ORCH-06
+        name: Non-ODF request handling
+        status: COMPLIANT_VIA_INSTRUCTION
+        evidence: agent/odoo_orchestrator.md documents routing for simple Odoo questions without creating a change.
+
+      - id: ORCH-N01
+        name: Backward compatibility
+        status: COMPLIANT
+        evidence: Existing helper tools unchanged; all existing 8 YAML scenario suites continue to pass.
+
+      - id: ORCH-N02
+        name: Thin orchestrator
+        status: COMPLIANT
+        evidence: orchestrator.js contains only pure state-machine helpers; agent markdown explicitly states it never writes code/specs/designs.
+
+      - id: ORCH-N03
+        name: Storage default
+        status: COMPLIANT
+        evidence: inferDefaults defaults artifact_store to openspec; agent markdown specifies OpenSpec as source of truth with optional Engram mirror.
+
+design_coherence:
+  - topic: Preflight schema
+    status: ALIGNED
+    notes: 8 dimensions, defaults, validation rules, and persistence path match openspec/changes/.../design.yaml and openspec/specs/odf-preflight/design.yaml.
+
+  - topic: State machine
+    status: ALIGNED
+    notes: PHASE_ORDER includes init → preflight → assess → qa-plan → design → implement → verify → archived. getNextPhase enforces progression.
+
+  - topic: Command wrappers
+    status: ALIGNED
+    notes: command/odf-new.md, odf-continue.md, odf-status.md, and odf-explore.md parse args and route to the orchestrator. odf-registry.json registers the four commands.
+
+  - topic: Registry updates
+    status: ALIGNED
+    notes: odf-registry.json adds capabilities (orchestrator-agent, odf-preflight) and commands array, consistent with the design architecture diagram.
+
+  - topic: Relative path resolution
+    status: ALIGNED
+    notes: plugins/odf-delegation.ts resolvePath rejects '..' and confines absolute/relative paths to allowed roots; registry skill/agent paths are relative.
+
+security_risk_pass:
+  status: passed
+  findings:
+    - area: Path traversal
+      result: No unsafe traversal found.
+      details: preflight.js sanitizes change names and restricts writes to openspec/changes/<sanitized>/state.yaml. orchestrator.js reads only under openspec/changes. plugins/odf-delegation.ts resolvePath rejects '..' and isWithinRoot.
+
+    - area: Unsafe eval / dynamic code execution
+      result: No eval, new Function, or vm usage found.
+      details: All new files use static JSON/YAML parsing and string formatting only.
+
+    - area: Environment variables
+      result: Handled safely.
+      details: ODF_CONFIG_DIR is accepted only if absolute and normalized. ODF_METRICS_BUFFER_CAP is parsed to a positive finite integer with a safe default.
+
+    - area: Broad agent permissions
+      result: Observation only.
+      details: agent/odoo_orchestrator.md grants wildcard permissions, which is intentional for a coordinator agent but should be reviewed periodically.
+
+issues:
+  critical: []
+
+  warning:
+    - id: WARN-01
+      title: Slice 2 diff exceeds 400-line review budget
+      description: |
+        git diff --stat 63ded08..HEAD shows 2,184 insertions / 291 deletions
+        (4,251 insertions including package-lock.json). This is well above the
+        400-line per-PR budget.
+      mitigation: |
+        Pre-resolved as a feature-branch-chain slice in tasks.yaml and
+        apply-progress.yaml. The PR should target the Slice 1 branch so reviewers
+        see only Slice 2 changes.
+
+    - id: WARN-02
+      title: /odf-explore references unsupported EXPLORE phase
+      description: |
+        agent/odoo_orchestrator.md and command/odf-explore.md instruct
+        odf_delegate(phase=EXPLORE, ...), but plugins/odf-delegation.ts
+        ALLOWED_PHASES does not include EXPLORE, so the plugin will reject it.
+      mitigation: |
+        Add EXPLORE to ALLOWED_PHASES in plugins/odf-delegation.ts, or change
+        the orchestrator to delegate exploration with phase=DESIGN/ASSESS and a
+        research prompt. Address in Slice 3.
+
+    - id: WARN-03
+      title: Engram mirror is agent-driven, not programmatically verified
+      description: |
+        The design specifies an optional Engram mirror (topic_key odf/{change}/state).
+        scripts/lib only implements OpenSpec persistence; the Engram mirror is
+        described in agent/odoo_orchestrator.md but cannot be exercised by the
+        current test harness.
+      mitigation: |
+        Verify Engram persistence during the Slice 5 manual smoke test, or add
+        a programmatic mem_save helper if the mirror becomes mandatory.
+
+  suggestion:
+    - id: SUG-01
+      title: Add explicit idempotency test for savePreflight
+      rationale: Ensures repeated saves with the same answers do not corrupt state.yaml.
+
+    - id: SUG-02
+      title: Add automated approval-gate test once chat behavior is testable
+      rationale: ORCH-03 is currently verified by agent instructions only.
+
+    - id: SUG-03
+      title: Normalize persisted_at as a required schema field
+      rationale: openspec/specs/odf-preflight/design.yaml lists persisted_at as required, but PREFLIGHT_FIELDS marks it required=false because validatePreflight always injects it. Document or align the schema.
+
+next_recommended: sdd-archive (Slice 2 boundary) or continue to sdd-apply for Slice 3
+skill_resolution:
+  primary: sdd-verify
+  supporting:
+    - sdd-archive
+    - chained-pr
+
+reported_at: "2026-06-18T00:00:00Z"
+reported_by: sdd-verify

@@ -1,0 +1,386 @@
+change: odf-orchestrator-deployment-experience
+version: 1.0.0
+status: tasks
+artifact_store: openspec
+
+title: ODF Orchestrator & Deployment Experience
+
+review_workload_forecast:
+  estimated_changed_lines: "1400–1900"
+  400_line_budget_risk: High
+  chained_prs_recommended: Yes
+  suggested_split: |
+    PR 1 → Slice 1 (plugin + package.json + tests)
+    PR 2 → Slice 2 (preflight + orchestrator)
+    PR 3 → Slice 3 (native /odf-* commands)
+    PR 4 → Slice 4 (installer + registry relative paths)
+    PR 5 → Slice 5 (verification + docs)
+  delivery_strategy: ask-always
+  chain_strategy: feature-branch-chain
+
+# Guard contract — exact plain-text lines for downstream automation
+forecast_guards: |
+  Decision needed before apply: Yes
+  Chained PRs recommended: Yes
+  Chain strategy: pending
+  400-line budget risk: High
+
+pr_strategy:
+  recommendation: |
+    Use a feature-branch chain with a tracker branch (e.g., feature/odf-orchestrator)
+    because each slice depends on the previous one and the feature must integrate
+    before main. Each child PR targets the previous PR branch so reviewers see only
+    the current work-unit diff. The tracker PR stays draft until all children merge.
+  alternative: |
+    Stacked PRs to main are acceptable if the team prefers faster iteration and
+    each slice can be reviewed/merged independently; however, slices 2–5 cannot run
+    without their predecessors, so feature-branch-chain gives safer rollback.
+  decision_required: |
+    Confirm chain strategy (feature-branch-chain or stacked-to-main) before sdd-apply.
+
+slices:
+  - id: 1
+    name: Plugin real delegation + package manifest + unit tests
+    goal: |
+      Make odf_delegate invoke the OpenCode task() API, add a Node package manifest,
+      and cover the new delegation logic with unit tests. This slice is the foundation
+      for every later slice.
+    dependencies: []
+    files:
+      - path: package.json
+        action: create
+        estimated_lines: 40
+      - path: plugins/odf-delegation.ts
+        action: modify
+        estimated_lines: 250
+      - path: plugins/odf-delegation.test.ts
+        action: create
+        estimated_lines: 280
+      - path: scripts/odf-test-runner.js
+        action: modify
+        estimated_lines: 80
+    tasks:
+      - id: 1.1
+        step: Create package.json with metadata, yaml dependency, test script, and peer/dev dependencies.
+        status: complete
+      - id: 1.2
+        step: Prototype task() signature against the installed @opencode-ai/plugin SDK (ctx.task vs toolCtx.task vs sdk import).
+        status: complete
+      - id: 1.3
+        step: Add resolvePath() helper to plugins/odf-delegation.ts for registry-relative, absolute, ~/ and ./ paths.
+        status: complete
+      - id: 1.4
+        step: Extend ODFRegistry type with optional package metadata and commands array.
+        status: complete
+      - id: 1.5
+        step: Refactor createODFDelegate().execute() to resolve agent/skills, inject compact rules, then call invokeTask().
+        status: complete
+      - id: 1.6
+        step: 'Implement task() fallback returning enriched prompt + agent with status: fallback when task() is unavailable.'
+        status: complete
+      - id: 1.7
+        step: Update recordMetrics() to capture task_api_source and status values ok|fallback|error|timeout.
+        status: complete
+      - id: 1.8
+        step: Write plugins/odf-delegation.test.ts covering resolveAgent, matchSkills, resolvePath, formatCompactRules, task() invocation, fallback, and metrics shape.
+        status: complete
+      - id: 1.9
+        step: Extend scripts/odf-test-runner.js to discover and run plugins/odf-delegation.test.ts when --plugin-tests is passed.
+        status: complete
+    acceptance_criteria:
+      - npm test runs the ODF test runner.
+      - plugins/odf-delegation.test.ts passes all cases.
+      - odf_delegate returns a result envelope when task() is available.
+      - odf_delegate returns status: fallback when task() is unavailable.
+      - Existing helper tools (odf_skill_inject, odf_skill_resolve, odf_registry_read, odf_notebooklm_lookup, odf_profile_select) keep working.
+    test_commands:
+      - npm test
+      - node scripts/odf-test-runner.js --plugin-tests
+    rollback_boundary: |
+      Revert plugins/odf-delegation.ts to instruction-only output, delete package.json
+      and plugins/odf-delegation.test.ts, and revert scripts/odf-test-runner.js.
+
+  - id: 2
+    name: Preflight gate + orchestrator agent
+    goal: |
+      Add a hard preflight gate to the orchestrator, persist change state to
+      OpenSpec (with optional Engram mirror), and wire the phase state machine with
+      approval gates and resume logic.
+    dependencies:
+      - slice: 1
+        reason: odf_delegate must call task() before the orchestrator can delegate phases.
+    files:
+      - path: agent/odoo_orchestrator.md
+        action: modify
+        estimated_lines: 300
+      - path: scripts/lib/preflight.js
+        action: create
+        estimated_lines: 120
+      - path: openspec/changes/odf-orchestrator-deployment-experience/state.yaml
+        action: create
+        estimated_lines: 50
+      - path: scripts/odf-agent-tests/preflight.yaml
+        action: create
+        estimated_lines: 100
+      - path: scripts/odf-agent-tests/orchestrator.yaml
+        action: create
+        estimated_lines: 140
+    tasks:
+      - id: 2.1
+        step: Implement scripts/lib/preflight.js with validatePreflight(), inferDefaults(), and allowed-values lookups.
+        status: complete
+      - id: 2.2
+        step: Add preflight conversation flow to agent/odoo_orchestrator.md (ask, validate, amend, persist).
+        status: complete
+      - id: 2.3
+        step: Add state machine section to agent/odoo_orchestrator.md (init → preflight → assess → design → implement → verify → archived).
+        status: complete
+      - id: 2.4
+        step: Add OpenSpec state.yaml persistence instructions and optional Engram mirror topic odf/{change}/state.
+        status: complete
+      - id: 2.5
+        step: 'Add approval gate rules to orchestrator: show phase summary, strategy, risks, and ask to proceed; fast-mode skips gates until IMPLEMENT.'
+        status: complete
+      - id: 2.6
+        step: Add /odf-continue resume logic (latest active change, named change, incomplete preflight handling).
+        status: complete
+      - id: 2.7
+        step: Add /odf-status state reader instructions to orchestrator (table vs detail rendering).
+        status: complete
+      - id: 2.8
+        step: Create seed state.yaml for this change under openspec/changes/odf-orchestrator-deployment-experience/state.yaml.
+        status: complete
+      - id: 2.9
+        step: Write YAML scenario tests for preflight blocking, invalid version, defaults inference, amendment, and persistence idempotency.
+        status: complete
+      - id: 2.10
+        step: Write YAML scenario tests for orchestrator state transitions, approval gates, resume latest active change, and multiple active changes prompt.
+        status: complete
+    acceptance_criteria:
+      - /odf-new triggers preflight and blocks delegation until all required choices are valid.
+      - Preflight record is persisted before ASSESS runs.
+      - /odf-continue resumes from the last completed phase.
+      - Approval gates pause after each phase except in --fast mode.
+      - State is written to OpenSpec state.yaml by default.
+    test_commands:
+      - node scripts/odf-test-runner.js --agent=odoo_orchestrator
+      - node scripts/odf-test-runner.js scripts/odf-agent-tests/preflight.yaml
+    rollback_boundary: |
+      Revert agent/odoo_orchestrator.md to pre-preflight version, delete
+      scripts/lib/preflight.js, preflight.yaml, orchestrator.yaml, and the seed
+      state.yaml.
+
+  - id: 3
+    name: Native /odf-* commands
+    goal: |
+      Update command/*.md files for /odf-new, /odf-continue, /odf-status, and
+      /odf-explore so they parse arguments consistently and route to the
+      orchestrator; register the commands in odf-registry.json.
+    dependencies:
+      - slice: 2
+        reason: Commands hand off to the orchestrator, which requires preflight and state logic.
+    files:
+      - path: command/odf-new.md
+        action: modify
+        estimated_lines: 60
+      - path: command/odf-continue.md
+        action: modify
+        estimated_lines: 50
+      - path: command/odf-status.md
+        action: modify
+        estimated_lines: 50
+      - path: command/odf-explore.md
+        action: modify
+        estimated_lines: 40
+      - path: odf-registry.json
+        action: modify
+        estimated_lines: 60
+      - path: scripts/odf-agent-tests/odf-cli.yaml
+        action: create
+        estimated_lines: 120
+    tasks:
+      - id: 3.1
+        step: Update command/odf-new.md parsing for change-name, optional quoted description, and --fast flag; hand off to orchestrator.
+        status: complete
+      - id: 3.2
+        step: Update command/odf-continue.md to accept optional change-name and route resume to orchestrator.
+        status: complete
+      - id: 3.3
+        step: Update command/odf-status.md to list active changes or detail a named change via orchestrator.
+        status: complete
+      - id: 3.4
+        step: Update command/odf-explore.md to parse topic, --version, --module, and route through orchestrator.
+        status: complete
+      - id: 3.5
+        step: Add commands array to odf-registry.json with entries for odf-new, odf-continue, odf-status, odf-explore.
+        status: complete
+      - id: 3.6
+        step: Write YAML scenario tests for command parsing, --fast wiring, missing args, resume specific vs latest, no active changes, status table/detail, and explore routing.
+        status: complete
+    acceptance_criteria:
+      - /odf-new <name> ["desc"] [--fast] triggers orchestrator preflight.
+      - /odf-continue [name] resumes the correct active change.
+      - /odf-status renders active changes or single-change detail.
+      - /odf-explore routes exploration without creating a formal workflow change.
+      - Registry refresh picks up the new command entries.
+    test_commands:
+      - node scripts/odf-test-runner.js scripts/odf-agent-tests/odf-cli.yaml
+    rollback_boundary: |
+      Revert the four command markdown files and remove the commands array from
+      odf-registry.json.
+
+  - id: 4
+    name: Installer + registry relative paths
+    goal: |
+      Make install.sh idempotent with non-interactive support, add registry
+      relative-path resolution, and package metadata; keep absolute-path fallback
+      for existing installs.
+    dependencies:
+      - slice: 1
+        reason: Plugin path resolution and package metadata depend on slice-1 registry changes.
+      - slice: 3
+        reason: Installer deploys the command files modified in slice 3.
+    files:
+      - path: install.sh
+        action: modify
+        estimated_lines: 150
+      - path: odf-registry.json
+        action: modify
+        estimated_lines: 120
+      - path: command/odf-registry-refresh.md
+        action: modify
+        estimated_lines: 40
+      - path: scripts/odf-agent-tests/odf-installer.yaml
+        action: create
+        estimated_lines: 100
+      - path: scripts/odf-agent-tests/registry.yaml
+        action: create
+        estimated_lines: 80
+    tasks:
+      - id: 4.1
+        step: Add --yes flag and ODF_INSTALL_NONINTERACTIVE support to install.sh.
+        status: complete
+      - id: 4.2
+        step: Add Node.js 18+ version check to install.sh when package.json is present.
+        status: complete
+      - id: 4.3
+        step: Refactor install.sh backup step to create timestamped backup and merge directories instead of replacing blindly.
+        status: complete
+      - id: 4.4
+        step: Add ODF_SOURCE_DIR support to install.sh for local source installs.
+        status: complete
+      - id: 4.5
+        step: Add npm install and self-test (node scripts/odf-test-runner.js) steps to install.sh.
+        status: complete
+      - id: 4.6
+        step: Add package section to odf-registry.json with name, version, description, repository, dependencies.
+        status: complete
+      - id: 4.7
+        step: Convert skill and agent paths in odf-registry.json to relative paths where they live under the registry directory.
+        status: complete
+      - id: 4.8
+        step: Add registry.flags.use_relative_paths (default true) to odf-registry.json.
+        status: complete
+      - id: 4.9
+        step: Update command/odf-registry-refresh.md to emit relative paths when use_relative_paths is true.
+        status: complete
+      - id: 4.10
+        step: Write YAML installer tests for dry-run in temp HOME, backup creation, file copy, self-test invocation, and re-run idempotency.
+        status: complete
+      - id: 4.11
+        step: Write YAML registry tests validating package/commands sections and mixed relative/absolute path resolution.
+        status: complete
+    acceptance_criteria:
+      - install.sh --yes runs non-interactively and exits 0 on success.
+      - Re-running install.sh creates a new backup and does not break existing files.
+      - Node < 18 is rejected with a clear message.
+      - Relative registry paths resolve to absolute paths at runtime.
+      - Absolute legacy paths continue to work unchanged.
+      - Registry refresh writes relative paths when configured.
+    test_commands:
+      - bash -n install.sh
+      - node scripts/odf-test-runner.js scripts/odf-agent-tests/odf-installer.yaml
+      - node scripts/odf-test-runner.js scripts/odf-agent-tests/registry.yaml
+    rollback_boundary: |
+      Restore install.sh from backup, revert odf-registry.json path changes and
+      package/commands sections, and revert command/odf-registry-refresh.md.
+
+  - id: 5
+    name: Verification + documentation
+    goal: |
+      Run full regression, update relevant docs/comments, verify all artifacts are
+      stored in OpenSpec, and ensure the change is ready for archive.
+    dependencies:
+      - slice: 1
+      - slice: 2
+      - slice: 3
+      - slice: 4
+    files:
+      - path: scripts/odf-test-runner.js
+        action: modify
+        estimated_lines: 40
+      - path: openspec/changes/odf-orchestrator-deployment-experience/tasks.yaml
+        action: modify
+        estimated_lines: 20
+      - path: README.md
+        action: modify
+        estimated_lines: 60
+    tasks:
+      - id: 5.1
+        step: Ensure scripts/odf-test-runner.js runs plugin unit tests and all YAML scenario suites in one invocation.
+        status: complete
+      - id: 5.2
+        step: 'Run full regression: node scripts/odf-test-runner.js (existing 36 cases + new tests).'
+        status: complete
+      - id: 5.3
+        step: 'Perform manual smoke test: fresh install in temp HOME, run /odf-new, verify odf_delegate returns a result envelope.'
+        status: complete
+      - id: 5.4
+        step: Update README.md with installation, /odf-new, /odf-continue, /odf-status, /odf-explore usage.
+        status: complete
+      - id: 5.5
+        step: Verify proposal/spec/design/task artifacts exist in openspec/changes/odf-orchestrator-deployment-experience/.
+        status: complete
+      - id: 5.6
+        step: Mark tasks complete in openspec/changes/odf-orchestrator-deployment-experience/tasks.yaml.
+        status: complete
+    acceptance_criteria:
+      - All existing 36 ODF tests pass.
+      - New plugin unit tests and YAML scenarios pass.
+      - Manual smoke test succeeds.
+      - All required OpenSpec artifacts are present.
+      - README documents the new commands and install path.
+    test_commands:
+      - node scripts/odf-test-runner.js
+      - npm test
+      - bash install.sh --yes (in isolated temp HOME)
+    rollback_boundary: |
+      Revert README.md and scripts/odf-test-runner.js changes; unmark task
+      checkboxes. Earlier slice rollbacks remain available per slice boundaries.
+
+total_estimated_changed_lines: "1400–1900"
+
+decision_needed_before_apply:
+  value: Yes
+  reasons:
+    - delivery_strategy is ask-always.
+    - 400-line review budget will be exceeded; chained PRs are required.
+    - Chain strategy (feature-branch-chain vs stacked-to-main) must be chosen before branches/PRs are created.
+
+risks:
+  - description: OpenCode task() API signature may differ from the prototype assumption.
+    mitigation: Prototype task() in slice 1 first; keep fallback path.
+  - description: Registry path changes could break existing users.
+    mitigation: Absolute-path fallback and use_relative_paths flag defaulting to true only for new installs.
+  - description: Slice 5 manual smoke test depends on a live OpenCode environment.
+    mitigation: Run in temp HOME with local source install; document any environment-specific gaps.
+  - description: Combined slice size may still exceed 400 lines per PR.
+    mitigation: Split slice 1 into two PRs if needed (plugin refactor vs tests) after line count review.
+
+next_recommended_phase: sdd-apply
+
+skill_resolution:
+  primary: sdd-tasks
+  supporting:
+    - chained-pr
+    - work-unit-commits

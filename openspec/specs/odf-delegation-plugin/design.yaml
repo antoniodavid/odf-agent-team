@@ -1,0 +1,199 @@
+capability: odf-delegation-plugin
+change: odf-orchestrator-deployment-experience
+version: 1.0.0
+status: design
+type: modified
+
+summary: |
+  Refactor odf_delegate to invoke the OpenCode native task() API internally
+  instead of returning instructions. Keeps instruction fallback and existing
+  helper tools.
+
+design:
+  technical_approach: |
+    Modify the execute() function of createODFDelegate() in
+    plugins/odf-delegation.ts to call the OpenCode task() API after resolving
+    the agent, matching skills, and injecting compact rules. If task() is not
+    available or throws, fall back to the current instruction-only output.
+    Add unit tests and a resolvePath helper for registry-relative paths.
+
+  plugin_internal_structure:
+    sections:
+      - name: Registry loading and path resolution
+        files:
+          - loadRegistry()
+          - resolvePath()
+          - ODFRegistry type extension for package metadata
+      - name: Version detection
+        files:
+          - detectOdooVersion()
+      - name: Auto-discovery and cache
+        files:
+          - discoverUnregisteredSkills()
+          - RegistryCache helpers
+      - name: Metrics
+        files:
+          - DelegationMetrics interface
+          - recordMetrics()
+          - startMetricsFlusher()
+      - name: Agent/skill/profile resolution
+        files:
+          - matchSkills()
+          - resolveAgent()
+          - getProfileByPhase()
+          - filterStopWords()
+      - name: Prompt enrichment
+        files:
+          - formatCompactRules()
+          - KARPATHY_COMPACT_RULES
+      - name: task() invocation and fallback
+        files:
+          - invokeTask()
+          - createODFDelegate()
+      - name: Tool creators
+        files:
+          - createODFSkillInject()
+          - createODFSkillResolve()
+          - createODFRegistryRead()
+          - createODFNotebookLMLookup()
+          - createODFProfileSelect()
+      - name: Plugin export
+        files:
+          - OdfDelegationPlugin()
+
+  task_invocation:
+    location: |
+      Inside createODFDelegate().execute(), after agent/skill resolution and
+      prompt enrichment.
+    signature_discovery:
+      - |
+        Try toolCtx.task first (common OpenCode plugin pattern).
+      - |
+        Try ctx.task from the plugin context.
+      - |
+        Try importing/using @opencode-ai/sdk createOpencodeClient task helper.
+    invoke_task_function: |
+      async function invokeTask(
+        taskApi: any,
+        agentName: string,
+        prompt: string,
+        contextFiles?: string[]
+      ): Promise<{ status: string; executive_summary?: string; [key: string]: any }> {
+        const result = await taskApi({
+          agent: agentName,
+          prompt,
+          context_files: contextFiles,
+        });
+        return result;
+      }
+    fallback_condition: |
+      taskApi is undefined OR taskApi call throws.
+    fallback_output: |
+      Return enriched prompt and agent name with a clear marker:
+      "ODF Delegation (fallback — task() unavailable): phase=..., agent=...".
+
+  config_dir:
+    env_var: ODF_CONFIG_DIR
+    default: "${HOME}/.config/opencode"
+    behavior: |
+      All ODF file paths (registry, cache, skill discovery, metrics) are rooted
+      in ODF_CONFIG_DIR when set and absolute; otherwise they fall back to the
+      user's home config directory. Relative or non-absolute values of
+      ODF_CONFIG_DIR are ignored with a warning.
+
+  metrics_update:
+    status_values: [ok, fallback, error, timeout]
+    additional_fields:
+      - task_api_source:
+          enum: [ctx.task, toolCtx.task, sdk, unavailable]
+    recording: |
+      Record duration, token estimate, phase, agent, skills injected, and
+      status after every odf_delegate call, including fallback and error cases.
+    privacy_and_retention:
+      - session_id is hashed (sha256, first 8 hex chars) before persistence.
+      - Error messages are sanitized (newlines replaced, truncated to 200 chars).
+      - The in-memory buffer is capped (default 1000 entries) and flushed
+        synchronously when the cap is reached (backpressure policy).
+      - Metrics are written to ${ODF_CONFIG_DIR}/metrics as daily JSONL files.
+      - Access to the metrics directory should be restricted by filesystem
+        permissions; downstream consumers are responsible for rotation/purge.
+
+  registry_path_resolution:
+    helper: |
+      function resolvePath(registryDir: string, entryPath: string): string {
+        if (!entryPath) return "";
+        if (entryPath.includes("..")) return "";
+        const allowedRoots = [registryDir, getOdfConfigDir()];
+        let resolved: string;
+        if (path.isAbsolute(entryPath)) {
+          resolved = path.normalize(entryPath);
+        } else if (entryPath.startsWith("~/")) {
+          resolved = path.normalize(path.join(os.homedir(), entryPath.slice(2)));
+        } else {
+          resolved = path.resolve(registryDir, entryPath);
+        }
+        if (!allowedRoots.some(root => isWithinRoot(resolved, root))) return "";
+        return resolved;
+      }
+    consumers:
+      - loadRegistry() resolves skill/agent paths before returning registry.
+      - createODFSkillInject() and createODFSkillResolve() use resolved paths.
+      - Metrics paths remain absolute under ODF_CONFIG_DIR.
+
+  package_metadata_read:
+    new_type_fields: |
+      interface ODFRegistry {
+        ...
+        package?: {
+          name: string;
+          version: string;
+          description: string;
+          repository: string;
+          dependencies: Record<string, string>;
+        };
+      }
+    behavior: |
+      If package section is missing, treat as legacy registry and default
+      metadata from hardcoded constants. Existing helper tools do not require
+      package metadata.
+
+  backward_compatibility:
+    - |
+      Existing odf_skill_inject, odf_skill_resolve, odf_registry_read,
+      odf_notebooklm_lookup, odf_profile_select keep the same signatures and
+      outputs.
+    - |
+      odf_delegate success output changes from text instructions to a result
+      envelope, but fallback preserves the old text format.
+    - |
+      Registry without package section loads successfully.
+
+  file_changes:
+    - path: plugins/odf-delegation.ts
+      action: modify
+      description: Add task() invocation, fallback, resolvePath, package metadata.
+    - path: plugins/odf-delegation.test.ts
+      action: create
+      description: Unit tests for resolution, task() invocation, fallback, metrics.
+
+  testing:
+    - path: plugins/odf-delegation.test.ts
+      coverage:
+        - resolveAgent defaults and keyword matching
+        - matchSkills version filter and scoring
+        - resolvePath relative/absolute/./missing
+        - task() invocation with stub
+        - fallback when task() unavailable
+        - metrics status values
+    - path: scripts/odf-test-runner.js
+      action: modify
+      description: Load and run plugin unit tests.
+
+  dependencies:
+    - "@opencode-ai/plugin/sdk exposing task()"
+    - odf-registry.json
+    - skill-registry
+
+  next_step: |
+    Prototype task() call to confirm SDK signature, then implement invokeTask,
+    fallback, and unit tests.

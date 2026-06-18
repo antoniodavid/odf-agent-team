@@ -1,0 +1,149 @@
+capability: odf-cli-commands
+change: odf-orchestrator-deployment-experience
+version: 1.0.0
+status: spec
+type: new
+
+summary: |
+  Native command definitions for /odf-new, /odf-continue, /odf-status, and
+  /odf-explore that wire user input to the orchestrator and preflight gate.
+
+requirements:
+  functional:
+    - id: CLI-01
+      name: /odf-new
+      strength: MUST
+      description: |
+        /odf-new MUST parse a change name, optional description, and optional
+        --fast flag, then trigger the orchestrator with preflight.
+      acceptance:
+        - Change name is required.
+        - Preflight runs before ASSESS.
+      scenarios:
+        - name: Start change
+          given: User runs /odf-new sale-discount-field "Add discount"
+          when: Command is parsed
+          then: Orchestrator starts preflight for change sale-discount-field
+        - name: Fast mode
+          given: User runs /odf-new pos-receipt --fast
+          when: Orchestrator executes
+          then: Approval gates are skipped until IMPLEMENT
+
+    - id: CLI-02
+      name: /odf-continue
+      strength: MUST
+      description: |
+        /odf-continue MUST resume the most recent active change or a named
+        change from its last completed phase.
+      acceptance:
+        - Named change takes precedence.
+        - If multiple active and no name, list them.
+      scenarios:
+        - name: Resume specific change
+          given: User runs /odf-continue sale-discount-field
+          when: State is loaded
+          then: Orchestrator runs the next pending phase
+
+    - id: CLI-03
+      name: /odf-status
+      strength: MUST
+      description: |
+        /odf-status MUST display active changes with phase, task progress,
+        version, and module; or detail a single named change.
+      acceptance:
+        - No active changes shows an empty state message.
+        - Named change shows full phase progress and pending tasks.
+      scenarios:
+        - name: List active changes
+          given: Two changes are active
+          when: User runs /odf-status
+          then: A table with change, phase, tasks, version, module is shown
+
+    - id: CLI-04
+      name: /odf-explore
+      strength: MUST
+      description: |
+        /odf-explore MUST parse topic, optional version, and optional module,
+        then run the exploration flow through the orchestrator.
+      acceptance:
+        - Exploration is not a formal workflow phase.
+        - Results suggest /odf-new or configuration.
+      scenarios:
+        - name: Research topic
+          given: User runs /odf-explore "inventory valuation methods"
+          when: Orchestrator delegates to exploration agent
+          then: A summary with standard coverage and recommendation is shown
+
+    - id: CLI-05
+      name: Registry registration
+      strength: MUST
+      description: |
+        Each command MUST be registered in odf-registry.json and have a
+        markdown definition in command/.
+      scenarios:
+        - name: Registry refresh
+          given: A new command markdown is added
+          when: /odf-registry-refresh runs
+          then: odf-registry.json includes the command entry
+
+    - id: CLI-06
+      name: Backward compatible aliases
+      strength: SHOULD
+      description: |
+        Existing command behavior for /odf-apply, /odf-verify, /odf-fix, etc.
+        SHOULD remain unchanged.
+      scenarios:
+        - name: Existing command
+          given: User runs /odf-fix bug-name
+          when: Command is parsed
+          then: It follows the existing lightweight fix flow
+
+  non_functional:
+    - id: CLI-N01
+      name: Command discoverability
+      strength: SHOULD
+      description: Command help text SHOULD be concise and show usage examples.
+    - id: CLI-N02
+      name: Idempotency
+      strength: MUST
+      description: Running the same /odf-new command twice MUST create distinct changes or warn.
+
+interface_contracts:
+  inputs:
+    - /odf-new <change-name> ["description"] [--fast]
+    - /odf-continue [change-name]
+    - /odf-status [change-name]
+    - /odf-explore <topic> [--version N] [--module M]
+  outputs:
+    - Conversational orchestrator prompt
+    - Status table or exploration report
+
+error_cases:
+  - /odf-new missing change name -> show usage and error.
+  - /odf-continue named change not active -> list active changes.
+  - /odf-status state read failure -> show error and suggest /odf-init.
+  - /odf-explore missing topic -> show usage.
+
+edge_cases:
+  - /odf-new with existing change name -> warn and ask to resume or rename.
+  - /odf-continue with no active changes -> suggest /odf-new.
+  - /odf-status for archived change -> show archived summary.
+  - /odf-explore with unknown version -> ask or default to project version.
+
+dependencies:
+  - orchestrator-agent
+  - odf-preflight
+  - odf-delegation-plugin
+  - skill-registry (command entries)
+
+affected_files:
+  - command/odf-new.md
+  - command/odf-continue.md
+  - command/odf-status.md
+  - command/odf-explore.md
+  - odf-registry.json
+
+test_approach:
+  - Add YAML scenarios in scripts/odf-agent-tests/odf-cli.yaml.
+  - Test command parsing, orchestrator wiring, and error messages.
+  - Run node scripts/odf-test-runner.js.

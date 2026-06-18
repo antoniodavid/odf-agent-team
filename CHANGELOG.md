@@ -1,5 +1,25 @@
 # Changelog — ODF Agent Team
 
+## 1.1.0 (2026-06-18)
+
+### Added
+- Orquestador conversacional (`agent/odoo_orchestrator.md`) con preflight gate y máquina de estados
+- Comandos nativos `/odf-new`, `/odf-continue`, `/odf-status`, `/odf-explore` registrados en `odf-registry.json`
+- Plugin `odf-delegation.ts` invoca la API nativa `task()` de OpenCode con fallback determinista
+- `install.sh` idempotente con `--yes`, `--dry-run`, `--force`, backup con timestamp y soporte `ODF_SOURCE_DIR`
+- `package.json` con dependencias, scripts de test y peer dependencies del plugin SDK
+- Validación de Node.js 18+ en `install.sh`
+- Resolución de rutas relativas en `odf-registry.json` con flag `use_relative_paths`
+- Metadatos de paquete en `odf-registry.json` (name, version, repository, dependencies)
+- `scripts/odf-registry-validate.js` para verificar que todas las rutas registradas resuelven
+- Helpers de preflight y orchestrator en `scripts/lib/` con tests unitarios
+- Parser CLI mínimo en `scripts/odf-cli.js` para los comandos nativos
+- Tests unitarios con Vitest (92 tests) y escenarios YAML (118 aserciones)
+
+### Changed
+- README actualizado con instalación via `./install.sh`, referencia de comandos nativos y mención del orquestador/preflight
+- Versión del proyecto a 1.1.0 (VERSION, package.json, odf-registry.json, install.sh)
+
 ## 1.0.0 (2026-05-14)
 
 ### Added

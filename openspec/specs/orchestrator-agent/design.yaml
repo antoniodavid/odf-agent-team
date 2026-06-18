@@ -1,0 +1,247 @@
+capability: orchestrator-agent
+change: odf-orchestrator-deployment-experience
+version: 1.0.0
+status: design
+type: new
+
+summary: |
+  Conversational coordinator that owns the ODF workflow lifecycle.
+  Runs the preflight gate, persists decisions, delegates phases through
+  odf_delegate, shows approval gates, and resumes work.
+
+design:
+  technical_approach: |
+    Extend agent/odoo_orchestrator.md with a hard preflight gate and a formal
+    state machine. The orchestrator is a THIN coordinator: it never writes
+    code/specs/designs directly. It reads/writes change state to
+    openspec/changes/{change}/state.yaml (with optional Engram mirror), builds
+    phase prompts, calls odf_delegate, and presents approval gates.
+
+  component_placement:
+    file: agent/odoo_orchestrator.md
+    existing_behavior: |
+      Already defines the ODF workflow, phase DAG, sub-agent mappings,
+      parallel execution rules, and Engram persistence.
+    new_behavior: |
+      - Insert a "Preflight Gate" section before phase delegation.
+      - Add state machine using OpenSpec state.yaml as source of truth.
+      - Add approval gate rules with --fast exception.
+      - Add /odf-continue and /odf-status resume logic.
+
+  state_machine:
+    states:
+      - init
+      - preflight
+      - assess
+      - qa-plan
+      - design
+      - implement
+      - verify
+      - archived
+    transitions:
+      - from: init
+        to: preflight
+        trigger: /odf-new
+      - from: preflight
+        to: assess
+        trigger: preflight valid
+      - from: assess
+        to: qa-plan
+        trigger: user approves, strategy custom
+      - from: assess
+        to: design
+        trigger: user approves, strategy custom, qa-plan skipped or merged
+      - from: design
+        to: implement
+        trigger: user approves design
+      - from: implement
+        to: verify
+        trigger: all tasks complete
+      - from: verify
+        to: archived
+        trigger: verify passes
+
+  state_persistence:
+    openspec:
+      path: openspec/changes/{change}/state.yaml
+      content: |
+        change: {name}
+        phase: {last-completed-or-current}
+        preflight:
+          execution_mode: interactive
+          artifact_store: openspec
+          delivery_strategy: ask-on-risk
+          review_budget_lines: 400
+          odoo_version: 18
+          tdd_mode: false
+          solution_strategy: pending
+          chain_strategy: none
+          persisted_at: "2026-06-17T12:00:00Z"
+        project:
+          name: {project}
+          odoo_version: 18
+          test_command: "..."
+          lint_command: "..."
+        modules:
+          - name: {module}
+            path: {relative}
+            status: pending
+        artifacts:
+          assess: false
+          qa_plan: false
+          design: false
+          implement: false
+          qa_review: false
+          qa_aggregate: false
+          verify: false
+        tasks_progress:
+          completed: []
+          pending: []
+        timestamps:
+          started_at: ISO8601
+          assess_completed: null
+          design_completed: null
+          implement_completed: null
+          verify_completed: null
+        last_updated: ISO8601
+    engram:
+      topic_key: odf/{change}/state
+      type: architecture
+      project: {project}
+
+  preflight_gate_integration:
+    flow:
+      - |
+        On /odf-new, check if preflight record exists and is complete.
+      - |
+        If incomplete or missing, ask required questions one at a time or in a
+        single structured form if the chat UI supports it.
+      - |
+        Validate each answer immediately; invalid answers re-prompt.
+      - |
+        After all required answers, show a summary and allow amendment.
+      - |
+        Persist preflight record before any phase delegation.
+    resume_behavior: |
+      /odf-continue on a change with incomplete preflight runs preflight first.
+
+  approval_gates:
+    standard_behavior: |
+      After each phase completes, show:
+        - Phase summary (executive_summary from agent result)
+        - Strategy or design highlights
+        - Risks and warnings
+        - Next phase
+      Then ask: "Proceed to {next-phase}? (yes / review details / abort)"
+    fast_mode: |
+      When --fast is set, skip intermediate gates and auto-continue until the
+      IMPLEMENT phase, where the gate still pauses before writing code.
+
+  delegation_prompt_template:
+    assess: |
+      Read skill: {resolved_skill_path}
+      Read shared conventions: persistence-contract.md, engram-convention.md,
+      result-contract.md, odoo-sources.md
+
+      Change: {change-name}
+      Odoo version: {version}
+      Project config: {prefilled}
+      Prior learnings: {optional}
+
+      User requirement: {description}
+
+      Return an ODF Result envelope with strategy (standard/custom) and
+      functional spec.
+    design: |
+      Read skill: {resolved_skill_path}
+      Read shared conventions.
+
+      Change: {change-name}
+      Odoo version: {version}
+      Assess artifact: {summary or path}
+      QA plan: {summary or path}
+
+      Produce technical design + task breakdown.
+    implement: |
+      Read skill: {resolved_skill_path}
+      Read shared conventions.
+
+      Change: {change-name}
+      Design artifact: {summary or path}
+      QA plan: {summary or path}
+      Tasks to implement: {task IDs}
+
+      Implement assigned tasks.
+    verify: |
+      Read skill: {resolved_skill_path}
+      Read shared conventions.
+
+      Change: {change-name}
+      Module path: {path}
+      All artifacts under odf/{change}/
+
+      Run quality gate and return PASS/FAIL.
+
+  resume_logic:
+    /odf-continue:
+      - |
+        If change-name provided: load that change; error if not active.
+      - |
+        If no name: load all active changes, sort by last_updated desc,
+        pick the most recent. If more than one and ambiguous, list them.
+      - |
+        If preflight incomplete: run preflight first.
+      - |
+        Determine next pending phase from state.artifacts.
+      - |
+        Delegate next phase via odf_delegate.
+
+  non_odf_request_handling:
+    routing:
+      - pattern: "How does Odoo X?"
+        action: Delegate short answer to relevant agent without creating a change.
+      - pattern: "Can Odoo do X?"
+        action: Delegate to odoo_functional_consultant directly.
+      - pattern: Simple search
+        action: Answer directly or use fff/fff_grep.
+
+  error_handling:
+    - error: Preflight incomplete
+      response: Ask remaining questions; do not delegate.
+    - error: No active change for /odf-continue
+      response: Inform and suggest /odf-new.
+    - error: odf_delegate returns error
+      response: Show error, keep state unchanged, offer retry.
+    - error: Multiple active changes, no name
+      response: List and ask user to pick.
+    - error: Phase agent returns blocked
+      response: Surface blocker, stop workflow.
+    - error: User aborts at gate
+      response: State remains at last completed phase.
+
+  file_changes:
+    - path: agent/odoo_orchestrator.md
+      action: modify
+      description: Add preflight gate, state machine, approval gates, resume logic.
+    - path: openspec/changes/{change}/state.yaml
+      action: create
+      description: New runtime workflow state file per change.
+
+  testing:
+    - path: scripts/odf-agent-tests/orchestrator.yaml
+      coverage:
+        - preflight blocking
+        - state transitions
+        - approval gates
+        - resume latest active change
+        - multiple active changes prompt
+
+  dependencies:
+    - odf-preflight
+    - odf-delegation-plugin
+    - odf-cli-commands
+    - odf-registry.json
+
+  next_step: |
+    Implement the orchestrator markdown changes and orchestrator.yaml tests
+    after the plugin and preflight slices are complete.

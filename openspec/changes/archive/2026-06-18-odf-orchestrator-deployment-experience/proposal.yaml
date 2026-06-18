@@ -1,0 +1,195 @@
+change: odf-orchestrator-deployment-experience
+title: ODF Orchestrator & Deployment Experience
+version: 1.0.0
+created: "2026-06-17"
+artifact_store: openspec
+status: proposed
+
+intent:
+  problem: |
+    ODF is a rich OpenCode skill pack but lacks a cohesive agent experience.
+    The orchestrator is documented but not automated; odf_delegate returns
+    instructions instead of invoking task(); commands and registry are not
+    deployed reliably; there is no preflight gate. Users must manually wire
+    phases, wasting context and slowing Odoo work.
+
+target_users:
+  - role: Solo developer
+    context: Running Odoo modules in external workspaces
+  - role: Internal team
+    context: Shared OpenCode + ODF setup
+  - role: Community
+    context: Future gentle-ai-like Odoo agent workflow
+
+situations:
+  - Starting a new feature with /odf-new
+  - Resuming a workflow with /odf-continue
+  - Checking progress with /odf-status
+  - Installing ODF on a fresh machine
+
+scope:
+  in_scope:
+    - Conversational ODF orchestrator with preflight hard gate
+    - Real task() invocation from odf_delegate plugin tool
+    - Native commands /odf-new, /odf-continue, /odf-status, /odf-explore
+    - Idempotent install.sh and basic CLI wrappers
+    - package.json, relative registry paths, plugin unit tests
+  out_of_scope:
+    - Standalone CLI binary outside OpenCode
+    - GUI/TUI, SaaS, multi-tenant hosting
+    - Rewriting all ODF skills
+    - CI/CD pipeline beyond local test runner
+
+non_goals:
+  - Support Odoo versions before 16
+  - Force Engram-only persistence
+  - Remove markdown skill/agent definitions
+  - Break existing ODF users
+
+business_rules:
+  - Support Odoo 16, 17, 18, 19
+  - Maintain backward compatibility for existing ODF users
+  - Preflight answers persist before phase delegation
+  - odf_delegate MUST use real task(), not simulation
+  - OpenSpec default storage; Engram optional
+  - PR size budget 400 lines by default
+
+product_constraints:
+  - Plugin API limited by @opencode-ai/plugin/sdk surface
+  - No existing plugin unit tests; add minimal coverage
+  - Registry must remain usable by current skill resolution
+
+approach:
+  summary: |
+    Add an odf-orchestrator agent that runs preflight, then delegates phases
+    via the plugin's odf_delegate tool. Refactor odf-delegation.ts to call
+    task() internally. Add package.json, install.sh, and command wrappers.
+    Keep registry backward compatible while supporting relative paths.
+  alternatives:
+    - option: Standalone Go CLI like gentle-ai
+      verdict: rejected
+      reason: Keep OpenCode pack form for now
+    - option: Pure prompt-based orchestration without plugin
+      verdict: rejected
+      reason: Cannot enforce preflight or collect metrics
+
+fases_flow:
+  - phase: preflight
+    description: Pace, artifacts, delivery, budget, Odoo version, TDD mode, solution strategy, chain strategy
+  - phase: explore
+    description: Optional deep research via /odf-explore
+  - phase: assess
+    description: Standard vs custom decision
+  - phase: design
+    description: Technical design + task breakdown
+  - phase: implement
+    description: Execute approved tasks
+  - phase: verify
+    description: Quality gate
+  - phase: archive
+    description: Save learnings and mark complete
+
+artifact_storage:
+  openspec:
+    change_artifacts:
+      - openspec/changes/odf-orchestrator-deployment-experience/proposal.yaml
+      - openspec/changes/odf-orchestrator-deployment-experience/spec.yaml
+      - openspec/changes/odf-orchestrator-deployment-experience/design.yaml
+      - openspec/changes/odf-orchestrator-deployment-experience/tasks.yaml
+    capability_specs:
+      - openspec/specs/orchestrator-agent/spec.yaml
+      - openspec/specs/odf-preflight/spec.yaml
+      - openspec/specs/odf-delegation-plugin/spec.yaml
+      - openspec/specs/odf-cli-commands/spec.yaml
+      - openspec/specs/odf-installer/spec.yaml
+  engram:
+    - odf/odf-orchestrator-deployment-experience/proposal
+    - odf/odf-orchestrator-deployment-experience/spec
+    - odf/odf-orchestrator-deployment-experience/design
+    - odf/odf-orchestrator-deployment-experience/tasks
+
+capabilities:
+  new:
+    - name: orchestrator-agent
+      description: Conversational coordinator with preflight gate
+    - name: odf-preflight
+      description: Hard gate capturing ODF-specific choices
+    - name: odf-cli-commands
+      description: Native /odf-new, /odf-continue, /odf-status, /odf-explore
+    - name: odf-installer
+      description: Idempotent install.sh and package manifest
+  modified:
+    - name: odf-delegation-plugin
+      description: Change instruction-only odf_delegate to real task() invocation
+    - name: skill-registry
+      description: Support relative paths and package.json metadata
+
+affected_areas:
+  - path: plugins/odf-delegation.ts
+    impact: modified
+    description: odf_delegate invokes task(); add tests
+  - path: agent/odoo_orchestrator.md
+    impact: modified
+    description: Add preflight gate and conversational loop
+  - path: command/odf-new.md
+    impact: modified
+    description: Wire to orchestrator with preflight
+  - path: command/odf-continue.md
+    impact: modified
+    description: Resume from persisted preflight state
+  - path: command/odf-status.md
+    impact: modified
+    description: Read OpenSpec/Engram state
+  - path: command/odf-explore.md
+    impact: modified
+    description: Trigger explore via orchestrator
+  - path: install.sh
+    impact: new
+    description: Idempotent deployment script
+  - path: package.json
+    impact: new
+    description: Node dependencies and test script
+  - path: odf-registry.json
+    impact: modified
+    description: Relative paths and new entries
+
+risks:
+  - description: OpenCode task() API constraints limit plugin delegation
+    likelihood: medium
+    mitigation: Prototype task() call first; keep manual-instruction fallback
+  - description: Registry path changes break existing users
+    likelihood: medium
+    mitigation: Maintain absolute-path fallback; preserve current installs
+  - description: Scope creep toward full standalone CLI
+    likelihood: high
+    mitigation: Enforce MVP boundaries and 400-line review budget
+  - description: Plugin tests lack framework
+    likelihood: low
+    mitigation: Add minimal Node test harness in package.json
+
+rollback_plan: |
+  Remove new commands from registry, revert odf-delegation.ts to instruction-only
+  output, and delete install.sh/package.json. Existing skill/agent markdown files
+  remain untouched.
+
+dependencies:
+  - "@opencode-ai/plugin and @opencode-ai/sdk versions compatible with task()"
+  - Node.js 18+
+  - Existing ODF skill/agent files
+  - OpenSpec initialized
+
+success_criteria:
+  - /odf-new triggers orchestrator and runs preflight
+  - odf_delegate plugin tool calls task() and completes a delegated phase
+  - install.sh deploys the ODF pack idempotently
+  - Existing ODF tests (36 cases) still pass
+  - New plugin unit tests added and passing
+  - Proposal/spec/design/task artifacts stored in OpenSpec
+
+first_slice:
+  recommendation: |
+    Start with the plugin because everything else depends on real delegation.
+    Slice 1: (1) add package.json with yaml dependency and test script,
+    (2) implement real task() in odf_delegate with deterministic agent/skill
+    resolution, (3) add minimal unit tests for delegation logic. This unlocks
+    the orchestrator and commands in later slices.

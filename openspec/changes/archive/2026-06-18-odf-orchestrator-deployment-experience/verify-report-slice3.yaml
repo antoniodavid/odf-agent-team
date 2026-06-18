@@ -1,0 +1,366 @@
+change: odf-orchestrator-deployment-experience
+version: 1.0.0
+slice: 3
+slice_name: Native /odf-* commands
+status: warning
+final_verdict: PASS WITH WARNINGS
+artifact_store: openspec
+report_type: verify-report
+
+executive_summary: |
+  Slice 3 implementation is functionally complete and all automated tests pass.
+  The EXPLORE phase mismatch identified in Slice 2 is fixed: ALLOWED_PHASES now
+  includes EXPLORE, the default agent mapping routes EXPLORE to
+  odoo_functional_consultant, and a dedicated plugin unit test verifies the
+  delegation envelope. All four native command definitions are complete,
+  consistent, and registered in odf-registry.json. The minimal CLI wrapper
+  parses arguments and emits orchestrator routing envelopes without invoking
+  OpenCode directly.
+
+  One warning remains: the Slice 3 diff exceeds the 400-line per-PR review
+  budget. The feature-branch-chain strategy already targets the previous slice
+  branch, but the actual changed-line count should be surfaced before opening
+  the PR.
+
+mode: Standard
+strict_tdd: false
+
+completion:
+  total_tasks: 6
+  completed_tasks: 6
+  incomplete_tasks: 0
+  task_status: |
+    All Slice 3 tasks (3.1–3.6) are marked complete in tasks.yaml and
+    apply-progress.yaml, with implementation evidence present in the repo.
+
+evidence:
+  - command: node scripts/odf-test-runner.js
+    status: passed
+    summary: 92 YAML scenario assertions passed
+    details: |
+      Existing agent suites: 36 assertions passed.
+      Preflight suite: 16 assertions passed.
+      Orchestrator suite: 5 assertions passed.
+      CLI command suite (odf-cli.yaml): 12 scenarios / 35 assertions passed.
+
+  - command: npm test
+    status: passed
+    summary: 88 unit tests passed; 92 YAML assertions passed
+    details: |
+      Unit tests (vitest): 88 passed across scripts/odf-cli.test.ts,
+      scripts/lib/orchestrator.test.ts, scripts/lib/preflight.test.ts, and
+      plugins/odf-delegation.test.ts.
+      YAML scenario tests: 92 passed.
+
+  - command: npx tsc --noEmit
+    status: passed
+    summary: TypeScript type check clean, no errors
+
+  - command: git diff --stat ba8e0f3..HEAD
+    status: warning
+    summary: 820 insertions, 150 deletions across 15 files
+    details: |
+      Implementation diff (excluding artifact-only apply-progress/tasks updates)
+      is still above the 400-line per-PR review budget. The PR must target the
+      feature branch after Slice 2 merges so reviewers see only Slice 3 work.
+
+  - command: node scripts/odf-cli.js new sale-discount-field "Add discount" --fast
+    status: passed
+    summary: CLI wrapper emits correct orchestrator routing envelope
+    details: |
+      Manual invocation printed the expected command/change/description/fast
+      block and did not execute any OpenCode API.
+
+spec_compliance_matrix:
+  - capability: odf-cli-commands
+    requirements:
+      - id: CLI-01
+        name: /odf-new
+        status: COMPLIANT
+        evidence: |
+          command/odf-new.md defines parameters, examples, and orchestrator
+          routing. scripts/odf-cli.js parseCommand handles new with optional
+          description and --fast. scripts/odf-cli.test.ts and
+          scripts/odf-agent-tests/odf-cli.yaml cover the parsing scenarios.
+
+      - id: CLI-02
+        name: /odf-continue
+        status: COMPLIANT
+        evidence: |
+          command/odf-continue.md defines optional change-name and resume
+          routing. scripts/odf-cli.js returns { command: 'odf-continue', change }.
+          Unit and YAML tests cover specific and latest-active resume parsing.
+
+      - id: CLI-03
+        name: /odf-status
+        status: COMPLIANT
+        evidence: |
+          command/odf-status.md defines table and detail output formats.
+          scripts/lib/orchestrator.js exposes renderStatusTable and
+          renderStatusDetail; scripts/lib/orchestrator.test.ts covers both.
+          scripts/odf-cli.js parses optional change-name.
+
+      - id: CLI-04
+        name: /odf-explore
+        status: COMPLIANT
+        evidence: |
+          command/odf-explore.md defines topic, --version, --module parsing and
+          EXPLORE routing. scripts/odf-cli.js parses all three fields. Unit and
+          YAML tests cover topic-only and version+module cases.
+
+      - id: CLI-05
+        name: Registry registration
+        status: COMPLIANT
+        evidence: |
+          odf-registry.json contains a commands array with entries for
+          odf-new, odf-continue, odf-status, and odf-explore, each with name,
+          description, path, and triggers. All four command/*.md files exist.
+
+      - id: CLI-06
+        name: Backward compatible aliases
+        status: COMPLIANT
+        evidence: |
+          No existing command files (/odf-apply, /odf-verify, /odf-fix, etc.)
+          were modified in Slice 3. git diff shows only the four scoped command
+          files changed.
+
+      - id: CLI-N01
+        name: Command discoverability
+        status: COMPLIANT
+        evidence: |
+          Each command markdown includes frontmatter description, usage block,
+          parameter table, and examples. Registry entries carry descriptions.
+
+      - id: CLI-N02
+        name: Idempotency
+        status: COMPLIANT_VIA_INSTRUCTION
+        evidence: |
+          command/odf-new.md instructs the orchestrator to check for an active
+          existing change and offer /odf-continue or rename. No automated test
+          exercises the duplicate-name chat path.
+
+  - capability: odf-delegation-plugin
+    requirements:
+      - id: DELEG-01
+        name: Real task() invocation
+        status: COMPLIANT
+        evidence: |
+          plugins/odf-delegation.ts invokeTask calls taskApi({ agent, prompt,
+          context_files }) and returns the result envelope. Plugin unit tests
+          verify delegated status, agent, skills_injected, profile, and
+          task_api_source.
+
+      - id: DELEG-02
+        name: Manual fallback
+        status: COMPLIANT
+        evidence: |
+          When findTaskApi returns null, buildFallbackOutput returns an
+          instruction envelope marked "Status: fallback". Unit test verifies
+          the fallback text and metrics status.
+
+      - id: DELEG-03
+        name: Skill and profile injection
+        status: COMPLIANT
+        evidence: |
+          matchSkills injects up to 5 matching skills. getProfileByPhase selects
+          the active/named profile. formatProfileBlock is appended to the
+          delegated prompt. Unit tests verify profile injection and override.
+
+      - id: DELEG-04
+        name: Metrics recording
+        status: COMPLIANT
+        evidence: |
+          recordMetrics captures phase, agent, skills_injected, duration_ms,
+          token_estimate, status, and task_api_source. Unit tests verify
+          session_id hashing, error sanitization, and buffer-cap synchronous
+          flush.
+
+      - id: DELEG-05
+        name: Deterministic agent resolution
+        status: COMPLIANT
+        evidence: |
+          resolveAgent is a pure function of registry, phase, and task keywords.
+          Unit test asserts deterministic output for identical inputs.
+
+      - id: DELEG-06
+        name: Existing tools unchanged
+        status: COMPLIANT
+        evidence: |
+          createODFSkillInject, createODFSkillResolve, createODFRegistryRead,
+          createODFNotebookLMLookup, and createODFProfileSelect retain their
+          original signatures and outputs. No regressions in existing YAML
+          suites.
+
+      - id: DELEG-N03
+        name: Path traversal protection
+        status: COMPLIANT
+        evidence: |
+          resolvePath rejects paths containing ".." and confines absolute/
+          relative paths to allowed roots. context_files are validated against
+          the workspace root in createODFDelegate.execute(). Unit tests cover
+          traversal rejection.
+
+      - id: DELEG-N04
+        name: Metrics privacy and bounded buffer
+        status: COMPLIANT
+        evidence: |
+          session_id is hashed (sha256, first 8 hex chars), errors are
+          sanitized/truncated to 200 chars, and the buffer cap defaults to 1000
+          with synchronous flush at capacity.
+
+  - capability: orchestrator-agent
+    requirements:
+      - id: ORCH-02
+        name: Phase delegation via real task()
+        status: COMPLIANT
+        evidence: |
+          Plugins/odf-delegation.ts invokes task() and returns the delegated
+          agent result. EXPLORE phase is now a valid phase and routes to
+          odoo_functional_consultant.
+
+      - id: ORCH-06
+        name: Non-ODF request handling
+        status: COMPLIANT_VIA_INSTRUCTION
+        evidence: |
+          command/odf-explore.md routes research questions through the
+          orchestrator with phase=EXPLORE, avoiding creation of a formal change.
+
+      - id: ORCH-N01
+        name: Backward compatibility
+        status: COMPLIANT
+        evidence: |
+          Fallback path preserves old text-only output. Existing 8 YAML agent
+          suites continue to pass.
+
+      - id: ORCH-N02
+        name: Thin orchestrator
+        status: COMPLIANT
+        evidence: |
+          command/*.md files contain only parsing, routing, and usage docs. No
+          business logic or direct code/spec/design generation.
+
+design_coherence:
+  - topic: EXPLORE phase fix
+    status: ALIGNED
+    notes: |
+      ALLOWED_PHASES, tool schema descriptions, system rules table, default
+      agent mapping, and odf_skill_resolve schema all include EXPLORE. The
+      plugin unit test "accepts EXPLORE phase and delegates to the functional
+      consultant agent" passed.
+
+  - topic: Command contracts
+    status: ALIGNED
+    notes: |
+      command/odf-new.md, command/odf-continue.md, command/odf-status.md, and
+      command/odf-explore.md contain frontmatter, parse instructions,
+      orchestrator routing contract, error cases, and output format, matching
+      openspec/specs/odf-cli-commands/design.yaml. Spanish user-facing text
+      aligns with the project language requirement.
+
+  - topic: CLI wrapper scope
+    status: ALIGNED
+    notes: |
+      scripts/odf-cli.js is a minimal parser/router: tokenize/parseCommand
+      extract arguments and buildOrchestratorPrompt emits a routing envelope.
+      It does not invoke OpenCode or execute tasks.
+
+  - topic: Registry command entries
+    status: ALIGNED
+    notes: |
+      odf-registry.json commands array contains the four required entries with
+      name, description, path, and triggers, consistent with the design's
+      registry_registration section.
+
+  - topic: Test coverage
+    status: ALIGNED
+    notes: |
+      New tests cover CLI parsing (unit + YAML), EXPLORE delegation (plugin
+      unit), command contract parsing, and existing regression suites. All
+      tests pass.
+
+security_risk_pass:
+  status: passed
+  findings:
+    - area: Path traversal
+      result: No unsafe traversal found.
+      details: |
+        plugins/odf-delegation.ts resolvePath rejects ".." and isWithinRoot
+        confines resolved paths. createODFDelegate.execute validates
+        context_files against the workspace root. scripts/odf-cli.js does not
+        resolve file paths.
+
+    - area: Unsafe eval / dynamic code execution
+      result: No eval, new Function, or vm usage found.
+      details: |
+        scripts/odf-cli.js uses static string parsing and console.log only.
+        New tests use static YAML/JSON fixtures.
+
+    - area: Environment variables
+      result: Handled safely.
+      details: |
+        plugins/odf-delegation.ts getOdfConfigDir requires ODF_CONFIG_DIR to be
+        absolute and normalizes it. ODF_METRICS_BUFFER_CAP is parsed to a
+        positive finite integer with a safe default.
+
+    - area: Information disclosure
+      result: No raw secrets or session identifiers logged.
+      details: |
+        recordMetrics hashes session_id and sanitizes error messages before
+        persisting metrics. CLI wrapper does not handle credentials.
+
+    - area: Command injection
+      result: No shell execution in new files.
+      details: |
+        scripts/odf-cli.js builds strings and prints them; it never spawns
+        processes or interpolates user input into shell commands.
+
+issues:
+  critical: []
+
+  warning:
+    - id: WARN-01
+      title: Slice 3 diff exceeds 400-line review budget
+      description: |
+        git diff --stat ba8e0f3..HEAD shows 820 insertions and 150 deletions
+        across 15 files. This is more than double the 400-line per-PR review
+        budget documented in tasks.yaml and apply-progress.yaml.
+      mitigation: |
+        The workload is already framed as a feature-branch-chain slice. The PR
+        should target feature/odf-orchestrator-deployment-experience after
+        Slice 2 merges, so the diff seen by reviewers is only Slice 3 changes.
+        Consider splitting the command markdown rewrites from the CLI wrapper
+        and tests if the PR still feels too large for review.
+
+  suggestion:
+    - id: SUG-01
+      title: Add registry-refresh synchronization test
+      rationale: |
+        CLI-05/registry refresh is verified by inspecting odf-registry.json,
+        but there is no automated test that /odf-registry-refresh keeps the
+        commands array in sync with command/*.md files. A registry validation
+        test would prevent drift.
+
+    - id: SUG-02
+      title: Support --key=value flag syntax in CLI tokenize
+      rationale: |
+        The current tokenizer handles --key value but not --key=value. Adding
+        equals-form support would make the wrapper more robust for users who
+        expect common CLI conventions.
+
+    - id: SUG-03
+      title: Add end-to-end explore routing YAML scenario
+      rationale: |
+        EXPLORE delegation is covered by plugin unit tests and command parsing
+        tests, but there is no YAML scenario that asserts the orchestrator
+        delegates phase=EXPLORE. Adding one would close the loop between
+        command, orchestrator, and plugin.
+
+next_recommended: sdd-archive (Slice 3 boundary)
+skill_resolution:
+  primary: sdd-verify
+  supporting:
+    - sdd-archive
+    - chained-pr
+
+reported_at: "2026-06-18T16:30:00Z"
+reported_by: sdd-verify

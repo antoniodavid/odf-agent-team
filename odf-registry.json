@@ -1,6 +1,23 @@
 {
   "version": 1,
-  "last_updated": "2026-05-14T20:30:00Z",
+  "last_updated": "2026-06-18T00:00:00Z",
+  "package": {
+    "name": "odf-agent-team",
+    "version": "1.1.0",
+    "description": "OpenCode skill/agent pack for structured Odoo development workflows",
+    "repository": "https://github.com/antoniodavid/odf-agent-team",
+    "dependencies": {
+      "yaml": "^2.7.0",
+      "@opencode-ai/plugin": "^1.15.0",
+      "@opencode-ai/sdk": "^1.15.0"
+    }
+  },
+  "flags": {
+    "strict_tdd": false,
+    "tdd_enforced_since": null,
+    "pr_size_budget": 400,
+    "use_relative_paths": true
+  },
   "skills": [
     {
       "name": "oca-governance-pr-workflow",
@@ -1257,9 +1274,44 @@
       "installed": true
     }
   ],
-  "flags": {
-    "strict_tdd": false,
-    "tdd_enforced_since": null,
-    "pr_size_budget": 400
-  }
+  "capabilities": [
+    {
+      "name": "orchestrator-agent",
+      "type": "agent",
+      "description": "ODF Orchestrator — conversational workflow coordinator",
+      "path": "agent/odoo_orchestrator.md"
+    },
+    {
+      "name": "odf-preflight",
+      "type": "capability",
+      "description": "Hard preflight gate for ODF workflow choices",
+      "path": "openspec/specs/odf-preflight/spec.yaml"
+    }
+  ],
+  "commands": [
+    {
+      "name": "odf-new",
+      "description": "Inicia un nuevo cambio ODF con preflight y flujo de trabajo completo",
+      "path": "command/odf-new.md",
+      "triggers": ["/odf-new"]
+    },
+    {
+      "name": "odf-continue",
+      "description": "Reanuda el cambio ODF activo más reciente o uno nombrado",
+      "path": "command/odf-continue.md",
+      "triggers": ["/odf-continue"]
+    },
+    {
+      "name": "odf-status",
+      "description": "Muestra el estado de los cambios ODF activos o el detalle de uno",
+      "path": "command/odf-status.md",
+      "triggers": ["/odf-status"]
+    },
+    {
+      "name": "odf-explore",
+      "description": "Investigación profunda del código o funcionalidad de Odoo",
+      "path": "command/odf-explore.md",
+      "triggers": ["/odf-explore"]
+    }
+  ]
 }

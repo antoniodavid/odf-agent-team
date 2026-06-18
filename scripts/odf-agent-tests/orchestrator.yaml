@@ -1,0 +1,129 @@
+name: odf-orchestrator-state-machine
+type: orchestrator
+agent: odoo_orchestrator
+tests:
+  - name: "next phase is preflight when preflight incomplete"
+    input:
+      state:
+        change: "my-feature"
+        phase: "init"
+    expected:
+      next_phase: "preflight"
+
+  - name: "next phase is assess after preflight"
+    input:
+      state:
+        change: "my-feature"
+        phase: "preflight"
+        preflight:
+          change: "my-feature"
+          execution_mode: "interactive"
+          artifact_store: "openspec"
+          delivery_strategy: "ask-on-risk"
+          review_budget_lines: 400
+          odoo_version: 18
+          tdd_mode: false
+          solution_strategy: "custom"
+          chain_strategy: "feature-branch"
+          persisted_at: "2026-06-18T00:00:00Z"
+    expected:
+      next_phase: "assess"
+
+  - name: "next phase is design after assess"
+    input:
+      state:
+        change: "my-feature"
+        phase: "assess"
+        preflight:
+          change: "my-feature"
+          execution_mode: "interactive"
+          artifact_store: "openspec"
+          delivery_strategy: "ask-on-risk"
+          review_budget_lines: 400
+          odoo_version: 18
+          tdd_mode: false
+          solution_strategy: "custom"
+          chain_strategy: "feature-branch"
+          persisted_at: "2026-06-18T00:00:00Z"
+        artifacts:
+          assess: true
+          design: false
+    expected:
+      next_phase: "design"
+
+  - name: "resume selects latest active change"
+    input:
+      states:
+        - change: "older"
+          state:
+            change: "older"
+            phase: "assess"
+            last_updated: "2026-06-18T00:00:00Z"
+            preflight:
+              change: "older"
+              execution_mode: "interactive"
+              artifact_store: "openspec"
+              delivery_strategy: "ask-on-risk"
+              review_budget_lines: 400
+              odoo_version: 18
+              tdd_mode: false
+              solution_strategy: "custom"
+              chain_strategy: "feature-branch"
+              persisted_at: "2026-06-18T00:00:00Z"
+        - change: "newer"
+          state:
+            change: "newer"
+            phase: "design"
+            last_updated: "2026-06-18T01:00:00Z"
+            preflight:
+              change: "newer"
+              execution_mode: "interactive"
+              artifact_store: "openspec"
+              delivery_strategy: "ask-on-risk"
+              review_budget_lines: 400
+              odoo_version: 18
+              tdd_mode: false
+              solution_strategy: "custom"
+              chain_strategy: "feature-branch"
+              persisted_at: "2026-06-18T00:00:00Z"
+    expected:
+      resume_change: "newer"
+
+  - name: "resume specific change by name"
+    input:
+      states:
+        - change: "alpha"
+          state:
+            change: "alpha"
+            phase: "assess"
+            last_updated: "2026-06-18T00:00:00Z"
+            preflight:
+              change: "alpha"
+              execution_mode: "interactive"
+              artifact_store: "openspec"
+              delivery_strategy: "ask-on-risk"
+              review_budget_lines: 400
+              odoo_version: 18
+              tdd_mode: false
+              solution_strategy: "custom"
+              chain_strategy: "feature-branch"
+              persisted_at: "2026-06-18T00:00:00Z"
+        - change: "beta"
+          state:
+            change: "beta"
+            phase: "design"
+            last_updated: "2026-06-18T02:00:00Z"
+            preflight:
+              change: "beta"
+              execution_mode: "interactive"
+              artifact_store: "openspec"
+              delivery_strategy: "ask-on-risk"
+              review_budget_lines: 400
+              odoo_version: 18
+              tdd_mode: false
+              solution_strategy: "custom"
+              chain_strategy: "feature-branch"
+              persisted_at: "2026-06-18T00:00:00Z"
+      name: "alpha"
+    expected:
+      resume_change: "alpha"

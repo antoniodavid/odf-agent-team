@@ -1,0 +1,82 @@
+change: odf-orchestrator-deployment-experience
+phase: verify
+preflight:
+  change: odf-orchestrator-deployment-experience
+  execution_mode: interactive
+  artifact_store: openspec
+  delivery_strategy: ask-always
+  review_budget_lines: 400
+  odoo_version: 18
+  tdd_mode: false
+  solution_strategy: custom
+  chain_strategy: feature-branch
+  persisted_at: "2026-06-18T00:00:00Z"
+project:
+  name: odf-agent-team
+  odoo_version: 18
+  test_command: "npm test"
+  lint_command: "npx tsc --noEmit"
+modules:
+  - name: odf-orchestrator-deployment-experience
+    path: openspec/changes/odf-orchestrator-deployment-experience
+    status: completed
+artifacts:
+  assess: true
+  qa_plan: false
+  design: true
+  implement: true
+  qa_review: false
+  qa_aggregate: false
+  verify: true
+tasks_progress:
+  completed:
+    - "1.1"
+    - "1.2"
+    - "1.3"
+    - "1.4"
+    - "1.5"
+    - "1.6"
+    - "1.7"
+    - "1.8"
+    - "1.9"
+    - "2.1"
+    - "2.2"
+    - "2.3"
+    - "2.4"
+    - "2.5"
+    - "2.6"
+    - "2.7"
+    - "2.8"
+    - "2.9"
+    - "2.10"
+    - "3.1"
+    - "3.2"
+    - "3.3"
+    - "3.4"
+    - "3.5"
+    - "3.6"
+    - "4.1"
+    - "4.2"
+    - "4.3"
+    - "4.4"
+    - "4.5"
+    - "4.6"
+    - "4.7"
+    - "4.8"
+    - "4.9"
+    - "4.10"
+    - "4.11"
+    - "5.1"
+    - "5.2"
+    - "5.3"
+    - "5.4"
+    - "5.5"
+    - "5.6"
+  pending: []
+timestamps:
+  started_at: "2026-06-18T00:00:00Z"
+  assess_completed: "2026-06-18T00:00:00Z"
+  design_completed: "2026-06-18T00:00:00Z"
+  implement_completed: "2026-06-18T00:00:00Z"
+  verify_completed: "2026-06-18T00:00:00Z"
+last_updated: "2026-06-18T00:00:00Z"

@@ -14,16 +14,47 @@ import * as fs from "node:fs/promises"
 import * as fsSync from "node:fs"
 import * as path from "node:path"
 import * as os from "node:os"
+import * as nodeCrypto from "node:crypto"
 import { type Plugin, type ToolContext, tool } from "@opencode-ai/plugin"
 import type { createOpencodeClient } from "@opencode-ai/sdk"
 
 export type OpencodeClient = ReturnType<typeof createOpencodeClient>
 
 // ==========================================
+// CONFIGURATION / SAFE PATHS
+// ==========================================
+
+/**
+ * Return the ODF configuration directory.
+ *
+ * Uses ODF_CONFIG_DIR when it is set and absolute. Falls back to
+ * ~/.config/opencode. The resolved path is always absolute.
+ */
+function getOdfConfigDir(): string {
+  const envDir = process.env.ODF_CONFIG_DIR?.trim()
+  if (envDir) {
+    if (path.isAbsolute(envDir)) {
+      return path.normalize(envDir)
+    }
+    console.warn(`[odf-delegation] ODF_CONFIG_DIR "${envDir}" is not absolute; falling back to default.`)
+  }
+  return path.join(os.homedir(), ".config", "opencode")
+}
+
+function isWithinRoot(candidate: string, root: string): boolean {
+  const normalizedRoot = path.normalize(root)
+  const normalizedCandidate = path.normalize(candidate)
+  return (
+    normalizedCandidate === normalizedRoot ||
+    normalizedCandidate.startsWith(normalizedRoot + path.sep)
+  )
+}
+
+// ==========================================
 // ODF REGISTRY
 // ==========================================
 
-const REGISTRY_PATH = path.join(os.homedir(), ".config", "opencode", "odf-registry.json")
+const REGISTRY_PATH = path.join(getOdfConfigDir(), "odf-registry.json")
 
 // Registry cache with TTL (5 seconds) to avoid disk reads on every tool call
 let registryCache: ODFRegistry | null = null
@@ -76,6 +107,28 @@ interface ODFProfile {
   description: string
 }
 
+interface ODFPackage {
+  name: string
+  version: string
+  description: string
+  repository: string
+  dependencies: Record<string, string>
+}
+
+interface ODFCommand {
+  name: string
+  description: string
+  path: string
+  triggers?: string[]
+}
+
+interface ODFCapability {
+  name: string
+  type: 'capability' | 'agent'
+  description?: string
+  path: string
+}
+
 interface ODFRegistry {
   version: number
   last_updated: string
@@ -83,6 +136,45 @@ interface ODFRegistry {
   agents: ODFAgent[]
   profiles?: ODFProfile[]
   notebooklm_sources?: Record<string, string>
+  package?: ODFPackage
+  commands?: ODFCommand[]
+  capabilities?: ODFCapability[]
+  flags?: Record<string, boolean | string | number>
+}
+
+/**
+ * Resolve a registry path safely.
+ *
+ * Rules:
+ * - Reject empty paths.
+ * - Reject any path containing ".." segments (path traversal).
+ * - Absolute paths are allowed only if they live under the registry directory
+ *   or the ODF config directory.
+ * - "~/" is expanded relative to the user's home directory and then checked
+ *   against the same allowed roots.
+ * - Relative paths are resolved against the registry directory and must stay
+ *   within the allowed roots.
+ */
+function resolvePath(registryDir: string, entryPath: string): string {
+  if (!entryPath) return ""
+  if (entryPath.includes("..")) return ""
+
+  const allowedRoots = [path.normalize(registryDir), getOdfConfigDir()]
+
+  let resolved: string
+  if (path.isAbsolute(entryPath)) {
+    resolved = path.normalize(entryPath)
+  } else if (entryPath.startsWith("~/")) {
+    resolved = path.normalize(path.join(os.homedir(), entryPath.slice(2)))
+  } else {
+    resolved = path.resolve(registryDir, entryPath)
+  }
+
+  if (!allowedRoots.some(root => isWithinRoot(resolved, root))) {
+    return ""
+  }
+
+  return resolved
 }
 
 async function loadRegistry(): Promise<ODFRegistry | null> {
@@ -93,11 +185,25 @@ async function loadRegistry(): Promise<ODFRegistry | null> {
   try {
     const data = await fs.readFile(REGISTRY_PATH, "utf8")
     const parsed = JSON.parse(data) as ODFRegistry
+    const registryDir = path.dirname(REGISTRY_PATH)
+
+    // Resolve relative skill/agent paths against the registry directory
+    for (const skill of parsed.skills || []) {
+      skill.path = resolvePath(registryDir, skill.path)
+    }
+    for (const agent of parsed.agents || []) {
+      agent.path = resolvePath(registryDir, agent.path)
+    }
+
     registryCache = parsed
     registryCacheTime = now
     startRegistryWatcher()
     return parsed
-  } catch {
+  } catch (err) {
+    if (err && (err as NodeJS.ErrnoException).code === "ENOENT") {
+      return null
+    }
+    console.warn(`[odf-delegation] Registry at ${REGISTRY_PATH} is unreadable or corrupt: ${err}`)
     return null
   }
 }
@@ -155,7 +261,7 @@ async function detectOdooVersion(projectDir: string): Promise<number | null> {
 // ==========================================
 
 async function discoverUnregisteredSkills(registry: ODFRegistry): Promise<string[]> {
-  const skillsDir = path.join(os.homedir(), ".config", "opencode", "skills")
+  const skillsDir = path.join(getOdfConfigDir(), "skills")
   const unregistered: string[] = []
 
   try {
@@ -180,7 +286,7 @@ async function discoverUnregisteredSkills(registry: ODFRegistry): Promise<string
 // CACHE FINGERPRINT (P0.3: Startup perf)
 // ==========================================
 
-const CACHE_FILE = path.join(os.homedir(), ".config", "opencode", ".registry-cache.json")
+const CACHE_FILE = path.join(getOdfConfigDir(), ".registry-cache.json")
 
 interface CacheEntry {
   path: string
@@ -226,7 +332,7 @@ async function hasSkillsChanged(): Promise<boolean> {
   const cache = await loadRegistryCache()
   if (!cache) return true
 
-  const skillsDir = path.join(os.homedir(), ".config", "opencode", "skills")
+  const skillsDir = path.join(getOdfConfigDir(), "skills")
   try {
     const entries = await fs.readdir(skillsDir, { recursive: true })
     const skillFiles = entries.filter(e => e.endsWith("SKILL.md"))
@@ -259,7 +365,7 @@ async function hasSkillsChanged(): Promise<boolean> {
 
 interface DelegationMetrics {
   timestamp: string
-  session_id: string
+  session_hash: string
   phase: string
   agent: string
   skills_injected: string[]
@@ -267,6 +373,12 @@ interface DelegationMetrics {
   duration_ms: number
   token_estimate: number
   status: "ok" | "fallback" | "error" | "timeout"
+  task_api_source: "ctx.task" | "toolCtx.task" | "sdk" | "unavailable"
+  error?: string
+}
+
+type DelegationMetricInput = Omit<DelegationMetrics, "session_hash"> & {
+  session_id: string
   error?: string
 }
 
@@ -274,31 +386,78 @@ let metricsBuffer: DelegationMetrics[] = []
 const METRICS_FLUSH_INTERVAL = 30_000 // flush every 30s
 let metricsTimer: ReturnType<typeof setInterval> | null = null
 
+function getMetricsBufferCap(): number {
+  const parsed = parseInt(process.env.ODF_METRICS_BUFFER_CAP || "1000", 10)
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 1000
+}
+
+function getMetricsDir(): string {
+  return path.join(getOdfConfigDir(), "metrics")
+}
+
 function estimateTokens(text: string): number {
   return Math.ceil(text.length / 4)
 }
 
+function hashSession(sessionId: string): string {
+  return nodeCrypto.createHash("sha256").update(sessionId).digest("hex").slice(0, 8)
+}
+
+function sanitizeError(error?: string): string | undefined {
+  if (!error) return undefined
+  const safe = error.replace(/\r?\n/g, " ").replace(/"/g, "'").trim()
+  return safe.length > 200 ? safe.slice(0, 200) + "..." : safe
+}
+
+/**
+ * Metrics policy:
+ * - Buffer is capped at ODF_METRICS_BUFFER_CAP (default 1000 entries).
+ *   When the cap is reached the buffer is flushed synchronously to disk
+ *   (backpressure) so memory stays bounded.
+ * - session_id is hashed (sha256, first 8 hex chars) before persistence;
+ *   the raw session_id never appears in the JSONL log.
+ * - Error messages are truncated to 200 characters and newlines are replaced
+ *   with spaces so each log line remains a single JSON object.
+ * - Metrics are written to ${ODF_CONFIG_DIR}/metrics. The directory should be
+ *   protected by normal filesystem permissions (user-owned, not world-readable).
+ * - Retention is daily JSONL files; downstream consumers should rotate or purge
+ *   old files according to their own policy.
+ */
+function flushMetricsSync(): void {
+  if (metricsBuffer.length === 0) return
+  const batch = metricsBuffer.splice(0)
+  try {
+    const metricsDir = getMetricsDir()
+    fsSync.mkdirSync(metricsDir, { recursive: true })
+    const today = new Date().toISOString().split("T")[0]
+    const logFile = path.join(metricsDir, `delegations-${today}.jsonl`)
+    const lines = batch.map(m => JSON.stringify(m)).join("\n") + "\n"
+    fsSync.appendFileSync(logFile, lines, "utf8")
+  } catch (err) {
+    // Metrics logging is best-effort. If sync flush fails we drop the batch
+    // rather than letting the buffer grow unbounded.
+    console.warn(`[odf-delegation] Metrics flush failed: ${err}`)
+  }
+}
+
 function startMetricsFlusher(): void {
   if (metricsTimer) return
-  metricsTimer = setInterval(async () => {
-    if (metricsBuffer.length === 0) return
-    const batch = metricsBuffer.splice(0)
-    try {
-      // Save metrics to a local JSON log file
-      const metricsDir = path.join(os.homedir(), ".config", "opencode", "metrics")
-      await fs.mkdir(metricsDir, { recursive: true })
-      const today = new Date().toISOString().split("T")[0]
-      const logFile = path.join(metricsDir, `delegations-${today}.jsonl`)
-      const lines = batch.map(m => JSON.stringify(m)).join("\n") + "\n"
-      await fs.appendFile(logFile, lines, "utf8")
-    } catch {
-      // Metrics logging is best-effort
-    }
+  metricsTimer = setInterval(() => {
+    flushMetricsSync()
   }, METRICS_FLUSH_INTERVAL)
 }
 
-function recordMetrics(metric: DelegationMetrics): void {
-  metricsBuffer.push(metric)
+function recordMetrics(metric: DelegationMetricInput): void {
+  const { session_id, ...rest } = metric
+  const sanitized: DelegationMetrics = {
+    ...rest,
+    session_hash: hashSession(session_id),
+    error: sanitizeError(metric.error),
+  }
+  metricsBuffer.push(sanitized)
+  if (metricsBuffer.length >= getMetricsBufferCap()) {
+    flushMetricsSync()
+  }
 }
 
 // ==========================================
@@ -313,7 +472,7 @@ interface LearningInsight {
 }
 
 async function learnFromMetrics(): Promise<LearningInsight[]> {
-  const metricsDir = path.join(os.homedir(), ".config", "opencode", "metrics")
+  const metricsDir = getMetricsDir()
   const insights: Map<string, { successes: number; total: number; durations: number[] }> = new Map()
 
   try {
@@ -362,15 +521,24 @@ async function learnFromMetrics(): Promise<LearningInsight[]> {
   return result
 }
 
-async function getProfileByPhase(registry: ODFRegistry, phase: string): Promise<{ model: string; temperature: number; reasoning?: boolean } | null> {
+async function getProfileByPhase(
+  registry: ODFRegistry,
+  phase: string,
+  profileName?: string
+): Promise<{ model: string; temperature: number; reasoning?: boolean; name?: string } | null> {
   if (!registry.profiles) return null
 
   // Find active profile first
   const profiles = registry.profiles as any[]
-  const activeProfile = profiles.find(p => p.active === true) || profiles.find(p => p.name === "default") || profiles[0]
+  const selectedProfile = profileName
+    ? profiles.find(p => p.name === profileName)
+    : profiles.find(p => p.active === true) || profiles.find(p => p.name === "default") || profiles[0]
 
-  if (activeProfile && activeProfile.phases && activeProfile.phases[phase.toUpperCase()]) {
-    return activeProfile.phases[phase.toUpperCase()]
+  if (selectedProfile && selectedProfile.phases && selectedProfile.phases[phase.toUpperCase()]) {
+    return {
+      ...selectedProfile.phases[phase.toUpperCase()],
+      name: selectedProfile.name,
+    }
   }
 
   // Fall back to flat profile structure
@@ -384,6 +552,18 @@ async function getProfileByPhase(registry: ODFRegistry, phase: string): Promise<
   }
 
   return null
+}
+
+function formatProfileBlock(
+  profile: { model: string; temperature: number; reasoning?: boolean; name?: string },
+  phase: string
+): string {
+  return `## SDD Profile (auto-resolved)
+Profile: ${profile.name || "default"}
+Phase: ${phase}
+Model: ${profile.model}
+Temperature: ${profile.temperature}
+Reasoning: ${profile.reasoning ? "enabled" : "disabled"}`
 }
 
 // ==========================================
@@ -534,6 +714,7 @@ function resolveAgent(registry: ODFRegistry, phase: string, taskKeywords: string
       DESIGN: "odoo_backend_engineer",
       IMPLEMENT: "odoo_backend_engineer",
       VERIFY: "odoo_qa_engineer",
+      EXPLORE: "odoo_functional_consultant",
     }
     return defaults[phase] || "odoo_backend_engineer"
   }
@@ -559,29 +740,93 @@ function resolveAgent(registry: ODFRegistry, phase: string, taskKeywords: string
     DESIGN: "odoo_backend_engineer",
     IMPLEMENT: "odoo_backend_engineer",
     VERIFY: "odoo_qa_engineer",
+    EXPLORE: "odoo_functional_consultant",
   }
 
   return defaults[phase] || "odoo_backend_engineer"
 }
 
 // ==========================================
+// TASK INVOCATION AND FALLBACK
+// ==========================================
+
+type TaskApi = (input: {
+  agent: string
+  prompt: string
+  context_files?: string[]
+}) => Promise<unknown>
+
+function findTaskApi(toolCtx: ToolContext, client?: OpencodeClient): { taskApi: TaskApi; source: DelegationMetrics["task_api_source"] } | null {
+  if (typeof (toolCtx as any).task === "function") {
+    return { taskApi: (toolCtx as any).task as TaskApi, source: "toolCtx.task" }
+  }
+  if (client && typeof (client as any).task === "function") {
+    return { taskApi: (client as any).task as TaskApi, source: "ctx.task" }
+  }
+  return null
+}
+
+async function invokeTask(
+  taskApi: TaskApi,
+  agentName: string,
+  prompt: string,
+  contextFiles?: string[],
+  timeoutMs = 120_000
+): Promise<{ status: string; result: unknown }> {
+  const result = await Promise.race([
+    taskApi({ agent: agentName, prompt, context_files: contextFiles }),
+    new Promise<never>((_, reject) => {
+      setTimeout(() => reject(new Error(`task() timed out after ${timeoutMs}ms`)), timeoutMs)
+    }),
+  ])
+  return { status: "delegated", result }
+}
+
+function buildFallbackOutput(
+  phase: string,
+  agentName: string,
+  skills: ODFSkill[],
+  enrichedPrompt: string,
+  profile: { model: string; temperature: number; reasoning?: boolean; name?: string } | null
+): string {
+  const profileLine = profile
+    ? `Profile: ${profile.name || "default"} | Model: ${profile.model} | Temperature: ${profile.temperature} | Reasoning: ${profile.reasoning ? "enabled" : "disabled"}`
+    : "Profile: default"
+  return `ODF Delegation (fallback — task() unavailable):
+
+Phase: ${phase}
+Agent: ${agentName}
+${profileLine}
+Skills injected: ${skills.length > 0 ? skills.map(s => s.name).join(", ") : "none"}
+Status: fallback
+
+Use task() with agent="${agentName}" and the enriched prompt below:
+
+---FALLBACK_PROMPT_START---
+${enrichedPrompt}
+---FALLBACK_PROMPT_END---`
+}
+
+const ALLOWED_PHASES = ["ASSESS", "QA-PLAN", "DESIGN", "IMPLEMENT", "VERIFY", "EXPLORE"]
+
+// ==========================================
 // TOOL CREATORS
 // ==========================================
 
-function createODFDelegate(): ReturnType<typeof tool> {
+function createODFDelegate(client?: OpencodeClient): ReturnType<typeof tool> {
   return tool({
     description: `Delegate an ODF task to the appropriate phase-specific agent.
 
 This tool:
 1. Reads the ODF registry to find the best agent for the phase
 2. Injects relevant skill compact rules into the prompt
-3. Delegates via the native task tool
+3. Delegates via the native task tool when available, or falls back to an instruction envelope
 
 Use this instead of generic task() for ODF workflow delegation.`,
     args: {
       phase: tool.schema
         .string()
-        .describe("ODF phase: ASSESS, QA-PLAN, DESIGN, IMPLEMENT, VERIFY"),
+        .describe("ODF phase: ASSESS, QA-PLAN, DESIGN, IMPLEMENT, VERIFY, EXPLORE"),
       prompt: tool.schema
         .string()
         .describe("The full detailed prompt for the agent."),
@@ -589,16 +834,40 @@ Use this instead of generic task() for ODF workflow delegation.`,
         .array(tool.schema.string())
         .optional()
         .describe("Files the agent will work with (for skill matching)"),
+      profile: tool.schema
+        .string()
+        .optional()
+        .describe("Optional SDD profile name override"),
+      timeout_ms: tool.schema
+        .number()
+        .optional()
+        .describe("Task timeout in milliseconds (default: 120000)"),
     },
-    async execute(args: { phase: string; prompt: string; context_files?: string[] }, toolCtx: ToolContext): Promise<string> {
+    async execute(args: { phase: string; prompt: string; context_files?: string[]; profile?: string; timeout_ms?: number }, toolCtx: ToolContext): Promise<string> {
       if (!toolCtx?.sessionID) {
         return "❌ odf_delegate requires sessionID"
+      }
+
+      if (!ALLOWED_PHASES.includes(args.phase)) {
+        return `❌ Invalid phase "${args.phase}". Allowed: ${ALLOWED_PHASES.join(", ")}`
+      }
+
+      // Validate context_files stay within the workspace root
+      const workspaceRoot = process.cwd()
+      for (const file of args.context_files || []) {
+        if (file.includes("..")) {
+          return `❌ context_files entry "${file}" contains path traversal`
+        }
+        const resolvedFile = path.resolve(workspaceRoot, file)
+        if (!isWithinRoot(resolvedFile, workspaceRoot)) {
+          return `❌ context_files entry "${file}" escapes workspace root`
+        }
       }
 
       const startTime = Date.now()
       const registry = await loadRegistry()
       if (!registry) {
-        return "❌ ODF registry not found. Run /odf-init or check ~/.config/opencode/odf-registry.json"
+        return `❌ ODF registry not found. Run /odf-init or check ${REGISTRY_PATH}`
       }
 
       // Detect Odoo version from project
@@ -614,19 +883,79 @@ Use this instead of generic task() for ODF workflow delegation.`,
         odooVersion: odooVersion,
       })
 
-      // Resolve agent
+      // Resolve agent and profile
       const keywords = args.prompt.split(/\s+/).slice(0, 10)
       const agentName = resolveAgent(registry, args.phase, keywords)
-      console.log(`[odf-delegation] odf_delegate: phase=${args.phase} agent=${agentName} skills=${skills.length} version=${odooVersion || "auto"}`)
+      const profile = await getProfileByPhase(registry, args.phase, args.profile)
+      const profileBlock = profile ? formatProfileBlock(profile, args.phase) : ""
+      console.log(`[odf-delegation] odf_delegate: phase=${args.phase} agent=${agentName} skills=${skills.length} version=${odooVersion || "auto"} profile=${profile?.name || "default"}`)
 
-      // Inject compact rules
+      // Inject compact rules and profile
       const rules = formatCompactRules(skills)
-      const enrichedPrompt = rules
-        ? `${rules}\n\n---\n\n${args.prompt}\n\n## Skill Resolution Status\nReport: injected (received from odf-delegation plugin)`
+      const hasInjection = rules || profileBlock
+      const enrichedPrompt = hasInjection
+        ? `${[rules, profileBlock].filter(Boolean).join("\n\n")}\n\n---\n\n${args.prompt}\n\n## Skill Resolution Status\nReport: injected (received from odf-delegation plugin)`
         : `${args.prompt}\n\n## Skill Resolution Status\nReport: none (no matching skills in registry)`
 
-      // Record metrics (F1)
       const duration = Date.now() - startTime
+      const taskApiInfo = findTaskApi(toolCtx, client)
+      const profilePayload = profile
+        ? { name: profile.name, model: profile.model, temperature: profile.temperature, reasoning: profile.reasoning }
+        : null
+
+      if (taskApiInfo) {
+        try {
+          const timeoutMs = args.timeout_ms ?? 120_000
+          const taskResult = await invokeTask(taskApiInfo.taskApi, agentName, enrichedPrompt, args.context_files, timeoutMs)
+          recordMetrics({
+            timestamp: new Date().toISOString(),
+            session_id: toolCtx.sessionID,
+            phase: args.phase,
+            agent: agentName,
+            skills_injected: skills.map(s => s.name),
+            skill_resolution: skills.length > 0 ? "injected" : "none",
+            duration_ms: Date.now() - startTime,
+            token_estimate: estimateTokens(enrichedPrompt),
+            status: "ok",
+            task_api_source: taskApiInfo.source,
+          })
+          return JSON.stringify({
+            status: "delegated",
+            phase: args.phase,
+            agent: agentName,
+            skills_injected: skills.map(s => s.name),
+            profile: profilePayload,
+            task_api_source: taskApiInfo.source,
+            result: taskResult.result,
+          }, null, 2)
+        } catch (err) {
+          const errorMessage = err instanceof Error ? err.message : String(err)
+          const isTimeout = errorMessage.includes("timed out")
+          recordMetrics({
+            timestamp: new Date().toISOString(),
+            session_id: toolCtx.sessionID,
+            phase: args.phase,
+            agent: agentName,
+            skills_injected: skills.map(s => s.name),
+            skill_resolution: skills.length > 0 ? "injected" : "none",
+            duration_ms: Date.now() - startTime,
+            token_estimate: estimateTokens(enrichedPrompt),
+            status: isTimeout ? "timeout" : "error",
+            task_api_source: taskApiInfo.source,
+            error: errorMessage,
+          })
+          return JSON.stringify({
+            status: isTimeout ? "timeout" : "error",
+            phase: args.phase,
+            agent: agentName,
+            profile: profilePayload,
+            task_api_source: taskApiInfo.source,
+            message: errorMessage,
+          }, null, 2)
+        }
+      }
+
+      // Fallback: task() not available
       recordMetrics({
         timestamp: new Date().toISOString(),
         session_id: toolCtx.sessionID,
@@ -636,22 +965,11 @@ Use this instead of generic task() for ODF workflow delegation.`,
         skill_resolution: skills.length > 0 ? "injected" : "none",
         duration_ms: duration,
         token_estimate: estimateTokens(enrichedPrompt),
-        status: "ok",
+        status: "fallback",
+        task_api_source: "unavailable",
       })
 
-      // Note: We return the enriched prompt and agent name.
-      // The orchestrator should then use the standard task() tool with these values.
-      return `ODF Delegation prepared:
-
-Phase: ${args.phase}
-Agent: ${agentName}
-Skills injected: ${skills.length > 0 ? skills.map(s => s.name).join(", ") : "none"}
-
-Use task() with agent="${agentName}" and the enriched prompt below:
-
----ENCRYPTED_PROMPT_START---
-${enrichedPrompt}
----ENCRYPTED_PROMPT_END---`
+      return buildFallbackOutput(args.phase, agentName, skills, enrichedPrompt, profile)
     },
   })
 }
@@ -771,7 +1089,7 @@ Use this for debugging:
     args: {
       phase: tool.schema
         .string()
-        .describe("ODF phase: ASSESS, QA-PLAN, DESIGN, IMPLEMENT, VERIFY"),
+        .describe("ODF phase: ASSESS, QA-PLAN, DESIGN, IMPLEMENT, VERIFY, EXPLORE"),
       task: tool.schema
         .string()
         .describe("Task description to analyze"),
@@ -958,6 +1276,7 @@ You have ODF-specific tools for structured Odoo development:
 | DESIGN | odoo_backend_engineer |
 | IMPLEMENT | odoo_backend_engineer |
 | VERIFY | odoo_qa_engineer |
+| EXPLORE | odoo_functional_consultant |
 
 Custom agents in the registry override defaults when their triggers match.
 
@@ -976,7 +1295,7 @@ Sub-agents receive \`## Project Standards (auto-resolved)\` in their prompt.
 // ==========================================
 
 export const OdfDelegationPlugin: Plugin = async (ctx) => {
-  const { directory } = ctx
+  const { directory, client } = ctx
 
   // Ensure registry exists (log warning if not)
   try {
@@ -1003,7 +1322,7 @@ export const OdfDelegationPlugin: Plugin = async (ctx) => {
     const cache = await loadRegistryCache()
     if (!cache || cache.permissions_fingerprint !== fp) {
       // Skills changed — save new fingerprint for faster next startup
-      const skillsDir = path.join(os.homedir(), ".config", "opencode", "skills")
+  const skillsDir = path.join(getOdfConfigDir(), "skills")
       const newCache: RegistryCache = {
         timestamp: new Date().toISOString(),
         last_refresh: new Date().toISOString(),
@@ -1049,7 +1368,7 @@ export const OdfDelegationPlugin: Plugin = async (ctx) => {
 
   return {
     tool: {
-      odf_delegate: createODFDelegate(),
+      odf_delegate: createODFDelegate(client),
       odf_skill_inject: createODFSkillInject(),
       odf_skill_resolve: createODFSkillResolve(),
       odf_registry_read: createODFRegistryRead(),
@@ -1066,3 +1385,29 @@ export const OdfDelegationPlugin: Plugin = async (ctx) => {
 }
 
 export default OdfDelegationPlugin
+
+// Exported for unit testing
+export {
+  resolvePath,
+  matchSkills,
+  resolveAgent,
+  formatCompactRules,
+  invokeTask,
+  findTaskApi,
+  createODFDelegate,
+  getProfileByPhase,
+  recordMetrics,
+  ALLOWED_PHASES,
+  type ODFRegistry,
+  type ODFSkill,
+  type ODFAgent,
+  type DelegationMetrics,
+}
+
+export function getMetricsBuffer(): DelegationMetrics[] {
+  return metricsBuffer
+}
+
+export function clearMetricsBuffer(): void {
+  metricsBuffer.length = 0
+}

@@ -1,0 +1,89 @@
+sdd_init:
+  project: odf-agent-team
+  workspace_root: /home/adruban/Workspace/Personal/odf-agent-team
+  detected: "2026-06-17"
+  artifact_store: openspec
+
+project_context:
+  name: odf-agent-team
+  version: "1.0.0"
+  description: ODF (Odoo Development Framework) Agent Team for OpenCode
+  stack:
+    primary: TypeScript / Node.js
+    languages:
+      - TypeScript
+      - JavaScript
+      - Bash
+      - Markdown
+      - YAML
+    runtime: Node.js 18+
+    plugin_framework: OpenCode Plugin SDK (@opencode-ai/plugin, @opencode-ai/sdk)
+  structure:
+    root:
+      - README.md
+      - VERSION
+      - CHANGELOG.md
+      - install.sh
+      - odf-registry.json
+    agent/: Markdown agent definitions (12 agents)
+    command/: Markdown command definitions (14 commands)
+    plugins/: TypeScript plugin (odf-delegation.ts)
+    scripts/: Node.js test runner + shell scripts + YAML test suites
+    skills/: ODF skills and OCA standards (31 skills)
+    tools/: Additional tools (timesheet)
+    .atl/: Skill registry index
+  architecture: Registry-driven orchestration with skill injection, metrics, learning loop
+  conventions:
+    - OCA commit format ([TAG] module: description)
+    - PR size budget 400 lines
+    - Skill frontmatter required (name, description, triggers, version)
+    - Agent definitions in agent/{name}.md
+    - Command definitions in command/{name}.md
+
+testing_capabilities:
+  strict_tdd: false
+  runner: node scripts/odf-test-runner.js
+  framework: ODF Agent Observatory
+  test_suites: 5
+  test_cases: 36
+  last_run: "2026-06-17"
+  result: 36 passed, 0 failed, 0 skipped
+  layers:
+    unit: false
+    integration: false
+    e2e: false
+  coverage: false
+  quality:
+    linter: false
+    type_checker: false
+    formatter: false
+  notes: No package.json detected; yaml npm package is assumed globally available.
+
+persistence:
+  mode: openspec
+  artifacts:
+    - openspec/config.yaml
+    - openspec/sdd-init.yaml
+    - openspec/specs/
+    - openspec/changes/archive/
+  engram:
+    topic_keys:
+      - sdd-init/odf-agent-team
+      - sdd/odf-agent-team/testing-capabilities
+      - skill-registry
+
+skill_registry:
+  path: .atl/skill-registry.md
+  skills_detected: 31
+  agents_detected: 12
+  commands_detected: 14
+
+next_recommended:
+  - /sdd-explore to research a change area
+  - /sdd-new <change-name> to start a change
+
+risks:
+  - No package.json or lockfile; Node dependency `yaml` may not be reproducible
+  - No lint/type-check/format tools configured
+  - Tests are self-tests for skill/agent resolution, not unit tests for plugin code
+  - Strict TDD is disabled by default

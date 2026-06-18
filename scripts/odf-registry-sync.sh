@@ -1,12 +1,16 @@
 #!/usr/bin/env bash
 # ODF Registry Sync Script
 # Extracts compact rules from SKILL.md files and updates odf-registry.json
-# Usage: ./odf-registry-sync.sh [--engram]
+# Usage: ./scripts/odf-registry-sync.sh [--engram]
+#
+# Scans all skill directories: odf-*, oca, odoo_*. Existing registry entries are
+# updated in place; missing entries are reported so they can be curated manually.
 
 set -euo pipefail
 
-REGISTRY="${HOME}/.config/opencode/odf-registry.json"
-SKILLS_DIR="${HOME}/.config/opencode/skills"
+CONFIG_DIR="${ODF_CONFIG_DIR:-${HOME}/.config/opencode}"
+REGISTRY="${CONFIG_DIR}/odf-registry.json"
+SKILLS_DIR="${CONFIG_DIR}/skills"
 UPDATE_ENGRAM=false
 
 if [[ "${1:-}" == "--engram" ]]; then
@@ -15,6 +19,16 @@ fi
 
 if [[ ! -f "$REGISTRY" ]]; then
     echo "❌ Registry not found at $REGISTRY"
+    exit 1
+fi
+
+if ! command -v jq &> /dev/null; then
+    echo "❌ jq is required for registry sync"
+    exit 1
+fi
+
+if ! command -v python3 &> /dev/null; then
+    echo "❌ python3 is required for registry sync"
     exit 1
 fi
 
@@ -27,64 +41,66 @@ echo "🔍 Scanning SKILL.md files in $SKILLS_DIR..."
 TMP_REGISTRY=$(mktemp)
 trap 'rm -f "$TMP_REGISTRY"' EXIT
 
-# Read current registry
-jq '.' "$REGISTRY" > "$TMP_REGISTRY"
+cp "$REGISTRY" "$TMP_REGISTRY"
 
-# Find all odoo_* skill directories
-for skill_dir in "$SKILLS_DIR"/odoo_*; do
-    if [[ ! -d "$skill_dir" ]]; then
-        continue
-    fi
-    
-    skill_file="$skill_dir/SKILL.md"
-    if [[ ! -f "$skill_file" ]]; then
-        echo "⚠️  No SKILL.md in $skill_dir"
-        continue
-    fi
-    
-    skill_name=$(basename "$skill_dir")
-    echo "📄 Processing $skill_name..."
-    
-    # Extract ## Rules section (everything between "## Rules" and next ## heading)
-    rules=$(awk '/^## Rules/{flag=1; next} /^## [^#]/{flag=0} flag' "$skill_file" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | tr '\n' '|' | sed 's/|$//')
-    
+# Determine whether to write relative paths
+USE_RELATIVE=$(jq -r '.flags.use_relative_paths // false' "$TMP_REGISTRY")
+
+process_skill_file() {
+    local skill_file="$1"
+    local rel_path="${skill_file#${SKILLS_DIR}/}"
+    local registry_path="skills/${rel_path}"
+    local skill_name
+    skill_name=$(basename "$skill_file" .md | tr '_' '-')
+
+    # Extract ## Rules section (everything between "## Rules" and the next ## heading)
+    local rules
+    rules=$(awk '/^## Rules/{flag=1; next} /^## [^#]/{flag=0} flag' "$skill_file")
+
     if [[ -z "$rules" ]]; then
-        echo "  ⚠️  No ## Rules section found"
-        continue
+        echo "  ⚠️  No ## Rules section found in $rel_path"
+        return 0
     fi
-    
-    # Convert pipe back to newlines for JSON
-    rules_json=$(echo "$rules" | sed 's/|/\\n/g')
-    
-    # Check if skill exists in registry (normalize: dir uses _, registry may use -)
-    name_normalized=$(echo "$skill_name" | tr '_' '-')
-    existing=$(jq -r --arg name "$name_normalized" '.skills[] | select(.name == $name) | .name' "$TMP_REGISTRY" || true)
-    
+
+    # Normalize path for registry
+    local stored_path="$registry_path"
+    if [[ "$USE_RELATIVE" == "true" ]]; then
+        stored_path="$registry_path"
+    else
+        stored_path="${CONFIG_DIR}/${registry_path}"
+    fi
+
+    # Check if skill exists in registry
+    local existing
+    existing=$(jq -r --arg name "$skill_name" '.skills[]? | select(.name == $name) | .name' "$TMP_REGISTRY" || true)
+
     if [[ -n "$existing" ]]; then
-        # Update existing skill compact_rules
-        jq --arg name "$name_normalized" --arg rules "$rules_json" '
+        # Update existing skill compact_rules and path
+        rules_escaped=$(python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()), end="")' <<< "$rules")
+        jq --arg name "$skill_name" --arg rules "$rules" --arg path "$stored_path" '
             .skills |= map(
                 if .name == $name then
-                    .compact_rules = $rules
+                    .compact_rules = $rules | .path = $path
                 else
                     .
                 end
             )
         ' "$TMP_REGISTRY" > "${TMP_REGISTRY}.new"
         mv "${TMP_REGISTRY}.new" "$TMP_REGISTRY"
-        echo "  ✅ Updated compact_rules"
+        echo "  ✅ Updated $skill_name"
     else
-        echo "  ⚠️  Skill $name_normalized not found in registry — add manually"
+        echo "  ⚠️  Skill $skill_name not found in registry — add manually"
     fi
-    
-    # Update Engram if requested
+
     if [[ "$UPDATE_ENGRAM" == true ]]; then
-        echo "  🧠 Updating Engram..."
-        # Note: This requires the Engram CLI to be available
-        # For now, we just print the command
-        echo "     mem_save topic_key=odf/agents/$skill_name type=architecture"
+        echo "  🧠 Would update Engram topic_key=odf/agents/$skill_name"
     fi
-done
+}
+
+# Scan all .md files under skills/ except the root index
+while IFS= read -r -d '' skill_file; do
+    process_skill_file "$skill_file"
+done < <(find "$SKILLS_DIR" -type f -name '*.md' -not -path "*/.git/*" -print0 | sort -z)
 
 # Update last_updated timestamp
 jq --arg date "$(date -u +%Y-%m-%dT%H:%M:%SZ)" '.last_updated = $date' "$TMP_REGISTRY" > "${TMP_REGISTRY}.new"

@@ -3,19 +3,29 @@
  * ODF Agent Test Runner — F2: Agent Observatory
  *
  * Executes test cases against ODF agents and reports pass/fail.
- * Usage: node scripts/odf-test-runner.js [--agent <name>]
+ * Usage: node scripts/odf-test-runner.js [--agent <name>] [--plugin-tests]
  *
  * Each test case defines:
  *   input: { task, context } — sent to the agent
  *   expected: { skill_resolution, status_in, has_diagnosis, ... }
  */
 
-const fs = require('fs');
-const path = require('path');
-const yaml = require('yaml');
+import fs from 'node:fs';
+import path from 'node:path';
+import os from 'node:os';
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+import YAML from 'yaml';
+import * as preflight from './lib/preflight.js';
+import * as orchestrator from './lib/orchestrator.js';
+import * as cli from './odf-cli.js';
 
-const REGISTRY_PATH = path.join(process.env.HOME, '.config', 'opencode', 'odf-registry.json');
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+const REGISTRY_PATH = path.join(os.homedir(), '.config', 'opencode', 'odf-registry.json');
 const TESTS_DIR = path.join(__dirname, 'odf-agent-tests');
+const PLUGIN_TESTS = path.join(__dirname, '..', 'plugins', 'odf-delegation.test.ts');
 
 // ==========================================
 // Plugin logic simulation (same as odf-delegation.ts)
@@ -171,11 +181,352 @@ function runTestSuite(suite) {
 }
 
 // ==========================================
+// Plugin unit tests
+// ==========================================
+
+function runPluginTests() {
+  if (!fs.existsSync(PLUGIN_TESTS)) {
+    console.log('\n⚠️  Plugin test file not found:', PLUGIN_TESTS);
+    return;
+  }
+
+  console.log('\n🔌 Running unit tests...');
+  const result = spawnSync('npx', ['vitest', 'run'], {
+    stdio: 'inherit',
+    shell: false,
+    cwd: path.join(__dirname, '..'),
+  });
+
+  if (result.status !== 0) {
+    failed++;
+  }
+}
+
+// ==========================================
+// Preflight scenario tests
+// ==========================================
+
+function runPreflightSuite(suite) {
+  console.log(`\n📋 ${suite.name} (preflight scenarios)`);
+
+  for (const tc of (suite.tests || [])) {
+    console.log(`\n  Test: "${tc.name}"`);
+
+    if (tc.input.record) {
+      test('valid matches expected', () => {
+        const result = preflight.validatePreflight(tc.input.record);
+        return result.valid === tc.expected.valid;
+      });
+
+      if (tc.expected.errors_count !== undefined) {
+        test(`errors count is ${tc.expected.errors_count}`, () => {
+          const result = preflight.validatePreflight(tc.input.record);
+          return result.errors.length === tc.expected.errors_count;
+        });
+      }
+
+      if (tc.expected.errors_contains) {
+        for (const field of tc.expected.errors_contains) {
+          test(`error mentions ${field}`, () => {
+            const result = preflight.validatePreflight(tc.input.record);
+            return result.errors.some((e) => e.includes(field));
+          });
+        }
+      }
+
+      if (tc.expected.missing_contains) {
+        test('missing fields contain expected', () => {
+          const missing = preflight.getMissingFields(tc.input.record);
+          return tc.expected.missing_contains.every((field) => missing.includes(field));
+        });
+      }
+
+      if (tc.expected.normalized_change !== undefined) {
+        test('normalized change is correct', () => {
+          const result = preflight.validatePreflight(tc.input.record);
+          return result.normalized.change === tc.expected.normalized_change;
+        });
+      }
+
+      if (tc.expected.normalized_odoo_version !== undefined) {
+        test('normalized odoo_version is correct', () => {
+          const result = preflight.validatePreflight(tc.input.record);
+          return result.normalized.odoo_version === tc.expected.normalized_odoo_version;
+        });
+      }
+    }
+
+    if (tc.input.change_name) {
+      test('defaults inference matches expected', () => {
+        const defaults = preflight.inferDefaults(tc.input.change_name, tc.input.project_config || null);
+        return (
+          defaults.change === tc.expected.defaults_change &&
+          defaults.odoo_version === tc.expected.defaults_odoo_version &&
+          defaults.artifact_store === tc.expected.defaults_artifact_store &&
+          defaults.tdd_mode === tc.expected.defaults_tdd_mode
+        );
+      });
+    }
+  }
+}
+
+// ==========================================
+// Orchestrator state scenario tests
+// ==========================================
+
+function runOrchestratorSuite(suite) {
+  console.log(`\n📋 ${suite.name} (orchestrator scenarios)`);
+
+  for (const tc of (suite.tests || [])) {
+    console.log(`\n  Test: "${tc.name}"`);
+
+    if (tc.input.state) {
+      test('next phase matches expected', () => {
+        const next = orchestrator.getNextPhase(tc.input.state);
+        return next === tc.expected.next_phase;
+      });
+    }
+
+    if (tc.input.states) {
+      test('resume selects expected active change', () => {
+        const result = orchestrator.selectActiveChange(tc.input.states, tc.input.name || null);
+        return result.change === tc.expected.resume_change;
+      });
+    }
+  }
+}
+
+// ==========================================
+// CLI command scenario tests
+// ==========================================
+
+function runCliSuite(suite) {
+  console.log(`\n📋 ${suite.name} (CLI parsing scenarios)`);
+
+  for (const tc of (suite.tests || [])) {
+    console.log(`\n  Test: "${tc.name}"`);
+
+    const parsed = cli.parseCommand(tc.input.argv);
+
+    if (tc.expected.error) {
+      test('returns an error', () => {
+        return Boolean(parsed.error);
+      });
+      continue;
+    }
+
+    test('command matches expected', () => {
+      return parsed.command === tc.expected.command;
+    });
+
+    if (tc.expected.change !== undefined) {
+      test('change matches expected', () => {
+        return parsed.change === tc.expected.change;
+      });
+    }
+
+    if (tc.expected.description !== undefined) {
+      test('description matches expected', () => {
+        return parsed.description === tc.expected.description;
+      });
+    }
+
+    if (tc.expected.fast !== undefined) {
+      test('fast flag matches expected', () => {
+        return parsed.fast === tc.expected.fast;
+      });
+    }
+
+    if (tc.expected.topic !== undefined) {
+      test('topic matches expected', () => {
+        return parsed.topic === tc.expected.topic;
+      });
+    }
+
+    if (tc.expected.version !== undefined) {
+      test('version matches expected', () => {
+        return parsed.version === tc.expected.version;
+      });
+    }
+
+    if (tc.expected.module !== undefined) {
+      test('module matches expected', () => {
+        return parsed.module === tc.expected.module;
+      });
+    }
+
+    test('orchestrator prompt contains command', () => {
+      const prompt = cli.buildOrchestratorPrompt(parsed);
+      return prompt.includes(parsed.command) && !prompt.startsWith('❌');
+    });
+  }
+}
+
+// ==========================================
+// Installer scenario tests
+// ==========================================
+
+const INSTALLER_SCRIPT = path.join(__dirname, '..', 'install.sh');
+const installerTempHomes = [];
+
+function runInstallerSuite(suite) {
+  console.log(`\n📋 ${suite.name} (installer scenarios)`);
+
+  for (const tc of (suite.tests || [])) {
+    console.log(`\n  Test: "${tc.name}"`);
+
+    let tempHome = tc.input.env?.HOME;
+    if (!tempHome) {
+      tempHome = fs.mkdtempSync(path.join(os.tmpdir(), 'odf-installer-'));
+      installerTempHomes.push(tempHome);
+    }
+
+    const sourceDir = tc.input.env?.ODF_SOURCE_DIR || path.join(__dirname, '..');
+    const env = { ...process.env, HOME: tempHome, ODF_SOURCE_DIR: sourceDir, ...(tc.input.env || {}) };
+    const runs = tc.input.runs || 1;
+    let lastResult;
+    let combinedOutput = '';
+
+    for (let i = 0; i < runs; i++) {
+      const result = spawnSync('bash', [INSTALLER_SCRIPT, ...(tc.input.args || [])], {
+        env,
+        encoding: 'utf8',
+        cwd: path.join(__dirname, '..'),
+      });
+      lastResult = result;
+      combinedOutput += `\n--- run ${i + 1} ---\n${result.stdout}\n${result.stderr}`;
+    }
+
+    if (tc.expected.exit_code !== undefined) {
+      test(`exits with code ${tc.expected.exit_code}`, () => {
+        return lastResult.status === tc.expected.exit_code;
+      });
+    }
+
+    if (tc.expected.stdout_contains) {
+      for (const fragment of tc.expected.stdout_contains) {
+        test(`output contains "${fragment}"`, () => {
+          return combinedOutput.includes(fragment);
+        });
+      }
+    }
+
+    if (tc.expected.files_exist) {
+      for (const rel of tc.expected.files_exist) {
+        test(`file exists: ${rel}`, () => {
+          return fs.existsSync(path.join(tempHome, rel));
+        });
+      }
+    }
+
+    if (tc.expected.backup_count !== undefined) {
+      test(`backup count is ${tc.expected.backup_count}`, () => {
+        const backupsDir = path.join(tempHome, '.config', 'opencode', 'backups');
+        if (!fs.existsSync(backupsDir)) return tc.expected.backup_count === 0;
+        const entries = fs.readdirSync(backupsDir).filter(e => e.startsWith('install-'));
+        return entries.length === tc.expected.backup_count;
+      });
+    }
+  }
+}
+
+// ==========================================
+// Registry scenario tests
+// ==========================================
+
+function resolveRegistryPath(registryDir, entryPath) {
+  if (!entryPath) return '';
+  if (entryPath.includes('..')) return '';
+
+  let resolved;
+  if (path.isAbsolute(entryPath)) {
+    resolved = path.normalize(entryPath);
+  } else if (entryPath.startsWith('~/')) {
+    resolved = path.normalize(path.join(os.homedir(), entryPath.slice(2)));
+  } else {
+    resolved = path.resolve(registryDir, entryPath);
+  }
+
+  const configDir = path.join(os.homedir(), '.config', 'opencode');
+  const allowedRoots = [path.normalize(registryDir), configDir];
+  if (!allowedRoots.some(root => resolved === root || resolved.startsWith(root + path.sep))) {
+    return '';
+  }
+  return resolved;
+}
+
+function runRegistrySuite(suite) {
+  console.log(`\n📋 ${suite.name} (registry scenarios)`);
+
+  const registry = loadRegistry();
+  if (!registry) {
+    console.error(`\n❌ Cannot run registry tests: registry not found at ${REGISTRY_PATH}`);
+    failed++;
+    return;
+  }
+
+  const registryDir = path.dirname(REGISTRY_PATH);
+
+  for (const tc of (suite.tests || [])) {
+    console.log(`\n  Test: "${tc.name}"`);
+
+    if (tc.input.check === 'package') {
+      test('package section is present', () => {
+        return Boolean(registry.package) === tc.expected.package_present;
+      });
+      if (tc.expected.package_name !== undefined) {
+        test(`package.name is ${tc.expected.package_name}`, () => {
+          return registry.package?.name === tc.expected.package_name;
+        });
+      }
+      if (tc.expected.package_version !== undefined) {
+        test(`package.version is ${tc.expected.package_version}`, () => {
+          return registry.package?.version === tc.expected.package_version;
+        });
+      }
+    }
+
+    if (tc.input.check === 'relative_paths') {
+      test('all skill paths resolve inside the config dir', () => {
+        for (const skill of registry.skills || []) {
+          const resolved = resolveRegistryPath(registryDir, skill.path);
+          if (!resolved || !fs.existsSync(resolved)) return false;
+        }
+        return true;
+      });
+      test('all agent paths resolve inside the config dir', () => {
+        for (const agent of registry.agents || []) {
+          const resolved = resolveRegistryPath(registryDir, agent.path);
+          if (!resolved || !fs.existsSync(resolved)) return false;
+        }
+        return true;
+      });
+    }
+
+    if (tc.input.check === 'commands') {
+      const commandNames = (registry.commands || []).map(c => c.name);
+      for (const name of tc.expected.commands || []) {
+        test(`command ${name} is registered`, () => {
+          return commandNames.includes(name);
+        });
+      }
+    }
+
+    if (tc.input.check === 'flags') {
+      test('flags.use_relative_paths is a boolean', () => {
+        return typeof registry.flags?.use_relative_paths === 'boolean';
+      });
+    }
+  }
+}
+
+// ==========================================
 // Main
 // ==========================================
 
 async function main() {
   const filterAgent = process.argv.find(a => a.startsWith('--agent='))?.split('=')[1];
+  const runPlugin = process.argv.includes('--plugin-tests');
 
   console.log('╔════════════════════════════════════════════════════════╗');
   console.log('║        ODF Agent Observatory — Test Runner            ║');
@@ -183,26 +534,54 @@ async function main() {
   console.log(`Registry: ${REGISTRY_PATH}`);
   console.log(`Tests dir: ${TESTS_DIR}`);
   if (filterAgent) console.log(`Filter: --agent=${filterAgent}`);
+  if (runPlugin) console.log('Plugin tests: enabled');
+
+  if (runPlugin) {
+    runPluginTests();
+  }
 
   const files = fs.readdirSync(TESTS_DIR).filter(f => f.endsWith('.yaml'));
 
   if (files.length === 0) {
-    console.log('\n⚠️  No test files found in', TESTS_DIR);
-    process.exit(0);
+    console.log('\n⚠️  No YAML test files found in', TESTS_DIR);
+  } else {
+    for (const file of files) {
+      try {
+        const content = fs.readFileSync(path.join(TESTS_DIR, file), 'utf8');
+        const suite = YAML.parse(content);
+        if (filterAgent && suite.agent !== filterAgent) {
+          skipped++;
+          continue;
+        }
+
+        if (suite.type === 'preflight') {
+          runPreflightSuite(suite);
+        } else if (suite.type === 'orchestrator') {
+          runOrchestratorSuite(suite);
+        } else if (suite.type === 'cli') {
+          runCliSuite(suite);
+        } else if (suite.type === 'installer') {
+          runInstallerSuite(suite);
+        } else if (suite.type === 'registry') {
+          runRegistrySuite(suite);
+        } else {
+          runTestSuite(suite);
+        }
+      } catch (e) {
+        console.error(`\n❌ Error parsing ${file}: ${e.message}`);
+        failed++;
+      }
+    }
   }
 
-  for (const file of files) {
+  // Clean up installer temp homes unless asked to keep them
+  for (const tempHome of installerTempHomes) {
     try {
-      const content = fs.readFileSync(path.join(TESTS_DIR, file), 'utf8');
-      const suite = require('yaml').parse(content);
-      if (filterAgent && suite.agent !== filterAgent) {
-        skipped++;
-        continue;
+      if (!process.env.ODF_KEEP_TEMP_HOME) {
+        fs.rmSync(tempHome, { recursive: true, force: true });
       }
-      runTestSuite(suite);
-    } catch (e) {
-      console.error(`\n❌ Error parsing ${file}: ${e.message}`);
-      failed++;
+    } catch {
+      // best-effort cleanup
     }
   }
 
