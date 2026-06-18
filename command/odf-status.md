@@ -1,5 +1,5 @@
 ---
-description: "Show status of active ODF changes. Usage: /odf-status"
+description: "Show status of active ODF changes. Usage: /odf-status [change-name]"
 ---
 
 # ODF: Show Status
@@ -15,14 +15,9 @@ Show all active ODF changes and their current phase.
 
 ## Orchestrator Instructions
 
-1. `mem_search(query: "odf/", project: "{current}")` — find all ODF artifacts
-2. Filter for `state` artifacts to find active changes
-3. For each change, parse the state YAML to determine:
-   - Current phase (last completed)
-   - Next phase (what's ready to run)
-   - Task progress (if in IMPLEMENT phase)
-   - Odoo version and module name
-4. Display summary table
+1. Load active changes from `openspec/changes/*/state.yaml` (and/or Engram `odf/*/state`).
+2. If a change name is provided, render single-change detail.
+3. Otherwise render a summary table.
 
 ## Output (Multiple Changes)
 
@@ -30,16 +25,14 @@ Show all active ODF changes and their current phase.
 ODF Status
 
   Active Changes:
-  | Change              | Phase     | Tasks    | Version | Module              |
-  |---------------------|-----------|----------|---------|---------------------|
-  | sale-discount-field  | IMPLEMENT | 3/8 done | 18.0    | sale_discount_cat   |
-  | pos-custom-receipt   | ASSESS    | --       | 18.0    | pos_custom_receipt  |
+  | Cambio              | Fase     | Siguiente | Versión | Estrategia |
+  |---------------------|----------|-----------|---------|------------|
+  | sale-discount-field | ASSESS   | design    | 18      | custom     |
+  | pos-custom-receipt  | init     | preflight | 18      | pending    |
 
-  Commands:
-    /odf-continue sale-discount-field  — Resume implementation
-    /odf-apply sale-discount-field     — Implement next batch
-    /odf-verify sale-discount-field    — Run verification
-    /odf-continue pos-custom-receipt   — Continue to DESIGN
+  Comandos:
+    /odf-continue sale-discount-field  — Continuar implementación
+    /odf-continue pos-custom-receipt   — Continuar a DESIGN
 ```
 
 ## Output (Single Change Detail)
@@ -47,25 +40,19 @@ ODF Status
 ```
 ODF Status: sale-discount-field
 
-  Module: sale_discount_category
-  Version: 18.0
-  Strategy: custom
+  Cambio: sale-discount-field
+  Versión Odoo: 18
+  Estrategia: custom
+  Fase actual: ASSESS
+  Siguiente fase: design
 
-  Phase Progress:
-    [x] ASSESS  — Custom strategy, 3 requirements identified
-    [x] DESIGN  — 2 models, 3 views, 8 tasks in 3 phases
-    [~] IMPLEMENT — 3/8 tasks complete (Phase 1 done, Phase 2 in progress)
-    [ ] VERIFY  — Not started
+  Artefactos:
+    [x] assess
+    [ ] qa-plan
+    [ ] design
+    [ ] implement
+    [ ] verify
 
-  Pending Tasks:
-    - [ ] 2.1 Create form and tree views for sale.discount.rule
-    - [ ] 2.2 Add menu item under Sales > Configuration
-    - [ ] 2.3 Inherit sale.order form to show discount field
-    - [ ] 2.4 Add onchange/compute logic for automatic discount
-    - [ ] 3.1 Write test: discount rule applies correctly
-
-  Commands:
-    /odf-apply           — Implement next batch (Phase 2)
-    /odf-apply all       — Implement all remaining tasks
-    /odf-verify          — Run verification (when ready)
+  Comandos:
+    /odf-continue sale-discount-field  — Continuar a DESIGN
 ```

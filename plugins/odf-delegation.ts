@@ -122,6 +122,13 @@ interface ODFCommand {
   triggers?: string[]
 }
 
+interface ODFCapability {
+  name: string
+  type: 'capability' | 'agent'
+  description?: string
+  path: string
+}
+
 interface ODFRegistry {
   version: number
   last_updated: string
@@ -131,6 +138,7 @@ interface ODFRegistry {
   notebooklm_sources?: Record<string, string>
   package?: ODFPackage
   commands?: ODFCommand[]
+  capabilities?: ODFCapability[]
   flags?: Record<string, boolean | string | number>
 }
 

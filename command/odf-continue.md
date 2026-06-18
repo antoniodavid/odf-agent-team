@@ -15,28 +15,24 @@ Resume the ODF workflow from wherever it was left off.
 
 ## Orchestrator Instructions
 
-1. **Recover state** from Engram:
-   ```
-   mem_search(query: "odf/*/state") — list active changes
-   mem_get_observation(id) — full state YAML
-   ```
-2. **Determine next phase** from state:
-   - If assess=true, design=false — run DESIGN
-   - If design=true, implement=false — run IMPLEMENT
-   - If implement=true, verify=false — run VERIFY
-   - If verify=true — change is complete
-3. **Launch next phase** via the appropriate skill + sub-agent
-4. **Show gate** after phase completion
-
-## If Multiple Active Changes
-
-```
-Active ODF changes:
-  1. sale-discount — Phase: DESIGN (ready for IMPLEMENT)
-  2. pos-custom-receipt — Phase: ASSESS (ready for DESIGN)
-
-Which change to continue? (or specify: /odf-continue sale-discount)
-```
+1. **Recover state**:
+   - Read `openspec/changes/{change}/state.yaml` for active changes (and/or Engram `odf/{change}/state`).
+   - Sort active changes by `last_updated` descending.
+2. **Select change**:
+   - If name provided: load that change; error if not active.
+   - If no name: pick the most recent active change.
+   - If more than one active change and ambiguous: list them and ask the user to pick.
+3. **Preflight check**:
+   - If the selected change has an incomplete or missing preflight record, run the preflight gate first.
+4. **Determine next phase** from `state.artifacts`:
+   - If preflight incomplete → preflight
+   - If assess=false → ASSESS
+   - If design=false → DESIGN
+   - If implement=false → IMPLEMENT
+   - If verify=false → VERIFY
+   - If all true → change is complete, suggest archive
+5. **Launch next phase** via `odf_delegate(phase, prompt, context_files)`.
+6. **Show gate** after phase completion.
 
 ## Output
 

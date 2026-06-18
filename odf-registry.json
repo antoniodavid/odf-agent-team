@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "last_updated": "2026-05-14T20:30:00Z",
+  "last_updated": "2026-06-18T00:00:00Z",
   "skills": [
     {
       "name": "oca-governance-pr-workflow",
@@ -1255,6 +1255,42 @@
       "model": null,
       "path": "agent/odoo_stock_lot_specialist.md",
       "installed": true
+    }
+  ],
+  "capabilities": [
+    {
+      "name": "orchestrator-agent",
+      "type": "agent",
+      "description": "ODF Orchestrator — conversational workflow coordinator",
+      "path": "agent/odoo_orchestrator.md"
+    },
+    {
+      "name": "odf-preflight",
+      "type": "capability",
+      "description": "Hard preflight gate for ODF workflow choices",
+      "path": "openspec/specs/odf-preflight/spec.yaml"
+    }
+  ],
+  "commands": [
+    {
+      "name": "odf-new",
+      "path": "command/odf-new.md",
+      "triggers": ["/odf-new"]
+    },
+    {
+      "name": "odf-continue",
+      "path": "command/odf-continue.md",
+      "triggers": ["/odf-continue"]
+    },
+    {
+      "name": "odf-status",
+      "path": "command/odf-status.md",
+      "triggers": ["/odf-status"]
+    },
+    {
+      "name": "odf-explore",
+      "path": "command/odf-explore.md",
+      "triggers": ["/odf-explore"]
     }
   ],
   "flags": {

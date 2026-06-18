@@ -1,10 +1,10 @@
 ---
-description: "Start new Odoo feature/module with ODF workflow. Usage: /odf-new <name> [description]"
+description: "Start new Odoo feature/module with ODF workflow. Usage: /odf-new <name> [description] [--fast]"
 ---
 
 # ODF: Start New Change
 
-**Parse command:** `/odf-new <change-name> ["description"]`
+**Parse command:** `/odf-new <change-name> ["description"] [--fast]`
 
 Examples:
 - `/odf-new sale-discount-field` — Start with assessment
@@ -13,27 +13,20 @@ Examples:
 
 ## What This Does
 
-Triggers the ODF orchestrator to start a new change from Phase 1 (ASSESS).
+Triggers the ODF orchestrator (`odoo_orchestrator`) to start a new change from Phase 1 (ASSESS).
+The orchestrator runs the preflight gate before delegating any phase.
 
 ## Orchestrator Instructions
 
-1. **Check project config**: Search Engram for `odf-init/{project-name}`
-   - If found: Use cached Odoo version, test runner, lint config from project config
-   - If not found: Show "Tip: Run /odf-init first for better results." then fall back to manual detection
-   - **Search past learnings**: `mem_search("odf-learned/{project-name}/")` — if relevant learnings found, include them in ASSESS prompt context
-2. **Detect Odoo version** (if no project config): Check current project for `__manifest__.py` version field, or ask the user
-3. **Persist initial state** to Engram:
-   ```
-   mem_save(
-     title: "odf/{change-name}/state",
-     topic_key: "odf/{change-name}/state",
-     type: "architecture",
-     content: "change: {name}\nphase: init\nodoo_version: {detected}\nstrategy: pending\nartifacts:\n  assess: false\n  design: false\n  implement: false\n  verify: false"
-   )
-   ```
-3. **Launch ASSESS phase**: Read `/home/adruban/.config/opencode/skills/odf-assess/SKILL.md` and delegate to `odoo_functional_consultant` via Task tool
-4. **Show assessment summary** to user (use `executive_summary` from ODF Result)
-5. **GATE**: "Strategy: {standard|custom}. Proceed to DESIGN?"
+1. **Parse arguments**: change-name, optional quoted description, optional `--fast`.
+2. **Route to orchestrator**: delegate to `odoo_orchestrator` with command `odf-new` and parsed args.
+3. The orchestrator will:
+   - Check for an existing preflight record in `openspec/changes/{change}/state.yaml` (or Engram `odf/{change}/state`).
+   - If missing or incomplete, run the preflight gate and persist answers.
+   - Load project config from `odf-init/{project}` if available.
+   - Launch **ASSESS** via `odf_delegate(phase=ASSESS, prompt, context_files)`.
+   - Show the phase summary and ask for approval before continuing.
+   - In `--fast` mode, skip intermediate approval gates but still pause before IMPLEMENT.
 
 ## Quick Mode (--fast)
 
@@ -55,5 +48,5 @@ Assessment Complete:
   Strategy: {standard | custom}
   Summary: {executive_summary from sub-agent}
 
-Approve to continue to DESIGN? (or review details first)
+¿Querés ajustar algo o continuamos?
 ```
