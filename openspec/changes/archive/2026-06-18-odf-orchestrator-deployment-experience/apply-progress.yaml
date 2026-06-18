@@ -1,6 +1,6 @@
 change: odf-orchestrator-deployment-experience
 version: 1.1.0
-status: implemented
+status: archived
 artifact_store: openspec
 
 slice: 5
@@ -469,6 +469,7 @@ risks:
 
 verification_report: openspec/changes/odf-orchestrator-deployment-experience/verify-report-slice5.yaml
 verified_at: "2026-06-18T21:49:00Z"
+archived_at: "2026-06-18T22:00:00Z"
 verdict: PASS
 
 skill_resolution:
