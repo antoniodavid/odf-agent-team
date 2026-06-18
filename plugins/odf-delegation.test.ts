@@ -13,6 +13,7 @@ import {
   formatCompactRules,
   invokeTask,
   findTaskApi,
+  getProfileByPhase,
   ALLOWED_PHASES,
   type ODFRegistry,
   type ODFSkill,
@@ -209,6 +210,61 @@ describe("invokeTask", () => {
   })
 })
 
+describe("getProfileByPhase", () => {
+  const profileRegistry: ODFRegistry = {
+    ...baseRegistry,
+    profiles: [
+      {
+        name: "default",
+        active: true,
+        phases: {
+          ASSESS: { model: "opencode-go/deepseek-r1", temperature: 0.3, reasoning: true },
+          DESIGN: { model: "opencode-go/kimi-k2.6", temperature: 0.25, reasoning: false },
+        },
+      },
+      {
+        name: "cheap",
+        active: false,
+        phases: {
+          ASSESS: { model: "opencode-go/kimi-k2.6", temperature: 0.3, reasoning: false },
+          DESIGN: { model: "opencode-go/kimi-k2.6", temperature: 0.25, reasoning: false },
+        },
+      },
+    ],
+  } as unknown as ODFRegistry
+
+  it("returns the active profile for a phase", async () => {
+    const profile = await getProfileByPhase(profileRegistry, "DESIGN")
+    expect(profile).not.toBeNull()
+    expect(profile!.model).toBe("opencode-go/kimi-k2.6")
+    expect(profile!.temperature).toBe(0.25)
+    expect(profile!.name).toBe("default")
+  })
+
+  it("returns the default profile when none is active", async () => {
+    const inactiveRegistry = {
+      ...profileRegistry,
+      profiles: profileRegistry.profiles?.map(p => ({ ...p, active: false })),
+    } as unknown as ODFRegistry
+    const profile = await getProfileByPhase(inactiveRegistry, "ASSESS")
+    expect(profile).not.toBeNull()
+    expect(profile!.name).toBe("default")
+  })
+
+  it("allows profile override by name", async () => {
+    const profile = await getProfileByPhase(profileRegistry, "ASSESS", "cheap")
+    expect(profile).not.toBeNull()
+    expect(profile!.name).toBe("cheap")
+    expect(profile!.model).toBe("opencode-go/kimi-k2.6")
+  })
+
+  it("returns null when no profiles exist", async () => {
+    const noProfileRegistry = { ...baseRegistry, profiles: undefined }
+    const profile = await getProfileByPhase(noProfileRegistry, "DESIGN")
+    expect(profile).toBeNull()
+  })
+})
+
 describe("findTaskApi", () => {
   it("prefers toolCtx.task", () => {
     const taskFn = vi.fn()
@@ -255,7 +311,8 @@ describe("createODFDelegate", () => {
   })
 
   it("returns a delegated result envelope when task() is available", async () => {
-    const { createODFDelegate } = await import("./odf-delegation.js")
+    const { createODFDelegate, clearMetricsBuffer, getMetricsBuffer } = await import("./odf-delegation.js")
+    clearMetricsBuffer()
     const taskResult = { status: "ok", executive_summary: "assessed" }
     const taskApi = vi.fn().mockResolvedValue(taskResult)
     const toolCtx = { sessionID: "s1", task: taskApi } as any
@@ -273,10 +330,20 @@ describe("createODFDelegate", () => {
     expect(envelope.task_api_source).toBe("toolCtx.task")
     expect(envelope.result).toEqual(taskResult)
     expect(envelope.skills_injected.length).toBeGreaterThanOrEqual(0)
+    expect(envelope.profile).toBeDefined()
+    expect(envelope.profile?.model).toBe("opencode-go/deepseek-r1")
+
+    const metrics = getMetricsBuffer()
+    expect(metrics.length).toBe(1)
+    expect(metrics[0].status).toBe("ok")
+    expect(metrics[0].phase).toBe("ASSESS")
+    expect(metrics[0].agent).toBe("odoo_functional_consultant")
+    expect(metrics[0].task_api_source).toBe("toolCtx.task")
   })
 
   it("returns a fallback instruction envelope when task() is unavailable", async () => {
-    const { createODFDelegate } = await import("./odf-delegation.js")
+    const { createODFDelegate, clearMetricsBuffer, getMetricsBuffer } = await import("./odf-delegation.js")
+    clearMetricsBuffer()
     const toolCtx = { sessionID: "s1" } as any
 
     const delegateTool = createODFDelegate(undefined)
@@ -290,10 +357,16 @@ describe("createODFDelegate", () => {
     expect(output).toContain("Status: fallback")
     expect(output).toContain("Agent: odoo_backend_engineer")
     expect(output).toContain("---ENCRYPTED_PROMPT_START---")
+
+    const metrics = getMetricsBuffer()
+    expect(metrics.length).toBe(1)
+    expect(metrics[0].status).toBe("fallback")
+    expect(metrics[0].task_api_source).toBe("unavailable")
   })
 
   it("returns an error envelope when task() throws", async () => {
-    const { createODFDelegate } = await import("./odf-delegation.js")
+    const { createODFDelegate, clearMetricsBuffer, getMetricsBuffer } = await import("./odf-delegation.js")
+    clearMetricsBuffer()
     const taskApi = vi.fn().mockRejectedValue(new Error("task service down"))
     const toolCtx = { sessionID: "s1", task: taskApi } as any
 
@@ -306,6 +379,11 @@ describe("createODFDelegate", () => {
     const envelope = JSON.parse(output as string)
     expect(envelope.status).toBe("error")
     expect(envelope.message).toContain("task service down")
+
+    const metrics = getMetricsBuffer()
+    expect(metrics.length).toBe(1)
+    expect(metrics[0].status).toBe("error")
+    expect(metrics[0].error).toContain("task service down")
   })
 
   it("rejects invalid phases", async () => {
@@ -338,5 +416,70 @@ describe("createODFDelegate", () => {
     const envelope = JSON.parse(output as string)
     expect(envelope.status).toBe("delegated")
     expect(envelope.task_api_source).toBe("ctx.task")
+  })
+
+  it("returns timeout status when task() exceeds timeout_ms", async () => {
+    const { createODFDelegate, clearMetricsBuffer, getMetricsBuffer } = await import("./odf-delegation.js")
+    clearMetricsBuffer()
+    const taskApi = vi.fn().mockImplementation(() => new Promise(resolve => setTimeout(resolve, 10_000)))
+    const toolCtx = { sessionID: "s1", task: taskApi } as any
+
+    const delegateTool = createODFDelegate(undefined)
+    const output = await delegateTool.execute(
+      { phase: "DESIGN", prompt: "Design a new model", context_files: [], timeout_ms: 50 },
+      toolCtx
+    )
+
+    const envelope = JSON.parse(output as string)
+    expect(envelope.status).toBe("timeout")
+    expect(envelope.message).toContain("timed out")
+
+    const metrics = getMetricsBuffer()
+    expect(metrics.length).toBe(1)
+    expect(metrics[0].status).toBe("timeout")
+  })
+
+  it("injects active SDD profile into the delegated prompt", async () => {
+    const { createODFDelegate } = await import("./odf-delegation.js")
+    const taskResult = { status: "ok", executive_summary: "designed" }
+    const taskApi = vi.fn().mockResolvedValue(taskResult)
+    const toolCtx = { sessionID: "s1", task: taskApi } as any
+
+    const delegateTool = createODFDelegate(undefined)
+    const output = await delegateTool.execute(
+      { phase: "DESIGN", prompt: "Design a new model", context_files: [] },
+      toolCtx
+    )
+
+    const envelope = JSON.parse(output as string)
+    expect(envelope.status).toBe("delegated")
+    expect(envelope.profile).toBeDefined()
+    expect(envelope.profile.model).toBe("opencode-go/kimi-k2.6")
+    expect(envelope.profile.temperature).toBe(0.25)
+
+    const calledPrompt = taskApi.mock.calls[0][0].prompt
+    expect(calledPrompt).toContain("## SDD Profile")
+    expect(calledPrompt).toContain("opencode-go/kimi-k2.6")
+    expect(calledPrompt).toContain("Temperature: 0.25")
+  })
+
+  it("allows profile override via tool args", async () => {
+    const { createODFDelegate } = await import("./odf-delegation.js")
+    const taskResult = { status: "ok", executive_summary: "assessed" }
+    const taskApi = vi.fn().mockResolvedValue(taskResult)
+    const toolCtx = { sessionID: "s1", task: taskApi } as any
+
+    const delegateTool = createODFDelegate(undefined)
+    const output = await delegateTool.execute(
+      { phase: "ASSESS", prompt: "Assess a new feature", context_files: [], profile: "cheap" },
+      toolCtx
+    )
+
+    const envelope = JSON.parse(output as string)
+    expect(envelope.status).toBe("delegated")
+    expect(envelope.profile).toBeDefined()
+    expect(envelope.profile.name).toBe("cheap")
+    expect(envelope.profile.model).toBe("opencode-go/kimi-k2.6")
+    expect(envelope.profile.reasoning).toBe(false)
   })
 })
