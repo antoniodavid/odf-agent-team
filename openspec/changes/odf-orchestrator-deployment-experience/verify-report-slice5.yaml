@@ -1,0 +1,179 @@
+change: odf-orchestrator-deployment-experience
+version: 1.1.0
+slice: 5
+slice_name: Documentation + full regression + artifact completeness
+status: passed
+final_verdict: PASS
+artifact_store: openspec
+report_type: verify-report
+
+executive_summary: |
+  Slice 5 verification is complete. All automated checks pass: 118 YAML scenario
+  assertions, 92 unit tests, TypeScript type check, bash syntax check,
+  install.sh --dry-run, and the registry validator. README.md, CHANGELOG.md,
+  VERSION, package.json, odf-registry.json, and install.sh version have been
+  bumped consistently to 1.1.0. New documentation files under docs/ describe the
+  intended usage, architecture, and skill authoring rules. All OpenSpec artifacts
+  for the change are present and consistent, and the change status is set to
+  implemented.
+
+mode: Standard
+strict_tdd: false
+
+completion:
+  total_tasks: 6
+  completed_tasks: 6
+  incomplete_tasks: 0
+  task_status: |
+    All Slice 5 tasks (5.1–5.6) are marked complete in tasks.yaml and
+    apply-progress.yaml, with implementation evidence present in the repo.
+
+evidence:
+  - command: node scripts/odf-test-runner.js
+    status: passed
+    summary: 118 YAML scenario assertions passed, 0 failed, 0 skipped
+    details: |
+      Ran all YAML suites including odf-assess, odf-chained-pr, odf-cli-commands,
+      odf-fix, odf-tdd, odf-verify, odf-orchestrator-state-machine,
+      odf-preflight, ODF Installer Scenarios, and ODF Registry Relative Paths.
+
+  - command: npm test
+    status: passed
+    summary: 92 unit tests passed; 118 YAML scenario assertions passed
+    details: |
+      Vitest ran 92 unit tests across plugins/odf-delegation.test.ts,
+      scripts/lib/preflight.test.ts, scripts/lib/orchestrator.test.ts,
+      scripts/odf-cli.test.ts, and scripts/lib/installer.test.ts. The ODF YAML
+      runner then executed 118 scenario assertions.
+
+  - command: npx tsc --noEmit
+    status: passed
+    summary: TypeScript type check clean, no errors
+
+  - command: bash -n install.sh
+    status: passed
+    summary: Bash syntax check clean
+
+  - command: ./install.sh --dry-run
+    status: passed
+    summary: Dry-run exits 0 and prints a plan without modifying the target directory
+    details: |
+      Dry-run reported target directory, existing install status, files that
+      would be copied, npm install, and self-test. No changes were written.
+
+  - command: node scripts/odf-registry-validate.js
+    status: passed
+    summary: All registered paths resolve and exist
+    details: |
+      Validated the registry at ~/.config/opencode/odf-registry.json. Package
+      metadata and flags.use_relative_paths were present, and every skill,
+      agent, command, and capability path resolved to an existing file.
+
+spec_compliance_matrix:
+  - capability: odf-orchestrator
+    requirements:
+      - id: ORCH-01
+        name: Native command documentation
+        status: COMPLIANT
+        evidence: |
+          README.md documents /odf-new, /odf-continue, /odf-status, and
+          /odf-explore with usage examples and the orchestrator flow.
+
+      - id: ORCH-02
+        name: Preflight and orchestrator mention
+        status: COMPLIANT
+        evidence: |
+          README.md includes a dedicated section describing the preflight gate
+          and the orchestrator state machine.
+
+  - capability: odf-installer
+    requirements:
+      - id: INST-DOC-01
+        name: Installation instructions
+        status: COMPLIANT
+        evidence: |
+          README.md describes curl | bash install, ./install.sh flags,
+          environment variables, and Node.js 18+ requirement.
+
+  - capability: skill-registry
+    requirements:
+      - id: REG-DOC-01
+        name: Accurate counts
+        status: COMPLIANT
+        evidence: |
+          README.md lists 31 skills, 12 agents, 21 commands, 4 native commands,
+          and 210 tests (92 unit + 118 YAML scenario assertions).
+
+  - capability: documentation
+    requirements:
+      - id: DOC-01
+        name: Intended usage guide
+        status: COMPLIANT
+        evidence: |
+          docs/intended-usage.md describes the mental model, entry points,
+          workflow, state persistence, and backward compatibility.
+
+      - id: DOC-02
+        name: Architecture guide
+        status: COMPLIANT
+        evidence: |
+          docs/architecture.md maps components, responsibilities, data flows,
+          and state shape.
+
+      - id: DOC-03
+        name: Skill style guide
+        status: COMPLIANT
+        evidence: |
+          docs/skill-style-guide.md defines skill structure, frontmatter,
+          sections, language rules, registry registration, versioning, and
+          testing.
+
+design_coherence:
+  - topic: Version consistency
+    status: ALIGNED
+    notes: |
+      VERSION, package.json, odf-registry.json package.version, and install.sh
+      VERSION all bumped to 1.1.0. Installer YAML scenarios and registry
+      validator reflect the new version.
+
+  - topic: Artifact completeness
+    status: ALIGNED
+    notes: |
+      All required OpenSpec artifacts exist under
+      openspec/changes/odf-orchestrator-deployment-experience/ and capability
+      specs exist under openspec/specs/.
+
+  - topic: Documentation scope
+    status: ALIGNED
+    notes: |
+      docs/ content is in English per the SDD technical-artifact contract;
+      README.md and CHANGELOG.md remain in Spanish as user-facing project docs.
+
+security_risk_pass:
+  status: passed
+  findings:
+    - area: Documentation
+      result: No executable code introduced.
+      details: |
+        Slice 5 only adds Markdown documentation and version bumps. No new
+        dynamic execution paths or user input handling.
+
+issues:
+  critical: []
+  warning: []
+  suggestion: []
+
+next_recommended: sdd-archive
+note: |
+  Slice 5 is the final slice. The change status is set to implemented in
+  apply-progress.yaml. The next phase is sdd-archive to persist learnings and
+  close the change.
+
+skill_resolution:
+  primary: sdd-archive
+  supporting:
+    - chained-pr
+    - work-unit-commits
+
+reported_at: "2026-06-18T21:49:00Z"
+reported_by: sdd-verify

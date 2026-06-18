@@ -1,5 +1,5 @@
 change: odf-orchestrator-deployment-experience
-phase: implement
+phase: verify
 preflight:
   change: odf-orchestrator-deployment-experience
   execution_mode: interactive
@@ -19,7 +19,7 @@ project:
 modules:
   - name: odf-orchestrator-deployment-experience
     path: openspec/changes/odf-orchestrator-deployment-experience
-    status: in-progress
+    status: completed
 artifacts:
   assess: true
   qa_plan: false
@@ -27,7 +27,7 @@ artifacts:
   implement: true
   qa_review: false
   qa_aggregate: false
-  verify: false
+  verify: true
 tasks_progress:
   completed:
     - "1.1"
@@ -49,7 +49,6 @@ tasks_progress:
     - "2.8"
     - "2.9"
     - "2.10"
-  pending:
     - "3.1"
     - "3.2"
     - "3.3"
@@ -73,10 +72,11 @@ tasks_progress:
     - "5.4"
     - "5.5"
     - "5.6"
+  pending: []
 timestamps:
   started_at: "2026-06-18T00:00:00Z"
   assess_completed: "2026-06-18T00:00:00Z"
   design_completed: "2026-06-18T00:00:00Z"
-  implement_completed: null
-  verify_completed: null
+  implement_completed: "2026-06-18T00:00:00Z"
+  verify_completed: "2026-06-18T00:00:00Z"
 last_updated: "2026-06-18T00:00:00Z"

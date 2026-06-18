@@ -328,16 +328,22 @@ slices:
     tasks:
       - id: 5.1
         step: Ensure scripts/odf-test-runner.js runs plugin unit tests and all YAML scenario suites in one invocation.
+        status: complete
       - id: 5.2
         step: 'Run full regression: node scripts/odf-test-runner.js (existing 36 cases + new tests).'
+        status: complete
       - id: 5.3
         step: 'Perform manual smoke test: fresh install in temp HOME, run /odf-new, verify odf_delegate returns a result envelope.'
+        status: complete
       - id: 5.4
         step: Update README.md with installation, /odf-new, /odf-continue, /odf-status, /odf-explore usage.
+        status: complete
       - id: 5.5
         step: Verify proposal/spec/design/task artifacts exist in openspec/changes/odf-orchestrator-deployment-experience/.
+        status: complete
       - id: 5.6
         step: Mark tasks complete in openspec/changes/odf-orchestrator-deployment-experience/tasks.yaml.
+        status: complete
     acceptance_criteria:
       - All existing 36 ODF tests pass.
       - New plugin unit tests and YAML scenarios pass.
