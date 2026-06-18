@@ -1,52 +1,73 @@
 ---
 description: "Start new Odoo feature/module with ODF workflow. Usage: /odf-new <name> [description] [--fast]"
+triggers: ["/odf-new"]
+agent: odoo_orchestrator
 ---
 
-# ODF: Start New Change
+# /odf-new — Iniciar cambio ODF
 
-**Parse command:** `/odf-new <change-name> ["description"] [--fast]`
+Inicia un nuevo cambio de desarrollo Odoo con el flujo de trabajo ODF completo (ASSESS → DESIGN → IMPLEMENT → VERIFY).
 
-Examples:
-- `/odf-new sale-discount-field` — Start with assessment
-- `/odf-new sale-discount-field "Add configurable discount per partner category"` — Full context
-- `/odf-new pos-custom-receipt --fast` — Skip approval gates until tasks ready
-
-## What This Does
-
-Triggers the ODF orchestrator (`odoo_orchestrator`) to start a new change from Phase 1 (ASSESS).
-The orchestrator runs the preflight gate before delegating any phase.
-
-## Orchestrator Instructions
-
-1. **Parse arguments**: change-name, optional quoted description, optional `--fast`.
-2. **Route to orchestrator**: delegate to `odoo_orchestrator` with command `odf-new` and parsed args.
-3. The orchestrator will:
-   - Check for an existing preflight record in `openspec/changes/{change}/state.yaml` (or Engram `odf/{change}/state`).
-   - If missing or incomplete, run the preflight gate and persist answers.
-   - Load project config from `odf-init/{project}` if available.
-   - Launch **ASSESS** via `odf_delegate(phase=ASSESS, prompt, context_files)`.
-   - Show the phase summary and ask for approval before continuing.
-   - In `--fast` mode, skip intermediate approval gates but still pause before IMPLEMENT.
-
-## Quick Mode (--fast)
-
-If user appends `--fast`:
-- Skip approval gates between ASSESS and DESIGN
-- Auto-continue until tasks are ready
-- Pause before IMPLEMENT for approval
-
-## Output
+## Uso
 
 ```
-ODF: Starting change "{change-name}"
+/odf-new <change-name> ["description"] [--fast]
+```
 
-Phase: ASSESS
-  Delegating to: odoo_functional_consultant
-  ...
+## Parámetros
 
-Assessment Complete:
-  Strategy: {standard | custom}
-  Summary: {executive_summary from sub-agent}
+| Parámetro | Requerido | Tipo | Descripción |
+|-----------|-----------|------|-------------|
+| `change-name` | Sí | string | Identificador del cambio en kebab-case. Ej: `sale-discount-field` |
+| `description` | No | string | Descripción corta entre comillas. Si se omite, se usa el nombre del cambio |
+| `--fast` | No | flag | Salta puertas de aprobación intermedias hasta IMPLEMENT |
+
+## Ejemplos
+
+- `/odf-new sale-discount-field`
+- `/odf-new sale-discount-field "Add configurable discount per partner category"`
+- `/odf-new pos-custom-receipt --fast`
+
+## Instrucciones para el orquestador
+
+1. **Parsear argumentos**: extraer `change-name`, `description` opcional y flag `--fast`.
+2. **Sanitizar** el nombre a kebab-case.
+3. **Verificar cambio existente**: si `openspec/changes/{change}/state.yaml` ya existe y está activo, ofrecer `/odf-continue {change}` o pedir renombrar.
+4. **Cargar configuración del proyecto** desde `odf-init/{project}` si existe.
+5. **Ejecutar preflight gate**: si el preflight no está completo, preguntar los campos faltantes en español.
+6. **Persistir preflight** en `openspec/changes/{change}/state.yaml` antes de delegar.
+7. **Delegar ASSESS** vía `odf_delegate(phase=ASSESS, prompt, context_files)`.
+8. **Mostrar puerta de aprobación** con resumen, estrategia y riesgos.
+9. Si `--fast`, saltar puertas intermedias excepto la de IMPLEMENT.
+
+## Contrato de enrutamiento
+
+- Entrada: comando `/odf-new` con argumentos parseados.
+- Salida: prompt conversacional para el orquestador con los campos:
+  - `command: odf-new`
+  - `change: <change-name>`
+  - `description: <description>`
+  - `fast: true|false`
+
+## Manejo de errores
+
+- **Falta `change-name`**: mostrar uso y abortar.
+- **Nombre duplicado**: advertir y ofrecer continuar o renombrar.
+- **Preflight inválido**: re-preguntar campos con valores permitidos.
+- **Error de `odf_delegate`**: mostrar mensaje, mantener estado, ofrecer reintentar.
+
+## Formato de salida
+
+```
+ODF: Iniciando cambio "{change-name}"
+
+Fase: ASSESS
+Agente: odoo_functional_consultant
+...
+
+Evaluación completada:
+  Estrategia: {standard | custom}
+  Resumen: {executive_summary}
 
 ¿Querés ajustar algo o continuamos?
 ```

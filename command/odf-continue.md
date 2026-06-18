@@ -1,46 +1,70 @@
 ---
 description: "Continue ODF workflow from last completed phase. Usage: /odf-continue [change-name]"
+triggers: ["/odf-continue"]
+agent: odoo_orchestrator
 ---
 
-# ODF: Continue Change
+# /odf-continue — Continuar cambio ODF
 
-Resume the ODF workflow from wherever it was left off.
+Reanuda el flujo de trabajo ODF desde la última fase completada del cambio activo más reciente o de un cambio nombrado.
 
-## Parse Arguments
-
-```
-/odf-continue              — Resume the most recent active change
-/odf-continue sale-discount — Resume a specific change by name
-```
-
-## Orchestrator Instructions
-
-1. **Recover state**:
-   - Read `openspec/changes/{change}/state.yaml` for active changes (and/or Engram `odf/{change}/state`).
-   - Sort active changes by `last_updated` descending.
-2. **Select change**:
-   - If name provided: load that change; error if not active.
-   - If no name: pick the most recent active change.
-   - If more than one active change and ambiguous: list them and ask the user to pick.
-3. **Preflight check**:
-   - If the selected change has an incomplete or missing preflight record, run the preflight gate first.
-4. **Determine next phase** from `state.artifacts`:
-   - If preflight incomplete → preflight
-   - If assess=false → ASSESS
-   - If design=false → DESIGN
-   - If implement=false → IMPLEMENT
-   - If verify=false → VERIFY
-   - If all true → change is complete, suggest archive
-5. **Launch next phase** via `odf_delegate(phase, prompt, context_files)`.
-6. **Show gate** after phase completion.
-
-## Output
+## Uso
 
 ```
-ODF: Continuing "{change-name}"
+/odf-continue              — Reanuda el cambio activo más reciente
+/odf-continue <change-name> — Reanuda un cambio específico
+```
 
-  Last phase: {phase}
-  Next phase: {next-phase}
-  Delegating to: {agent}
-  ...
+## Parámetros
+
+| Parámetro | Requerido | Tipo | Descripción |
+|-----------|-----------|------|-------------|
+| `change-name` | No | string | Nombre del cambio a continuar. Si se omite, se usa el más reciente |
+
+## Ejemplos
+
+- `/odf-continue`
+- `/odf-continue sale-discount-field`
+
+## Instrucciones para el orquestador
+
+1. **Cargar cambios activos** desde `openspec/changes/*/state.yaml` (y/o Engram `odf/*/state`).
+2. **Ordenar** por `last_updated` descendente.
+3. **Seleccionar cambio**:
+   - Si se proporciona nombre: cargar ese cambio; error si no está activo.
+   - Si no hay nombre: elegir el más reciente.
+   - Si hay varios activos y no hay nombre: listarlos y pedir al usuario.
+4. **Verificar preflight**: si está incompleto, ejecutar el preflight gate primero.
+5. **Determinar la siguiente fase** desde `state.artifacts`:
+   - preflight incompleto → `preflight`
+   - assess=false → `ASSESS`
+   - design=false → `DESIGN`
+   - implement=false → `IMPLEMENT`
+   - verify=false → `VERIFY`
+   - todos true → sugerir archivar
+6. **Delegar la siguiente fase** vía `odf_delegate(phase, prompt, context_files)`.
+7. **Mostrar puerta de aprobación** después de la fase.
+
+## Contrato de enrutamiento
+
+- Entrada: comando `/odf-continue` con nombre opcional.
+- Salida: prompt conversacional con:
+  - `command: odf-continue`
+  - `change: <change-name|latest>`
+
+## Manejo de errores
+
+- **Cambio nombrado no activo**: listar activos y sugerir `/odf-new`.
+- **Sin cambios activos**: informar y sugerir `/odf-new <nombre>`.
+- **Error de `odf_delegate`**: mostrar mensaje, mantener estado, ofrecer reintentar.
+
+## Formato de salida
+
+```
+ODF: Continuando "{change-name}"
+
+Última fase: {phase}
+Siguiente fase: {next-phase}
+Agente: {agent}
+...
 ```

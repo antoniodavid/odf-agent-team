@@ -1,58 +1,81 @@
 ---
 description: "Show status of active ODF changes. Usage: /odf-status [change-name]"
+triggers: ["/odf-status"]
+agent: odoo_orchestrator
 ---
 
-# ODF: Show Status
+# /odf-status — Estado de cambios ODF
 
-Show all active ODF changes and their current phase.
+Muestra todos los cambios ODF activos o el detalle de un cambio específico.
 
-## Parse Arguments
+## Uso
 
 ```
-/odf-status              — Show all active changes
-/odf-status sale-discount — Show detail for a specific change
+/odf-status              — Muestra todos los cambios activos
+/odf-status <change-name> — Muestra detalle de un cambio
 ```
 
-## Orchestrator Instructions
+## Parámetros
 
-1. Load active changes from `openspec/changes/*/state.yaml` (and/or Engram `odf/*/state`).
-2. If a change name is provided, render single-change detail.
-3. Otherwise render a summary table.
+| Parámetro | Requerido | Tipo | Descripción |
+|-----------|-----------|------|-------------|
+| `change-name` | No | string | Nombre del cambio a mostrar en detalle |
 
-## Output (Multiple Changes)
+## Ejemplos
+
+- `/odf-status`
+- `/odf-status sale-discount-field`
+
+## Instrucciones para el orquestador
+
+1. **Cargar cambios activos** desde `openspec/changes/*/state.yaml` (y/o Engram `odf/*/state`).
+2. Si hay nombre, renderizar **detalle del cambio** usando `renderStatusDetail(change, state)`.
+3. Si no hay nombre, renderizar **tabla resumen** usando `renderStatusTable(states)`.
+4. Incluir el comando sugerido para continuar cada cambio.
+
+## Contrato de enrutamiento
+
+- Entrada: comando `/odf-status` con nombre opcional.
+- Salida: estado renderizado en español.
+
+## Manejo de errores
+
+- **Sin cambios activos**: mostrar mensaje vacío y sugerir `/odf-new`.
+- **Cambio no encontrado**: listar activos.
+- **Fallo al leer estado**: mostrar error y sugerir `/odf-init`.
+
+## Formato de salida (tabla)
 
 ```
 ODF Status
 
-  Active Changes:
-  | Cambio              | Fase     | Siguiente | Versión | Estrategia |
-  |---------------------|----------|-----------|---------|------------|
-  | sale-discount-field | ASSESS   | design    | 18      | custom     |
-  | pos-custom-receipt  | init     | preflight | 18      | pending    |
+| Cambio              | Fase     | Siguiente | Versión | Estrategia |
+|---------------------|----------|-----------|---------|------------|
+| sale-discount-field | ASSESS   | design    | 18      | custom     |
+| pos-custom-receipt  | init     | preflight | 18      | pending    |
 
-  Comandos:
-    /odf-continue sale-discount-field  — Continuar implementación
-    /odf-continue pos-custom-receipt   — Continuar a DESIGN
+Comandos:
+  /odf-continue sale-discount-field  — Continuar implementación
+  /odf-continue pos-custom-receipt   — Continuar a DESIGN
 ```
 
-## Output (Single Change Detail)
+## Formato de salida (detalle)
 
 ```
-ODF Status: sale-discount-field
+## Estado ODF: sale-discount-field
 
-  Cambio: sale-discount-field
-  Versión Odoo: 18
-  Estrategia: custom
-  Fase actual: ASSESS
-  Siguiente fase: design
+- **Cambio**: sale-discount-field
+- **Versión Odoo**: 18
+- **Estrategia**: custom
+- **Fase actual**: ASSESS
+- **Siguiente fase**: design
 
-  Artefactos:
-    [x] assess
-    [ ] qa-plan
-    [ ] design
-    [ ] implement
-    [ ] verify
+**Artefactos**:
+- [x] assess
+- [ ] qa-plan
+- [ ] design
+- [ ] implement
+- [ ] verify
 
-  Comandos:
-    /odf-continue sale-discount-field  — Continuar a DESIGN
+Continuar: /odf-continue sale-discount-field
 ```
