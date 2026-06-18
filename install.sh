@@ -194,6 +194,9 @@ install_files() {
     mkdir -p "$ODF_DIR"/{agent,skills,plugins,command,scripts,backups}
   fi
 
+  # Copy installer itself so self-test can find it
+  [[ -f "$src_dir/install.sh" ]] && copy_dir "$src_dir/install.sh" "$ODF_DIR/install.sh"
+
   [[ -f "$src_dir/odf-registry.json" ]] && copy_dir "$src_dir/odf-registry.json" "$ODF_DIR/odf-registry.json"
   copy_dir "$src_dir/agent" "$ODF_DIR/agent"
   copy_dir "$src_dir/skills" "$ODF_DIR/skills"
@@ -268,7 +271,11 @@ print_summary() {
     log_warn "\n🏁 Dry-run complete. No changes were made."
     log_info "   Target:        ${ODF_DIR}"
     log_info "   Existing:      ${existing_status}"
-    log_info "   Source:        ${ODF_SOURCE_DIR:-${REPO}@${BRANCH}}"
+    if [[ -n "${ODF_SOURCE_DIR:-}" ]]; then
+      log_info "   Source:        local: ${ODF_SOURCE_DIR}"
+    else
+      log_info "   Source:        ${REPO}@${BRANCH}"
+    fi
     return 0
   fi
 
