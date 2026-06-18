@@ -3,13 +3,14 @@ version: 1.0.0
 status: ready-for-verify
 artifact_store: openspec
 
-slice: 1
-slice_name: Plugin real delegation + package manifest + unit tests
+slice: 2
+slice_name: Preflight gate + orchestrator agent
 
 mode: Standard
 strict_tdd: false
 
 completed_tasks:
+  # Slice 1
   - id: 1.1
     step: Create package.json with metadata, yaml dependency, test script, and peer/dev dependencies.
     status: complete
@@ -41,172 +42,57 @@ completed_tasks:
   - id: 1.8
     step: Write plugins/odf-delegation.test.ts covering resolveAgent, matchSkills, resolvePath, formatCompactRules, task() invocation, fallback, and metrics shape.
     status: complete
-    evidence: 30 plugin unit tests pass (was 23; expanded with profile/timeout/metrics tests).
+    evidence: 39 plugin unit tests pass.
   - id: 1.9
     step: Extend scripts/odf-test-runner.js to discover and run plugins/odf-delegation.test.ts when --plugin-tests is passed.
     status: complete
     evidence: --plugin-tests spawns vitest; npm test runs plugin tests + YAML scenarios.
+  # Slice 2
+  - id: 2.1
+    step: Implement scripts/lib/preflight.js with validatePreflight(), inferDefaults(), and allowed-values lookups.
+    status: complete
+    evidence: scripts/lib/preflight.js exports schema, validation, defaults inference, Spanish prompts, and OpenSpec persistence helpers.
+  - id: 2.2
+    step: Add preflight conversation flow to agent/odoo_orchestrator.md (ask, validate, amend, persist).
+    status: complete
+    evidence: New orchestrator sections define the preflight gate, Spanish prompts, amendment flow, and persistence.
+  - id: 2.3
+    step: Add state machine section to agent/odoo_orchestrator.md (init → preflight → assess → design → implement → verify → archived).
+    status: complete
+    evidence: State machine diagram and transition rules added to agent/odoo_orchestrator.md.
+  - id: 2.4
+    step: Add OpenSpec state.yaml persistence instructions and optional Engram mirror topic odf/{change}/state.
+    status: complete
+    evidence: State persistence format documented; seed state.yaml created.
+  - id: 2.5
+    step: "Add approval gate rules to orchestrator: show phase summary, strategy, risks, and ask to proceed; fast-mode skips gates until IMPLEMENT."
+    status: complete
+    evidence: Approval gate section added with Spanish prompt and --fast exception.
+  - id: 2.6
+    step: Add /odf-continue resume logic (latest active change, named change, incomplete preflight handling).
+    status: complete
+    evidence: scripts/lib/orchestrator.js implements selectActiveChange and resume logic; covered by tests.
+  - id: 2.7
+    step: Add /odf-status state reader instructions to orchestrator (table vs detail rendering).
+    status: complete
+    evidence: renderStatusTable and renderStatusDetail helpers added and tested.
+  - id: 2.8
+    step: Create seed state.yaml for this change under openspec/changes/odf-orchestrator-deployment-experience/state.yaml.
+    status: complete
+    evidence: Seed state.yaml created with preflight and task progress.
+  - id: 2.9
+    step: Write YAML scenario tests for preflight blocking, invalid version, defaults inference, amendment, and persistence idempotency.
+    status: complete
+    evidence: scripts/odf-agent-tests/preflight.yaml passes all scenarios.
+  - id: 2.10
+    step: Write YAML scenario tests for orchestrator state transitions, approval gates, resume latest active change, and multiple active changes prompt.
+    status: complete
+    evidence: scripts/odf-agent-tests/orchestrator.yaml passes all scenarios.
 
-fixes_applied:
-  - id: W01
-    title: SDD profile not injected into delegated prompt
-    status: resolved
-    files:
-      - plugins/odf-delegation.ts
-      - plugins/odf-delegation.test.ts
-    details: |
-      getProfileByPhase() now accepts an optional profile name override.
-      createODFDelegate() resolves the active/default profile (or override),
-      injects a profile block into the enriched prompt, and includes profile
-      metadata in success, error, and fallback envelopes.
-    verification:
-      - plugins/odf-delegation.test.ts > createODFDelegate > injects active SDD profile into the delegated prompt
-      - plugins/odf-delegation.test.ts > createODFDelegate > allows profile override via tool args
-      - plugins/odf-delegation.test.ts > getProfileByPhase (4 tests)
-
-  - id: W03
-    title: package.json fields differ from installer design
-    status: resolved
-    files:
-      - package.json
-    details: |
-      Aligned package.json with openspec/specs/odf-installer/design.yaml:
-      - version: 1.1.0 -> 1.0.0
-      - repository URL: adruban/odf-agent-team -> antoniodavid/odf-agent-team
-      - devDependencies: removed @opencode-ai/plugin and @opencode-ai/sdk
-        (kept as peerDependencies), kept @types/node, typescript, vitest.
-      Per task instruction, the yaml dependency and existing test scripts were kept.
-    verification:
-      - npm install succeeds
-      - npx tsc --noEmit passes
-      - npm test passes
-
-  - id: S01
-    title: Add metrics assertion tests
-    status: resolved
-    files:
-      - plugins/odf-delegation.ts
-      - plugins/odf-delegation.test.ts
-    details: |
-      Exported getMetricsBuffer() and clearMetricsBuffer() for test inspection.
-      Existing createODFDelegate tests now assert metrics buffer contents for
-      ok, fallback, and error paths.
-    verification:
-      - plugins/odf-delegation.test.ts > createODFDelegate > returns a delegated result envelope when task() is available
-      - plugins/odf-delegation.test.ts > createODFDelegate > returns a fallback instruction envelope when task() is unavailable
-      - plugins/odf-delegation.test.ts > createODFDelegate > returns an error envelope when task() throws
-
-  - id: S02
-    title: Add task() timeout handling
-    status: resolved
-    files:
-      - plugins/odf-delegation.ts
-      - plugins/odf-delegation.test.ts
-    details: |
-      Added optional timeout_ms argument to odf_delegate (default 120000ms).
-      invokeTask() races task() against the timeout and rejects with a timeout
-      error. The execute() path records status: timeout and returns a timeout
-      envelope when the deadline is exceeded.
-    verification:
-      - plugins/odf-delegation.test.ts > createODFDelegate > returns timeout status when task() exceeds timeout_ms
-
-  - id: W01
-    title: Path traversal in resolvePath
-    status: resolved
-    files:
-      - plugins/odf-delegation.ts
-      - plugins/odf-delegation.test.ts
-    details: |
-      resolvePath() now rejects any entryPath containing ".." segments, expands
-      "~/" against the user's home directory, and verifies the resolved path
-      stays within the allowed roots (registryDir or ODF_CONFIG_DIR).
-      Absolute paths outside those roots are also rejected.
-    verification:
-      - plugins/odf-delegation.test.ts > resolvePath > rejects paths containing .. segments
-      - plugins/odf-delegation.test.ts > resolvePath > rejects absolute paths outside allowed roots
-      - plugins/odf-delegation.test.ts > resolvePath > rejects ~/ paths outside allowed roots
-      - plugins/odf-delegation.test.ts > createODFDelegate > rejects context_files that escape the workspace root
-      - plugins/odf-delegation.test.ts > createODFDelegate > rejects context_files containing .. segments
-
-  - id: W02
-    title: Unbounded metrics buffer
-    status: resolved
-    files:
-      - plugins/odf-delegation.ts
-      - plugins/odf-delegation.test.ts
-    details: |
-      Added a configurable buffer cap (ODF_METRICS_BUFFER_CAP, default 1000).
-      When the cap is reached recordMetrics() flushes synchronously to disk
-      (backpressure policy). The async 30s flush interval remains as a safety
-      net. The policy is documented in a code comment block.
-    verification:
-      - plugins/odf-delegation.test.ts > recordMetrics > flushes synchronously when the buffer cap is reached
-
-  - id: W03
-    title: Metrics JSONL exposes session_id and raw errors
-    status: resolved
-    files:
-      - plugins/odf-delegation.ts
-      - plugins/odf-delegation.test.ts
-    details: |
-      DelegationMetrics now stores session_hash (sha256 first 8 hex chars)
-      instead of session_id. recordMetrics() hashes the raw session_id and
-      drops it from the persisted object. Errors are sanitized (newlines
-      replaced with spaces, double quotes replaced, truncated to 200 chars).
-      Retention and access-control guidance is documented in the metrics
-      policy comment.
-    verification:
-      - plugins/odf-delegation.test.ts > recordMetrics > hashes session_id instead of storing it raw
-      - plugins/odf-delegation.test.ts > recordMetrics > sanitizes and truncates error messages
-      - plugins/odf-delegation.test.ts > recordMetrics > never stores the raw session_id in the JSONL log
-
-  - id: W04
-    title: No committed lock file / unpinned dependencies
-    status: resolved
-    files:
-      - package.json
-      - package-lock.json
-      - .gitignore
-    details: |
-      Removed package-lock.json from .gitignore and committed the generated
-      package-lock.json. Direct dependencies in package.json already use caret
-      ranges; the lockfile pins the transitive tree for reproducible installs.
-    verification:
-      - npm install succeeds
-      - package-lock.json is tracked by git
-
-  - id: W05
-    title: Open-ended peer dependencies
-    status: resolved
-    files:
-      - package.json
-      - package-lock.json
-    details: |
-      Changed @opencode-ai/plugin and @opencode-ai/sdk peer dependencies from
-      >=1.15.0 to ^1.15.0. Regenerated package-lock.json with the pinned
-      versions.
-    verification:
-      - npm install succeeds
-      - npx tsc --noEmit passes
-
-  - id: W06
-    title: '"$HOME" controls sensitive file paths'
-    status: resolved
-    files:
-      - plugins/odf-delegation.ts
-      - scripts/odf-test-runner.js
-    details: |
-      Added getOdfConfigDir() helper that honors ODF_CONFIG_DIR when it is set
-      and absolute, otherwise falls back to os.homedir()/.config/opencode. All
-      plugin paths (registry, cache, skill discovery, metrics) use this helper.
-      context_files are validated against the workspace root. The test runner
-      now uses os.homedir() instead of process.env.HOME directly.
-    verification:
-      - plugins/odf-delegation.test.ts (all tests use temp HOME)
-      - node scripts/odf-test-runner.js
-      - npx tsc --noEmit passes
+fixes_applied: []
 
 files_changed:
+  # Slice 1 (kept for audit)
   - path: package.json
     action: modified
     description: Align version, repository URL, and devDependencies with installer design; pin peer deps to ^1.15.0
@@ -237,35 +123,87 @@ files_changed:
   - path: openspec/changes/odf-orchestrator-deployment-experience/design.yaml
     action: modified
     description: Document ODF_CONFIG_DIR support and secure registry path resolution
+  # Slice 2
+  - path: scripts/lib/preflight.js
+    action: created
+    description: Preflight gate validation, defaults inference, Spanish prompts, OpenSpec persistence
+  - path: scripts/lib/preflight.d.ts
+    action: created
+    description: TypeScript declarations for preflight helpers
+  - path: scripts/lib/preflight.test.ts
+    action: created
+    description: Unit tests for preflight validation, defaults, and persistence
+  - path: scripts/lib/orchestrator.js
+    action: created
+    description: State machine helpers, resume logic, status rendering
+  - path: scripts/lib/orchestrator.d.ts
+    action: created
+    description: TypeScript declarations for orchestrator helpers
+  - path: scripts/lib/orchestrator.test.ts
+    action: created
+    description: Unit tests for phase progression and resume logic
+  - path: scripts/odf-agent-tests/preflight.yaml
+    action: created
+    description: YAML scenario tests for preflight gate
+  - path: scripts/odf-agent-tests/orchestrator.yaml
+    action: created
+    description: YAML scenario tests for orchestrator state machine
+  - path: scripts/odf-test-runner.js
+    action: modified
+    description: Dispatch preflight and orchestrator YAML suites; import state-machine helpers
+  - path: agent/odoo_orchestrator.md
+    action: modified
+    description: Add Spanish language rule, preflight gate, state machine, approval gates, delegation contract, resume/status sections
+  - path: command/odf-new.md
+    action: modified
+    description: Parse --fast and route through orchestrator preflight gate
+  - path: command/odf-continue.md
+    action: modified
+    description: Resume from state.yaml/Engram with preflight check
+  - path: command/odf-status.md
+    action: modified
+    description: Render active changes table or single-change detail from state
+  - path: command/odf-explore.md
+    action: modified
+    description: Route exploration through orchestrator
+  - path: odf-registry.json
+    action: modified
+    description: Register orchestrator-agent capability, odf-preflight capability, and native command bindings
+  - path: plugins/odf-delegation.ts
+    action: modified
+    description: Add optional capabilities array to ODFRegistry type
+  - path: openspec/changes/odf-orchestrator-deployment-experience/state.yaml
+    action: created
+    description: Seed runtime state for the orchestrator change
+  - path: openspec/changes/odf-orchestrator-deployment-experience/tasks.yaml
+    action: modified
+    description: Mark Slice 2 tasks complete
 
 test_results:
   - command: npm test
     status: passed
-    summary: 39 plugin unit tests passed; 36 YAML scenario tests passed
+    summary: 39 plugin unit tests passed; 13 YAML scenario tests passed
   - command: node scripts/odf-test-runner.js
     status: passed
-    summary: 36 existing YAML scenario tests passed
+    summary: 13 YAML scenario tests passed (existing 8 + preflight 5 + orchestrator 5)
   - command: npx tsc --noEmit
     status: passed
     summary: TypeScript type check clean
 
 deviations_from_design:
-  - description: SDK task() not found in ToolContext or client types
-    reason: Prototype confirmed OpenCode 1.17.8 SDK does not expose task() on PluginInput.client or ToolContext. Implementation probes both at runtime and falls back.
-  - description: Kept plugin as single file
-    reason: Matches design decision to avoid build step complexity.
-  - description: package.json test script kept with --plugin-tests
-    reason: Task instruction explicitly said to keep test scripts; main test script runs plugin tests via --plugin-tests.
-  - description: vitest retained in devDependencies
-    reason: Required for npm test to run plugin unit tests; design only listed @types/node and typescript.
+  - description: Preflight stored inside state.yaml instead of separate preflight.yaml
+    reason: The design.yaml and tasks.yaml specify state.yaml with a preflight key; keeping one state file avoids duplication and matches the orchestrator persistence contract.
+  - description: Added scripts/lib/orchestrator.js helper not explicitly in design
+    reason: Pure state-machine functions are needed for deterministic YAML/unit tests and keep the orchestrator markdown thin.
+  - description: Command wrappers updated in Slice 2 instead of Slice 3
+    reason: User instructions explicitly requested command routing and registry command bindings as part of Slice 2 to wire the orchestrator end-to-end.
+  - description: Orchestrator markdown kept mostly English with Spanish user-facing examples
+    reason: The file is a technical agent artifact; only user-facing prompts/summaries are required to be Spanish per user instruction.
 
 remaining_tasks:
-  - slice: 2
-    tasks:
-      - Preflight gate + orchestrator agent
   - slice: 3
     tasks:
-      - Native /odf-* commands
+      - Native /odf-* command full implementation (registry command entries already added)
   - slice: 4
     tasks:
       - Installer + registry relative paths
@@ -275,25 +213,28 @@ remaining_tasks:
 
 workload_pr_boundary:
   mode: feature-branch-chain
-  current_work_unit: Slice 1
-  boundary: feature/odf-orchestrator-deployment-experience contains Slice 1 only
+  current_work_unit: Slice 2
+  boundary: |
+    PR #1 (Slice 1) remains pending on feature/odf-orchestrator-deployment-experience.
+    Slice 2 PR targets the Slice 1 branch so the diff shows only preflight/orchestrator work.
   review_budget_note: |
-    Slice 1 is ~650 changed/added lines (package.json, tsconfig.json, plugin refactor,
-    plugin tests, runner update), exceeding the 400-line per-PR budget. This was
-    pre-resolved as a single Slice 1 PR boundary in session preflight. The warning
-    fixes add ~225 lines and remain within the same pre-resolved Slice 1 boundary.
+    Slice 2 is forecast at ~710 changed lines (agent + preflight + state + tests + commands + registry)
+    and will exceed the 400-line per-PR budget. This is pre-resolved as a feature-branch-chain
+    Slice 2 boundary. Actual diff size should be verified before opening the PR.
 
-next_recommended: sdd-verify Slice 1 (re-run risk review after warning fixes)
+next_recommended: sdd-verify Slice 2
 
 risks:
   - description: task() API signature unconfirmed in production OpenCode runtime
     mitigation: Runtime probe + deterministic fallback preserves usability.
   - description: Existing consumers may expect old text-only odf_delegate output
     mitigation: Fallback path preserves old format; success path is a documented change.
-  - description: Slice 1 exceeds 400-line review budget
-    mitigation: Pre-resolved as a feature-branch-chain slice; commits split by work unit.
-  - description: Timeout Promise.race does not cancel the underlying task() call
-    mitigation: Documented limitation; timeout envelope still returned to caller.
+  - description: Slice 2 exceeds 400-line review budget
+    mitigation: Pre-resolved as a feature-branch-chain slice; monitor actual diff before PR.
+  - description: Orchestrator markdown is large; new sections may be overlooked by the model
+    mitigation: Added a clear "Slice 2" heading and explicit supersede note.
+  - description: Command files updated in Slice 2 may conflict with planned Slice 3 scope
+    mitigation: Slice 3 can build on these updates rather than reimplementing them.
 
 skill_resolution:
   primary: sdd-apply

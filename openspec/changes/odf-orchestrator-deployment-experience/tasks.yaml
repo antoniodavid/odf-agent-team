@@ -128,24 +128,34 @@ slices:
     tasks:
       - id: 2.1
         step: Implement scripts/lib/preflight.js with validatePreflight(), inferDefaults(), and allowed-values lookups.
+        status: complete
       - id: 2.2
         step: Add preflight conversation flow to agent/odoo_orchestrator.md (ask, validate, amend, persist).
+        status: complete
       - id: 2.3
         step: Add state machine section to agent/odoo_orchestrator.md (init → preflight → assess → design → implement → verify → archived).
+        status: complete
       - id: 2.4
         step: Add OpenSpec state.yaml persistence instructions and optional Engram mirror topic odf/{change}/state.
+        status: complete
       - id: 2.5
         step: 'Add approval gate rules to orchestrator: show phase summary, strategy, risks, and ask to proceed; fast-mode skips gates until IMPLEMENT.'
+        status: complete
       - id: 2.6
         step: Add /odf-continue resume logic (latest active change, named change, incomplete preflight handling).
+        status: complete
       - id: 2.7
         step: Add /odf-status state reader instructions to orchestrator (table vs detail rendering).
+        status: complete
       - id: 2.8
         step: Create seed state.yaml for this change under openspec/changes/odf-orchestrator-deployment-experience/state.yaml.
+        status: complete
       - id: 2.9
         step: Write YAML scenario tests for preflight blocking, invalid version, defaults inference, amendment, and persistence idempotency.
+        status: complete
       - id: 2.10
         step: Write YAML scenario tests for orchestrator state transitions, approval gates, resume latest active change, and multiple active changes prompt.
+        status: complete
     acceptance_criteria:
       - /odf-new triggers preflight and blocks delegation until all required choices are valid.
       - Preflight record is persisted before ASSESS runs.
