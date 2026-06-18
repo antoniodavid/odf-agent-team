@@ -18,6 +18,20 @@ VERSION="1.1.0"
 
 BACKUP_DIR="${ODF_DIR}/backups/install-$(date +%Y%m%d_%H%M%S)"
 
+# Auto-detect local source when running from inside the cloned repo.
+# Respects explicit ODF_SOURCE_DIR if set.
+detect_local_source() {
+  if [[ -n "${ODF_SOURCE_DIR:-}" ]]; then
+    return 0
+  fi
+
+  local cwd
+  cwd="$(pwd)"
+  if [[ -f "${cwd}/odf-registry.json" && -f "${cwd}/package.json" && -d "${cwd}/skills" && -f "${cwd}/install.sh" ]]; then
+    ODF_SOURCE_DIR="${cwd}"
+  fi
+}
+
 # Non-interactive / dry-run / force flags
 INSTALL_YES=false
 INSTALL_DRY_RUN=false
@@ -294,13 +308,23 @@ main() {
 
   check_prerequisites
 
+  # Auto-detect local source before displaying info
+  detect_local_source
+
   local existing_status
   existing_status="$(detect_existing_install)"
+
+  local source_display
+  if [[ -n "${ODF_SOURCE_DIR:-}" ]]; then
+    source_display="local: ${ODF_SOURCE_DIR}"
+  else
+    source_display="${REPO}@${BRANCH}"
+  fi
 
   echo ""
   log_info "Target directory: ${ODF_DIR}"
   log_info "Existing install: ${existing_status}"
-  log_info "Source:           ${ODF_SOURCE_DIR:-${REPO}@${BRANCH}}"
+  log_info "Source:           ${source_display}"
 
   # Confirmation
   if [[ "$INSTALL_DRY_RUN" == false && "$INSTALL_YES" == false && "$INSTALL_FORCE" == false ]]; then
