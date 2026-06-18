@@ -1,6 +1,6 @@
 change: odf-orchestrator-deployment-experience
 version: 1.0.0
-status: ready-for-verify
+status: verified
 artifact_store: openspec
 
 slice: 2
@@ -222,7 +222,7 @@ workload_pr_boundary:
     and will exceed the 400-line per-PR budget. This is pre-resolved as a feature-branch-chain
     Slice 2 boundary. Actual diff size should be verified before opening the PR.
 
-next_recommended: sdd-verify Slice 2
+next_recommended: sdd-archive (Slice 2 boundary)
 
 risks:
   - description: task() API signature unconfirmed in production OpenCode runtime
@@ -235,6 +235,10 @@ risks:
     mitigation: Added a clear "Slice 2" heading and explicit supersede note.
   - description: Command files updated in Slice 2 may conflict with planned Slice 3 scope
     mitigation: Slice 3 can build on these updates rather than reimplementing them.
+
+verification_report: openspec/changes/odf-orchestrator-deployment-experience/verify-report-slice2.yaml
+verified_at: "2026-06-18T00:00:00Z"
+verdict: PASS WITH WARNINGS
 
 skill_resolution:
   primary: sdd-apply
