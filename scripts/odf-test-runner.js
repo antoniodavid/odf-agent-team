@@ -16,6 +16,8 @@ import os from 'node:os';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
+import * as preflight from './lib/preflight.js';
+import * as orchestrator from './lib/orchestrator.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -200,6 +202,100 @@ function runPluginTests() {
 }
 
 // ==========================================
+// Preflight scenario tests
+// ==========================================
+
+function runPreflightSuite(suite) {
+  console.log(`\n📋 ${suite.name} (preflight scenarios)`);
+
+  for (const tc of (suite.tests || [])) {
+    console.log(`\n  Test: "${tc.name}"`);
+
+    if (tc.input.record) {
+      test('valid matches expected', () => {
+        const result = preflight.validatePreflight(tc.input.record);
+        return result.valid === tc.expected.valid;
+      });
+
+      if (tc.expected.errors_count !== undefined) {
+        test(`errors count is ${tc.expected.errors_count}`, () => {
+          const result = preflight.validatePreflight(tc.input.record);
+          return result.errors.length === tc.expected.errors_count;
+        });
+      }
+
+      if (tc.expected.errors_contains) {
+        for (const field of tc.expected.errors_contains) {
+          test(`error mentions ${field}`, () => {
+            const result = preflight.validatePreflight(tc.input.record);
+            return result.errors.some((e) => e.includes(field));
+          });
+        }
+      }
+
+      if (tc.expected.missing_contains) {
+        test('missing fields contain expected', () => {
+          const missing = preflight.getMissingFields(tc.input.record);
+          return tc.expected.missing_contains.every((field) => missing.includes(field));
+        });
+      }
+
+      if (tc.expected.normalized_change !== undefined) {
+        test('normalized change is correct', () => {
+          const result = preflight.validatePreflight(tc.input.record);
+          return result.normalized.change === tc.expected.normalized_change;
+        });
+      }
+
+      if (tc.expected.normalized_odoo_version !== undefined) {
+        test('normalized odoo_version is correct', () => {
+          const result = preflight.validatePreflight(tc.input.record);
+          return result.normalized.odoo_version === tc.expected.normalized_odoo_version;
+        });
+      }
+    }
+
+    if (tc.input.change_name) {
+      test('defaults inference matches expected', () => {
+        const defaults = preflight.inferDefaults(tc.input.change_name, tc.input.project_config || null);
+        return (
+          defaults.change === tc.expected.defaults_change &&
+          defaults.odoo_version === tc.expected.defaults_odoo_version &&
+          defaults.artifact_store === tc.expected.defaults_artifact_store &&
+          defaults.tdd_mode === tc.expected.defaults_tdd_mode
+        );
+      });
+    }
+  }
+}
+
+// ==========================================
+// Orchestrator state scenario tests
+// ==========================================
+
+function runOrchestratorSuite(suite) {
+  console.log(`\n📋 ${suite.name} (orchestrator scenarios)`);
+
+  for (const tc of (suite.tests || [])) {
+    console.log(`\n  Test: "${tc.name}"`);
+
+    if (tc.input.state) {
+      test('next phase matches expected', () => {
+        const next = orchestrator.getNextPhase(tc.input.state);
+        return next === tc.expected.next_phase;
+      });
+    }
+
+    if (tc.input.states) {
+      test('resume selects expected active change', () => {
+        const result = orchestrator.selectActiveChange(tc.input.states, tc.input.name || null);
+        return result.change === tc.expected.resume_change;
+      });
+    }
+  }
+}
+
+// ==========================================
 // Main
 // ==========================================
 
@@ -232,7 +328,14 @@ async function main() {
           skipped++;
           continue;
         }
-        runTestSuite(suite);
+
+        if (suite.type === 'preflight') {
+          runPreflightSuite(suite);
+        } else if (suite.type === 'orchestrator') {
+          runOrchestratorSuite(suite);
+        } else {
+          runTestSuite(suite);
+        }
       } catch (e) {
         console.error(`\n❌ Error parsing ${file}: ${e.message}`);
         failed++;
