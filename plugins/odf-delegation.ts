@@ -400,15 +400,24 @@ async function learnFromMetrics(): Promise<LearningInsight[]> {
   return result
 }
 
-async function getProfileByPhase(registry: ODFRegistry, phase: string): Promise<{ model: string; temperature: number; reasoning?: boolean } | null> {
+async function getProfileByPhase(
+  registry: ODFRegistry,
+  phase: string,
+  profileName?: string
+): Promise<{ model: string; temperature: number; reasoning?: boolean; name?: string } | null> {
   if (!registry.profiles) return null
 
   // Find active profile first
   const profiles = registry.profiles as any[]
-  const activeProfile = profiles.find(p => p.active === true) || profiles.find(p => p.name === "default") || profiles[0]
+  const selectedProfile = profileName
+    ? profiles.find(p => p.name === profileName)
+    : profiles.find(p => p.active === true) || profiles.find(p => p.name === "default") || profiles[0]
 
-  if (activeProfile && activeProfile.phases && activeProfile.phases[phase.toUpperCase()]) {
-    return activeProfile.phases[phase.toUpperCase()]
+  if (selectedProfile && selectedProfile.phases && selectedProfile.phases[phase.toUpperCase()]) {
+    return {
+      ...selectedProfile.phases[phase.toUpperCase()],
+      name: selectedProfile.name,
+    }
   }
 
   // Fall back to flat profile structure
@@ -422,6 +431,18 @@ async function getProfileByPhase(registry: ODFRegistry, phase: string): Promise<
   }
 
   return null
+}
+
+function formatProfileBlock(
+  profile: { model: string; temperature: number; reasoning?: boolean; name?: string },
+  phase: string
+): string {
+  return `## SDD Profile (auto-resolved)
+Profile: ${profile.name || "default"}
+Phase: ${phase}
+Model: ${profile.model}
+Temperature: ${profile.temperature}
+Reasoning: ${profile.reasoning ? "enabled" : "disabled"}`
 }
 
 // ==========================================
@@ -626,9 +647,15 @@ async function invokeTask(
   taskApi: TaskApi,
   agentName: string,
   prompt: string,
-  contextFiles?: string[]
+  contextFiles?: string[],
+  timeoutMs = 120_000
 ): Promise<{ status: string; result: unknown }> {
-  const result = await taskApi({ agent: agentName, prompt, context_files: contextFiles })
+  const result = await Promise.race([
+    taskApi({ agent: agentName, prompt, context_files: contextFiles }),
+    new Promise<never>((_, reject) => {
+      setTimeout(() => reject(new Error(`task() timed out after ${timeoutMs}ms`)), timeoutMs)
+    }),
+  ])
   return { status: "delegated", result }
 }
 
@@ -636,12 +663,17 @@ function buildFallbackOutput(
   phase: string,
   agentName: string,
   skills: ODFSkill[],
-  enrichedPrompt: string
+  enrichedPrompt: string,
+  profile: { model: string; temperature: number; reasoning?: boolean; name?: string } | null
 ): string {
+  const profileLine = profile
+    ? `Profile: ${profile.name || "default"} | Model: ${profile.model} | Temperature: ${profile.temperature} | Reasoning: ${profile.reasoning ? "enabled" : "disabled"}`
+    : "Profile: default"
   return `ODF Delegation (fallback — task() unavailable):
 
 Phase: ${phase}
 Agent: ${agentName}
+${profileLine}
 Skills injected: ${skills.length > 0 ? skills.map(s => s.name).join(", ") : "none"}
 Status: fallback
 
@@ -679,8 +711,16 @@ Use this instead of generic task() for ODF workflow delegation.`,
         .array(tool.schema.string())
         .optional()
         .describe("Files the agent will work with (for skill matching)"),
+      profile: tool.schema
+        .string()
+        .optional()
+        .describe("Optional SDD profile name override"),
+      timeout_ms: tool.schema
+        .number()
+        .optional()
+        .describe("Task timeout in milliseconds (default: 120000)"),
     },
-    async execute(args: { phase: string; prompt: string; context_files?: string[] }, toolCtx: ToolContext): Promise<string> {
+    async execute(args: { phase: string; prompt: string; context_files?: string[]; profile?: string; timeout_ms?: number }, toolCtx: ToolContext): Promise<string> {
       if (!toolCtx?.sessionID) {
         return "❌ odf_delegate requires sessionID"
       }
@@ -708,23 +748,30 @@ Use this instead of generic task() for ODF workflow delegation.`,
         odooVersion: odooVersion,
       })
 
-      // Resolve agent
+      // Resolve agent and profile
       const keywords = args.prompt.split(/\s+/).slice(0, 10)
       const agentName = resolveAgent(registry, args.phase, keywords)
-      console.log(`[odf-delegation] odf_delegate: phase=${args.phase} agent=${agentName} skills=${skills.length} version=${odooVersion || "auto"}`)
+      const profile = await getProfileByPhase(registry, args.phase, args.profile)
+      const profileBlock = profile ? formatProfileBlock(profile, args.phase) : ""
+      console.log(`[odf-delegation] odf_delegate: phase=${args.phase} agent=${agentName} skills=${skills.length} version=${odooVersion || "auto"} profile=${profile?.name || "default"}`)
 
-      // Inject compact rules
+      // Inject compact rules and profile
       const rules = formatCompactRules(skills)
-      const enrichedPrompt = rules
-        ? `${rules}\n\n---\n\n${args.prompt}\n\n## Skill Resolution Status\nReport: injected (received from odf-delegation plugin)`
+      const hasInjection = rules || profileBlock
+      const enrichedPrompt = hasInjection
+        ? `${[rules, profileBlock].filter(Boolean).join("\n\n")}\n\n---\n\n${args.prompt}\n\n## Skill Resolution Status\nReport: injected (received from odf-delegation plugin)`
         : `${args.prompt}\n\n## Skill Resolution Status\nReport: none (no matching skills in registry)`
 
       const duration = Date.now() - startTime
       const taskApiInfo = findTaskApi(toolCtx, client)
+      const profilePayload = profile
+        ? { name: profile.name, model: profile.model, temperature: profile.temperature, reasoning: profile.reasoning }
+        : null
 
       if (taskApiInfo) {
         try {
-          const taskResult = await invokeTask(taskApiInfo.taskApi, agentName, enrichedPrompt, args.context_files)
+          const timeoutMs = args.timeout_ms ?? 120_000
+          const taskResult = await invokeTask(taskApiInfo.taskApi, agentName, enrichedPrompt, args.context_files, timeoutMs)
           recordMetrics({
             timestamp: new Date().toISOString(),
             session_id: toolCtx.sessionID,
@@ -742,11 +789,13 @@ Use this instead of generic task() for ODF workflow delegation.`,
             phase: args.phase,
             agent: agentName,
             skills_injected: skills.map(s => s.name),
+            profile: profilePayload,
             task_api_source: taskApiInfo.source,
             result: taskResult.result,
           }, null, 2)
         } catch (err) {
           const errorMessage = err instanceof Error ? err.message : String(err)
+          const isTimeout = errorMessage.includes("timed out")
           recordMetrics({
             timestamp: new Date().toISOString(),
             session_id: toolCtx.sessionID,
@@ -756,14 +805,15 @@ Use this instead of generic task() for ODF workflow delegation.`,
             skill_resolution: skills.length > 0 ? "injected" : "none",
             duration_ms: Date.now() - startTime,
             token_estimate: estimateTokens(enrichedPrompt),
-            status: "error",
+            status: isTimeout ? "timeout" : "error",
             task_api_source: taskApiInfo.source,
             error: errorMessage,
           })
           return JSON.stringify({
-            status: "error",
+            status: isTimeout ? "timeout" : "error",
             phase: args.phase,
             agent: agentName,
+            profile: profilePayload,
             task_api_source: taskApiInfo.source,
             message: errorMessage,
           }, null, 2)
@@ -784,7 +834,7 @@ Use this instead of generic task() for ODF workflow delegation.`,
         task_api_source: "unavailable",
       })
 
-      return buildFallbackOutput(args.phase, agentName, skills, enrichedPrompt)
+      return buildFallbackOutput(args.phase, agentName, skills, enrichedPrompt, profile)
     },
   })
 }
@@ -1209,9 +1259,19 @@ export {
   invokeTask,
   findTaskApi,
   createODFDelegate,
+  getProfileByPhase,
+  recordMetrics,
   ALLOWED_PHASES,
   type ODFRegistry,
   type ODFSkill,
   type ODFAgent,
   type DelegationMetrics,
+}
+
+export function getMetricsBuffer(): DelegationMetrics[] {
+  return metricsBuffer
+}
+
+export function clearMetricsBuffer(): void {
+  metricsBuffer.length = 0
 }
