@@ -3,19 +3,25 @@
  * ODF Agent Test Runner — F2: Agent Observatory
  *
  * Executes test cases against ODF agents and reports pass/fail.
- * Usage: node scripts/odf-test-runner.js [--agent <name>]
+ * Usage: node scripts/odf-test-runner.js [--agent <name>] [--plugin-tests]
  *
  * Each test case defines:
  *   input: { task, context } — sent to the agent
  *   expected: { skill_resolution, status_in, has_diagnosis, ... }
  */
 
-const fs = require('fs');
-const path = require('path');
-const yaml = require('yaml');
+import fs from 'node:fs';
+import path from 'node:path';
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+import YAML from 'yaml';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const REGISTRY_PATH = path.join(process.env.HOME, '.config', 'opencode', 'odf-registry.json');
 const TESTS_DIR = path.join(__dirname, 'odf-agent-tests');
+const PLUGIN_TESTS = path.join(__dirname, '..', 'plugins', 'odf-delegation.test.ts');
 
 // ==========================================
 // Plugin logic simulation (same as odf-delegation.ts)
@@ -171,11 +177,34 @@ function runTestSuite(suite) {
 }
 
 // ==========================================
+// Plugin unit tests
+// ==========================================
+
+function runPluginTests() {
+  if (!fs.existsSync(PLUGIN_TESTS)) {
+    console.log('\n⚠️  Plugin test file not found:', PLUGIN_TESTS);
+    return;
+  }
+
+  console.log('\n🔌 Running plugin unit tests...');
+  const result = spawnSync('npx', ['vitest', 'run', PLUGIN_TESTS], {
+    stdio: 'inherit',
+    shell: false,
+    cwd: path.join(__dirname, '..'),
+  });
+
+  if (result.status !== 0) {
+    failed++;
+  }
+}
+
+// ==========================================
 // Main
 // ==========================================
 
 async function main() {
   const filterAgent = process.argv.find(a => a.startsWith('--agent='))?.split('=')[1];
+  const runPlugin = process.argv.includes('--plugin-tests');
 
   console.log('╔════════════════════════════════════════════════════════╗');
   console.log('║        ODF Agent Observatory — Test Runner            ║');
@@ -183,26 +212,30 @@ async function main() {
   console.log(`Registry: ${REGISTRY_PATH}`);
   console.log(`Tests dir: ${TESTS_DIR}`);
   if (filterAgent) console.log(`Filter: --agent=${filterAgent}`);
+  if (runPlugin) console.log('Plugin tests: enabled');
+
+  if (runPlugin) {
+    runPluginTests();
+  }
 
   const files = fs.readdirSync(TESTS_DIR).filter(f => f.endsWith('.yaml'));
 
   if (files.length === 0) {
-    console.log('\n⚠️  No test files found in', TESTS_DIR);
-    process.exit(0);
-  }
-
-  for (const file of files) {
-    try {
-      const content = fs.readFileSync(path.join(TESTS_DIR, file), 'utf8');
-      const suite = require('yaml').parse(content);
-      if (filterAgent && suite.agent !== filterAgent) {
-        skipped++;
-        continue;
+    console.log('\n⚠️  No YAML test files found in', TESTS_DIR);
+  } else {
+    for (const file of files) {
+      try {
+        const content = fs.readFileSync(path.join(TESTS_DIR, file), 'utf8');
+        const suite = YAML.parse(content);
+        if (filterAgent && suite.agent !== filterAgent) {
+          skipped++;
+          continue;
+        }
+        runTestSuite(suite);
+      } catch (e) {
+        console.error(`\n❌ Error parsing ${file}: ${e.message}`);
+        failed++;
       }
-      runTestSuite(suite);
-    } catch (e) {
-      console.error(`\n❌ Error parsing ${file}: ${e.message}`);
-      failed++;
     }
   }
 
