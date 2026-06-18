@@ -1,6 +1,6 @@
 change: odf-orchestrator-deployment-experience
 version: 1.0.0
-status: apply-progress
+status: ready-for-verify
 artifact_store: openspec
 
 slice: 1
@@ -110,30 +110,138 @@ fixes_applied:
     verification:
       - plugins/odf-delegation.test.ts > createODFDelegate > returns timeout status when task() exceeds timeout_ms
 
+  - id: W01
+    title: Path traversal in resolvePath
+    status: resolved
+    files:
+      - plugins/odf-delegation.ts
+      - plugins/odf-delegation.test.ts
+    details: |
+      resolvePath() now rejects any entryPath containing ".." segments, expands
+      "~/" against the user's home directory, and verifies the resolved path
+      stays within the allowed roots (registryDir or ODF_CONFIG_DIR).
+      Absolute paths outside those roots are also rejected.
+    verification:
+      - plugins/odf-delegation.test.ts > resolvePath > rejects paths containing .. segments
+      - plugins/odf-delegation.test.ts > resolvePath > rejects absolute paths outside allowed roots
+      - plugins/odf-delegation.test.ts > resolvePath > rejects ~/ paths outside allowed roots
+      - plugins/odf-delegation.test.ts > createODFDelegate > rejects context_files that escape the workspace root
+      - plugins/odf-delegation.test.ts > createODFDelegate > rejects context_files containing .. segments
+
+  - id: W02
+    title: Unbounded metrics buffer
+    status: resolved
+    files:
+      - plugins/odf-delegation.ts
+      - plugins/odf-delegation.test.ts
+    details: |
+      Added a configurable buffer cap (ODF_METRICS_BUFFER_CAP, default 1000).
+      When the cap is reached recordMetrics() flushes synchronously to disk
+      (backpressure policy). The async 30s flush interval remains as a safety
+      net. The policy is documented in a code comment block.
+    verification:
+      - plugins/odf-delegation.test.ts > recordMetrics > flushes synchronously when the buffer cap is reached
+
+  - id: W03
+    title: Metrics JSONL exposes session_id and raw errors
+    status: resolved
+    files:
+      - plugins/odf-delegation.ts
+      - plugins/odf-delegation.test.ts
+    details: |
+      DelegationMetrics now stores session_hash (sha256 first 8 hex chars)
+      instead of session_id. recordMetrics() hashes the raw session_id and
+      drops it from the persisted object. Errors are sanitized (newlines
+      replaced with spaces, double quotes replaced, truncated to 200 chars).
+      Retention and access-control guidance is documented in the metrics
+      policy comment.
+    verification:
+      - plugins/odf-delegation.test.ts > recordMetrics > hashes session_id instead of storing it raw
+      - plugins/odf-delegation.test.ts > recordMetrics > sanitizes and truncates error messages
+      - plugins/odf-delegation.test.ts > recordMetrics > never stores the raw session_id in the JSONL log
+
+  - id: W04
+    title: No committed lock file / unpinned dependencies
+    status: resolved
+    files:
+      - package.json
+      - package-lock.json
+      - .gitignore
+    details: |
+      Removed package-lock.json from .gitignore and committed the generated
+      package-lock.json. Direct dependencies in package.json already use caret
+      ranges; the lockfile pins the transitive tree for reproducible installs.
+    verification:
+      - npm install succeeds
+      - package-lock.json is tracked by git
+
+  - id: W05
+    title: Open-ended peer dependencies
+    status: resolved
+    files:
+      - package.json
+      - package-lock.json
+    details: |
+      Changed @opencode-ai/plugin and @opencode-ai/sdk peer dependencies from
+      >=1.15.0 to ^1.15.0. Regenerated package-lock.json with the pinned
+      versions.
+    verification:
+      - npm install succeeds
+      - npx tsc --noEmit passes
+
+  - id: W06
+    title: '"$HOME" controls sensitive file paths'
+    status: resolved
+    files:
+      - plugins/odf-delegation.ts
+      - scripts/odf-test-runner.js
+    details: |
+      Added getOdfConfigDir() helper that honors ODF_CONFIG_DIR when it is set
+      and absolute, otherwise falls back to os.homedir()/.config/opencode. All
+      plugin paths (registry, cache, skill discovery, metrics) use this helper.
+      context_files are validated against the workspace root. The test runner
+      now uses os.homedir() instead of process.env.HOME directly.
+    verification:
+      - plugins/odf-delegation.test.ts (all tests use temp HOME)
+      - node scripts/odf-test-runner.js
+      - npx tsc --noEmit passes
+
 files_changed:
   - path: package.json
     action: modified
-    description: Align version, repository URL, and devDependencies with installer design
+    description: Align version, repository URL, and devDependencies with installer design; pin peer deps to ^1.15.0
+  - path: package-lock.json
+    action: created
+    description: Generated lockfile for reproducible installs
   - path: tsconfig.json
     action: created
     description: TypeScript config for plugin and scripts
   - path: plugins/odf-delegation.ts
     action: modified
-    description: Inject SDD profile, support task timeout, expose metrics buffer helpers
+    description: Inject SDD profile, support task timeout, secure path resolution, bounded/sanitized metrics, ODF_CONFIG_DIR support
   - path: plugins/odf-delegation.test.ts
     action: modified
-    description: Profile/timeout tests and metrics buffer assertions
+    description: Profile/timeout tests, path traversal tests, metrics privacy and buffer-cap tests
   - path: scripts/odf-test-runner.js
     action: modified
-    description: ESM conversion and --plugin-tests support
+    description: ESM conversion, --plugin-tests support, use os.homedir() for registry path
   - path: .gitignore
     action: modified
-    description: Ignore package-lock.json and .atl/ cache
+    description: Stop ignoring package-lock.json; keep other ignores
+  - path: openspec/specs/odf-delegation-plugin/spec.yaml
+    action: modified
+    description: Add path traversal and metrics privacy non-functional requirements
+  - path: openspec/specs/odf-delegation-plugin/design.yaml
+    action: modified
+    description: Document ODF_CONFIG_DIR, secure resolvePath, and metrics policy
+  - path: openspec/changes/odf-orchestrator-deployment-experience/design.yaml
+    action: modified
+    description: Document ODF_CONFIG_DIR support and secure registry path resolution
 
 test_results:
   - command: npm test
     status: passed
-    summary: 30 plugin unit tests passed; 36 YAML scenario tests passed
+    summary: 39 plugin unit tests passed; 36 YAML scenario tests passed
   - command: node scripts/odf-test-runner.js
     status: passed
     summary: 36 existing YAML scenario tests passed
@@ -175,7 +283,7 @@ workload_pr_boundary:
     pre-resolved as a single Slice 1 PR boundary in session preflight. The warning
     fixes add ~225 lines and remain within the same pre-resolved Slice 1 boundary.
 
-next_recommended: sdd-apply Slice 2 (preflight gate + orchestrator agent)
+next_recommended: sdd-verify Slice 1 (re-run risk review after warning fixes)
 
 risks:
   - description: task() API signature unconfirmed in production OpenCode runtime

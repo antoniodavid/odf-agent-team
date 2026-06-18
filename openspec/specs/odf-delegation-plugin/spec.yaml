@@ -104,6 +104,18 @@ requirements:
       name: Test coverage
       strength: MUST
       description: The delegation logic MUST have unit tests for resolution and task() invocation.
+    - id: DELEG-N03
+      name: Path traversal protection
+      strength: MUST
+      description: |
+        Registry path resolution and context_files validation MUST reject ".."
+        segments and paths that escape the allowed roots.
+    - id: DELEG-N04
+      name: Metrics privacy and bounded buffer
+      strength: MUST
+      description: |
+        Metrics MUST hash session_id, sanitize errors, keep the in-memory buffer
+        bounded, and flush synchronously when the cap is reached.
 
 interface_contracts:
   inputs:

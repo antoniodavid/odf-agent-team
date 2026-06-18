@@ -323,8 +323,10 @@ design:
         Paths starting with ./ are normalized before resolution.
     absolute_path_fallback:
       - |
-        If a path is absolute (starts with / or ~), it is used unchanged.
-        Legacy installs continue to work without migration.
+        If a path is absolute (starts with / or ~), it is allowed only when it
+        resolves inside the registry directory or ODF_CONFIG_DIR. Legacy
+        installs using paths under those roots continue to work without
+        migration; paths outside the allowed roots are rejected.
     package_metadata:
       new_section: package
       fields:
@@ -340,12 +342,18 @@ design:
     resolution_function: |
       resolvePath(registryDir: string, entryPath: string): string {
         if (!entryPath) return "";
-        if (path.isAbsolute(entryPath)) return entryPath;
-        // Expand leading ~/ to homedir
-        if (entryPath.startsWith("~/")) {
-          return path.join(os.homedir(), entryPath.slice(2));
+        if (entryPath.includes("..")) return "";
+        const allowedRoots = [registryDir, getOdfConfigDir()];
+        let resolved: string;
+        if (path.isAbsolute(entryPath)) {
+          resolved = path.normalize(entryPath);
+        } else if (entryPath.startsWith("~/")) {
+          resolved = path.normalize(path.join(os.homedir(), entryPath.slice(2)));
+        } else {
+          resolved = path.resolve(registryDir, entryPath);
         }
-        return path.resolve(registryDir, entryPath);
+        if (!allowedRoots.some(root => isWithinRoot(resolved, root))) return "";
+        return resolved;
       }
     backward_compatibility:
       - Old plugin versions ignore the package section; existing entries stay valid.
@@ -387,6 +395,7 @@ design:
       - env: ODF_INSTALL_NONINTERACTIVE=1
     custom_dir_support:
       - env: ODF_DIR overrides default ~/.config/opencode.
+      - env: ODF_CONFIG_DIR overrides the plugin config directory (default ~/.config/opencode).
       - env: ODF_SOURCE_DIR uses local source instead of downloading.
 
   file_structure:

@@ -92,6 +92,15 @@ design:
       Return enriched prompt and agent name with a clear marker:
       "ODF Delegation (fallback — task() unavailable): phase=..., agent=...".
 
+  config_dir:
+    env_var: ODF_CONFIG_DIR
+    default: "${HOME}/.config/opencode"
+    behavior: |
+      All ODF file paths (registry, cache, skill discovery, metrics) are rooted
+      in ODF_CONFIG_DIR when set and absolute; otherwise they fall back to the
+      user's home config directory. Relative or non-absolute values of
+      ODF_CONFIG_DIR are ignored with a warning.
+
   metrics_update:
     status_values: [ok, fallback, error, timeout]
     additional_fields:
@@ -100,21 +109,36 @@ design:
     recording: |
       Record duration, token estimate, phase, agent, skills injected, and
       status after every odf_delegate call, including fallback and error cases.
+    privacy_and_retention:
+      - session_id is hashed (sha256, first 8 hex chars) before persistence.
+      - Error messages are sanitized (newlines replaced, truncated to 200 chars).
+      - The in-memory buffer is capped (default 1000 entries) and flushed
+        synchronously when the cap is reached (backpressure policy).
+      - Metrics are written to ${ODF_CONFIG_DIR}/metrics as daily JSONL files.
+      - Access to the metrics directory should be restricted by filesystem
+        permissions; downstream consumers are responsible for rotation/purge.
 
   registry_path_resolution:
     helper: |
       function resolvePath(registryDir: string, entryPath: string): string {
         if (!entryPath) return "";
-        if (path.isAbsolute(entryPath)) return entryPath;
-        if (entryPath.startsWith("~/")) {
-          return path.join(os.homedir(), entryPath.slice(2));
+        if (entryPath.includes("..")) return "";
+        const allowedRoots = [registryDir, getOdfConfigDir()];
+        let resolved: string;
+        if (path.isAbsolute(entryPath)) {
+          resolved = path.normalize(entryPath);
+        } else if (entryPath.startsWith("~/")) {
+          resolved = path.normalize(path.join(os.homedir(), entryPath.slice(2)));
+        } else {
+          resolved = path.resolve(registryDir, entryPath);
         }
-        return path.resolve(registryDir, entryPath);
+        if (!allowedRoots.some(root => isWithinRoot(resolved, root))) return "";
+        return resolved;
       }
     consumers:
       - loadRegistry() resolves skill/agent paths before returning registry.
       - createODFSkillInject() and createODFSkillResolve() use resolved paths.
-      - Metrics paths remain absolute.
+      - Metrics paths remain absolute under ODF_CONFIG_DIR.
 
   package_metadata_read:
     new_type_fields: |
