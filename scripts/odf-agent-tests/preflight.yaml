@@ -1,0 +1,74 @@
+name: odf-preflight
+type: preflight
+agent: odoo_orchestrator
+tests:
+  - name: "complete preflight is valid"
+    input:
+      record:
+        change: "my-feature"
+        execution_mode: "interactive"
+        artifact_store: "openspec"
+        delivery_strategy: "ask-on-risk"
+        review_budget_lines: 400
+        odoo_version: 18
+        tdd_mode: false
+        solution_strategy: "custom"
+        chain_strategy: "feature-branch"
+    expected:
+      valid: true
+      errors_count: 0
+      normalized_change: "my-feature"
+      normalized_odoo_version: 18
+
+  - name: "missing required fields blocks delegation"
+    input:
+      record:
+        change: "my-feature"
+    expected:
+      valid: false
+      missing_contains: ["execution_mode", "odoo_version"]
+
+  - name: "invalid odoo version is rejected"
+    input:
+      record:
+        change: "my-feature"
+        execution_mode: "interactive"
+        artifact_store: "openspec"
+        delivery_strategy: "ask-on-risk"
+        review_budget_lines: 400
+        odoo_version: 15
+        tdd_mode: false
+        solution_strategy: "custom"
+        chain_strategy: "feature-branch"
+    expected:
+      valid: false
+      errors_contains: ["odoo_version"]
+
+  - name: "review budget out of range is rejected"
+    input:
+      record:
+        change: "my-feature"
+        execution_mode: "interactive"
+        artifact_store: "openspec"
+        delivery_strategy: "ask-on-risk"
+        review_budget_lines: 50
+        odoo_version: 18
+        tdd_mode: false
+        solution_strategy: "custom"
+        chain_strategy: "feature-branch"
+    expected:
+      valid: false
+      errors_contains: ["review_budget_lines"]
+
+  - name: "defaults inference fills missing fields"
+    input:
+      change_name: "My Feature"
+      project_config:
+        odoo_version: 17
+        artifact_store: "hybrid"
+        tdd_mode: true
+    expected:
+      defaults_change: "my-feature"
+      defaults_odoo_version: 17
+      defaults_artifact_store: "hybrid"
+      defaults_tdd_mode: true
