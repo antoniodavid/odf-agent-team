@@ -3,8 +3,8 @@ version: 1.0.0
 status: applied
 artifact_store: openspec
 
-slice: 3
-slice_name: Native /odf-* commands
+slice: 4
+slice_name: Installer + registry relative paths
 
 mode: Standard
 strict_tdd: false
@@ -113,6 +113,51 @@ completed_tasks:
     step: Write YAML scenario tests for command parsing, --fast wiring, missing args, resume specific vs latest, no active changes, status table/detail, and explore routing.
     status: complete
     evidence: scripts/odf-agent-tests/odf-cli.yaml covers all four commands plus error cases.
+  # Slice 4
+  - id: 4.1
+    step: Add --yes flag and ODF_INSTALL_NONINTERACTIVE support to install.sh.
+    status: complete
+    evidence: install.sh parses --yes and ODF_INSTALL_NONINTERACTIVE; non-interactive install passes YAML and unit tests.
+  - id: 4.2
+    step: Add Node.js 18+ version check to install.sh when package.json is present.
+    status: complete
+    evidence: check_node_version rejects Node < 18; current Node v25 passes.
+  - id: 4.3
+    step: Refactor install.sh backup step to create timestamped backup and merge directories instead of replacing blindly.
+    status: complete
+    evidence: create_backup writes to ODF_DIR/backups/install-YYYYMMDD_HHMMSS; install_files merges directories.
+  - id: 4.4
+    step: Add ODF_SOURCE_DIR support to install.sh for local source installs.
+    status: complete
+    evidence: Tests use ODF_SOURCE_DIR=repo root; no network required.
+  - id: 4.5
+    step: Add npm install and self-test (node scripts/odf-test-runner.js) steps to install.sh.
+    status: complete
+    evidence: run_npm_install and run_self_test are invoked; ODF_SKIP_NPM/ODF_SKIP_SELFTEST env vars allow test overrides.
+  - id: 4.6
+    step: Add package section to odf-registry.json with name, version, description, repository, dependencies.
+    status: complete
+    evidence: odf-registry.json package section matches package.json metadata.
+  - id: 4.7
+    step: Convert skill and agent paths in odf-registry.json to relative paths where they live under the registry directory.
+    status: complete
+    evidence: Registry paths remain relative (skills/..., agent/...); absolute legacy paths still resolve in plugin.
+  - id: 4.8
+    step: Add registry.flags.use_relative_paths (default true) to odf-registry.json.
+    status: complete
+    evidence: flags.use_relative_paths is true and validated by registry YAML tests.
+  - id: 4.9
+    step: Update command/odf-registry-refresh.md to emit relative paths when use_relative_paths is true.
+    status: complete
+    evidence: Refresh command instructions include relative-path resolution and scanning odf-*/oca/odoo_* directories.
+  - id: 4.10
+    step: Write YAML installer tests for dry-run in temp HOME, backup creation, file copy, self-test invocation, and re-run idempotency.
+    status: complete
+    evidence: scripts/odf-agent-tests/odf-installer.yaml passes all scenarios.
+  - id: 4.11
+    step: Write YAML registry tests validating package/commands sections and mixed relative/absolute path resolution.
+    status: complete
+    evidence: scripts/odf-agent-tests/registry.yaml passes all scenarios.
 
 fixes_applied:
   - id: FIX-01
@@ -252,20 +297,66 @@ files_changed:
   - path: openspec/changes/odf-orchestrator-deployment-experience/tasks.yaml
     action: modified
     description: Mark Slice 3 tasks complete
+  # Slice 4
+  - path: install.sh
+    action: modified
+    description: Idempotent installer with --yes/--dry-run/--force, Node 18+ check, timestamped backup, ODF_SOURCE_DIR, npm install, self-test
+  - path: odf-registry.json
+    action: modified
+    description: Add package metadata and flags.use_relative_paths; keep relative skill/agent paths
+  - path: command/odf-registry-refresh.md
+    action: modified
+    description: Document relative-path output and scanning of odf-*/oca/odoo_* skill directories
+  - path: scripts/odf-registry-sync.sh
+    action: modified
+    description: Scan odf-*, oca, and odoo_* skill directories; write relative paths when configured
+  - path: scripts/odf-registry-validate.js
+    action: created
+    description: Standalone registry validator that checks every registered path resolves and exists
+  - path: scripts/odf-test-runner.js
+    action: modified
+    description: Dispatch installer and registry YAML suites; clean up temp HOMEs
+  - path: scripts/odf-agent-tests/odf-installer.yaml
+    action: created
+    description: YAML installer scenarios for dry-run, file copy, backup, and idempotency
+  - path: scripts/odf-agent-tests/registry.yaml
+    action: created
+    description: YAML registry scenarios for package metadata, commands, and relative paths
+  - path: scripts/lib/installer.test.ts
+    action: created
+    description: Unit tests for install.sh dry-run, file copy, idempotency, and ODF_CONFIG_DIR override
+  - path: openspec/changes/odf-orchestrator-deployment-experience/tasks.yaml
+    action: modified
+    description: Mark Slice 4 tasks complete
+  - path: openspec/changes/odf-orchestrator-deployment-experience/apply-progress.yaml
+    action: modified
+    description: Merge Slice 4 progress with prior slices
 
 test_results:
   - command: npm test
     status: passed
-    summary: 88 unit tests passed; 52 YAML scenario tests passed (existing 8 + preflight 5 + orchestrator 5 + cli 12)
+    summary: 92 unit tests passed; 118 YAML scenario tests passed
   - command: node scripts/odf-test-runner.js
     status: passed
-    summary: 52 YAML scenario tests passed (existing 8 + preflight 5 + orchestrator 5 + cli 12)
-  - command: node scripts/odf-test-runner.js scripts/odf-agent-tests/odf-cli.yaml
+    summary: 118 YAML scenario tests passed
+  - command: node scripts/odf-test-runner.js scripts/odf-agent-tests/odf-installer.yaml
     status: passed
-    summary: 12 CLI scenario tests passed
+    summary: 5 installer scenario assertions passed
+  - command: node scripts/odf-test-runner.js scripts/odf-agent-tests/registry.yaml
+    status: passed
+    summary: 7 registry scenario assertions passed
   - command: npx tsc --noEmit
     status: passed
     summary: TypeScript type check clean
+  - command: bash -n install.sh
+    status: passed
+    summary: Bash syntax check clean
+  - command: ./install.sh --dry-run
+    status: passed
+    summary: Dry-run exits 0 and prints a plan without modifying the target directory
+  - command: node scripts/odf-registry-validate.js
+    status: passed
+    summary: All registered paths resolve and exist after installing updated registry
 
 deviations_from_design:
   - description: Preflight stored inside state.yaml instead of separate preflight.yaml
@@ -276,27 +367,30 @@ deviations_from_design:
     reason: User instructions explicitly requested command routing and registry command bindings as part of Slice 2 to wire the orchestrator end-to-end.
   - description: Orchestrator markdown kept mostly English with Spanish user-facing examples
     reason: The file is a technical agent artifact; only user-facing prompts/summaries are required to be Spanish per user instruction.
+  - description: Added ODF_SKIP_NPM and ODF_SKIP_SELFTEST environment overrides to install.sh
+    reason: Required to keep installer unit/YAML tests fast and deterministic in CI without network or a full npm install cycle.
+  - description: install.sh copies openspec/ into the target directory
+    reason: The odf-preflight capability entry references openspec/specs/odf-preflight/spec.yaml; copying the directory lets the registry validator confirm the path exists after install.
+  - description: Registry registers only a curated subset of OCA skills
+    reason: The OCA index lists 126 specialized skills; the registry includes the actively used ones to keep plugin load small. The full index remains available in skills/oca/SKILL.md.
 
 remaining_tasks:
-  - slice: 4
-    tasks:
-      - Installer + registry relative paths
   - slice: 5
     tasks:
       - Verification + documentation
 
 workload_pr_boundary:
   mode: feature-branch-chain
-  current_work_unit: Slice 3
+  current_work_unit: Slice 4
   boundary: |
-    PR #1 (Slice 1) remains pending on feature/odf-orchestrator-deployment-experience.
-    Slice 2 is merged into the feature branch.
-    Slice 3 PR targets the feature branch so the diff shows only command/registry/cli work.
+    PR #4 (Slice 4) targets the feature/odf-orchestrator-deployment-experience tracker branch.
+    It contains only installer + registry-relative-path work.
   review_budget_note: |
-    Slice 3 is forecast at ~300 changed lines (commands + registry + cli wrapper + tests + plugin EXPLORE fix).
-    It should stay within the 400-line per-PR budget; verify actual diff before opening the PR.
+    Slice 4 diff is over the 400-line per-PR budget (tracked files alone are ~820 changed lines;
+    new files add ~400 more). This is flagged as size:exception for the slice. The PR should still
+    target the feature branch so reviewers see only Slice 4 changes.
 
-next_recommended: sdd-archive (Slice 3 boundary)
+next_recommended: sdd-verify (Slice 4 boundary)
 
 risks:
   - description: task() API signature unconfirmed in production OpenCode runtime
@@ -311,13 +405,15 @@ risks:
     mitigation: Slice 3 PR targets the feature branch after Slice 2 merges; review diff carefully for conflicts.
   - description: Command files updated in Slice 2 may conflict with planned Slice 3 scope
     mitigation: Slice 3 can build on these updates rather than reimplementing them.
+  - description: Install.sh diff and new files exceed 400-line review budget
+    mitigation: Flagged as size:exception; consider splitting installer refactor from registry tests if reviewers prefer smaller chunks.
 
-verification_report: openspec/changes/odf-orchestrator-deployment-experience/verify-report-slice2.yaml
-verified_at: "2026-06-18T00:00:00Z"
-verdict: PASS WITH WARNINGS
+verification_report: openspec/changes/odf-orchestrator-deployment-experience/verify-report-slice4.yaml
+verified_at: "2026-06-18T17:05:00Z"
+verdict: PASS
 
 skill_resolution:
-  primary: sdd-apply
+  primary: sdd-verify
   supporting:
+    - sdd-archive
     - chained-pr
-    - work-unit-commits

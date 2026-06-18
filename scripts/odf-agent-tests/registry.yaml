@@ -1,0 +1,32 @@
+name: ODF Registry Relative Paths
+type: registry
+tests:
+  - name: registry has package metadata
+    input:
+      check: package
+    expected:
+      package_present: true
+      package_name: odf-agent-team
+      package_version: '1.0.0'
+
+  - name: relative skill paths resolve inside config dir
+    input:
+      check: relative_paths
+    expected:
+      all_relative_resolvable: true
+
+  - name: commands array includes native ODF commands
+    input:
+      check: commands
+    expected:
+      commands:
+        - odf-new
+        - odf-continue
+        - odf-status
+        - odf-explore
+
+  - name: use_relative_paths flag is a boolean
+    input:
+      check: flags
+    expected:
+      use_relative_paths_boolean: true

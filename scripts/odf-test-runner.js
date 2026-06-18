@@ -363,6 +363,164 @@ function runCliSuite(suite) {
 }
 
 // ==========================================
+// Installer scenario tests
+// ==========================================
+
+const INSTALLER_SCRIPT = path.join(__dirname, '..', 'install.sh');
+const installerTempHomes = [];
+
+function runInstallerSuite(suite) {
+  console.log(`\n📋 ${suite.name} (installer scenarios)`);
+
+  for (const tc of (suite.tests || [])) {
+    console.log(`\n  Test: "${tc.name}"`);
+
+    let tempHome = tc.input.env?.HOME;
+    if (!tempHome) {
+      tempHome = fs.mkdtempSync(path.join(os.tmpdir(), 'odf-installer-'));
+      installerTempHomes.push(tempHome);
+    }
+
+    const sourceDir = tc.input.env?.ODF_SOURCE_DIR || path.join(__dirname, '..');
+    const env = { ...process.env, HOME: tempHome, ODF_SOURCE_DIR: sourceDir, ...(tc.input.env || {}) };
+    const runs = tc.input.runs || 1;
+    let lastResult;
+    let combinedOutput = '';
+
+    for (let i = 0; i < runs; i++) {
+      const result = spawnSync('bash', [INSTALLER_SCRIPT, ...(tc.input.args || [])], {
+        env,
+        encoding: 'utf8',
+        cwd: path.join(__dirname, '..'),
+      });
+      lastResult = result;
+      combinedOutput += `\n--- run ${i + 1} ---\n${result.stdout}\n${result.stderr}`;
+    }
+
+    if (tc.expected.exit_code !== undefined) {
+      test(`exits with code ${tc.expected.exit_code}`, () => {
+        return lastResult.status === tc.expected.exit_code;
+      });
+    }
+
+    if (tc.expected.stdout_contains) {
+      for (const fragment of tc.expected.stdout_contains) {
+        test(`output contains "${fragment}"`, () => {
+          return combinedOutput.includes(fragment);
+        });
+      }
+    }
+
+    if (tc.expected.files_exist) {
+      for (const rel of tc.expected.files_exist) {
+        test(`file exists: ${rel}`, () => {
+          return fs.existsSync(path.join(tempHome, rel));
+        });
+      }
+    }
+
+    if (tc.expected.backup_count !== undefined) {
+      test(`backup count is ${tc.expected.backup_count}`, () => {
+        const backupsDir = path.join(tempHome, '.config', 'opencode', 'backups');
+        if (!fs.existsSync(backupsDir)) return tc.expected.backup_count === 0;
+        const entries = fs.readdirSync(backupsDir).filter(e => e.startsWith('install-'));
+        return entries.length === tc.expected.backup_count;
+      });
+    }
+  }
+}
+
+// ==========================================
+// Registry scenario tests
+// ==========================================
+
+function resolveRegistryPath(registryDir, entryPath) {
+  if (!entryPath) return '';
+  if (entryPath.includes('..')) return '';
+
+  let resolved;
+  if (path.isAbsolute(entryPath)) {
+    resolved = path.normalize(entryPath);
+  } else if (entryPath.startsWith('~/')) {
+    resolved = path.normalize(path.join(os.homedir(), entryPath.slice(2)));
+  } else {
+    resolved = path.resolve(registryDir, entryPath);
+  }
+
+  const configDir = path.join(os.homedir(), '.config', 'opencode');
+  const allowedRoots = [path.normalize(registryDir), configDir];
+  if (!allowedRoots.some(root => resolved === root || resolved.startsWith(root + path.sep))) {
+    return '';
+  }
+  return resolved;
+}
+
+function runRegistrySuite(suite) {
+  console.log(`\n📋 ${suite.name} (registry scenarios)`);
+
+  const registry = loadRegistry();
+  if (!registry) {
+    console.error(`\n❌ Cannot run registry tests: registry not found at ${REGISTRY_PATH}`);
+    failed++;
+    return;
+  }
+
+  const registryDir = path.dirname(REGISTRY_PATH);
+
+  for (const tc of (suite.tests || [])) {
+    console.log(`\n  Test: "${tc.name}"`);
+
+    if (tc.input.check === 'package') {
+      test('package section is present', () => {
+        return Boolean(registry.package) === tc.expected.package_present;
+      });
+      if (tc.expected.package_name !== undefined) {
+        test(`package.name is ${tc.expected.package_name}`, () => {
+          return registry.package?.name === tc.expected.package_name;
+        });
+      }
+      if (tc.expected.package_version !== undefined) {
+        test(`package.version is ${tc.expected.package_version}`, () => {
+          return registry.package?.version === tc.expected.package_version;
+        });
+      }
+    }
+
+    if (tc.input.check === 'relative_paths') {
+      test('all skill paths resolve inside the config dir', () => {
+        for (const skill of registry.skills || []) {
+          const resolved = resolveRegistryPath(registryDir, skill.path);
+          if (!resolved || !fs.existsSync(resolved)) return false;
+        }
+        return true;
+      });
+      test('all agent paths resolve inside the config dir', () => {
+        for (const agent of registry.agents || []) {
+          const resolved = resolveRegistryPath(registryDir, agent.path);
+          if (!resolved || !fs.existsSync(resolved)) return false;
+        }
+        return true;
+      });
+    }
+
+    if (tc.input.check === 'commands') {
+      const commandNames = (registry.commands || []).map(c => c.name);
+      for (const name of tc.expected.commands || []) {
+        test(`command ${name} is registered`, () => {
+          return commandNames.includes(name);
+        });
+      }
+    }
+
+    if (tc.input.check === 'flags') {
+      test('flags.use_relative_paths is a boolean', () => {
+        return typeof registry.flags?.use_relative_paths === 'boolean';
+      });
+    }
+  }
+}
+
+// ==========================================
 // Main
 // ==========================================
 
@@ -402,6 +560,10 @@ async function main() {
           runOrchestratorSuite(suite);
         } else if (suite.type === 'cli') {
           runCliSuite(suite);
+        } else if (suite.type === 'installer') {
+          runInstallerSuite(suite);
+        } else if (suite.type === 'registry') {
+          runRegistrySuite(suite);
         } else {
           runTestSuite(suite);
         }
@@ -409,6 +571,17 @@ async function main() {
         console.error(`\n❌ Error parsing ${file}: ${e.message}`);
         failed++;
       }
+    }
+  }
+
+  // Clean up installer temp homes unless asked to keep them
+  for (const tempHome of installerTempHomes) {
+    try {
+      if (!process.env.ODF_KEEP_TEMP_HOME) {
+        fs.rmSync(tempHome, { recursive: true, force: true });
+      }
+    } catch {
+      // best-effort cleanup
     }
   }
 

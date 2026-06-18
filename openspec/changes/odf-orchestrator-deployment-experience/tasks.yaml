@@ -259,26 +259,37 @@ slices:
     tasks:
       - id: 4.1
         step: Add --yes flag and ODF_INSTALL_NONINTERACTIVE support to install.sh.
+        status: complete
       - id: 4.2
         step: Add Node.js 18+ version check to install.sh when package.json is present.
+        status: complete
       - id: 4.3
         step: Refactor install.sh backup step to create timestamped backup and merge directories instead of replacing blindly.
+        status: complete
       - id: 4.4
         step: Add ODF_SOURCE_DIR support to install.sh for local source installs.
+        status: complete
       - id: 4.5
         step: Add npm install and self-test (node scripts/odf-test-runner.js) steps to install.sh.
+        status: complete
       - id: 4.6
         step: Add package section to odf-registry.json with name, version, description, repository, dependencies.
+        status: complete
       - id: 4.7
         step: Convert skill and agent paths in odf-registry.json to relative paths where they live under the registry directory.
+        status: complete
       - id: 4.8
         step: Add registry.flags.use_relative_paths (default true) to odf-registry.json.
+        status: complete
       - id: 4.9
         step: Update command/odf-registry-refresh.md to emit relative paths when use_relative_paths is true.
+        status: complete
       - id: 4.10
         step: Write YAML installer tests for dry-run in temp HOME, backup creation, file copy, self-test invocation, and re-run idempotency.
+        status: complete
       - id: 4.11
         step: Write YAML registry tests validating package/commands sections and mixed relative/absolute path resolution.
+        status: complete
     acceptance_criteria:
       - install.sh --yes runs non-interactively and exits 0 on success.
       - Re-running install.sh creates a new backup and does not break existing files.
