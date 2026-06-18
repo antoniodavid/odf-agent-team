@@ -41,25 +41,88 @@ completed_tasks:
   - id: 1.8
     step: Write plugins/odf-delegation.test.ts covering resolveAgent, matchSkills, resolvePath, formatCompactRules, task() invocation, fallback, and metrics shape.
     status: complete
-    evidence: 23 plugin unit tests pass.
+    evidence: 30 plugin unit tests pass (was 23; expanded with profile/timeout/metrics tests).
   - id: 1.9
     step: Extend scripts/odf-test-runner.js to discover and run plugins/odf-delegation.test.ts when --plugin-tests is passed.
     status: complete
     evidence: --plugin-tests spawns vitest; npm test runs plugin tests + YAML scenarios.
 
+fixes_applied:
+  - id: W01
+    title: SDD profile not injected into delegated prompt
+    status: resolved
+    files:
+      - plugins/odf-delegation.ts
+      - plugins/odf-delegation.test.ts
+    details: |
+      getProfileByPhase() now accepts an optional profile name override.
+      createODFDelegate() resolves the active/default profile (or override),
+      injects a profile block into the enriched prompt, and includes profile
+      metadata in success, error, and fallback envelopes.
+    verification:
+      - plugins/odf-delegation.test.ts > createODFDelegate > injects active SDD profile into the delegated prompt
+      - plugins/odf-delegation.test.ts > createODFDelegate > allows profile override via tool args
+      - plugins/odf-delegation.test.ts > getProfileByPhase (4 tests)
+
+  - id: W03
+    title: package.json fields differ from installer design
+    status: resolved
+    files:
+      - package.json
+    details: |
+      Aligned package.json with openspec/specs/odf-installer/design.yaml:
+      - version: 1.1.0 -> 1.0.0
+      - repository URL: adruban/odf-agent-team -> antoniodavid/odf-agent-team
+      - devDependencies: removed @opencode-ai/plugin and @opencode-ai/sdk
+        (kept as peerDependencies), kept @types/node, typescript, vitest.
+      Per task instruction, the yaml dependency and existing test scripts were kept.
+    verification:
+      - npm install succeeds
+      - npx tsc --noEmit passes
+      - npm test passes
+
+  - id: S01
+    title: Add metrics assertion tests
+    status: resolved
+    files:
+      - plugins/odf-delegation.ts
+      - plugins/odf-delegation.test.ts
+    details: |
+      Exported getMetricsBuffer() and clearMetricsBuffer() for test inspection.
+      Existing createODFDelegate tests now assert metrics buffer contents for
+      ok, fallback, and error paths.
+    verification:
+      - plugins/odf-delegation.test.ts > createODFDelegate > returns a delegated result envelope when task() is available
+      - plugins/odf-delegation.test.ts > createODFDelegate > returns a fallback instruction envelope when task() is unavailable
+      - plugins/odf-delegation.test.ts > createODFDelegate > returns an error envelope when task() throws
+
+  - id: S02
+    title: Add task() timeout handling
+    status: resolved
+    files:
+      - plugins/odf-delegation.ts
+      - plugins/odf-delegation.test.ts
+    details: |
+      Added optional timeout_ms argument to odf_delegate (default 120000ms).
+      invokeTask() races task() against the timeout and rejects with a timeout
+      error. The execute() path records status: timeout and returns a timeout
+      envelope when the deadline is exceeded.
+    verification:
+      - plugins/odf-delegation.test.ts > createODFDelegate > returns timeout status when task() exceeds timeout_ms
+
 files_changed:
   - path: package.json
-    action: created
-    description: Node manifest with yaml dependency, peer/dev deps, and npm test script
+    action: modified
+    description: Align version, repository URL, and devDependencies with installer design
   - path: tsconfig.json
     action: created
     description: TypeScript config for plugin and scripts
   - path: plugins/odf-delegation.ts
     action: modified
-    description: Real task() invocation, fallback, resolvePath, package/commands types, metrics update
+    description: Inject SDD profile, support task timeout, expose metrics buffer helpers
   - path: plugins/odf-delegation.test.ts
-    action: created
-    description: Unit tests for delegation logic
+    action: modified
+    description: Profile/timeout tests and metrics buffer assertions
   - path: scripts/odf-test-runner.js
     action: modified
     description: ESM conversion and --plugin-tests support
@@ -70,7 +133,7 @@ files_changed:
 test_results:
   - command: npm test
     status: passed
-    summary: 23 plugin unit tests passed; 36 YAML scenario tests passed
+    summary: 30 plugin unit tests passed; 36 YAML scenario tests passed
   - command: node scripts/odf-test-runner.js
     status: passed
     summary: 36 existing YAML scenario tests passed
@@ -83,6 +146,10 @@ deviations_from_design:
     reason: Prototype confirmed OpenCode 1.17.8 SDK does not expose task() on PluginInput.client or ToolContext. Implementation probes both at runtime and falls back.
   - description: Kept plugin as single file
     reason: Matches design decision to avoid build step complexity.
+  - description: package.json test script kept with --plugin-tests
+    reason: Task instruction explicitly said to keep test scripts; main test script runs plugin tests via --plugin-tests.
+  - description: vitest retained in devDependencies
+    reason: Required for npm test to run plugin unit tests; design only listed @types/node and typescript.
 
 remaining_tasks:
   - slice: 2
@@ -105,7 +172,8 @@ workload_pr_boundary:
   review_budget_note: |
     Slice 1 is ~650 changed/added lines (package.json, tsconfig.json, plugin refactor,
     plugin tests, runner update), exceeding the 400-line per-PR budget. This was
-    pre-resolved as a single Slice 1 PR boundary in session preflight.
+    pre-resolved as a single Slice 1 PR boundary in session preflight. The warning
+    fixes add ~225 lines and remain within the same pre-resolved Slice 1 boundary.
 
 next_recommended: sdd-apply Slice 2 (preflight gate + orchestrator agent)
 
@@ -116,6 +184,8 @@ risks:
     mitigation: Fallback path preserves old format; success path is a documented change.
   - description: Slice 1 exceeds 400-line review budget
     mitigation: Pre-resolved as a feature-branch-chain slice; commits split by work unit.
+  - description: Timeout Promise.race does not cancel the underlying task() call
+    mitigation: Documented limitation; timeout envelope still returned to caller.
 
 skill_resolution:
   primary: sdd-apply
