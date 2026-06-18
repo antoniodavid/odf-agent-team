@@ -14,7 +14,7 @@ ODF_DIR="${ODF_DIR:-${ODF_CONFIG_DIR:-${HOME}/.config/opencode}}"
 ODF_SOURCE_DIR="${ODF_SOURCE_DIR:-}"
 REPO="${REPO:-https://github.com/antoniodavid/odf-agent-team}"
 BRANCH="${BRANCH:-main}"
-VERSION="1.0.0"
+VERSION="1.1.0"
 
 BACKUP_DIR="${ODF_DIR}/backups/install-$(date +%Y%m%d_%H%M%S)"
 

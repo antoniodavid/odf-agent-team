@@ -21,7 +21,7 @@ tests:
     expected:
       exit_code: 0
       stdout_contains:
-        - 'ODF Agent Team v1.0.0 — installed'
+        - 'ODF Agent Team v1.1.0 — installed'
         - 'Skills:'
         - 'Agents:'
       files_exist:
@@ -40,7 +40,7 @@ tests:
     expected:
       exit_code: 0
       stdout_contains:
-        - 'ODF Agent Team v1.0.0 — installed'
+        - 'ODF Agent Team v1.1.0 — installed'
       files_exist:
         - .config/opencode/odf-registry.json
       backup_count: 1
