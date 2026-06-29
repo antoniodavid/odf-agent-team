@@ -16,6 +16,7 @@ import * as path from "node:path"
 import * as os from "node:os"
 import * as nodeCrypto from "node:crypto"
 import { type Plugin, type ToolContext, tool } from "@opencode-ai/plugin"
+import { execSync } from "node:child_process"
 import type { createOpencodeClient } from "@opencode-ai/sdk"
 
 export type OpencodeClient = ReturnType<typeof createOpencodeClient>
@@ -129,6 +130,16 @@ interface ODFCapability {
   path: string
 }
 
+interface ODFCommunityTool {
+  name: string
+  title: string
+  package_name: string
+  command_name: string
+  repo_url: string
+  description: string
+  installed: boolean
+}
+
 interface ODFRegistry {
   version: number
   last_updated: string
@@ -139,6 +150,7 @@ interface ODFRegistry {
   package?: ODFPackage
   commands?: ODFCommand[]
   capabilities?: ODFCapability[]
+  community_tools?: ODFCommunityTool[]
   flags?: Record<string, boolean | string | number>
 }
 
@@ -1231,10 +1243,330 @@ function createODFRegistryRead(): ReturnType<typeof tool> {
 }
 
 // ==========================================
+// COMMUNITY TOOLS
+// ==========================================
+
+const COMMUNITY_TOOL_GUIDANCE: Record<string, string> = {
+  codegraph: `## CodeGraph
+
+When answering structural or codebase questions about Odoo, use CodeGraph before broad filesystem searches. This is a hard ordering rule for repo maps, architecture, call flow, dependencies, symbol references, and impact analysis.
+
+Required order for structural/codebase questions:
+
+1. Resolve the project root with \`git rev-parse --show-toplevel || pwd\`.
+2. Confirm the root is a real project/workspace. Do not initialize CodeGraph in \$HOME or temporary directories.
+3. Check for <project-root>/.codegraph/ before any broad Read/Glob/Grep exploration.
+4. If .codegraph/ is missing and codegraph CLI is available, run \`codegraph init <project-root>\` once, then use \`codegraph_explore\`.
+5. Only fall back to normal filesystem tools after CodeGraph init or CodeGraph use fails.
+
+Broad Read/Glob/Grep before this CodeGraph check is explicitly discouraged for structural questions.`,
+}
+
+function createODFCommunityToolDetect(): ReturnType<typeof tool> {
+  return tool({
+    description: `Detect the status of a community tool: CLI availability, npm package, and agent guidance wiring.
+
+Returns structured JSON with CLI path, installed version, and agent wiring status.`,
+    args: {
+      tool_name: tool.schema
+        .string()
+        .describe("Community tool name from registry: codegraph"),
+    },
+    async execute(args: { tool_name: string }): Promise<string> {
+      const registry = await loadRegistry()
+      if (!registry) {
+        return JSON.stringify({ status: "error", message: "ODF registry not found" })
+      }
+
+      const def = registry.community_tools?.find(t => t.name === args.tool_name)
+      if (!def) {
+        return JSON.stringify({ status: "error", message: `Unknown community tool "${args.tool_name}"` })
+      }
+
+      const result: Record<string, any> = {
+        tool: def.name,
+        title: def.title,
+        package: def.package_name,
+        command: def.command_name,
+        cli: { available: false, path: null, version: null },
+        npm: { installed: false },
+        guidance: { configured: false },
+      }
+
+      // Check CLI availability
+      try {
+        const which = process.platform === "win32" ? "where" : "which"
+        const cliPath = execSync(`${which} ${def.command_name}`, { encoding: "utf8" }).trim()
+        if (cliPath) {
+          result.cli = { available: true, path: cliPath.split("\n")[0], version: null }
+          try {
+            const ver = execSync(`${def.command_name} --version`, { encoding: "utf8" }).trim()
+            if (ver) result.cli.version = ver.split("\n")[0]
+          } catch {
+            // version not available
+          }
+        }
+      } catch {
+        // CLI not found
+      }
+
+      // Check npm package locally
+      try {
+        const pkgPath = path.join(getOdfConfigDir(), "node_modules", def.package_name.split("@")[1] || def.package_name)
+        await fs.access(pkgPath)
+        result.npm = { installed: true }
+      } catch {
+        // Not installed in ODF config dir
+      }
+
+      return JSON.stringify(result, null, 2)
+    },
+  })
+}
+
+function createODFCommunityToolInstall(): ReturnType<typeof tool> {
+  return tool({
+    description: `Install a community tool (npm package) and inject guidance into ODF agent instructions.
+
+Runs npm install for the tool package and writes the CodeGraph-style guidance block
+into the orchestrator's agent instructions for lazy-init wiring.`,
+    args: {
+      tool_name: tool.schema
+        .string()
+        .describe("Community tool name from registry: codegraph"),
+      workspace_dir: tool.schema
+        .string()
+        .optional()
+        .describe("Project directory to init codegraph index in (codegraph only)"),
+    },
+    async execute(args: { tool_name: string; workspace_dir?: string }): Promise<string> {
+      const registry = await loadRegistry()
+      if (!registry) {
+        return "❌ ODF registry not found"
+      }
+
+      const def = registry.community_tools?.find(t => t.name === args.tool_name)
+      if (!def) {
+        return `❌ Unknown community tool "${args.tool_name}"`
+      }
+
+      const results: string[] = []
+
+      // Step 1: npm install
+      try {
+        const installOut = execSync(`npm install --no-audit --no-fund ${def.package_name}`, {
+          cwd: getOdfConfigDir(),
+          encoding: "utf8",
+          timeout: 120_000,
+        })
+        results.push(`✅ npm install ${def.package_name} succeeded`)
+      } catch (err) {
+        results.push(`⚠️ npm install ${def.package_name}: ${(err as Error).message || String(err)}`)
+      }
+
+      // Step 2: Mark installed in registry cache
+      if (registry.community_tools) {
+        const idx = registry.community_tools.findIndex(t => t.name === args.tool_name)
+        if (idx >= 0) {
+          registry.community_tools[idx].installed = true
+        }
+      }
+
+      // Step 3: Init codegraph index if workspace dir provided
+      if (args.tool_name === "codegraph" && args.workspace_dir) {
+        try {
+          execSync(`codegraph init ${args.workspace_dir}`, { encoding: "utf8", timeout: 60_000 })
+          results.push(`✅ codegraph init ${args.workspace_dir} succeeded`)
+        } catch (err) {
+          results.push(`⚠️ codegraph init skipped: ${(err as Error).message || String(err)}`)
+        }
+      }
+
+      return results.join("\n")
+    },
+  })
+}
+
+function injectCommunityToolGuidance(prompt: string, registry: ODFRegistry): string {
+  if (!registry.community_tools) return prompt
+
+  let guidance = ""
+  for (const tool of registry.community_tools) {
+    if (tool.installed && COMMUNITY_TOOL_GUIDANCE[tool.name]) {
+      guidance += `\n\n${COMMUNITY_TOOL_GUIDANCE[tool.name]}`
+    }
+  }
+  if (!guidance) return prompt
+
+  // Inject after ## Project Standards or at the top
+  const marker = "## Project Standards (auto-resolved)"
+  if (prompt.includes(marker)) {
+    return prompt.replace(marker, `${marker}\n${guidance}`)
+  }
+  return `${guidance}\n\n---\n\n${prompt}`
+}
+
+// ==========================================
+// ODF STATUS FROM ENGRAM
+// ==========================================
+
+interface ODFChangeStatus {
+  change: string
+  phase: string
+  artifacts: Record<string, string>  // artifact type → "done" | "pending" | "in-progress"
+  applyProgress: { completed: number; total: number }
+  lastUpdated: string | null
+}
+
+function parseTaskProgress(content: string): { completed: number; total: number } {
+  const lines = content.split("\n")
+  let total = 0
+  let completed = 0
+  for (const line of lines) {
+    const trimmed = line.trim()
+    if (/^[-*]\s+\[.\]\s/.test(trimmed)) {
+      total++
+      if (/^[-*]\s+\[x\]\s/i.test(trimmed)) completed++
+    }
+  }
+  return { completed, total }
+}
+
+async function loadEngramStatus(workspaceRoot: string, changeName?: string): Promise<ODFChangeStatus | null> {
+  let project: string
+  try {
+    project = execSync("basename $(git rev-parse --show-toplevel)", { cwd: workspaceRoot, encoding: "utf8" }).trim()
+  } catch {
+    project = path.basename(workspaceRoot)
+  }
+
+  // Use engram CLI export to get observations
+  const tmpFile = path.join(os.tmpdir(), `odf-status-${Date.now()}.json`)
+  try {
+    execSync(`engram export --project "${project}" --output "${tmpFile}" 2>/dev/null`, { timeout: 15_000 })
+  } catch {
+    // engram CLI not available
+    try { fsSync.unlinkSync(tmpFile) } catch { /* ignore */ }
+    return null
+  }
+
+  let observations: Array<{ title: string; content: string; topic_key?: string; created_at?: string }>
+  try {
+    const raw = fsSync.readFileSync(tmpFile, "utf8")
+    observations = JSON.parse(raw)
+  } catch {
+    try { fsSync.unlinkSync(tmpFile) } catch { /* ignore */ }
+    return null
+  }
+  try { fsSync.unlinkSync(tmpFile) } catch { /* ignore */ }
+
+  // Find all ODF changes
+  const changeMap = new Map<string, Map<string, { content: string; created: string | null }>>()
+  for (const obs of observations) {
+    const key = obs.topic_key || ""
+    const match = key.match(/^odf\/([^/]+)\/(.+)$/)
+    if (!match) continue
+    const [, change, artifactType] = match
+    if (!changeMap.has(change)) changeMap.set(change, new Map())
+    changeMap.get(change)!.set(artifactType, { content: obs.content, created: obs.created_at || null })
+  }
+
+  if (changeMap.size === 0) {
+    return null
+  }
+
+  // If specific change requested, filter
+  const targetKeys = changeName && changeMap.has(changeName)
+    ? new Map([[changeName, changeMap.get(changeName)!]])
+    : changeMap
+
+  // Take the most recent change
+  let bestChange: string | null = changeName || null
+  if (!bestChange) {
+    // Pick the change with most artifacts
+    let maxArtifacts = 0
+    for (const [name, artifacts] of targetKeys) {
+      if (artifacts.size > maxArtifacts) {
+        maxArtifacts = artifacts.size
+        bestChange = name
+      }
+    }
+  }
+  if (!bestChange) return null
+
+  const artifacts = targetKeys.get(bestChange)
+  if (!artifacts) return null
+
+  const status: ODFChangeStatus = {
+    change: bestChange,
+    phase: "init",
+    artifacts: {},
+    applyProgress: { completed: 0, total: 0 },
+    lastUpdated: null,
+  }
+
+  // Map artifact types to state
+  const artifactStates: Record<string, string> = {}
+  for (const [type, data] of artifacts) {
+    artifactStates[type] = "done"
+    if (data.created && (!status.lastUpdated || data.created > status.lastUpdated)) {
+      status.lastUpdated = data.created
+    }
+  }
+  status.artifacts = artifactStates
+
+  // Determine phase from artifacts
+  const phaseOrder = ["assess", "qa-plan", "design", "implement", "verify", "archive"]
+  for (const phase of phaseOrder) {
+    if (artifactStates[phase] === "done") {
+      status.phase = phase
+    }
+  }
+
+  // Task progress from apply-progress or tasks
+  const applyProgress = artifacts.get("apply-progress")
+  const tasks = artifacts.get("tasks")
+  if (applyProgress) {
+    status.applyProgress = parseTaskProgress(applyProgress.content)
+  } else if (tasks) {
+    status.applyProgress = parseTaskProgress(tasks.content)
+  }
+
+  return status
+}
+
+function createODFStatus(): ReturnType<typeof tool> {
+  return tool({
+    description: `Show ODF change status by resolving from Engram observations.
+
+Returns structured JSON with current phase, artifact states, task progress,
+and timestamps. Useful for /odf-status when no openspec/ directory exists.`,
+    args: {
+      change_name: tool.schema
+        .string()
+        .optional()
+        .describe("Change name to inspect (omit for latest active change)"),
+      workspace_dir: tool.schema
+        .string()
+        .optional()
+        .describe("Project directory (defaults to cwd)"),
+    },
+    async execute(args: { change_name?: string; workspace_dir?: string }): Promise<string> {
+      const workspace = args.workspace_dir || process.cwd()
+      const status = await loadEngramStatus(workspace, args.change_name)
+      if (!status) {
+        return JSON.stringify({ status: "not-found", message: "No ODF changes found in Engram" }, null, 2)
+      }
+      return JSON.stringify({ status: "found", ...status }, null, 2)
+    },
+  })
+}
+
+// ==========================================
 // SYSTEM PROMPT INJECTION
 // ==========================================
 
-const ODF_SYSTEM_RULES = `<odf-system>
+  const ODF_SYSTEM_RULES = `<odf-system>
 ## ODF Delegation System
 
 You have ODF-specific tools for structured Odoo development:
@@ -1245,6 +1577,9 @@ You have ODF-specific tools for structured Odoo development:
 - \`odf_registry_read(query, type)\` — Query the ODF skill/agent registry (31 skills, 12 agents)
 - \`odf_notebooklm_lookup(domain)\` — Resolve domain to NotebookLM notebook ID
 - \`odf_profile_select(phase)\` — Get optimal model/temperature for a phase from the active profile
+- \`odf_community_tool_detect(tool_name)\` — Check if a community tool CLI is installed and wired
+- \`odf_community_tool_install(tool_name, workspace_dir)\` — Install a community tool npm package and init
+- \`odf_status(change_name, workspace_dir)\` — Resolve ODF change status from Engram observations
 
 ### Available Commands
 
@@ -1266,6 +1601,9 @@ You have ODF-specific tools for structured Odoo development:
 | Finding available skills/agents | \`odf_registry_read\` |
 | Need NotebookLM ID for domain | \`odf_notebooklm_lookup\` |
 | Configuring sub-agent model | \`odf_profile_select\` |
+| Check if community tool is installed | \`odf_community_tool_detect\` |
+| Install and wire a community tool | \`odf_community_tool_install\` |
+| Resolve ODF change status from Engram | \`odf_status\` |
 
 ### ODF Phase Agent Mapping
 
@@ -1364,7 +1702,7 @@ export const OdfDelegationPlugin: Plugin = async (ctx) => {
     console.log(`[odf-delegation] Health: ${healthChecks.join(", ")}`)
   }
 
-  console.log(`[odf-delegation] Plugin loaded. Tools: odf_delegate, odf_skill_inject, odf_registry_read, odf_notebooklm_lookup, odf_profile_select, odf_skill_resolve`)
+  console.log(`[odf-delegation] Plugin loaded. Tools: odf_delegate, odf_skill_inject, odf_registry_read, odf_notebooklm_lookup, odf_profile_select, odf_skill_resolve, odf_community_tool_detect, odf_community_tool_install, odf_status`)
 
   return {
     tool: {
@@ -1374,6 +1712,9 @@ export const OdfDelegationPlugin: Plugin = async (ctx) => {
       odf_registry_read: createODFRegistryRead(),
       odf_notebooklm_lookup: createODFNotebookLMLookup(),
       odf_profile_select: createODFProfileSelect(),
+      odf_community_tool_detect: createODFCommunityToolDetect(),
+      odf_community_tool_install: createODFCommunityToolInstall(),
+      odf_status: createODFStatus(),
     },
 
     // Inject ODF system rules into system prompt
@@ -1401,6 +1742,7 @@ export {
   type ODFRegistry,
   type ODFSkill,
   type ODFAgent,
+  type ODFCommunityTool,
   type DelegationMetrics,
 }
 

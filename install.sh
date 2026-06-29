@@ -36,18 +36,43 @@ detect_local_source() {
 INSTALL_YES=false
 INSTALL_DRY_RUN=false
 INSTALL_FORCE=false
+INSTALL_UPDATE=false
+INSTALL_TUI=false
+
+INSTALL_CODEGRAPH=false
 
 for arg in "$@"; do
   case "$arg" in
     --yes) INSTALL_YES=true ;;
     --dry-run) INSTALL_DRY_RUN=true ;;
     --force) INSTALL_FORCE=true ;;
+    --update) INSTALL_UPDATE=true ;;
+    --tui|--interactive) INSTALL_TUI=true ;;
+    --with-codegraph) INSTALL_CODEGRAPH=true ;;
     -h|--help)
-      echo "Usage: $0 [--yes] [--dry-run] [--force]"
-      echo "  --yes          Auto-accept confirmation prompt"
-      echo "  --dry-run      Show what would be installed without modifying anything"
-      echo "  --force        Skip confirmation and overwrite without prompting"
-      echo "Environment: ODF_DIR, ODF_CONFIG_DIR, ODF_SOURCE_DIR, ODF_INSTALL_NONINTERACTIVE, REPO, BRANCH"
+      echo "Usage: $0 [--yes] [--dry-run] [--force] [--update] [--tui] [--with-codegraph]"
+      echo ""
+      echo "Modes:"
+      echo "  (no flags)        Interactive install with prompts"
+      echo "  --yes             Non-interactive install (auto-confirm)"
+      echo "  --dry-run         Show what would be done without modifying anything"
+      echo "  --force           Skip confirmation, overwrite without prompting"
+      echo "  --update          Update existing installation (pull latest + backup + reinstall)"
+      echo "  --tui, --interactive  Launch Node.js TUI installer (rich interactive UI)"
+      echo ""
+      echo "Options:"
+      echo "  --with-codegraph   Install CodeGraph (npm package) after ODF files"
+      echo ""
+      echo "Performance tip: set OPENCODE_EXPERIMENTAL_BACKGROUND_SUBAGENTS=true in your"
+      echo "  OpenCode process environment to enable parallel sub-agent exploration."
+      echo ""
+      echo "Environment:"
+      echo "  ODF_DIR, ODF_CONFIG_DIR     Config directory (default: ~/.config/opencode)"
+      echo "  ODF_SOURCE_DIR              Local repo source for offline install"
+      echo "  ODF_SKIP_NPM=1              Skip npm install"
+      echo "  ODF_SKIP_SELFTEST=1         Skip self-test after install"
+      echo "  ODF_INSTALL_NONINTERACTIVE=1 Auto-confirm (same as --yes)"
+      echo "  REPO, BRANCH                Git repo to pull from (default: odf-agent-team main)"
       exit 0
       ;;
     *)
@@ -307,6 +332,20 @@ print_summary() {
 # Main flow
 # ---------------------------------------------------------------------------
 main() {
+  # TUI mode: launch Node.js TUI installer and exit
+  if [[ "$INSTALL_TUI" == true ]]; then
+    local tui_script="$(dirname "$0")/scripts/odf-install-tui.mjs"
+    if [[ ! -f "$tui_script" ]]; then
+      # Fall back to repo-relative or config dir
+      tui_script="${ODF_DIR}/scripts/odf-install-tui.mjs"
+    fi
+    if [[ -f "$tui_script" ]]; then
+      exec node "$tui_script" "$@"
+    else
+      log_warn "⚠️ TUI script not found at scripts/odf-install-tui.mjs. Falling back to standard installer."
+    fi
+  fi
+
   echo -e "${CYAN}"
   echo "╔═══════════════════════════════════════════════════╗"
   echo "║         ODF Agent Team Installer v${VERSION}          ║"
@@ -329,12 +368,16 @@ main() {
   fi
 
   echo ""
+  # In update mode, always show what's happening
+  if [[ "$INSTALL_UPDATE" == true ]]; then
+    log_info "🔄 Update mode — will back up current install and update from source"
+  fi
   log_info "Target directory: ${ODF_DIR}"
   log_info "Existing install: ${existing_status}"
   log_info "Source:           ${source_display}"
 
-  # Confirmation
-  if [[ "$INSTALL_DRY_RUN" == false && "$INSTALL_YES" == false && "$INSTALL_FORCE" == false ]]; then
+  # Confirmation (skip in update mode — backup protects you)
+  if [[ "$INSTALL_UPDATE" == false && "$INSTALL_DRY_RUN" == false && "$INSTALL_YES" == false && "$INSTALL_FORCE" == false ]]; then
     echo ""
     read -p "Continue with installation? [Y/n] " -n 1 -r
     echo ""
@@ -386,6 +429,21 @@ main() {
 
   # npm install
   run_npm_install
+
+  # Community tools: CodeGraph
+  if [[ "$INSTALL_CODEGRAPH" == true ]]; then
+    if [[ "$INSTALL_DRY_RUN" == true ]]; then
+      log_warn "🔧 [dry-run] Would install CodeGraph: npm install -g @colbymchenry/codegraph@latest"
+    else
+      log_warn "🔧 Installing CodeGraph community tool..."
+      if command -v npm &> /dev/null; then
+        npm install -g @colbymchenry/codegraph@latest 2>/dev/null || log_warn "⚠️ CodeGraph npm install failed (non-fatal)"
+        log_ok "✅ CodeGraph installed"
+      else
+        log_warn "⚠️ npm not found; skipping CodeGraph install"
+      fi
+    fi
+  fi
 
   # Verify registry present (skip in dry-run because no files were written)
   if [[ "$INSTALL_DRY_RUN" == false && ! -f "$ODF_DIR/odf-registry.json" ]]; then

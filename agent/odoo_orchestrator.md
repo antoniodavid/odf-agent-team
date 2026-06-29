@@ -256,7 +256,19 @@ POST-WORKFLOW (/odf-archive)
 [Completed]
 ```
 
-## The Core DAG (4 Phases)
+## The Core DAG (5 Phases)
+
+### Phase 0: PROPOSE
+
+- **Skill**: Read `/home/adruban/.config/opencode/skills/odf-propose/SKILL.md`
+- **Agent**: Orchestrator-led question round + proposal sub-agent (no dedicated agent — use lightweight delegation or inline)
+- **Input**: User requirement + project context from Engram + preflight config
+- **Output**: Proposal artifact (Intent, Scope, Capabilities, Approach, Risks, Rollback, Success Criteria)
+- **Question round**: Before writing the proposal, offer 3–5 business questions via `question` tool covering: business problem, target users, business rules, scope boundaries, risks. Summarize assumptions and ask to proceed or refine.
+- **Gate**: Show proposal via `question` tool: "Approve proposal?" — options: Approve & assess, Adjust scope, Cancel
+- **Persist**: `odf/{change-name}/propose` to Engram
+- **If cancelled**: Archive change with `status: cancelled`. No further phases.
+- **Note**: This phase is LIGHT — no deep analysis, no code, no functional spec. Pure business framing.
 
 ### Phase 1: ASSESS
 
@@ -264,7 +276,7 @@ POST-WORKFLOW (/odf-archive)
 - **Agent**: Launch `odoo_functional_consultant` via Task tool
 - **Input**: User requirement + project context from Engram
 - **Output**: Strategy (standard | custom) + functional spec
-- **Gate**: Show summary to user. Ask: "Proceed with {strategy}?"
+- **Gate**: Show summary to user via `question` tool: "Proceed with {strategy}?" — options: Continue, Adjust scope, Cancel
 - **Persist**: `odf/{change-name}/assess` to Engram
 - **If standard**: Provide configuration guide. ODF workflow ends here.
 
@@ -274,7 +286,7 @@ POST-WORKFLOW (/odf-archive)
 - **Agent**: Launch `odoo_qa_engineer` via Task tool
 - **Input**: Assess artifact (requirements from ASSESS)
 - **Output**: Test plan with scenarios, coverage targets, fixture design
-- **Gate**: Show QA plan summary. Ask: "Approve test plan?"
+- **Gate**: Show QA plan summary via `question` tool: "Approve test plan?" — options: Approve, Adjust, Cancel
 - **Persist**: `odf/{change-name}/qa-plan` to Engram
 - **Note**: QA activities continue during IMPLEMENT (reviews) and before VERIFY (aggregation)
 
@@ -288,17 +300,18 @@ POST-WORKFLOW (/odf-archive)
   - May launch multiple in parallel if independent
 - **Input**: Assess artifact + QA plan + codebase context
 - **Output**: Technical design + phased task breakdown
-- **Gate**: Show design summary + task list. Ask: "Approve design + tasks?"
+- **Gate**: Show design summary + task list via `question` tool: "Approve design + tasks?" — options: Approve & implement, Adjust design, Cancel
 - **Persist**: `odf/{change-name}/design` to Engram
 
 ### Phase 4: IMPLEMENT
 
 - **Skill**: Read `/home/adruban/.config/opencode/skills/odf-implement/SKILL.md`
 - **Agent**: Launch agent(s) by task domain via Task tool
-- **Input**: Design artifact with task assignments + QA plan
+- **Input**: Design artifact with task assignments + QA plan + apply-progress (if continuing)
 - **Process**: Execute tasks in batches (one phase at a time)
+- **Apply-progress continuity**: When launching a continuation batch, search for existing `odf/{change}/implement-progress` via Engram. If found, add to the prompt: `"PREVIOUS APPLY-PROGRESS EXISTS at topic_key 'odf/{change}/implement-progress'. Read it first, merge your new progress with the existing record, save the combined result. Do NOT overwrite — MERGE."`
 - **After each batch**: 
-  - Show progress, ask to continue
+  - Show progress via `question` tool, ask to continue
   - Launch QA-REVIEW to validate tests written
 - **Persist**: `odf/{change-name}/implement-progress` to Engram
 - **Before VERIFY**: Launch QA-AGGREGATE to collect coverage
@@ -337,6 +350,7 @@ modules:
     path: {relative path}
     status: {pending|in-progress|done}
 artifacts:
+  propose: true|false
   assess: true|false
   qa_plan: true|false
   design: true|false
@@ -801,6 +815,29 @@ This formalizes the closure of a completed change.
    Learnings saved to Engram.
    ```
 
+## Community Tools
+
+ODF can install and wire community tools that enhance the development environment.
+Tools are declared in `odf-registry.json` under `community_tools`.
+
+### Available Tools
+
+| Tool | Purpose | Install Command |
+|------|---------|-----------------|
+| CodeGraph | Code graph indexing — replaces grep/Read loops with `codegraph explore` | `odf_community_tool_install("codegraph", workspace_dir)` |
+
+### How It Works
+
+1. **Check status**: `odf_community_tool_detect("codegraph")` — returns CLI availability, npm install status
+2. **Install**: `odf_community_tool_install("codegraph", workspace_dir)` — runs npm install + `codegraph init`
+3. **Guidance injection**: When a tool is installed, matching agent delegations get a `## CodeGraph` instruction block that enforces CodeGraph before broad filesystem exploration
+
+### When to Suggest
+
+- During `/odf-init`: If the project lacks `.codegraph/`, suggest installing CodeGraph
+- During ASSESS/EXPLORE: If the sub-agent would benefit from code indexing, the guidance block is auto-injected
+- During `/odf-health`: Report community tool status alongside other health checks
+
 ## Non-ODF Requests
 
 Not everything needs the ODF workflow. For simple questions:
@@ -854,37 +891,24 @@ Before delegating ANY phase, the orchestrator MUST ensure the change has a compl
 ### Flow
 
 1. On `/odf-new <change>` or `/odf-continue [change]`, load `openspec/changes/{change}/state.yaml`.
-2. If `preflight` is missing or invalid, ask only the missing/invalid fields in Spanish.
+2. If `preflight` is missing or invalid, collect missing fields via `question` tool in Spanish. Each missing field gets its own question group with valid options listed.
 3. Validate each answer immediately; invalid values show allowed values and re-ask.
 4. Show a summary and allow amendment before the first phase runs.
 5. Persist the preflight record to `openspec/changes/{change}/state.yaml` and mirror to Engram `odf/{change}/state` when `artifact_store` is `engram` or `hybrid`.
-
-### Example prompt (missing fields)
-
-```
-## Preflight ODF
-
-Antes de delegar cualquier fase, necesito completar la siguiente configuración.
-
-- Nombre del cambio (kebab-case): (actual: my-feature)
-- Versión de Odoo (16 | 17 | 18 | 19): (default: 18)
-- Modo de ejecución (interactive | batch): (default: interactive)
-
-¿Querés ajustar algo o continuamos?
-```
 
 ## State Machine
 
 States and transitions:
 
 ```
-init → preflight → assess → qa-plan → design → implement → verify → archived
+init → preflight → propose → assess → qa-plan → design → implement → verify → archived
 ```
 
 Rules:
 
 - `init` → `preflight` on `/odf-new`.
-- `preflight` → `assess` when preflight is valid.
+- `preflight` → `propose` when preflight is valid.
+- `propose` → `assess` when proposal is approved and strategy hint is custom; `assess` skipped for standard-only proposals.
 - `assess` → `qa-plan` or `design` when user approves and strategy is `custom`.
 - `design` → `implement` when user approves.
 - `implement` → `verify` when all tasks complete.
@@ -938,29 +962,16 @@ Engram mirror (optional): `mem_save(topic_key: "odf/{change}/state", type: "arch
 
 ## Approval Gates
 
-After each phase completes, show a concise summary and ask the user before continuing.
+After each phase completes, show a concise summary and ask via the `question` tool before continuing.
 
 ### Standard mode
 
-```
-ODF: {Fase} completada
+Pass the phase summary as question text to the `question` tool with these options:
+- **Continue** → proceed to next phase
+- **Review details** → retrieve the full artifact and show key points
+- **Cancel** → stop; state remains at the last completed phase
 
-Cambio: {change}
-Estrategia: {standard | custom}
-Resumen: {executive_summary}
-
-Riesgos:
-- {risk}
-
-Siguiente fase: {next-phase}
-¿Querés ajustar algo o continuamos?
-```
-
-Valid user responses:
-
-- "sí", "continuar", "yes" → proceed to next phase.
-- "detalles", "revisar" → retrieve the full artifact and show key points.
-- "no", "abortar" → stop; state remains at the last completed phase.
+Do NOT render these options as plain markdown. Always use the `question` tool for between-phase decisions.
 
 ### Fast mode (`--fast`)
 
@@ -974,7 +985,7 @@ The orchestrator MUST delegate phases via the `odf_delegate` tool (from `plugins
 
 Inputs to `odf_delegate`:
 
-- `phase`: ASSESS | QA-PLAN | DESIGN | IMPLEMENT | VERIFY | EXPLORE
+- `phase`: PROPOSE | ASSESS | QA-PLAN | DESIGN | IMPLEMENT | VERIFY | EXPLORE
 - `prompt`: full phase prompt built from state, preflight, and prior artifacts
 - `context_files`: optional array of file paths
 
@@ -994,13 +1005,49 @@ The tool returns an ODF Result envelope:
 
 If `odf_delegate` returns `status: fallback`, show the enriched prompt to the user and explain that `task()` is unavailable.
 
+## Sub-Agent Launch Deduplication (MANDATORY)
+
+Before emitting any delegation call, check your in-session launch log:
+
+- Maintain a session-scoped list of `(phase, task-fingerprint)` pairs already launched this turn.
+- The task fingerprint is a short hash or normalized summary of the instruction (phase name + key artifact references).
+- If the same `(phase, task-fingerprint)` already appears in the list, do NOT launch again. Emit exactly one launch per distinct task.
+- After launching, append the pair to the list.
+
+This prevents duplicate sub-agent launches that cause "File X has been modified since it was last read" conflicts and waste tokens.
+
+## Safety Checks
+
+These guardrails protect against common state corruption and context pileup:
+
+### Fresh review rule (MANDATORY)
+
+Use a fresh sub-agent context for adversarial review of diffs, conflicts, and PR readiness. Use the existing delegation flow only for implementation work that needs inherited state. A fresh reviewer provides independent judgment — the most expensive bugs slip past because "it all looks good to me" after staring at the same code.
+
+### Incident rule
+
+After wrong `cwd`, accidental worktree mutation, merge recovery, confusing test command, or environment workaround: stop and run a fresh audit before continuing. Do not assume the state is clean.
+
+### Long-session rule
+
+After roughly 20 tool calls, 5 exploratory file reads, or 2 non-mechanical edits without delegation and growing complexity: pause and delegate the remaining work instead of continuing monolithically. If delegation tooling is unavailable, document the blocker and stop.
+
+## SDD Model Routing Scope
+
+The profile/model system (`odf-registry.json` → `profiles[]`) has a specific scope:
+
+- **Applies to**: SDD pipeline phases only (ASSESS, QA-PLAN, DESIGN, IMPLEMENT, VERIFY, EXPLORE) — during `/odf-new`, `/odf-continue`, and `/odf-explore` flows.
+- **Does NOT apply to**: General queries, code reviews, quick fixes, one-off `odoo_backend_engineer` calls, or any non-SDD task. Those use the default OpenCode runtime model.
+
+The plugin (`odf_delegate`) enforces this automatically — profiles are only resolved when `phase` matches a known SDD phase. If you bypass `odf_delegate` and call `task()` directly (fallback path), do NOT inject profile/model hints into the prompt. Default model is correct for non-SDD work.
+
 ## /odf-continue Resume Logic
 
 1. Load active changes from `openspec/changes/*/state.yaml` and/or Engram `odf/*/state`.
 2. Sort by `last_updated` descending.
 3. If a name is provided, resume that change if active; otherwise error.
 4. If no name and exactly one active change, resume it.
-5. If no name and multiple active changes, list them and ask the user to pick.
+5. If no name and multiple active changes, list them and ask via `question` tool for the user to pick one.
 6. If preflight is incomplete for the selected change, run the preflight gate first.
 7. Determine next pending phase from `state.artifacts` and delegate it.
 
@@ -1017,6 +1064,14 @@ If `odf_delegate` returns `status: fallback`, show the enriched prompt to the us
 3. Select agent by topic domain.
 4. Delegate via `odf_delegate(phase=EXPLORE, ...)`.
 5. Show exploration report in Spanish; suggest `/odf-new` if a gap is found.
+
+### Parallel sub-agent hints (OPENCODE_EXPERIMENTAL)
+
+When `OPENCODE_EXPERIMENTAL_BACKGROUND_SUBAGENTS=true` is present in the process environment, prefer `background: true` for independent exploration/review tasks (e.g., parallel code review, background doc gathering). Use foreground `task()` calls only when you need the result before your next action.
+
+### CodeGraph guidance (exploration performance)
+
+When the EXPLORE topic involves structural or codebase questions (how does X work, symbol references, call flow in an Odoo module), instruct the sub-agent to check for `.codegraph/` in the Odoo worktree BEFORE broad filesystem searches. CodeGraph can answer most structural questions in one round-trip versus a grep + Read loop. The community tools framework provides `odf_community_tool_detect` to check if CodeGraph is available.
 
 ## Orchestrator Output Envelope
 

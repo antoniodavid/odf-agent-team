@@ -989,6 +989,33 @@
       "last_updated": "2026-05-14"
     },
     {
+      "name": "odf-propose",
+      "title": "ODF Business Proposal",
+      "category": "odf",
+      "triggers": [
+        "propose",
+        "proposal",
+        "business case",
+        "scope",
+        "question round"
+      ],
+      "compact_rules": "Phase 0: Business proposal before ASSESS.\n- Question round: 3-5 business questions via question tool\n- Proposal: Intent, Scope, Capabilities, Approach, Affected Areas, Risks, Rollback, Success Criteria\n- NO code, NO functional spec — only the proposal\n- Size budget: under 300 words\n- Capabilities section is contract with ASSESS phase",
+      "path": "skills/odf-propose/SKILL.md",
+      "odoo_versions": [
+        16, 17, 18, 19
+      ],
+      "sdd_phase": "PROPOSE",
+      "version": "1.0",
+      "changelog": [
+        {
+          "version": "1.0",
+          "date": "2026-06-29",
+          "change": "Initial propose phase: question round + lightweight proposal before ASSESS"
+        }
+      ],
+      "last_updated": "2026-06-29"
+    },
+    {
       "name": "odf-tdd",
       "title": "ODF Strict TDD",
       "category": "odf",
@@ -1065,6 +1092,11 @@
       "name": "default",
       "active": true,
       "phases": {
+        "PROPOSE": {
+          "model": "opencode-go/kimi-k2.6",
+          "temperature": 0.2,
+          "reasoning": false
+        },
         "ASSESS": {
           "model": "opencode-go/deepseek-r1",
           "temperature": 0.3,
@@ -1096,6 +1128,11 @@
       "name": "cheap",
       "active": false,
       "phases": {
+        "PROPOSE": {
+          "model": "opencode-go/kimi-k2.6",
+          "temperature": 0.2,
+          "reasoning": false
+        },
         "ASSESS": {
           "model": "opencode-go/kimi-k2.6",
           "temperature": 0.3,
@@ -1272,6 +1309,17 @@
       "model": null,
       "path": "agent/odoo_stock_lot_specialist.md",
       "installed": true
+    }
+  ],
+  "community_tools": [
+    {
+      "name": "codegraph",
+      "title": "CodeGraph",
+      "package_name": "@colbymchenry/codegraph@latest",
+      "command_name": "codegraph",
+      "repo_url": "https://github.com/colbymchenry/codegraph",
+      "description": "Code graph indexing and MCP wiring for supported coding agents",
+      "installed": false
     }
   ],
   "capabilities": [

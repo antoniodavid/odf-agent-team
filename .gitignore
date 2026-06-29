@@ -27,3 +27,6 @@ Thumbs.db
 
 # Engram
 .engram/
+
+# CodeGraph (regenerable index)
+.codegraph/
