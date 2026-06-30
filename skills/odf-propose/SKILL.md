@@ -36,7 +36,7 @@ NEVER write code, functional specs, or config guides in this phase. Only the pro
 
 ### Step 0: Question Round (Interactive Mode Only)
 
-Before writing the proposal, offer the user 3–5 business questions via the `question` tool. Explain that these clarify scope and risks before investing in a full assessment. Cover the smallest useful subset of:
+Before writing the proposal, offer the user 3–5 business questions via the `question` tool (or plain text if the tool is unavailable — list the questions and ask the user to answer one by one). Explain that these clarify scope and risks before investing in a full assessment. Cover the smallest useful subset of:
 
 1. Business problem — what pain, opportunity, or cost drives this change now?
 2. Target users — who is affected, in which workflow, at what moment?

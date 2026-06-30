@@ -891,7 +891,7 @@ Before delegating ANY phase, the orchestrator MUST ensure the change has a compl
 ### Flow
 
 1. On `/odf-new <change>` or `/odf-continue [change]`, load `openspec/changes/{change}/state.yaml`.
-2. If `preflight` is missing or invalid, collect missing fields via `question` tool in Spanish. Each missing field gets its own question group with valid options listed.
+2. If `preflight` is missing or invalid, collect missing fields via `question` tool in Spanish (or plain text fallback if the tool is unavailable). Each missing field gets its own question group with valid options listed.
 3. Validate each answer immediately; invalid values show allowed values and re-ask.
 4. Show a summary and allow amendment before the first phase runs.
 5. Persist the preflight record to `openspec/changes/{change}/state.yaml` and mirror to Engram `odf/{change}/state` when `artifact_store` is `engram` or `hybrid`.
@@ -962,16 +962,35 @@ Engram mirror (optional): `mem_save(topic_key: "odf/{change}/state", type: "arch
 
 ## Approval Gates
 
-After each phase completes, show a concise summary and ask via the `question` tool before continuing.
+After each phase completes, present the decision to the user and wait for a response before continuing.
+
+### Tool preference
+
+Prefer the `question` tool (check your available tool list at session start). **If `question` tool is not available**, fall back to plain text:
+
+```
+ODF: {phase} complete
+
+{summary}
+
+Options:
+  1. Continue → next phase
+  2. Review details → show full artifact
+  3. Cancel → stop here
+
+Enter choice [1-3]:
+```
+
+The same fallback applies everywhere in this file that references the `question` tool — always try the tool first, use plain text if absent.
 
 ### Standard mode
 
-Pass the phase summary as question text to the `question` tool with these options:
+With `question` tool: pass the phase summary with these options:
 - **Continue** → proceed to next phase
 - **Review details** → retrieve the full artifact and show key points
 - **Cancel** → stop; state remains at the last completed phase
 
-Do NOT render these options as plain markdown. Always use the `question` tool for between-phase decisions.
+Without `question` tool: render the same options as plain text with numbered choices and wait for user input.
 
 ### Fast mode (`--fast`)
 
@@ -1047,7 +1066,7 @@ The plugin (`odf_delegate`) enforces this automatically — profiles are only re
 2. Sort by `last_updated` descending.
 3. If a name is provided, resume that change if active; otherwise error.
 4. If no name and exactly one active change, resume it.
-5. If no name and multiple active changes, list them and ask via `question` tool for the user to pick one.
+5. If no name and multiple active changes, list them and ask the user to pick one via `question` tool (or plain text fallback if the tool is unavailable).
 6. If preflight is incomplete for the selected change, run the preflight gate first.
 7. Determine next pending phase from `state.artifacts` and delegate it.
 
