@@ -8,7 +8,7 @@ context: |
   Architecture: Registry-driven (odf-registry.json) with 31 skills, 12 agents, 2 profiles.
   Plugin: plugins/odf-delegation.ts provides odf_delegate/skill injection tools.
   Commands: Markdown definitions in command/; agents in agent/.
-  Target: Odoo 14-19 modules developed in external workspaces (~/Workspace/Odoo/O{16-19}).
+  Target: Odoo 14-19 modules developed in external workspaces (~/Workspace/Doodba_ENV/O{16-19}/odoo/custom/src/odoo).
 
 rules:
   proposal:

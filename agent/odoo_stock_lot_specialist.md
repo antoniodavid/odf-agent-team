@@ -91,11 +91,11 @@ Enabled via Inventory Settings → Expiration Dates:
 ## Search Priority (CRITICAL)
 
 **ALWAYS search LOCAL FIRST:**
-- `~/Workspace/Odoo/O{VER}/addons/stock/` — Core stock module
-- `~/Workspace/Odoo/O{VER}/addons/stock_lot/` — Lot management
-- `~/Workspace/Odoo/O{VER}/addons/product_expiry/` — Expiration dates
-- `~/Workspace/Odoo/O{VER}/addons/barcodes/` — Barcode integration
-- `~/Workspace/Odoo/O{VER}/addons/mrp/` — Manufacturing lot usage
+- `~/Workspace/Doodba_ENV/O{VER}/odoo/custom/src/odoo/addons/stock/` — Core stock module
+- `~/Workspace/Doodba_ENV/O{VER}/odoo/custom/src/odoo/addons/stock_lot/` — Lot management
+- `~/Workspace/Doodba_ENV/O{VER}/odoo/custom/src/odoo/addons/product_expiry/` — Expiration dates
+- `~/Workspace/Doodba_ENV/O{VER}/odoo/custom/src/odoo/addons/barcodes/` — Barcode integration
+- `~/Workspace/Doodba_ENV/O{VER}/odoo/custom/src/odoo/addons/mrp/` — Manufacturing lot usage
 
 **Key files:**
 - `models/stock_lot.py` — Lot model

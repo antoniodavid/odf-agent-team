@@ -1163,10 +1163,10 @@
   ],
   "project_conventions": {
     "local_source_paths": [
-      "~/Workspace/Odoo/O19/",
-      "~/Workspace/Odoo/O18/",
-      "~/Workspace/Odoo/O17/",
-      "~/Workspace/Odoo/O16/"
+      "~/Workspace/Doodba_ENV/O19/odoo/custom/src/odoo/",
+      "~/Workspace/Doodba_ENV/O18/odoo/custom/src/odoo/",
+      "~/Workspace/Doodba_ENV/O17/odoo/custom/src/odoo/",
+      "~/Workspace/Doodba_ENV/O16/odoo/custom/src/odoo/"
     ],
     "oca_guidelines": "~/Documents/obsidian-vault/02-Areas/OCA/",
     "odoo_patterns": "~/Documents/obsidian-vault/03-Resources/Odoo-Patterns/"

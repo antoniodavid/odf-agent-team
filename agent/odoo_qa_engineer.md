@@ -42,8 +42,8 @@ See `skills/_shared/skill-resolver.md` for the full protocol.
 
 Quick reference:
 
-- `~/Workspace/Odoo/O{VER}/addons/{module}/tests/` — Test patterns
-- `~/Workspace/Odoo/O{VER}/odoo/tests/` — Base test infrastructure
+- `~/Workspace/Doodba_ENV/O{VER}/odoo/custom/src/odoo/addons/{module}/tests/` — Test patterns
+- `~/Workspace/Doodba_ENV/O{VER}/odoo/custom/src/odoo/odoo/tests/` — Base test infrastructure
 - `/home/adruban/.config/opencode/skills/oca/04-testing/odoo-test-patterns.md` — Test patterns reference
 
 For structural questions, use CodeGraph first, then native OpenCode

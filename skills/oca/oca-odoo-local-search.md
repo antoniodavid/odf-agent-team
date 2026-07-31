@@ -10,14 +10,14 @@ ALWAYS use local codebase before GitHub.
 
 | Version | Path | Contents |
 |---------|------|----------|
-| 19 | `~/Workspace/Odoo/O19/` | odoo + enterprise |
-| 17 | `~/Workspace/Odoo/O17/` | odoo + enterprise |
-| 16 | `~/Workspace/Odoo/O16/` | odoo + enterprise |
+| 19 | `~/Workspace/Doodba_ENV/O19/odoo/custom/src/odoo/` | odoo + enterprise |
+| 17 | `~/Workspace/Doodba_ENV/O17/odoo/custom/src/odoo/` | odoo + enterprise |
+| 16 | `~/Workspace/Doodba_ENV/O16/odoo/custom/src/odoo/` | odoo + enterprise |
 
 ## Structure
 
 ```
-~/Workspace/Odoo/O{version}/
+~/Workspace/Doodba_ENV/O{version}/odoo/custom/src/odoo/
 ├── odoo/addons/{module}/     ← Community
 ├── enterprise/{module}/       ← Enterprise
 └── design-themes/             ← Themes
@@ -27,42 +27,42 @@ ALWAYS use local codebase before GitHub.
 
 ### Python Code
 ```bash
-grep -rn "pattern" ~/Workspace/Odoo/O19/odoo/addons/point_of_sale/ --include="*.py"
+grep -rn "pattern" ~/Workspace/Doodba_ENV/O19/odoo/custom/src/odoo/addons/point_of_sale/ --include="*.py"
 ```
 
 ### JavaScript/OWL
 ```bash
-grep -rn "pattern" ~/Workspace/Odoo/O19/odoo/addons/point_of_sale/static/src/ --include="*.js"
+grep -rn "pattern" ~/Workspace/Doodba_ENV/O19/odoo/custom/src/odoo/addons/point_of_sale/static/src/ --include="*.js"
 ```
 
 ### XML Views
 ```bash
-grep -rn "pattern" ~/Workspace/Odoo/O19/odoo/addons/point_of_sale/ --include="*.xml"
+grep -rn "pattern" ~/Workspace/Doodba_ENV/O19/odoo/custom/src/odoo/addons/point_of_sale/ --include="*.xml"
 ```
 
 ### Find Files
 ```bash
-find ~/Workspace/Odoo/O19/odoo/addons/point_of_sale/ -name "*.js" -type f
+find ~/Workspace/Doodba_ENV/O19/odoo/custom/src/odoo/addons/point_of_sale/ -name "*.js" -type f
 ```
 
 ### Module List
 ```bash
-ls ~/Workspace/Odoo/O19/odoo/addons/ | grep pos
-ls ~/Workspace/Odoo/O19/enterprise/ | grep pos
+ls ~/Workspace/Doodba_ENV/O19/odoo/custom/src/odoo/addons/ | grep pos
+ls ~/Workspace/Doodba_ENV/O19/odoo/custom/src/enterprise/ | grep pos
 ```
 
 ## Common POS Paths (v19)
 
 ```
 # Community POS
-~/Workspace/Odoo/O19/odoo/addons/point_of_sale/
+~/Workspace/Doodba_ENV/O19/odoo/custom/src/odoo/addons/point_of_sale/
 ├── static/src/app/           ← OWL components
 ├── static/src/customer_display/  ← Customer Screen
 ├── models/                   ← Python models
 └── views/                    ← XML views
 
 # Enterprise POS
-~/Workspace/Odoo/O19/enterprise/pos_*/
+~/Workspace/Doodba_ENV/O19/odoo/custom/src/enterprise/pos_*/
 ```
 
 ## DO NOT

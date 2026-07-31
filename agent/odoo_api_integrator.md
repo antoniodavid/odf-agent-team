@@ -44,8 +44,8 @@ For structural questions, use CodeGraph first, then native OpenCode
 
 Quick reference:
 
-- `~/Workspace/Odoo/O{VER}/addons/{module}/` — Odoo core source
-- `~/Workspace/Odoo/O{VER}/odoo/http.py` — HTTP framework source
+- `~/Workspace/Doodba_ENV/O{VER}/odoo/custom/src/odoo/addons/{module}/` — Odoo core source
+- `~/Workspace/Doodba_ENV/O{VER}/odoo/custom/src/odoo/odoo/http.py` — HTTP framework source
 - `~/Documents/obsidian-vault/02-Areas/OCA/` — OCA guidelines
 
 ## Skills Reference

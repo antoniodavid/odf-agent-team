@@ -51,7 +51,7 @@ Before suggesting a custom module or Python code, you MUST explore and explain h
 
 Quick reference:
 
-- `~/Workspace/Odoo/O{VER}/addons/{module}/` — Odoo core source (verify standard capabilities)
+- `~/Workspace/Doodba_ENV/O{VER}/odoo/custom/src/odoo/addons/{module}/` — Odoo core source (verify standard capabilities)
 - `~/Documents/obsidian-vault/02-Areas/OCA/` — OCA guidelines
 - `~/Documents/obsidian-vault/03-Resources/Odoo-Patterns/` — Odoo patterns
 

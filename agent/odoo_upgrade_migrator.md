@@ -82,7 +82,7 @@ When handling data migration or import:
 **ALWAYS search LOCAL FIRST.** See `/home/adruban/.config/opencode/skills/_shared/odoo-sources.md` for all paths.
 
 Quick reference:
-- `~/Workspace/Odoo/O{VER}/` — Odoo core source (check model changes)
+- `~/Workspace/Doodba_ENV/O{VER}/odoo/custom/src/odoo/` — Odoo core source (check model changes)
 - `~/Documents/obsidian-vault/02-Areas/OCA/` — OCA guidelines (OpenUpgrade patterns)
 
 For structural questions, use CodeGraph first, then native OpenCode

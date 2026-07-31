@@ -15,7 +15,7 @@ Use BEFORE /odf-new when you need to understand how Odoo handles a feature, find
 
 | Rule | Requirement |
 |------|-------------|
-| Local source first | ALWAYS search ~/Workspace/Odoo/O{VER}/ before concluding |
+| Local source first | ALWAYS search ~/Workspace/Doodba_ENV/O{VER}/odoo/custom/src/odoo/ before concluding |
 | Read actual files | Never guess Odoo behavior — read models/, views/, tests/ |
 | Standard check | Determine if standard Odoo already covers the need |
 | Version noted | APIs change between versions — check the target version specifically |
@@ -31,7 +31,7 @@ Use BEFORE /odf-new when you need to understand how Odoo handles a feature, find
 ## Execution Steps
 
 1. **Resolve project root and check CodeGraph** for structural questions before broad filesystem searches.
-2. **Find modules and patterns** with native OpenCode `Glob` and `Grep` in `~/Workspace/Odoo/O{VER}/addons/`.
+2. **Find modules and patterns** with native OpenCode `Glob` and `Grep` in `~/Workspace/Doodba_ENV/O{VER}/odoo/custom/src/odoo/addons/`.
 3. **Read key files** with `Read`: `__manifest__.py` (scope), `models/` (logic), `views/` (UI), and `tests/` (examples).
 4. **Synthesize**: Report modules, models, patterns found, standard coverage assessment, and recommended next step
 

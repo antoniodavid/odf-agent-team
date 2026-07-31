@@ -752,7 +752,7 @@ Project config (from odf-init):
 
 Use CodeGraph first for structural questions, then native OpenCode `Glob`,
 `Grep`, and `Read` for focused inspection.
-ALWAYS search local Odoo source at ~/Workspace/Odoo/O{VER}/ before concluding.
+ALWAYS search local Odoo source at ~/Workspace/Doodba_ENV/O{VER}/odoo/custom/src/odoo/ before concluding.
 
 Return your response ending with the ODF Result envelope as defined in result-contract.md.
 ```

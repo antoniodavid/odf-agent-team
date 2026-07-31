@@ -52,7 +52,7 @@ Quick reference for local sources:
    for hooks, reactivity patterns, and component lifecycles.
 
 2. Odoo UI Core (adjust {VER} for version):
-   ~/Workspace/Odoo/O{VER}/addons/web/static/src/
+   ~/Workspace/Doodba_ENV/O{VER}/odoo/custom/src/odoo/addons/web/static/src/
    ├── core/          ← registries, services, utils, dialogs
    ├── views/         ← view controllers, renderers, models (Form, List, Kanban, etc.)
    ├── search/         ← search bar, facets, filters
@@ -61,7 +61,7 @@ Quick reference for local sources:
    └── scss/          ← Bootstrap 5 variables, Odoo-specific mixins
 
 3. Odoo Views (how official views are built):
-   ~/Workspace/Odoo/O{VER}/addons/web/static/src/views/
+   ~/Workspace/Doodba_ENV/O{VER}/odoo/custom/src/odoo/addons/web/static/src/views/
    ├── form/          ← FormView, FormController, FormRenderer
    ├── list/         ← ListView, ListController (tree view)
    ├── kanban/        ← KanbanView, KanbanController, KanbanRecord
@@ -71,7 +71,7 @@ Quick reference for local sources:
    └── gantt/         ← GanttView
 
 4. Field Widgets:
-   ~/Workspace/Odoo/O{VER}/addons/web/static/src/views/fields/
+   ~/Workspace/Doodba_ENV/O{VER}/odoo/custom/src/odoo/addons/web/static/src/views/fields/
    ← All standard field widgets (Char, Many2one, Float, Date, etc.)
 ```
 
@@ -123,7 +123,7 @@ const user = useService("user");
 **THIS IS CRITICAL**: Before creating ANY view, form, kanban card, or UI component:
 
 ```
-1. Search the Odoo source at ~/Workspace/Odoo/O{VER}/addons/ for a SIMILAR view
+1. Search the Odoo source at ~/Workspace/Doodba_ENV/O{VER}/odoo/custom/src/odoo/addons/ for a SIMILAR view
    in a core module (e.g., sale, crm, project, stock)
 
 2. Study how Odoo builds that view:

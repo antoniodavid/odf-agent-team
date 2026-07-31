@@ -19,10 +19,10 @@ and tests.
 
 | Version | Path | Contents |
 |---------|------|----------|
-| Odoo 19 | `~/Workspace/Odoo/O19/` | odoo + enterprise |
-| Odoo 18 | `~/Workspace/Odoo/O18/` | odoo + enterprise |
-| Odoo 17 | `~/Workspace/Odoo/O17/` | odoo |
-| Odoo 16 | `~/Workspace/Odoo/O16/` | odoo |
+| Odoo 19 | `~/Workspace/Doodba_ENV/O19/odoo/custom/src/odoo/` | odoo + enterprise |
+| Odoo 18 | `~/Workspace/Doodba_ENV/O18/odoo/custom/src/odoo/` | odoo + enterprise |
+| Odoo 17 | `~/Workspace/Doodba_ENV/O17/odoo/custom/src/odoo/` | odoo |
+| Odoo 16 | `~/Workspace/Doodba_ENV/O16/odoo/custom/src/odoo/` | odoo |
 
 ### Key Paths Within Each Version
 
@@ -73,7 +73,7 @@ When specialized OCA analysis is needed, load the matching skill from
 For OWL components and frontend patterns, inspect the actual target version:
 
 ```text
-~/Workspace/Odoo/O{VER}/addons/web/static/src/
+~/Workspace/Doodba_ENV/O{VER}/odoo/custom/src/odoo/addons/web/static/src/
   core/           registries, services, utils
   views/          view controllers, renderers, models
   search/         search bar, facets, filters

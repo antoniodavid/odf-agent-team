@@ -44,8 +44,8 @@ For structural questions, use CodeGraph first, then native OpenCode
 
 Quick reference:
 
-- `~/Workspace/Odoo/O{VER}/odoo/` — Odoo core (ORM, service layer)
-- `~/Workspace/Odoo/O{VER}/odoo/service/` — Server, cron, WSGI
+- `~/Workspace/Doodba_ENV/O{VER}/odoo/custom/src/odoo/odoo/` — Odoo core (ORM, service layer)
+- `~/Workspace/Doodba_ENV/O{VER}/odoo/custom/src/odoo/odoo/service/` — Server, cron, WSGI
 - `~/Documents/obsidian-vault/03-Resources/Odoo-Patterns/` — Odoo patterns
 
 ## Skills Reference

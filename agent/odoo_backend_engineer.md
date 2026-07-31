@@ -42,7 +42,7 @@ See `skills/_shared/skill-resolver.md` for the full protocol.
 
 Quick reference:
 
-- `~/Workspace/Odoo/O{VER}/addons/{module}/` — Odoo core source
+- `~/Workspace/Doodba_ENV/O{VER}/odoo/custom/src/odoo/addons/{module}/` — Odoo core source
 - `~/Documents/obsidian-vault/02-Areas/OCA/` — OCA guidelines
 - `~/Documents/obsidian-vault/03-Resources/Odoo-Patterns/` — Odoo patterns
 
