@@ -25,6 +25,7 @@ import {
   classifyRiskTierWithContent,
   computePolicyGate,
   savePolicyGateJson,
+  loadEngramStatus,
   validateValidationEvidence,
   mergeReceipt,
   type PolicyGateDecision,
@@ -515,6 +516,83 @@ function appendLines(dir: string, name: string, n: number): void {
   fsSync.appendFileSync(path.join(dir, name), Array.from({ length: n }, (_, i) => `extra ${i}`).join("\n") + "\n", "utf8")
 }
 
+async function configureEngramExport(observations: Array<Record<string, unknown>>): Promise<() => Promise<void>> {
+  const binDir = await fs.mkdtemp(path.join(os.tmpdir(), "odf-engram-cli-"))
+  const cliPath = path.join(binDir, "engram")
+  await fs.writeFile(
+    cliPath,
+    "#!/bin/sh\nif [ \"$1\" = \"export\" ]; then\n  printf '%s' \"$ODF_TEST_ENGRAM_EXPORT\" > \"$5\"\nfi\n",
+    "utf8"
+  )
+  await fs.chmod(cliPath, 0o755)
+
+  const originalPath = process.env.PATH
+  const originalExport = process.env.ODF_TEST_ENGRAM_EXPORT
+  process.env.PATH = `${binDir}${path.delimiter}${originalPath || ""}`
+  process.env.ODF_TEST_ENGRAM_EXPORT = JSON.stringify(observations)
+
+  return async () => {
+    process.env.PATH = originalPath
+    if (originalExport === undefined) delete process.env.ODF_TEST_ENGRAM_EXPORT
+    else process.env.ODF_TEST_ENGRAM_EXPORT = originalExport
+    await fs.rm(binDir, { recursive: true, force: true })
+  }
+}
+
+describe("loadEngramStatus", () => {
+  let tmp: string
+
+  beforeEach(async () => {
+    tmp = await fs.mkdtemp(path.join(os.tmpdir(), "odf-status-"))
+  })
+
+  afterEach(async () => {
+    await fs.rm(tmp, { recursive: true, force: true })
+  })
+
+  it("selects the change with the newest artifact timestamp and recognizes propose", async () => {
+    const workspace = path.join(tmp, "repo")
+    initGitRepo(workspace)
+    commitFile(workspace, "README.md", 1)
+    const cleanup = await configureEngramExport([
+      { topic_key: "odf/older/assess", content: "", created_at: "2026-07-31T10:00:00Z" },
+      { topic_key: "odf/older/design", content: "", created_at: "2026-07-31T10:01:00Z" },
+      { topic_key: "odf/older/verify-report", content: "", created_at: "2026-07-31T10:02:00Z" },
+      { topic_key: "odf/newer/propose", content: "", created_at: "2026-07-31T11:00:00Z" },
+    ])
+
+    try {
+      const status = await loadEngramStatus(workspace)
+      expect(status?.change).toBe("newer")
+      expect(status?.phase).toBe("propose")
+      expect(status?.lastUpdated).toBe("2026-07-31T11:00:00Z")
+    } finally {
+      await cleanup()
+    }
+  })
+
+  it("uses canonical implement-progress and falls back to apply-progress", async () => {
+    const workspace = path.join(tmp, "repo")
+    initGitRepo(workspace)
+    commitFile(workspace, "README.md", 1)
+    const cleanup = await configureEngramExport([
+      { topic_key: "odf/canonical/implement-progress", content: "- [x] first\n- [ ] second", created_at: "2026-07-31T11:00:00Z" },
+      { topic_key: "odf/canonical/apply-progress", content: "- [x] legacy\n- [x] ignored", created_at: "2026-07-31T11:01:00Z" },
+      { topic_key: "odf/legacy/apply-progress", content: "- [x] first\n- [ ] second", created_at: "2026-07-31T11:02:00Z" },
+    ])
+
+    try {
+      const canonical = await loadEngramStatus(workspace, "canonical")
+      expect(canonical?.applyProgress).toEqual({ completed: 1, total: 2 })
+
+      const legacy = await loadEngramStatus(workspace, "legacy")
+      expect(legacy?.applyProgress).toEqual({ completed: 1, total: 2 })
+    } finally {
+      await cleanup()
+    }
+  })
+})
+
 describe("computePolicyGate", () => {
   let tmp: string
 
@@ -705,6 +783,54 @@ describe("createODFDelegate", () => {
     expect(metrics[0].task_api_source).toBe("toolCtx.task")
   })
 
+  it.each(["IMPLEMENT", "VERIFY"])("blocks %s when change is missing without invoking task()", async phase => {
+    const { createODFDelegate, clearMetricsBuffer } = await import("./odf-delegation.js")
+    clearMetricsBuffer()
+    const taskApi = vi.fn().mockResolvedValue({ status: "ok" })
+    const toolCtx = { sessionID: "s1", task: taskApi } as any
+
+    const delegateTool = createODFDelegate(undefined)
+    const output = await delegateTool.execute(
+      { phase, prompt: "Run the phase without a change identifier", context_files: [] },
+      toolCtx
+    )
+
+    const envelope = JSON.parse(output as string)
+    expect(envelope.status).toBe("error")
+    expect(envelope.message).toContain("Missing change name")
+    for (const key of [
+      "status",
+      "phase",
+      "agent",
+      "skills_injected",
+      "profile",
+      "policy_gate",
+      "validation",
+      "receipt",
+      "task_api_source",
+      "result",
+      "message",
+    ]) {
+      expect(envelope).toHaveProperty(key)
+    }
+    expect(taskApi).not.toHaveBeenCalled()
+  })
+
+  it("continues to delegate non-gated phases without a change", async () => {
+    const { createODFDelegate } = await import("./odf-delegation.js")
+    const taskApi = vi.fn().mockResolvedValue({ status: "ok", executive_summary: "planned" })
+    const toolCtx = { sessionID: "s1", task: taskApi } as any
+
+    const delegateTool = createODFDelegate(undefined)
+    const output = await delegateTool.execute(
+      { phase: "DESIGN", prompt: "Design the implementation", context_files: [] },
+      toolCtx
+    )
+
+    expect(JSON.parse(output as string).status).toBe("delegated")
+    expect(taskApi).toHaveBeenCalledTimes(1)
+  })
+
   it("returns a fallback instruction envelope when task() is unavailable", async () => {
     const { createODFDelegate, clearMetricsBuffer, getMetricsBuffer } = await import("./odf-delegation.js")
     clearMetricsBuffer()
@@ -825,6 +951,43 @@ describe("createODFDelegate", () => {
     const envelope = JSON.parse(output as string)
     expect(envelope.status).toBe("delegated")
     expect(envelope.task_api_source).toBe("ctx.task")
+  })
+
+  it("uses an explicit workspace directory for policy and evidence lookup", async () => {
+    const { createODFDelegate } = await import("./odf-delegation.js")
+    const workspace = path.join(tempHome, "isolated-worktree")
+    initGitRepo(workspace)
+    commitFile(workspace, "README.md", 1)
+    await fs.mkdir(path.join(workspace, ".odf"), { recursive: true })
+    await fs.writeFile(
+      path.join(workspace, ".odf", "validation-evidence-explicit-dir.json"),
+      JSON.stringify({
+        change: "explicit-dir",
+        phase: "IMPLEMENT",
+        batch: 1,
+        risk_tier: "MEDIUM",
+        frozen_diff_ref: null,
+        resolved_at: new Date().toISOString(),
+        commands: [
+          { name: "git-diff-check", command: "git diff --check", exit_code: 0, output_tail: "" },
+          { name: "odoo-tests", command: "odoo-bin --test-enable", exit_code: 0, output_tail: "1 passed, 0 failed" },
+        ],
+      }),
+      "utf8"
+    )
+
+    const taskApi = vi.fn().mockResolvedValue({ status: "ok", executive_summary: "implemented" })
+    const delegateTool = createODFDelegate(undefined, workspace)
+    const output = await delegateTool.execute(
+      { phase: "IMPLEMENT", change: "explicit-dir", prompt: "Implement the task", context_files: [] },
+      { sessionID: "s1", task: taskApi } as any
+    )
+
+    const envelope = JSON.parse(output as string)
+    expect(envelope.policy_gate.change).toBe("explicit-dir")
+    expect(envelope.validation.status).toBe("verified")
+    expect(fsSync.existsSync(path.join(workspace, ".odf", "policy-gate-explicit-dir.json"))).toBe(true)
+    expect(taskApi).toHaveBeenCalledTimes(1)
   })
 
   it("returns timeout status when task() exceeds timeout_ms", async () => {

@@ -1424,7 +1424,7 @@ frozen diff ref). The gate documents — the sub-agent applies, never recomputes
 // TOOL CREATORS
 // ==========================================
 
-function createODFDelegate(client?: OpencodeClient): ReturnType<typeof tool> {
+function createODFDelegate(client?: OpencodeClient, canonicalDirectory?: string): ReturnType<typeof tool> {
   return tool({
     description: `Delegate an ODF task to the appropriate phase-specific agent.
 
@@ -1467,8 +1467,41 @@ Use this instead of generic task() for ODF workflow delegation.`,
         return `❌ Invalid phase "${args.phase}". Allowed: ${ALLOWED_PHASES.join(", ")}`
       }
 
+      const startTime = Date.now()
+      const workspaceRoot = resolveWorkspaceRoot(canonicalDirectory || process.cwd())
+      const gatedPhase = args.phase === "IMPLEMENT" || args.phase === "VERIFY"
+      const changeName = args.change?.trim() || extractChangeName(args.prompt)
+      if (gatedPhase && !changeName) {
+        const message = `Missing change name for ${args.phase}: provide args.change or include "Change name: <name>" in the prompt.`
+        recordMetrics({
+          timestamp: new Date().toISOString(),
+          session_id: toolCtx.sessionID,
+          phase: args.phase,
+          agent: "unresolved",
+          skills_injected: [],
+          skill_resolution: "none",
+          duration_ms: Date.now() - startTime,
+          token_estimate: estimateTokens(args.prompt),
+          status: "error",
+          task_api_source: "unavailable",
+          error: message,
+        })
+        return JSON.stringify({
+          status: "error",
+          phase: args.phase,
+          agent: null,
+          skills_injected: [],
+          profile: null,
+          policy_gate: null,
+          validation: null,
+          receipt: null,
+          task_api_source: "unavailable",
+          result: null,
+          message,
+        }, null, 2)
+      }
+
       // Validate context_files against the repository root, not a nested cwd.
-      const workspaceRoot = resolveWorkspaceRoot()
       for (const file of args.context_files || []) {
         if (typeof file !== "string" || file.split(/[\\/]/).includes("..")) {
           return `❌ context_files entry "${file}" contains path traversal`
@@ -1491,7 +1524,6 @@ Use this instead of generic task() for ODF workflow delegation.`,
         }
       }
 
-      const startTime = Date.now()
       const registry = await loadRegistry()
       if (!registry) {
         return `❌ ODF registry not found. Run /odf-init or check ${REGISTRY_PATH}`
@@ -1502,16 +1534,13 @@ Use this instead of generic task() for ODF workflow delegation.`,
       // (never recomputes). Safety net — the orchestrator calls odf_policy_gate
       // explicitly; this re-runs the same decision and injects it.
       let policyGate: PolicyGateDecision | null = null
-      if (args.phase === "IMPLEMENT" || args.phase === "VERIFY") {
-        const changeName = args.change || extractChangeName(args.prompt)
-        if (changeName) {
-          policyGate = computePolicyGate({
-            change: changeName,
-            phase: args.phase as "IMPLEMENT" | "VERIFY",
-            workspaceDir: workspaceRoot,
-            registry,
-          })
-        }
+      if (gatedPhase) {
+        policyGate = computePolicyGate({
+          change: changeName!,
+          phase: args.phase as "IMPLEMENT" | "VERIFY",
+          workspaceDir: workspaceRoot,
+          registry,
+        })
       }
 
       // Detect Odoo version from project
@@ -1971,11 +2000,11 @@ Returns structured JSON with CLI path, installed version, and agent wiring statu
       // Check CLI availability
       try {
         const which = process.platform === "win32" ? "where" : "which"
-        const cliPath = execSync(`${which} ${def.command_name}`, { encoding: "utf8" }).trim()
+        const cliPath = execFileSync(which, [def.command_name], { encoding: "utf8" }).trim()
         if (cliPath) {
           result.cli = { available: true, path: cliPath.split("\n")[0], version: null }
           try {
-            const ver = execSync(`${def.command_name} --version`, { encoding: "utf8" }).trim()
+            const ver = execFileSync(def.command_name, ["--version"], { encoding: "utf8" }).trim()
             if (ver) result.cli.version = ver.split("\n")[0]
           } catch {
             // version not available
@@ -2029,7 +2058,7 @@ into the orchestrator's agent instructions for lazy-init wiring.`,
 
       // Step 1: npm install
       try {
-        const installOut = execSync(`npm install --no-audit --no-fund ${def.package_name}`, {
+        execFileSync("npm", ["install", "--no-audit", "--no-fund", def.package_name], {
           cwd: getOdfConfigDir(),
           encoding: "utf8",
           timeout: 120_000,
@@ -2050,7 +2079,7 @@ into the orchestrator's agent instructions for lazy-init wiring.`,
       // Step 3: Init codegraph index if workspace dir provided
       if (args.tool_name === "codegraph" && args.workspace_dir) {
         try {
-          execSync(`codegraph init ${args.workspace_dir}`, { encoding: "utf8", timeout: 60_000 })
+          execFileSync("codegraph", ["init", args.workspace_dir], { encoding: "utf8", timeout: 60_000 })
           results.push(`✅ codegraph init ${args.workspace_dir} succeeded`)
         } catch (err) {
           results.push(`⚠️ codegraph init skipped: ${(err as Error).message || String(err)}`)
@@ -2107,10 +2136,12 @@ function parseTaskProgress(content: string): { completed: number; total: number 
   return { completed, total }
 }
 
-async function loadEngramStatus(workspaceRoot: string, changeName?: string): Promise<ODFChangeStatus | null> {
+export async function loadEngramStatus(workspaceRoot: string, changeName?: string): Promise<ODFChangeStatus | null> {
   let project: string
   try {
-    project = execSync("basename $(git rev-parse --show-toplevel)", { cwd: workspaceRoot, encoding: "utf8" }).trim()
+    project = path.basename(
+      execFileSync("git", ["rev-parse", "--show-toplevel"], { cwd: workspaceRoot, encoding: "utf8" }).trim()
+    )
   } catch {
     project = path.basename(workspaceRoot)
   }
@@ -2118,7 +2149,11 @@ async function loadEngramStatus(workspaceRoot: string, changeName?: string): Pro
   // Use engram CLI export to get observations
   const tmpFile = path.join(os.tmpdir(), `odf-status-${Date.now()}.json`)
   try {
-    execSync(`engram export --project "${project}" --output "${tmpFile}" 2>/dev/null`, { timeout: 15_000 })
+    execFileSync("engram", ["export", "--project", project, "--output", tmpFile], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+      timeout: 15_000,
+    })
   } catch {
     // engram CLI not available
     try { fsSync.unlinkSync(tmpFile) } catch { /* ignore */ }
@@ -2158,11 +2193,21 @@ async function loadEngramStatus(workspaceRoot: string, changeName?: string): Pro
   // Take the most recent change
   let bestChange: string | null = changeName || null
   if (!bestChange) {
-    // Pick the change with most artifacts
-    let maxArtifacts = 0
+    // Pick the change with the newest artifact timestamp.
+    let newestTimestamp: string | null = null
+    let fallbackArtifactCount = 0
     for (const [name, artifacts] of targetKeys) {
-      if (artifacts.size > maxArtifacts) {
-        maxArtifacts = artifacts.size
+      let latestTimestamp: string | null = null
+      for (const { created } of artifacts.values()) {
+        if (created && (!latestTimestamp || created > latestTimestamp)) {
+          latestTimestamp = created
+        }
+      }
+      if (latestTimestamp && (!newestTimestamp || latestTimestamp > newestTimestamp)) {
+        newestTimestamp = latestTimestamp
+        bestChange = name
+      } else if (!newestTimestamp && !latestTimestamp && artifacts.size > fallbackArtifactCount) {
+        fallbackArtifactCount = artifacts.size
         bestChange = name
       }
     }
@@ -2191,18 +2236,18 @@ async function loadEngramStatus(workspaceRoot: string, changeName?: string): Pro
   status.artifacts = artifactStates
 
   // Determine phase from artifacts
-  const phaseOrder = ["assess", "qa-plan", "design", "implement", "verify", "archive"]
+  const phaseOrder = ["propose", "assess", "qa-plan", "design", "implement", "verify", "archive"]
   for (const phase of phaseOrder) {
     if (artifactStates[phase] === "done") {
       status.phase = phase
     }
   }
 
-  // Task progress from apply-progress or tasks
-  const applyProgress = artifacts.get("apply-progress")
+  // Task progress from canonical implement-progress, legacy apply-progress, or tasks.
+  const implementProgress = artifacts.get("implement-progress") || artifacts.get("apply-progress")
   const tasks = artifacts.get("tasks")
-  if (applyProgress) {
-    status.applyProgress = parseTaskProgress(applyProgress.content)
+  if (implementProgress) {
+    status.applyProgress = parseTaskProgress(implementProgress.content)
   } else if (tasks) {
     status.applyProgress = parseTaskProgress(tasks.content)
   }
@@ -2242,84 +2287,33 @@ and timestamps. Useful for /odf-status when no openspec/ directory exists.`,
 // ==========================================
 
   const ODF_SYSTEM_RULES = `<odf-system>
-## ODF Delegation System
+## ODF Responsibilities
 
-You have ODF-specific tools for structured Odoo development:
+| Layer | Responsibility |
+|---|---|
+| Orchestrator | Route phases, manage state and approvals, ask user disposition |
+| Plugin | Resolve registry/agents/skills, invoke task, seal policy/evidence/receipt/metrics |
+| Agent prompt | Apply the domain role and boundaries supplied by the orchestrator |
+| Phase skill | Define phase method, gates, and output artifact |
+| Test runner | Run deterministic ODF regression checks |
 
-- \`odf_delegate(phase, prompt, context_files)\` — Delegate to phase-specific agent with auto skill injection + metrics
-- \`odf_skill_inject(context_files, task_description)\` — Get compact rules for manual injection
-- \`odf_skill_resolve(phase, task, context_files)\` — Preview what skills/agent/profile would match (debugging)
-- \`odf_registry_read(query, type)\` — Query the ODF skill/agent registry (31 skills, 12 agents)
-- \`odf_notebooklm_lookup(domain)\` — Resolve domain to NotebookLM notebook ID
-- \`odf_profile_select(phase)\` — Get optimal model/temperature for a phase from the active profile
-- \`odf_community_tool_detect(tool_name)\` — Check if a community tool CLI is installed and wired
-- \`odf_community_tool_install(tool_name, workspace_dir)\` — Install a community tool npm package and init
-- \`odf_status(change_name, workspace_dir)\` — Resolve ODF change status from Engram observations
-- \`odf_policy_gate(change, phase, workspace_dir)\` — Resolve + persist the Policy Gate (TDD + frozen diff) before IMPLEMENT/VERIFY
-- \`odf_receipt(change, phase, status, cause, evidence_summary, failing, refs, action, workspace_dir)\` — Persist/merge a failure disposition receipt for a change (VERIFY FAIL, blocked, resolved user decision)
+## Tools
 
-### Stop-Validation Evidence (IMPLEMENT)
+- \`odf_delegate\`: phase delegation with skill injection and metrics
+- \`odf_skill_inject\`, \`odf_skill_resolve\`, \`odf_registry_read\`: standards and routing inspection
+- \`odf_policy_gate\`, \`odf_receipt\`: policy and failure persistence
+- \`odf_status\`, \`odf_profile_select\`, \`odf_notebooklm_lookup\`: state, profile, and research lookup
+- \`odf_community_tool_detect\`, \`odf_community_tool_install\`: optional community tooling
 
-After an IMPLEMENT delegation, the orchestrator reads the \`validation\` seal on the envelope. To close a batch, the sub-agent MUST run the stop-validation commands for its risk tier and write the evidence artifact to \`<worktree>/.odf/validation-evidence-{change}.json\`:
+## Non-negotiable invariants
 
-\`\`\`json
-{ "change": "my-change", "phase": "IMPLEMENT", "batch": 1, "risk_tier": "MEDIUM",
-  "frozen_diff_ref": "<same ref as the policy gate>", "resolved_at": "<ISO-8601>",
-  "commands": [ { "name": "git-diff-check", "command": "git diff --check", "exit_code": 0, "output_tail": "..." },
-                { "name": "odoo-tests", "command": "odoo-bin -d test_db -i my_module --test-enable --stop-after-init", "exit_code": 0, "output_tail": "... 0 failed ..." } ] }
-\`\`\`
-
-- Tier LOW ≥ 1 command, MEDIUM ≥ 2, HIGH ≥ 3; every command exit_code 0.
-- The plugin seals \`validation: {status: verified|missing|invalid}\` with blind rules — prose in the result never counts, only the artifact.
-- Freshness window: \`resolved_at\` must be within 60 minutes.
-
-
-### Available Commands
-
-| Command | Purpose |
-|---------|---------|
-| \`/odf-registry-refresh\` | Rescan skills/, update registry, persist to Engram |
-| \`/odf-profile list\|switch\|create\|delete\` | Manage model profiles per phase |
-| \`/odf-backup create\|list\|restore\` | Snapshot & restore ODF config |
-| \`/odf-skill-log <name>\|--all\` | View skill version history |
-| \`/odf-metrics [--days N]\` | Agent Observatory dashboard |
-
-### When to Use Delegation Tools
-
-| Scenario | Tool |
-|----------|------|
-| Delegating ODF phase work | \`odf_delegate\` |
-| Manually injecting standards | \`odf_skill_inject\` |
-| Debugging: preview matches | \`odf_skill_resolve\` |
-| Finding available skills/agents | \`odf_registry_read\` |
-| Need NotebookLM ID for domain | \`odf_notebooklm_lookup\` |
-| Configuring sub-agent model | \`odf_profile_select\` |
-| Check if community tool is installed | \`odf_community_tool_detect\` |
-| Install and wire a community tool | \`odf_community_tool_install\` |
-| Resolve ODF change status from Engram | \`odf_status\` |
-| Gate IMPLEMENT/VERIFY (TDD + diff freeze) | \`odf_policy_gate\` |
-
-### ODF Phase Agent Mapping
-
-| Phase | Default Agent |
-|-------|---------------|
-| ASSESS | odoo_functional_consultant |
-| QA-PLAN | odoo_qa_engineer |
-| DESIGN | odoo_backend_engineer |
-| IMPLEMENT | odoo_backend_engineer |
-| VERIFY | odoo_qa_engineer |
-| EXPLORE | odoo_functional_consultant |
-
-Custom agents in the registry override defaults when their triggers match.
-
-### SDD Profiles (Per-Phase Model Assignment)
-
-Each phase has an optimal model profile in the registry. Use \`odf_profile_select\` before delegating. Switch profiles with \`/odf-profile switch <name>\`.
-
-### Skill Injection + Metrics
-
-All ODF delegations automatically inject matching compact rules and record performance metrics for the Agent Observatory.
-Sub-agents receive \`## Project Standards (auto-resolved)\` in their prompt.
+- Use \`odf_delegate\` for ODF phase work; inject at most five matching compact skill blocks.
+- Resolve and persist the authoritative Policy Gate before IMPLEMENT/VERIFY; never recompute it.
+- IMPLEMENT closes only when the plugin seal has \`validation.status === "verified"\` from fresh bound evidence; prose never counts.
+- VERIFY uses evidence-based risk tier, frozen ref, and one correction budget; an inconclusive frozen-byte inspection does not consume the attempt and there is no auto-loop.
+- On VERIFY FAIL, persist the receipt before the single user disposition question; \`/odf-continue\` re-discovers pending receipts.
+- Metrics remain bounded, session-hashed, and canonical JSONL data for the metrics command. Content signals may escalate risk to HIGH, never downgrade it.
+- The outer plugin envelope and inner agent \`## ODF Result\` are separate; preserve the agent result and inspect both layers.
 </odf-system>`
 
 // ==========================================
@@ -2400,7 +2394,7 @@ export const OdfDelegationPlugin: Plugin = async (ctx) => {
 
   return {
     tool: {
-      odf_delegate: createODFDelegate(client),
+      odf_delegate: createODFDelegate(client, directory),
       odf_skill_inject: createODFSkillInject(),
       odf_skill_resolve: createODFSkillResolve(),
       odf_registry_read: createODFRegistryRead(),

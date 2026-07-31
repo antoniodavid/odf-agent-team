@@ -999,21 +999,26 @@
         "scope",
         "question round"
       ],
-      "compact_rules": "Phase 0: Business proposal before ASSESS.\n- Question round: 3-5 business questions via question tool\n- Proposal: Intent, Scope, Capabilities, Approach, Affected Areas, Risks, Rollback, Success Criteria\n- NO code, NO functional spec — only the proposal\n- Size budget: under 300 words\n- Capabilities section is contract with ASSESS phase",
+      "compact_rules": "Phase 0: business proposal before ASSESS.\n- Interactive: 3-5 business questions; batch skips voluntary question rounds\n- Include intent, scope, capabilities, approach, risks, rollback, and success criteria\n- No code/spec/config; keep under 300 words\n- Return blocked while awaiting input, ok only after approval/handoff to ASSESS, failed only on execution error",
       "path": "skills/odf-propose/SKILL.md",
       "odoo_versions": [
         16, 17, 18, 19
       ],
       "sdd_phase": "PROPOSE",
-      "version": "1.0",
+      "version": "1.1",
       "changelog": [
         {
           "version": "1.0",
           "date": "2026-06-29",
           "change": "Initial propose phase: question round + lightweight proposal before ASSESS"
+        },
+        {
+          "version": "1.1",
+          "date": "2026-07-31",
+          "change": "Standardized ODF Result status semantics and shared References"
         }
       ],
-      "last_updated": "2026-06-29"
+      "last_updated": "2026-07-31"
     },
     {
       "name": "odf-tdd",

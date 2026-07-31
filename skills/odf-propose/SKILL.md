@@ -4,10 +4,10 @@ description: "Create an ODF change proposal with business context, scope, and ap
 license: MIT
 metadata:
   author: adruban
-  version: "1.0"
+  version: "1.1"
 ---
 
-## When to Use
+## Activation Contract
 
 Use as the first phase after preflight in `/odf-new`. Transform the user's requirement into a structured proposal document: business problem, scope boundaries, capabilities, approach, risks. This is the bridge between "what the user wants" and "what ASSESS will analyze."
 
@@ -29,7 +29,7 @@ NEVER write code, functional specs, or config guides in this phase. Only the pro
 | Condition | Action |
 |-----------|--------|
 | User changes scope | Update proposal, re-present for approval |
-| User cancels | `status: cancelled`. Archive change gracefully |
+| User cancels | Archive the change gracefully without handing off to ASSESS |
 | Proposal approved | `next_recommended: ["assess"]` |
 
 ## Execution Steps
@@ -122,3 +122,21 @@ mem_save(
 ### Next Step
 Run ASSESS phase for functional analysis
 ```
+
+## Output Contract
+
+Keep the proposal semantics and summary above, then end the response with the
+shared `## ODF Result` envelope from `skills/_shared/result-contract.md`.
+Use `blocked` while awaiting interactive approval or user input, `ok` only after
+approval and handoff to ASSESS, and `failed` only for an execution error. Set `artifacts_saved` to the
+persisted proposal artifact and `next_recommended` to `["assess"]` after
+approval, or `[]` when cancelled.
+
+## Changelog
+
+- 2026-07-31: Standardized result status for approval, handoff, and execution errors.
+
+## References
+
+- `skills/_shared/result-contract.md` — shared inner result envelope and status semantics.
+- `skills/_shared/persistence-contract.md` — selected artifact-store persistence convention.

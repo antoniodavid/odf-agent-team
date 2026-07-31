@@ -1,9 +1,45 @@
-# Result Contract (shared across all ODF skills and agents)
+# Result Contract (shared across ODF skills and agents)
 
-## Structured Envelope
+ODF has two compatible result layers. The plugin owns the outer delegation
+envelope. The invoked agent owns the inner `## ODF Result` envelope. The
+plugin does not invent or rewrite the inner result; the orchestrator reads both.
 
-Every sub-agent invoked by the ODF orchestrator MUST return this structured section
-as the LAST part of their response. The orchestrator parses this to decide next steps.
+## Outer Plugin Envelope
+
+`odf_delegate` returns an outer envelope with these compatible statuses:
+
+```json
+{
+  "status": "delegated | fallback | error | timeout",
+  "phase": "IMPLEMENT",
+  "agent": "odoo_backend_engineer",
+  "skills_injected": [],
+  "profile": null,
+  "policy_gate": null,
+  "validation": null,
+  "receipt": null,
+  "task_api_source": "toolCtx.task",
+  "result": {}
+}
+```
+
+| Field | Meaning |
+|---|---|
+| `status` | Delegation transport outcome, not the agent's phase verdict |
+| `policy_gate` | Authoritative gate decision for IMPLEMENT/VERIFY, or `null` |
+| `validation` | Plugin seal for IMPLEMENT evidence: `verified`, `missing`, or `invalid`, or `null` |
+| `receipt` | Optional receipt or receipt reference; failure persistence may also be on disk |
+| `result` | Raw return value from `task()`; the plugin does not synthesize its inner fields |
+| Other fields | Existing phase, agent, skill, profile, and task-source metadata remain compatible |
+
+Fallback output remains a textual instruction envelope when `task()` is
+unavailable. Errors and timeouts may persist a failure receipt, but that does
+not change their outer transport status.
+
+## Inner Agent Envelope
+
+Every sub-agent invoked by the orchestrator MUST return this structured section
+as the LAST part of its response. The orchestrator uses it for phase decisions.
 
 ```markdown
 ## ODF Result
@@ -17,58 +53,42 @@ as the LAST part of their response. The orchestrator parses this to decide next 
 - **modules_affected**: [{module_name}]
 ```
 
-## Field Definitions
-
 | Field | Required | Description |
-|-------|----------|-------------|
+|---|---|---|
 | `status` | YES | Overall outcome of this phase |
-| `executive_summary` | YES | Short summary the orchestrator shows the user — keep it under 2 sentences |
-| `strategy` | YES | What kind of work this is |
-| `artifacts_saved` | YES | List of Engram artifacts created/updated (empty list `[]` if none) |
-| `next_recommended` | YES | What phase(s) should run next (empty `[]` if workflow is complete) |
-| `risks` | NO | List of risks identified (empty `[]` if none) |
+| `executive_summary` | YES | Short summary shown to the user; under two sentences |
+| `strategy` | YES | Kind of work: standard, custom, migration, or integration |
+| `artifacts_saved` | YES | Engram artifacts created/updated; `[]` if none |
+| `next_recommended` | YES | Next phase/agent; `[]` if complete |
+| `risks` | NO | Identified risks; `[]` if none |
 | `odoo_version` | YES | Target Odoo version |
-| `modules_affected` | YES | List of Odoo module technical names affected |
-| `validation_evidence` | NO (IMPLEMENT) | Path to `<worktree>/.odf/validation-evidence-{change}.json` + command/exit_code summary. The plugin seals `validation: {status: verified\|missing\|invalid}` on the delegation envelope with blind rules — prose never counts, only the artifact |
-| `receipt` | NO (on FAIL/blocked) | Reference to `<worktree>/.odf/receipt-{change}.json`. On FAIL the orchestrator records cause/evidence/action via `odf_receipt` BEFORE escalating — a receipt with `action: null` remains pending and is re-discovered by `/odf-continue` |
+| `modules_affected` | YES | Affected technical module names |
+| `validation_evidence` | NO (IMPLEMENT) | Path to `.odf/validation-evidence-{change}.json` plus command/exit-code summary. The plugin validates the artifact; prose never counts. |
+| `receipt` | NO (FAIL/blocked) | Reference to `.odf/receipt-{change}.json`; `action: null` means pending disposition. |
 
 ## Failure Disposition
 
-When a phase ends `blocked` or `failed`, persist the disposition so the learning loop survives sessions:
+For a `blocked` or `failed` phase, persist:
 
-- `cause` (machine): `validation-failed | error | timeout`
-- `evidence` (refs, not the full report): summary, frozen ref, failing commands/tests, topic keys
-- `action` (human): `scope-change | re-plan | abandon | retry` — set when the user decides; `null` = pending
+- `cause`: `validation-failed`, `error`, or `timeout`.
+- `evidence`: summary, frozen ref, failing commands/tests, and topic/path refs.
+- `action`: user decision `scope-change`, `re-plan`, `abandon`, or `retry`; `null` remains pending.
 
-The orchestrator writes it via `odf_receipt(change, phase, status, cause, ...)` before escalating to the user, and updates the action with the user's answer.
+The orchestrator writes the receipt with `odf_receipt` before escalating and
+updates its action after the user decides. `/odf-continue` must rediscover a
+receipt whose `action` is still `null` before resuming.
 
-## Status Values
+## Status Semantics
 
-| Status | Meaning | Orchestrator Action |
-|--------|---------|-------------------|
-| `ok` | Phase completed successfully | Show summary, proceed to gate/next phase |
-| `warning` | Completed with non-blocking issues | Show summary + warnings, proceed to gate |
-| `blocked` | Cannot continue without user input | STOP and ask the user for clarification |
-| `failed` | Something went wrong | STOP and report the error to the user |
+| Inner status | Orchestrator action |
+|---|---|
+| `ok` | Show summary and continue to the next gate |
+| `warning` | Show summary and warnings, then continue to the next gate |
+| `blocked` | Pause and ask the user for clarification or disposition |
+| `failed` | Stop, report the error, and suggest recovery |
 
-## Orchestrator Behavior
-
-- If status is `ok` or `warning` the orchestrator MAY auto-continue to the next gate
-- If status is `blocked` the orchestrator MUST pause and ask the user
-- If status is `failed` the orchestrator MUST report error and suggest recovery
-- `executive_summary` is what the user sees — make it count
-- `next_recommended` drives the DAG — orchestrator uses this to determine the next phase
-
-## Example
-
-```markdown
-## ODF Result
-- **status**: ok
-- **executive_summary**: Custom module needed. Standard Odoo sales doesn't support per-category discounts. Module `sale_discount_category` with 2 new models proposed.
-- **strategy**: custom
-- **artifacts_saved**: [{"name": "assess", "engram_topic_key": "odf/sale-discount-field/assess"}]
-- **next_recommended**: ["design"]
-- **risks**: ["Discount computation on large order lines may need performance optimization"]
-- **odoo_version**: 18
-- **modules_affected**: ["sale_discount_category"]
-```
+The outer status answers "did delegation run?"; the inner status answers "what
+did the phase produce?". A successful outer `delegated` status is not proof of
+an inner `ok` result. `blocked` means the next transition cannot happen without
+user input; `ok` means the phase handoff is approved/complete enough for the
+next gate.
