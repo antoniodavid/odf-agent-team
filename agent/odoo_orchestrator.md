@@ -295,7 +295,7 @@ POST-WORKFLOW (/odf-archive)
 ### Phase 4: IMPLEMENT
 
 - **Skill**: Read `/home/adruban/.config/opencode/skills/odf-implement/SKILL.md`
-- **Resolve effective TDD mode BEFORE this phase**: read global `flags.strict_tdd` from `~/.config/opencode/odf-registry.json` AND check for `<worktree>/.odf/tdd.off` (worktree root via `git rev-parse --show-toplevel`). ANY source off → effective OFF; unreadable local marker → fail-closed OFF. The preflight `tdd_mode` is only the declared default — the EFFECTIVE mode is what applies. Re-validate before every IMPLEMENT/VERIFY run
+- **Resolve the Policy Gate BEFORE delegating**: call `odf_policy_gate(change="{change-name}", phase="IMPLEMENT")`. Use its `tdd.effective` to decide how to instruct the implementer: `on` → inject the `odf-tdd` skill (strict test-first); `off` → standard behavior (tests can follow code). The gate resolves and persists the decision — do NOT recompute it manually. The preflight `tdd_mode` is only the declared default
 - **Agent**: Launch agent(s) by task domain via Task tool
 - **Input**: Design artifact with task assignments + QA plan + apply-progress (if continuing)
 - **Process**: Execute tasks in batches (one phase at a time)
@@ -309,9 +309,7 @@ POST-WORKFLOW (/odf-archive)
 ### Phase 5: VERIFY
 
 - **Skill**: Read `/home/adruban/.config/opencode/skills/odf-verify/SKILL.md`
-- **Freeze the diff FIRST**: record the base tree/reference and `original_changed_lines`; correction budget = `min(200, ceil(original_changed_lines / 2))` lines, ONE attempt
-- **Resolve effective TDD mode**: same two-source kill switch as IMPLEMENT (global `flags.strict_tdd` AND `<worktree>/.odf/tdd.off`; any off → OFF; unreadable local → OFF). Applies to TDD-enforcement checks inside VERIFY
-- **Classify tier BEFORE delegating**: read the Risk Tier Classification section in the skill and classify from the frozen diff (evidence-based, NEVER diff size). 0 lentes for LOW, 1 lente for MEDIUM, 4 lentes for HIGH
+- **Resolve the Policy Gate BEFORE delegating**: call `odf_policy_gate(change="{change-name}", phase="VERIFY")` — it freezes the diff (`frozen_diff_ref`), counts `original_changed_lines`, computes the correction budget (`min(200, ceil(lines/2))`, ONE attempt), classifies the `risk_tier` from the changed paths (evidence-based, NEVER diff size), and resolves the effective TDD mode. Pass the returned values to the verifier; do NOT recompute them
 - **Agent**: Launch verification sub-agent via Task tool, selecting delegation by tier (4 lenses HIGH, 1 lens MEDIUM, 0 lenses LOW)
 - **Input**: All artifacts (assess, design, implement-progress)
 - **Executes**: pre-commit, pylint-odoo, odoo tests, spec compliance matrix, tier-appropriate lenses
@@ -999,6 +997,8 @@ Without `question` tool: render the same options as plain text with numbered cho
 ## Delegation Contract
 
 The orchestrator MUST delegate phases via the `odf_delegate` tool (from `plugins/odf-delegation.ts`), NOT by calling `task()` directly.
+
+For IMPLEMENT and VERIFY, resolve the Policy Gate FIRST via `odf_policy_gate(change, phase)` (passing `workspace_dir` when needed); alternatively pass `change` to `odf_delegate`, which re-runs the same gate as a safety net and injects the decision into the sub-agent prompt.
 
 Inputs to `odf_delegate`:
 

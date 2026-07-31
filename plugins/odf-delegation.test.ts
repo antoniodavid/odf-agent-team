@@ -3,6 +3,7 @@ import * as path from "node:path"
 import * as fs from "node:fs/promises"
 import * as fsSync from "node:fs"
 import * as os from "node:os"
+import { execSync } from "node:child_process"
 
 // These pure functions do not depend on the registry file path, so they can be
 // imported normally. createODFDelegate is imported dynamically in its own tests
@@ -20,6 +21,10 @@ import {
   getMetricsBuffer,
   clearMetricsBuffer,
   ALLOWED_PHASES,
+  classifyRiskTier,
+  computePolicyGate,
+  savePolicyGateJson,
+  type PolicyGateDecision,
   type ODFRegistry,
   type ODFSkill,
   type ODFAgent,
@@ -410,6 +415,189 @@ describe("recordMetrics", () => {
   })
 })
 
+describe("classifyRiskTier", () => {
+  it("returns HIGH for security files", () => {
+    expect(classifyRiskTier(["security/ir.model.access.csv"])).toBe("HIGH")
+    expect(classifyRiskTier(["security/account.csv"])).toBe("HIGH")
+    expect(classifyRiskTier(["data/access_control.csv"])).toBe("HIGH")
+    expect(classifyRiskTier(["models/res_partner_security.py"])).toBe("HIGH")
+  })
+
+  it("returns LOW for passive view/docs files", () => {
+    expect(classifyRiskTier(["views/sale_form.xml"])).toBe("LOW")
+    expect(classifyRiskTier(["data/demo.yml"])).toBe("LOW")
+    expect(classifyRiskTier(["README.md"])).toBe("LOW")
+    expect(classifyRiskTier(["i18n/en.po"])).toBe("LOW")
+    expect(classifyRiskTier(["__manifest__.py"])).toBe("LOW")
+  })
+
+  it("returns MEDIUM for model code", () => {
+    expect(classifyRiskTier(["models/sale_order.py"])).toBe("MEDIUM")
+    expect(classifyRiskTier(["controllers/payment.py"])).toBe("MEDIUM")
+  })
+
+  it("returns MEDIUM for empty or mixed paths", () => {
+    expect(classifyRiskTier([])).toBe("MEDIUM")
+    expect(classifyRiskTier(["models/sale_order.py", "views/sale_form.xml"])).toBe("MEDIUM")
+  })
+})
+
+function initGitRepo(dir: string): void {
+  fsSync.mkdirSync(dir, { recursive: true })
+  execSync("git init -q", { cwd: dir })
+  execSync('git config user.email "test@example.com"', { cwd: dir })
+  execSync('git config user.name "odf-test"', { cwd: dir })
+}
+
+function commitFile(dir: string, name: string, lines: number): void {
+  const filePath = path.join(dir, name)
+  fsSync.mkdirSync(path.dirname(filePath), { recursive: true })
+  fsSync.writeFileSync(filePath, Array.from({ length: lines }, (_, i) => `line ${i}`).join("\n") + "\n", "utf8")
+  execSync("git add -A", { cwd: dir })
+  execSync('git commit -q -m "base"', { cwd: dir })
+}
+
+function appendLines(dir: string, name: string, n: number): void {
+  fsSync.appendFileSync(path.join(dir, name), Array.from({ length: n }, (_, i) => `extra ${i}`).join("\n") + "\n", "utf8")
+}
+
+describe("computePolicyGate", () => {
+  let tmp: string
+
+  beforeEach(async () => {
+    tmp = await fs.mkdtemp(path.join(os.tmpdir(), "odf-gate-"))
+  })
+
+  afterEach(async () => {
+    await fs.rm(tmp, { recursive: true, force: true })
+  })
+
+  const registryWithTdd = (strict: boolean): ODFRegistry => ({
+    ...baseRegistry,
+    flags: { strict_tdd: strict },
+  })
+
+  it("resolves TDD on when global is true and no local marker", () => {
+    const d = computePolicyGate({ change: "tdd-on", phase: "IMPLEMENT", workspaceDir: tmp, registry: registryWithTdd(true) })
+    expect(d.gate).toBe("allow")
+    expect(d.tdd.global).toBe(true)
+    expect(d.tdd.local_readable).toBe(true)
+    expect(d.tdd.local_off).toBe(false)
+    expect(d.tdd.effective).toBe("on")
+  })
+
+  it("resolves TDD off when the local marker exists", async () => {
+    await fs.mkdir(path.join(tmp, ".odf"), { recursive: true })
+    await fs.writeFile(path.join(tmp, ".odf", "tdd.off"), "off", "utf8")
+    const d = computePolicyGate({ change: "tdd-off", phase: "IMPLEMENT", workspaceDir: tmp, registry: registryWithTdd(true) })
+    expect(d.tdd.effective).toBe("off")
+    expect(d.tdd.local_off).toBe(true)
+  })
+
+  it("resolves TDD off when the global flag is false", () => {
+    const d = computePolicyGate({ change: "tdd-global-off", phase: "IMPLEMENT", workspaceDir: tmp, registry: registryWithTdd(false) })
+    expect(d.tdd.global).toBe(false)
+    expect(d.tdd.effective).toBe("off")
+  })
+
+  it("fails closed when the local source is unreadable", async () => {
+    await fs.writeFile(path.join(tmp, ".odf"), "not-a-directory", "utf8")
+    const d = computePolicyGate({ change: "tdd-failclosed", phase: "IMPLEMENT", workspaceDir: tmp, registry: registryWithTdd(true) })
+    expect(d.tdd.local_readable).toBe(false)
+    expect(d.tdd.effective).toBe("off")
+  })
+
+  it("blocks on a missing change name", () => {
+    const d = computePolicyGate({ change: "", phase: "IMPLEMENT", workspaceDir: tmp, registry: registryWithTdd(true) })
+    expect(d.gate).toBe("block")
+    expect(d.reason).toContain("missing change name")
+  })
+
+  it("computes the correction budget at half the changed lines (n=100 → 50)", () => {
+    const repo = path.join(tmp, "repo100")
+    initGitRepo(repo)
+    commitFile(repo, "a.py", 10)
+    appendLines(repo, "a.py", 100)
+    const d = computePolicyGate({ change: "budget-100", phase: "VERIFY", workspaceDir: repo, registry: registryWithTdd(false) })
+    expect(d.frozen_diff_ref).toBeTruthy()
+    expect(d.changed_lines).toBe(100)
+    expect(d.correction_budget_lines).toBe(50)
+  })
+
+  it("caps the correction budget at 200 lines (n=500 → 200)", () => {
+    const repo = path.join(tmp, "repo500")
+    initGitRepo(repo)
+    commitFile(repo, "a.py", 10)
+    appendLines(repo, "a.py", 500)
+    const d = computePolicyGate({ change: "budget-500", phase: "VERIFY", workspaceDir: repo, registry: registryWithTdd(false) })
+    expect(d.changed_lines).toBe(500)
+    expect(d.correction_budget_lines).toBe(200)
+  })
+
+  it("reuses a frozen decision for the same ref instead of re-freezing", () => {
+    const repo = path.join(tmp, "repo-idem")
+    initGitRepo(repo)
+    commitFile(repo, "a.py", 10)
+    appendLines(repo, "a.py", 100)
+    const first = computePolicyGate({ change: "idem", phase: "VERIFY", workspaceDir: repo, registry: registryWithTdd(false) })
+    appendLines(repo, "a.py", 200)
+    const second = computePolicyGate({ change: "idem", phase: "VERIFY", workspaceDir: repo, registry: registryWithTdd(false) })
+    expect(second.frozen_diff_ref).toBe(first.frozen_diff_ref)
+    expect(second.changed_lines).toBe(100)
+    expect(second.correction_budget_lines).toBe(50)
+  })
+
+  it("classifies the risk tier from changed paths for VERIFY", () => {
+    const repo = path.join(tmp, "repo-tier")
+    initGitRepo(repo)
+    commitFile(repo, "security/ir.model.access.csv", 5)
+    appendLines(repo, "security/ir.model.access.csv", 5)
+    const d = computePolicyGate({ change: "tier-sec", phase: "VERIFY", workspaceDir: repo, registry: registryWithTdd(false) })
+    expect(d.risk_tier).toBe("HIGH")
+
+    const repoLow = path.join(tmp, "repo-tier-low")
+    initGitRepo(repoLow)
+    commitFile(repoLow, "views/sale_form.xml", 5)
+    appendLines(repoLow, "views/sale_form.xml", 5)
+    const low = computePolicyGate({ change: "tier-low", phase: "VERIFY", workspaceDir: repoLow, registry: registryWithTdd(false) })
+    expect(low.risk_tier).toBe("LOW")
+  })
+
+  it("fails open for VERIFY when git is unavailable", () => {
+    const d = computePolicyGate({ change: "no-git", phase: "VERIFY", workspaceDir: tmp, registry: registryWithTdd(true) })
+    expect(d.frozen_diff_ref).toBeNull()
+    expect(d.changed_lines).toBeNull()
+    expect(d.risk_tier).toBe("LOW")
+    expect(d.gate).toBe("allow")
+  })
+})
+
+describe("savePolicyGateJson", () => {
+  it("persists a decision to <worktree>/.odf/policy-gate-{change}.json", async () => {
+    const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "odf-save-"))
+    try {
+      const decision: PolicyGateDecision = {
+        change: "save-test",
+        phase: "IMPLEMENT",
+        gate: "allow",
+        reason: "test",
+        tdd: { global: false, local_readable: true, local_off: false, effective: "off" },
+        risk_tier: "MEDIUM",
+        frozen_diff_ref: null,
+        changed_lines: null,
+        correction_budget_lines: null,
+        changed_paths: [],
+        resolved_at: new Date().toISOString(),
+      }
+      savePolicyGateJson(tmp, decision)
+      const saved = JSON.parse(fsSync.readFileSync(path.join(tmp, ".odf", "policy-gate-save-test.json"), "utf8"))
+      expect(saved.change).toBe("save-test")
+    } finally {
+      await fs.rm(tmp, { recursive: true, force: true })
+    }
+  })
+})
+
 describe("createODFDelegate", () => {
   const originalHome = process.env.HOME
   let tempHome: string
@@ -691,5 +879,101 @@ describe("createODFDelegate", () => {
     expect(envelope.phase).toBe("PROPOSE")
     expect(envelope.agent).toBe("odoo_functional_consultant")
     expect(getMetricsBuffer()[0].phase).toBe("PROPOSE")
+  })
+})
+
+describe("createODFPolicyGate", () => {
+  const originalHome = process.env.HOME
+  let tempHome: string
+
+  beforeEach(async () => {
+    tempHome = await fs.mkdtemp(path.join(os.tmpdir(), "odf-policy-tool-"))
+    process.env.HOME = tempHome
+    const configDir = path.join(tempHome, ".config", "opencode")
+    await fs.mkdir(configDir, { recursive: true })
+    await fs.copyFile(
+      path.resolve(process.cwd(), "odf-registry.json"),
+      path.join(configDir, "odf-registry.json")
+    )
+    vi.resetModules()
+  })
+
+  afterEach(async () => {
+    process.env.HOME = originalHome
+    await fs.rm(tempHome, { recursive: true, force: true })
+    vi.restoreAllMocks()
+  })
+
+  it("persists the decision to <worktree>/.odf/policy-gate-{change}.json", async () => {
+    const { createODFPolicyGate } = await import("./odf-delegation.js")
+    const workspace = path.join(tempHome, "worktree")
+    await fs.mkdir(workspace, { recursive: true })
+
+    const gateTool = createODFPolicyGate()
+    const output = await gateTool.execute({ change: "my-change", phase: "IMPLEMENT", workspace_dir: workspace }, {} as any)
+    const decision = JSON.parse(output as string)
+    expect(decision.gate).toBe("allow")
+    expect(decision.change).toBe("my-change")
+    expect(decision.phase).toBe("IMPLEMENT")
+    expect(decision.tdd.effective).toBe("off")
+
+    const saved = JSON.parse(
+      await fs.readFile(path.join(workspace, ".odf", "policy-gate-my-change.json"), "utf8")
+    )
+    expect(saved.change).toBe("my-change")
+    expect(saved.tdd.effective).toBe("off")
+  })
+})
+
+describe("odf_delegate policy gate hook", () => {
+  const originalHome = process.env.HOME
+  let tempHome: string
+
+  beforeEach(async () => {
+    tempHome = await fs.mkdtemp(path.join(os.tmpdir(), "odf-hook-"))
+    process.env.HOME = tempHome
+    const configDir = path.join(tempHome, ".config", "opencode")
+    await fs.mkdir(configDir, { recursive: true })
+    await fs.copyFile(
+      path.resolve(process.cwd(), "odf-registry.json"),
+      path.join(configDir, "odf-registry.json")
+    )
+    vi.resetModules()
+  })
+
+  afterEach(async () => {
+    process.env.HOME = originalHome
+    await fs.rm(tempHome, { recursive: true, force: true })
+    vi.restoreAllMocks()
+    const odfDir = path.join(process.cwd(), ".odf")
+    await fs.rm(path.join(odfDir, "policy-gate-hook-test.json"), { force: true })
+    try {
+      await fs.rmdir(odfDir)
+    } catch {
+      // dir not empty or missing — leave it
+    }
+  })
+
+  it("injects the frozen policy gate into the VERIFY delegation", async () => {
+    const { createODFDelegate } = await import("./odf-delegation.js")
+    const taskResult = { status: "ok", executive_summary: "verified" }
+    const taskApi = vi.fn().mockResolvedValue(taskResult)
+    const toolCtx = { sessionID: "s1", task: taskApi } as any
+
+    const delegateTool = createODFDelegate(undefined)
+    const output = await delegateTool.execute(
+      { phase: "VERIFY", prompt: "Change name: hook-test\nVerify the implementation", context_files: [] },
+      toolCtx
+    )
+
+    const envelope = JSON.parse(output as string)
+    expect(envelope.status).toBe("delegated")
+    expect(envelope.policy_gate).toBeDefined()
+    expect(envelope.policy_gate.phase).toBe("VERIFY")
+    expect(envelope.policy_gate.frozen_diff_ref).toBeTruthy()
+
+    const calledPrompt = taskApi.mock.calls[0][0].prompt
+    expect(calledPrompt).toContain("## Policy Gate Decision (authoritative, do not recompute)")
+    expect(calledPrompt).toContain(envelope.policy_gate.frozen_diff_ref)
   })
 })

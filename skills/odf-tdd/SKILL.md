@@ -15,6 +15,7 @@ Active when the EFFECTIVE TDD mode is ON. Effective mode = two-source kill switc
 
 | Rule | Requirement |
 |------|-------------|
+| Tool-resolved effective mode | La resolución efectiva la ejecuta la tool `odf_policy_gate` (global + local, fail-closed); este skill aplica el modo efectivo resuelto |
 | Resolve effective mode first | Effective = global AND local. Any off wins; unreadable local → OFF. Never assume ON |
 | Test before code | Write failing test FIRST, THEN implement to make it pass (red-green-refactor) |
 | Every REQ-XX needs a test | No implementation task without a corresponding test task |

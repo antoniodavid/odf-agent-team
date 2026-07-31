@@ -840,6 +840,277 @@ ${enrichedPrompt}
 const ALLOWED_PHASES = ["PROPOSE", "ASSESS", "QA-PLAN", "DESIGN", "IMPLEMENT", "VERIFY", "EXPLORE"]
 
 // ==========================================
+// POLICY GATE (slice 1)
+// ==========================================
+
+export interface PolicyGateDecision {
+  change: string
+  phase: "IMPLEMENT" | "VERIFY"
+  gate: "allow" | "block"
+  reason: string
+  tdd: {
+    global: boolean
+    local_readable: boolean
+    local_off: boolean
+    effective: "on" | "off"
+  }
+  risk_tier: "LOW" | "MEDIUM" | "HIGH"
+  frozen_diff_ref: string | null
+  changed_lines: number | null
+  correction_budget_lines: number | null
+  changed_paths: string[]
+  resolved_at: string
+}
+
+/**
+ * Classify the risk tier of a change from its changed paths.
+ * HIGH: security files, CSV access rules, ir.model.access.
+ * LOW: passive byte-proven files (views/data XML, docs, po, demo yml, manifest).
+ * Everything else (models, controllers, raw Python) → MEDIUM.
+ */
+export function classifyRiskTier(changedPaths: string[]): "LOW" | "MEDIUM" | "HIGH" {
+  // ponytail: filename-only tier, upgrade to content scan when needed
+  const HIGH_PATTERNS = [
+    /security\//i,
+    /ir\.model\.access/i,
+    /\.csv$/i,
+    /groups=/i,
+    /_security/i,
+  ]
+  const LOW_PATTERNS = [
+    /views\/[^/]+\.xml$/i,
+    /data\/[^/]+\.xml$/i,
+    /\.ya?ml$/i,
+    /\.md$/i,
+    /\.po$/i,
+    /\.pot$/i,
+    /__manifest__\.py$/i,
+  ]
+
+  for (const p of changedPaths) {
+    if (HIGH_PATTERNS.some(rx => rx.test(p))) return "HIGH"
+  }
+  if (changedPaths.length === 0) return "MEDIUM"
+  return changedPaths.every(p => LOW_PATTERNS.some(rx => rx.test(p))) ? "LOW" : "MEDIUM"
+}
+
+function gitHead(workspaceDir: string): string | null {
+  try {
+    return execSync("git rev-parse HEAD", { cwd: workspaceDir, encoding: "utf8" }).trim() || null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Effective TDD = global `flags.strict_tdd` (registry) AND absence of the
+ * local marker `<worktree>/.odf/tdd.off`. Any off → effective OFF; an
+ * unreadable local source (anything but ENOENT) → fail-closed OFF.
+ */
+function resolveTddEffective(
+  registry: ODFRegistry,
+  workspaceDir: string
+): { global: boolean; local_readable: boolean; local_off: boolean; effective: "on" | "off" } {
+  const global = registry.flags?.strict_tdd === true
+  const marker = path.join(workspaceDir, ".odf", "tdd.off")
+  let localReadable = false
+  let localOff = false
+  try {
+    fsSync.readFileSync(marker, "utf8")
+    localOff = true
+    localReadable = true
+  } catch (err) {
+    localOff = false
+    localReadable = (err as NodeJS.ErrnoException).code === "ENOENT"
+  }
+  const effective = global && localReadable && !localOff ? "on" : "off"
+  return { global, local_readable: localReadable, local_off: localOff, effective }
+}
+
+export function savePolicyGateJson(workspaceDir: string, decision: PolicyGateDecision): void {
+  try {
+    const dir = path.join(workspaceDir, ".odf")
+    fsSync.mkdirSync(dir, { recursive: true })
+    fsSync.writeFileSync(
+      path.join(dir, `policy-gate-${decision.change}.json`),
+      JSON.stringify(decision, null, 2),
+      "utf8"
+    )
+  } catch (err) {
+    console.warn(`[odf-delegation] Failed to persist policy gate for ${decision.change}: ${err}`)
+  }
+}
+
+/**
+ * Resolve and persist the Policy Gate for a change before IMPLEMENT/VERIFY.
+ * Resolves effective TDD and, for VERIFY, freezes the diff ref, counts changed
+ * lines, classifies the risk tier, and computes the correction budget.
+ *
+ * The gate DOCUMENTS the decision — it does not analyze code. `gate` stays
+ * "allow" except for hard conditions (missing change name). Idempotent: reuses
+ * a persisted decision with the same phase + frozen diff ref (no re-freeze).
+ */
+export function computePolicyGate(opts: {
+  change: string
+  phase: "IMPLEMENT" | "VERIFY"
+  workspaceDir?: string
+  registry: ODFRegistry
+}): PolicyGateDecision {
+  const workspace = resolveWorkspaceRoot(opts.workspaceDir || process.cwd())
+  const tdd = resolveTddEffective(opts.registry, workspace)
+
+  if (!opts.change || !opts.change.trim()) {
+    return {
+      change: opts.change || "",
+      phase: opts.phase,
+      gate: "block",
+      reason: "missing change name — cannot persist a policy gate",
+      tdd,
+      risk_tier: "MEDIUM",
+      frozen_diff_ref: null,
+      changed_lines: null,
+      correction_budget_lines: null,
+      changed_paths: [],
+      resolved_at: new Date().toISOString(),
+    }
+  }
+
+  const gatePath = path.join(workspace, ".odf", `policy-gate-${opts.change}.json`)
+  const head = gitHead(workspace)
+
+  // Idempotency: reuse a frozen decision for the same change + phase + ref.
+  try {
+    const existing = JSON.parse(fsSync.readFileSync(gatePath, "utf8")) as PolicyGateDecision
+    if (
+      existing.phase === opts.phase &&
+      existing.frozen_diff_ref != null &&
+      head !== null &&
+      existing.frozen_diff_ref === head
+    ) {
+      return existing
+    }
+  } catch {
+    // No prior gate, stale, or unreadable → recompute.
+  }
+
+  let frozenDiffRef: string | null = null
+  let changedLines: number | null = null
+  let changedPaths: string[] = []
+  let riskTier: "LOW" | "MEDIUM" | "HIGH" = "MEDIUM"
+  let correctionBudget: number | null = null
+
+  if (opts.phase === "VERIFY") {
+    frozenDiffRef = head
+    if (frozenDiffRef) {
+      try {
+        const numstat = execSync("git diff --numstat HEAD", { cwd: workspace, encoding: "utf8" }).trim()
+        changedLines = numstat
+          .split("\n")
+          .filter(Boolean)
+          .reduce((sum, line) => {
+            const [add, del] = line.split("\t")
+            const a = parseInt(add, 10)
+            const d = parseInt(del, 10)
+            return sum + (Number.isFinite(a) ? a : 0) + (Number.isFinite(d) ? d : 0)
+          }, 0)
+      } catch {
+        changedLines = null
+      }
+      try {
+        changedPaths = execSync("git diff --name-only HEAD", { cwd: workspace, encoding: "utf8" })
+          .trim()
+          .split("\n")
+          .filter(Boolean)
+      } catch {
+        changedPaths = []
+      }
+      riskTier = classifyRiskTier(changedPaths)
+      correctionBudget = changedLines != null ? Math.min(200, Math.ceil(changedLines / 2)) : null
+    } else {
+      // git unavailable → fail-open for VERIFY (the odf-verify skill demands bytes).
+      riskTier = "LOW"
+    }
+  }
+
+  const decision: PolicyGateDecision = {
+    change: opts.change,
+    phase: opts.phase,
+    gate: "allow",
+    reason:
+      opts.phase === "VERIFY"
+        ? "policy gate documented — sub-agent verifies against the frozen diff ref"
+        : "policy gate documented — TDD enforcement lives in the odf-tdd skill",
+    tdd,
+    risk_tier: riskTier,
+    frozen_diff_ref: frozenDiffRef,
+    changed_lines: changedLines,
+    correction_budget_lines: correctionBudget,
+    changed_paths: changedPaths,
+    resolved_at: new Date().toISOString(),
+  }
+
+  savePolicyGateJson(workspace, decision)
+  return decision
+}
+
+function extractChangeName(prompt: string): string | null {
+  const match = prompt.match(/[Cc]hange\s+name\s*[:=]\s*([A-Za-z0-9][A-Za-z0-9_-]*)/)
+  return match ? match[1] : null
+}
+
+function createODFPolicyGate(): ReturnType<typeof tool> {
+  return tool({
+    description: `Resolve and persist the ODF Policy Gate for a change before IMPLEMENT/VERIFY.
+
+Resolves the effective TDD mode (global flags.strict_tdd AND local <worktree>/.odf/tdd.off;
+any off or unreadable local → off, fail-closed) and, for VERIFY, freezes the diff ref
+(git rev-parse HEAD), counts the original changed lines, classifies the risk tier from the
+changed paths, and computes the correction budget (min(200, ceil(lines/2))).
+Persists the decision to <worktree>/.odf/policy-gate-{change}.json (idempotent for the same
+frozen diff ref). The gate documents — the sub-agent applies, never recomputes.`,
+    args: {
+      change: tool.schema
+        .string()
+        .describe("Change name (kebab-case)"),
+      phase: tool.schema
+        .enum(["IMPLEMENT", "VERIFY"])
+        .describe("Phase to gate"),
+      workspace_dir: tool.schema
+        .string()
+        .optional()
+        .describe("Project directory (defaults to cwd)"),
+    },
+    async execute(args: { change: string; phase: "IMPLEMENT" | "VERIFY"; workspace_dir?: string }): Promise<string> {
+      const registry = await loadRegistry()
+      if (!registry) {
+        const blocked: PolicyGateDecision = {
+          change: args.change,
+          phase: args.phase,
+          gate: "block",
+          reason: "ODF registry not found — cannot resolve TDD",
+          tdd: { global: false, local_readable: false, local_off: false, effective: "off" },
+          risk_tier: "MEDIUM",
+          frozen_diff_ref: null,
+          changed_lines: null,
+          correction_budget_lines: null,
+          changed_paths: [],
+          resolved_at: new Date().toISOString(),
+        }
+        return JSON.stringify(blocked, null, 2)
+      }
+      const decision = computePolicyGate({
+        change: args.change,
+        phase: args.phase,
+        workspaceDir: args.workspace_dir,
+        registry,
+      })
+      console.log(`[odf-delegation] odf_policy_gate: change=${decision.change} phase=${decision.phase} gate=${decision.gate} tdd=${decision.tdd.effective} tier=${decision.risk_tier}`)
+      return JSON.stringify(decision, null, 2)
+    },
+  })
+}
+
+// ==========================================
 // TOOL CREATORS
 // ==========================================
 
@@ -868,12 +1139,16 @@ Use this instead of generic task() for ODF workflow delegation.`,
         .string()
         .optional()
         .describe("Optional SDD profile name override"),
+      change: tool.schema
+        .string()
+        .optional()
+        .describe("Change name (kebab-case) — used by the Policy Gate hook for IMPLEMENT/VERIFY"),
       timeout_ms: tool.schema
         .number()
         .optional()
         .describe("Task timeout in milliseconds (default: 120000)"),
     },
-    async execute(args: { phase: string; prompt: string; context_files?: string[]; profile?: string; timeout_ms?: number }, toolCtx: ToolContext): Promise<string> {
+    async execute(args: { phase: string; prompt: string; context_files?: string[]; profile?: string; change?: string; timeout_ms?: number }, toolCtx: ToolContext): Promise<string> {
       if (!toolCtx?.sessionID) {
         return "❌ odf_delegate requires sessionID"
       }
@@ -912,6 +1187,23 @@ Use this instead of generic task() for ODF workflow delegation.`,
         return `❌ ODF registry not found. Run /odf-init or check ${REGISTRY_PATH}`
       }
 
+      // Policy Gate (chokepoint): resolve + persist before any IMPLEMENT/VERIFY
+      // delegation. The gate documents the decision; the sub-agent applies it
+      // (never recomputes). Safety net — the orchestrator calls odf_policy_gate
+      // explicitly; this re-runs the same decision and injects it.
+      let policyGate: PolicyGateDecision | null = null
+      if (args.phase === "IMPLEMENT" || args.phase === "VERIFY") {
+        const changeName = args.change || extractChangeName(args.prompt)
+        if (changeName) {
+          policyGate = computePolicyGate({
+            change: changeName,
+            phase: args.phase as "IMPLEMENT" | "VERIFY",
+            workspaceDir: workspaceRoot,
+            registry,
+          })
+        }
+      }
+
       // Detect Odoo version from project
       const odooVersion = await detectOdooVersion(workspaceRoot)
       if (odooVersion) {
@@ -935,12 +1227,15 @@ Use this instead of generic task() for ODF workflow delegation.`,
       const profileBlock = profile ? formatProfileBlock(profile, args.phase) : ""
       console.log(`[odf-delegation] odf_delegate: phase=${args.phase} agent=${agentName} skills=${skills.length} version=${odooVersion || "auto"} profile=${profile?.name || "default"}`)
 
-      // Inject compact rules and profile
+      // Inject compact rules, profile, and the Policy Gate decision
       const rules = formatCompactRules(skills)
       const hasInjection = rules || profileBlock
       const enrichedPrompt = hasInjection
         ? `${[rules, profileBlock].filter(Boolean).join("\n\n")}\n\n---\n\n${args.prompt}\n\n## Skill Resolution Status\nReport: injected (received from odf-delegation plugin)`
         : `${args.prompt}\n\n## Skill Resolution Status\nReport: none (no matching skills in registry)`
+      const delegationPrompt = policyGate
+        ? `${enrichedPrompt}\n\n## Policy Gate Decision (authoritative, do not recompute)\n${JSON.stringify(policyGate, null, 2)}`
+        : enrichedPrompt
 
       const duration = Date.now() - startTime
       const taskApiInfo = findTaskApi(toolCtx, client)
@@ -951,7 +1246,7 @@ Use this instead of generic task() for ODF workflow delegation.`,
       if (taskApiInfo) {
         try {
           const timeoutMs = args.timeout_ms ?? 120_000
-          const taskResult = await invokeTask(taskApiInfo.taskApi, agentName, enrichedPrompt, args.context_files, timeoutMs)
+          const taskResult = await invokeTask(taskApiInfo.taskApi, agentName, delegationPrompt, args.context_files, timeoutMs)
           recordMetrics({
             timestamp: new Date().toISOString(),
             session_id: toolCtx.sessionID,
@@ -960,7 +1255,7 @@ Use this instead of generic task() for ODF workflow delegation.`,
             skills_injected: skills.map(s => s.name),
             skill_resolution: skills.length > 0 ? "injected" : "none",
             duration_ms: Date.now() - startTime,
-            token_estimate: estimateTokens(enrichedPrompt),
+            token_estimate: estimateTokens(delegationPrompt),
             status: "ok",
             task_api_source: taskApiInfo.source,
           })
@@ -970,6 +1265,7 @@ Use this instead of generic task() for ODF workflow delegation.`,
             agent: agentName,
             skills_injected: skills.map(s => s.name),
             profile: profilePayload,
+            policy_gate: policyGate,
             task_api_source: taskApiInfo.source,
             result: taskResult.result,
           }, null, 2)
@@ -984,7 +1280,7 @@ Use this instead of generic task() for ODF workflow delegation.`,
             skills_injected: skills.map(s => s.name),
             skill_resolution: skills.length > 0 ? "injected" : "none",
             duration_ms: Date.now() - startTime,
-            token_estimate: estimateTokens(enrichedPrompt),
+            token_estimate: estimateTokens(delegationPrompt),
             status: isTimeout ? "timeout" : "error",
             task_api_source: taskApiInfo.source,
             error: errorMessage,
@@ -994,6 +1290,7 @@ Use this instead of generic task() for ODF workflow delegation.`,
             phase: args.phase,
             agent: agentName,
             profile: profilePayload,
+            policy_gate: policyGate,
             task_api_source: taskApiInfo.source,
             message: errorMessage,
           }, null, 2)
@@ -1009,12 +1306,12 @@ Use this instead of generic task() for ODF workflow delegation.`,
         skills_injected: skills.map(s => s.name),
         skill_resolution: skills.length > 0 ? "injected" : "none",
         duration_ms: duration,
-        token_estimate: estimateTokens(enrichedPrompt),
+        token_estimate: estimateTokens(delegationPrompt),
         status: "fallback",
         task_api_source: "unavailable",
       })
 
-      return buildFallbackOutput(args.phase, agentName, skills, enrichedPrompt, profile)
+      return buildFallbackOutput(args.phase, agentName, skills, delegationPrompt, profile)
     },
   })
 }
@@ -1613,6 +1910,7 @@ You have ODF-specific tools for structured Odoo development:
 - \`odf_community_tool_detect(tool_name)\` — Check if a community tool CLI is installed and wired
 - \`odf_community_tool_install(tool_name, workspace_dir)\` — Install a community tool npm package and init
 - \`odf_status(change_name, workspace_dir)\` — Resolve ODF change status from Engram observations
+- \`odf_policy_gate(change, phase, workspace_dir)\` — Resolve + persist the Policy Gate (TDD + frozen diff) before IMPLEMENT/VERIFY
 
 ### Available Commands
 
@@ -1637,6 +1935,7 @@ You have ODF-specific tools for structured Odoo development:
 | Check if community tool is installed | \`odf_community_tool_detect\` |
 | Install and wire a community tool | \`odf_community_tool_install\` |
 | Resolve ODF change status from Engram | \`odf_status\` |
+| Gate IMPLEMENT/VERIFY (TDD + diff freeze) | \`odf_policy_gate\` |
 
 ### ODF Phase Agent Mapping
 
@@ -1735,7 +2034,7 @@ export const OdfDelegationPlugin: Plugin = async (ctx) => {
     console.log(`[odf-delegation] Health: ${healthChecks.join(", ")}`)
   }
 
-  console.log(`[odf-delegation] Plugin loaded. Tools: odf_delegate, odf_skill_inject, odf_registry_read, odf_notebooklm_lookup, odf_profile_select, odf_skill_resolve, odf_community_tool_detect, odf_community_tool_install, odf_status`)
+  console.log(`[odf-delegation] Plugin loaded. Tools: odf_delegate, odf_skill_inject, odf_registry_read, odf_notebooklm_lookup, odf_profile_select, odf_skill_resolve, odf_community_tool_detect, odf_community_tool_install, odf_status, odf_policy_gate`)
 
   return {
     tool: {
@@ -1748,6 +2047,7 @@ export const OdfDelegationPlugin: Plugin = async (ctx) => {
       odf_community_tool_detect: createODFCommunityToolDetect(),
       odf_community_tool_install: createODFCommunityToolInstall(),
       odf_status: createODFStatus(),
+      odf_policy_gate: createODFPolicyGate(),
     },
 
     // Inject ODF system rules into system prompt
@@ -1773,6 +2073,7 @@ export {
   getProfileByPhase,
   recordMetrics,
   ALLOWED_PHASES,
+  createODFPolicyGate,
   type ODFRegistry,
   type ODFSkill,
   type ODFAgent,
