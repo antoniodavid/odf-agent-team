@@ -180,10 +180,11 @@ POST-WORKFLOW (/odf-archive)
 - Step 0.5: Keyword to Skill Mapping (MIGRATED from odoo_context_gatherer)
 - Step 1+: Standard check, gap analysis, functional spec
 
-**VERIFY Phase (Step 8 in odf-verify):**
-- Step 1-7: Original verification steps
-- Step 8: Code Review (MIGRATED from odoo_code_reviewer)
-- Step 9-10: Persist and return result
+**VERIFY Phase (tier-based, odf-verify):**
+- Freeze the candidate diff, then classify risk tier BEFORE launching (HIGH: 4 lenses; MEDIUM: 1 lens; LOW: 0 lenses)
+- Steps 1-9: artifacts, freeze diff, classify, completeness, OCA compliance, pre-commit, tests, pylint, compliance matrix
+- Step 10: Review by tier (Judgment Day 3-pass only for HIGH)
+- Step 11: Persist verify-report with `frozen_diff_ref`
 
 ### Quick Reference: When to Use Each Command
 
@@ -294,6 +295,7 @@ POST-WORKFLOW (/odf-archive)
 ### Phase 4: IMPLEMENT
 
 - **Skill**: Read `/home/adruban/.config/opencode/skills/odf-implement/SKILL.md`
+- **Resolve effective TDD mode BEFORE this phase**: read global `flags.strict_tdd` from `~/.config/opencode/odf-registry.json` AND check for `<worktree>/.odf/tdd.off` (worktree root via `git rev-parse --show-toplevel`). ANY source off → effective OFF; unreadable local marker → fail-closed OFF. The preflight `tdd_mode` is only the declared default — the EFFECTIVE mode is what applies. Re-validate before every IMPLEMENT/VERIFY run
 - **Agent**: Launch agent(s) by task domain via Task tool
 - **Input**: Design artifact with task assignments + QA plan + apply-progress (if continuing)
 - **Process**: Execute tasks in batches (one phase at a time)
@@ -307,12 +309,15 @@ POST-WORKFLOW (/odf-archive)
 ### Phase 5: VERIFY
 
 - **Skill**: Read `/home/adruban/.config/opencode/skills/odf-verify/SKILL.md`
-- **Agent**: Launch verification sub-agent via Task tool
+- **Freeze the diff FIRST**: record the base tree/reference and `original_changed_lines`; correction budget = `min(200, ceil(original_changed_lines / 2))` lines, ONE attempt
+- **Resolve effective TDD mode**: same two-source kill switch as IMPLEMENT (global `flags.strict_tdd` AND `<worktree>/.odf/tdd.off`; any off → OFF; unreadable local → OFF). Applies to TDD-enforcement checks inside VERIFY
+- **Classify tier BEFORE delegating**: read the Risk Tier Classification section in the skill and classify from the frozen diff (evidence-based, NEVER diff size). 0 lentes for LOW, 1 lente for MEDIUM, 4 lentes for HIGH
+- **Agent**: Launch verification sub-agent via Task tool, selecting delegation by tier (4 lenses HIGH, 1 lens MEDIUM, 0 lenses LOW)
 - **Input**: All artifacts (assess, design, implement-progress)
-- **Executes**: pre-commit, pylint-odoo, odoo tests, spec compliance matrix
+- **Executes**: pre-commit, pylint-odoo, odoo tests, spec compliance matrix, tier-appropriate lenses
 - **Output**: PASS / PASS WITH WARNINGS / FAIL
-- **If FAIL**: Show issues, return to IMPLEMENT
-- **If PASS**: Persist `odf/{change-name}/verify-report`, workflow complete
+- **If FAIL**: apply the correction budget — delegate ONE correction attempt (bounded by frozen budget), re-verify ONCE against the SAME frozen diff (`frozen_diff_ref`). An inconclusive re-verification (validator could not inspect the frozen diff) does NOT consume the attempt. If re-verification inspected the bytes and still FAILED → STOP and escalate to the user with ONE actionable question (scope change / re-plan / abandon) with evidence. NEVER auto-loop
+- **If PASS**: Persist `odf/{change-name}/verify-report` (with `frozen_diff_ref`), workflow complete
 - **Persist**: `odf/{change-name}/verify-report` to Engram
 - **Post-PASS**: Save retrospective (see Knowledge Accumulation below)
 
@@ -497,6 +502,7 @@ Detect these triggers and act accordingly:
 | `/odf-verify`          | Jump to VERIFY                                     |
 | `/odf-qa <name>`       | Run QA activities (plan, review, coverage)         |
 | `/odf-status`          | Show current state of active change(s)             |
+| `/odf-tdd`             | Toggle/status two-source TDD kill switch (global + local) |
 | `/odf-fix <name>`      | Lightweight bugfix flow (DIAGNOSE → FIX → VERIFY)  |
 | `/odf-archive <name>`  | Archive completed change with retrospective        |
 | `/odf-metrics`         | Show aggregated stats from completed changes       |
@@ -877,6 +883,8 @@ Before delegating ANY phase, the orchestrator MUST ensure the change has a compl
 | `tdd_mode` | true, false | false |
 | `solution_strategy` | standard, custom, pending | pending |
 | `chain_strategy` | none, chained, feature-branch | none |
+
+> Note: `tdd_mode` is the DECLARED default only. The EFFECTIVE TDD mode is resolved by the kill switch before each IMPLEMENT/VERIFY phase: global `flags.strict_tdd` (registry) AND local marker `<worktree>/.odf/tdd.off`. ANY source off → effective OFF; unreadable local → fail-closed OFF.
 
 ### Flow
 

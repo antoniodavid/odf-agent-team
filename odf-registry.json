@@ -624,7 +624,7 @@
         "qa gate",
         "quality"
       ],
-      "compact_rules": "Quality gate: run real tests + linting + compliance + adversarial review.\n- Execute tests (static analysis alone is not verification)\n- Every REQ-XX must have a PASSING test (COMPLIANT) or it's UNTESTED (CRITICAL)\n- Judgment Day: 3 review passes (reviewer \u2192 maintainer \u2192 attacker), flag discrepancies\n- Pre-commit: run -a. CRITICAL if non-auto-fixable failures\n- Never fix issues \u2014 only report. Orchestrator decides",
+      "compact_rules": "Quality gate: evidence-based risk tiers + lens review + single-attempt correction budget.\n- Classify tier from the FROZEN diff (never diff size): HIGH (security/perms/raw SQL/money/data-loss/subprocess/public endpoints → 4 lenses risk/resilience/readability/reliability), MEDIUM (1 lens, default readability), LOW (0 lenses: structural readback + native tools, no reviewers)\n- Judgment Day 3-pass review runs ONLY for HIGH tier\n- Execute tests (static analysis alone is not verification)\n- Every REQ-XX must have a PASSING test (COMPLIANT) or it's UNTESTED (CRITICAL)\n- Correction budget: min(200, ceil(original_changed_lines/2)) lines, ONE attempt, re-verify once against same frozen diff (frozen_diff_ref); inconclusive validator doesn't consume the attempt; failed → escalate to user, never auto-loop\n- Never fix issues \u2014 only report. Orchestrator decides",
       "path": "skills/odf-verify/SKILL.md",
       "odoo_versions": [
         14,
@@ -1025,7 +1025,7 @@
         "red-green-refactor",
         "test before code"
       ],
-      "compact_rules": "Strict TDD opt-in. Tests BEFORE code (red-green-refactor).\n- Every REQ-XX must have test task paired with implementation task\n- Write failing test FIRST, then implement to make it pass\n- VERIFY rejects code without matching tests when TDD on\n- Toggle with /odf-tdd on|off",
+      "compact_rules": "Strict TDD opt-in, two-source kill switch (any off wins, fail-closed).\n- Effective mode = global flags.strict_tdd (registry) AND absence of local marker <worktree>/.odf/tdd.off\n- Any source off → effective OFF; unreadable local → OFF (fail-closed), never ON\n- Resolve effective mode BEFORE each IMPLEMENT/VERIFY phase; preflight tdd_mode is only the declared default\n- Tests BEFORE code (red-green-refactor). Every REQ-XX must have a test task paired with implementation task\n- VERIFY rejects code without matching tests when effective mode is ON\n- Re-activating TDD re-validates state from zero. Global toggle: /odf-tdd on|off; local off-only marker: /odf-tdd local off|on",
       "path": "skills/odf-tdd/SKILL.md",
       "odoo_versions": [
         14,
