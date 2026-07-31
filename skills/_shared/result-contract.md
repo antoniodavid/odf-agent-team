@@ -29,6 +29,7 @@ as the LAST part of their response. The orchestrator parses this to decide next 
 | `risks` | NO | List of risks identified (empty `[]` if none) |
 | `odoo_version` | YES | Target Odoo version |
 | `modules_affected` | YES | List of Odoo module technical names affected |
+| `validation_evidence` | NO (IMPLEMENT) | Path to `<worktree>/.odf/validation-evidence-{change}.json` + command/exit_code summary. The plugin seals `validation: {status: verified\|missing\|invalid}` on the delegation envelope with blind rules — prose never counts, only the artifact |
 
 ## Status Values
 

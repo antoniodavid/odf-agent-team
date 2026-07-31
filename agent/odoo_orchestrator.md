@@ -301,6 +301,7 @@ POST-WORKFLOW (/odf-archive)
 - **Process**: Execute tasks in batches (one phase at a time)
 - **Apply-progress continuity**: When launching a continuation batch, search for existing `odf/{change}/implement-progress` via Engram. If found, add to the prompt: `"PREVIOUS APPLY-PROGRESS EXISTS at topic_key 'odf/{change}/implement-progress'. Read it first, merge your new progress with the existing record, save the combined result. Do NOT overwrite — MERGE."`
 - **After each batch**: 
+  - Read the `validation` seal on the delegation envelope (the plugin validates `<worktree>/.odf/validation-evidence-{change}.json` with blind rules after IMPLEMENT delegations). If `validation.status !== "verified"` (missing/invalid: stale evidence, wrong frozen ref, failing exit codes, or too few commands for the tier) → do NOT close the batch. Re-delegate one corrective pass: fix, re-run the stop-validation commands, rewrite the evidence file. Re-check the seal before closing
   - Show progress via `question` tool, ask to continue
   - Launch QA-REVIEW to validate tests written
 - **Persist**: `odf/{change-name}/implement-progress` to Engram

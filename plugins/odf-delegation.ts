@@ -1058,6 +1058,133 @@ function extractChangeName(prompt: string): string | null {
   return match ? match[1] : null
 }
 
+// ==========================================
+// STOP-VALIDATION EVIDENCE (slice 2)
+// ==========================================
+
+export interface ValidationEvidenceCommand {
+  name: string
+  command: string
+  exit_code: number
+  output_tail: string
+}
+
+export interface ValidationEvidenceFile {
+  change: string
+  phase: string
+  batch: number
+  risk_tier: "LOW" | "MEDIUM" | "HIGH"
+  frozen_diff_ref: string | null
+  resolved_at: string
+  commands: ValidationEvidenceCommand[]
+}
+
+export interface ValidationVerdict {
+  status: "verified" | "missing" | "invalid"
+  reason: string
+  commands_validated: number
+}
+
+const EVIDENCE_FRESHNESS_MS = 60 * 60 * 1000 // 60 min window
+
+/** Minimum evidence commands required per risk tier. */
+const EVIDENCE_MIN_COMMANDS: Record<"LOW" | "MEDIUM" | "HIGH", number> = {
+  LOW: 1,
+  MEDIUM: 2,
+  HIGH: 3,
+}
+
+/** Minimal output patterns keyed by command name (only for known commands). */
+const EVIDENCE_PATTERNS: Record<string, RegExp> = {
+  "odoo-tests": /0 failed/i,
+  "odoo-test": /0 failed/i,
+  "pytest-odoo": /0 failed/i,
+  "pre-commit": /all checks passed/i,
+  "pylint-odoo": /^(?:-+)?\s*$/m,
+  "pylint": /^(?:-+)?\s*$/m,
+}
+
+/**
+ * Deterministic stop-validation seal. The sub-agent executes the commands and
+ * writes `<worktree>/.odf/validation-evidence-{change}.json`; this function
+ * validates the ARTIFACT with blind rules (no prose, no LLM judgment):
+ *
+ * - present + parseable
+ * - `change` bound to the expected change
+ * - `frozen_diff_ref` bound to the policy gate (when the gate has a ref)
+ * - fresh: `resolved_at` within EVIDENCE_FRESHNESS_MS of now
+ * - at least EVIDENCE_MIN_COMMANDS[tier] commands
+ * - every command exit_code === 0
+ * - known commands match their minimal output pattern
+ */
+export function validateValidationEvidence(opts: {
+  workspaceDir: string
+  change: string
+  tier: "LOW" | "MEDIUM" | "HIGH"
+  frozenDiffRef: string | null
+  now?: Date
+}): ValidationVerdict {
+  const now = opts.now || new Date()
+  const filePath = path.join(opts.workspaceDir, ".odf", `validation-evidence-${opts.change}.json`)
+
+  let raw: string
+  try {
+    raw = fsSync.readFileSync(filePath, "utf8")
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code
+    if (code === "ENOENT") {
+      return { status: "missing", reason: "validation-evidence file not found — run stop-validation commands and write the evidence file", commands_validated: 0 }
+    }
+    return { status: "invalid", reason: "validation-evidence file unreadable", commands_validated: 0 }
+  }
+
+  let evidence: ValidationEvidenceFile
+  try {
+    evidence = JSON.parse(raw) as ValidationEvidenceFile
+  } catch {
+    return { status: "invalid", reason: "validation-evidence file is not valid JSON", commands_validated: 0 }
+  }
+
+  if (evidence.change !== opts.change) {
+    return { status: "invalid", reason: `validation-evidence change "${evidence.change}" does not match "${opts.change}"`, commands_validated: 0 }
+  }
+
+  if (opts.frozenDiffRef != null && evidence.frozen_diff_ref !== opts.frozenDiffRef) {
+    return { status: "invalid", reason: "validation-evidence frozen_diff_ref does not match the policy gate frozen ref", commands_validated: 0 }
+  }
+
+  const resolvedAt = new Date(evidence.resolved_at).getTime()
+  if (!Number.isFinite(resolvedAt)) {
+    return { status: "invalid", reason: "validation-evidence resolved_at is not a valid timestamp", commands_validated: 0 }
+  }
+  const ageMs = now.getTime() - resolvedAt
+  if (ageMs < 0 || ageMs > EVIDENCE_FRESHNESS_MS) {
+    return { status: "invalid", reason: `validation-evidence is stale (resolved ${Math.round(ageMs / 1000)}s ago, window ${EVIDENCE_FRESHNESS_MS / 1000}s)`, commands_validated: 0 }
+  }
+
+  const commands = Array.isArray(evidence.commands) ? evidence.commands : []
+  if (commands.length < EVIDENCE_MIN_COMMANDS[opts.tier]) {
+    return { status: "invalid", reason: `tier ${opts.tier} requires at least ${EVIDENCE_MIN_COMMANDS[opts.tier]} command(s), got ${commands.length}`, commands_validated: commands.length }
+  }
+
+  let checked = 0
+  for (const cmd of commands) {
+    if (!cmd || typeof cmd.name !== "string" || typeof cmd.exit_code !== "number") {
+      return { status: "invalid", reason: "evidence command missing name or exit_code", commands_validated: checked }
+    }
+    if (cmd.exit_code !== 0) {
+      return { status: "invalid", reason: `command "${cmd.name}" exited with ${cmd.exit_code}`, commands_validated: checked }
+    }
+    const pattern = EVIDENCE_PATTERNS[cmd.name]
+    if (pattern && !pattern.test(cmd.output_tail || "")) {
+      return { status: "invalid", reason: `command "${cmd.name}" output does not match expected success pattern`, commands_validated: checked }
+    }
+    checked += 1
+  }
+
+  return { status: "verified", reason: `stop-validation evidence verified (${checked} command(s))`, commands_validated: checked }
+}
+
 function createODFPolicyGate(): ReturnType<typeof tool> {
   return tool({
     description: `Resolve and persist the ODF Policy Gate for a change before IMPLEMENT/VERIFY.
@@ -1259,6 +1386,19 @@ Use this instead of generic task() for ODF workflow delegation.`,
             status: "ok",
             task_api_source: taskApiInfo.source,
           })
+          // Stop-validation seal (slice 2): after an IMPLEMENT delegation, stamp
+          // the envelope with the deterministic evidence verdict. The sub-agent
+          // executes the commands and writes validation-evidence-{change}.json;
+          // this plugin only validates the artifact — prose never counts.
+          let validation: ValidationVerdict | null = null
+          if (args.phase === "IMPLEMENT" && policyGate) {
+            validation = validateValidationEvidence({
+              workspaceDir: workspaceRoot,
+              change: policyGate.change,
+              tier: policyGate.risk_tier,
+              frozenDiffRef: policyGate.frozen_diff_ref,
+            })
+          }
           return JSON.stringify({
             status: "delegated",
             phase: args.phase,
@@ -1266,6 +1406,7 @@ Use this instead of generic task() for ODF workflow delegation.`,
             skills_injected: skills.map(s => s.name),
             profile: profilePayload,
             policy_gate: policyGate,
+            validation,
             task_api_source: taskApiInfo.source,
             result: taskResult.result,
           }, null, 2)
@@ -1911,6 +2052,22 @@ You have ODF-specific tools for structured Odoo development:
 - \`odf_community_tool_install(tool_name, workspace_dir)\` — Install a community tool npm package and init
 - \`odf_status(change_name, workspace_dir)\` — Resolve ODF change status from Engram observations
 - \`odf_policy_gate(change, phase, workspace_dir)\` — Resolve + persist the Policy Gate (TDD + frozen diff) before IMPLEMENT/VERIFY
+
+### Stop-Validation Evidence (IMPLEMENT)
+
+After an IMPLEMENT delegation, the orchestrator reads the \`validation\` seal on the envelope. To close a batch, the sub-agent MUST run the stop-validation commands for its risk tier and write the evidence artifact to \`<worktree>/.odf/validation-evidence-{change}.json\`:
+
+\`\`\`json
+{ "change": "my-change", "phase": "IMPLEMENT", "batch": 1, "risk_tier": "MEDIUM",
+  "frozen_diff_ref": "<same ref as the policy gate>", "resolved_at": "<ISO-8601>",
+  "commands": [ { "name": "git-diff-check", "command": "git diff --check", "exit_code": 0, "output_tail": "..." },
+                { "name": "odoo-tests", "command": "odoo-bin -d test_db -i my_module --test-enable --stop-after-init", "exit_code": 0, "output_tail": "... 0 failed ..." } ] }
+\`\`\`
+
+- Tier LOW ≥ 1 command, MEDIUM ≥ 2, HIGH ≥ 3; every command exit_code 0.
+- The plugin seals \`validation: {status: verified|missing|invalid}\` with blind rules — prose in the result never counts, only the artifact.
+- Freshness window: \`resolved_at\` must be within 60 minutes.
+
 
 ### Available Commands
 

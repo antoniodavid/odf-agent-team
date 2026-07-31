@@ -24,6 +24,7 @@ import {
   classifyRiskTier,
   computePolicyGate,
   savePolicyGateJson,
+  validateValidationEvidence,
   type PolicyGateDecision,
   type ODFRegistry,
   type ODFSkill,
@@ -975,5 +976,205 @@ describe("odf_delegate policy gate hook", () => {
     const calledPrompt = taskApi.mock.calls[0][0].prompt
     expect(calledPrompt).toContain("## Policy Gate Decision (authoritative, do not recompute)")
     expect(calledPrompt).toContain(envelope.policy_gate.frozen_diff_ref)
+  })
+})
+
+describe("validateValidationEvidence", () => {
+  let tmp: string
+  const now = new Date("2026-07-31T12:00:00Z")
+
+  const writeEvidence = async (data: Record<string, unknown>, change = "ev-change") => {
+    const dir = path.join(tmp, ".odf")
+    await fs.mkdir(dir, { recursive: true })
+    await fs.writeFile(path.join(dir, `validation-evidence-${change}.json`), JSON.stringify(data))
+  }
+
+  beforeEach(async () => {
+    tmp = await fs.mkdtemp(path.join(os.tmpdir(), "odf-evidence-"))
+  })
+
+  afterEach(async () => {
+    await fs.rm(tmp, { recursive: true, force: true })
+  })
+
+  const validEvidence = (overrides: Record<string, unknown> = {}) => ({
+    change: "ev-change",
+    phase: "IMPLEMENT",
+    batch: 1,
+    risk_tier: "MEDIUM",
+    frozen_diff_ref: null,
+    resolved_at: "2026-07-31T11:30:00Z",
+    commands: [
+      { name: "git-diff-check", command: "git diff --check", exit_code: 0, output_tail: "" },
+      { name: "odoo-tests", command: "odoo-bin --test-enable", exit_code: 0, output_tail: "12 passed, 0 failed" },
+    ],
+    ...overrides,
+  })
+
+  it("verifies a fresh, bound evidence file with enough passing commands", async () => {
+    await writeEvidence(validEvidence())
+    const verdict = validateValidationEvidence({ workspaceDir: tmp, change: "ev-change", tier: "MEDIUM", frozenDiffRef: null, now })
+    expect(verdict).toEqual({ status: "verified", reason: expect.stringContaining("2 command(s)"), commands_validated: 2 })
+  })
+
+  it("returns missing when the evidence file does not exist", () => {
+    const verdict = validateValidationEvidence({ workspaceDir: tmp, change: "nope", tier: "MEDIUM", frozenDiffRef: null, now })
+    expect(verdict.status).toBe("missing")
+  })
+
+  it("returns invalid for unparsable JSON", async () => {
+    await writeEvidence({ not: "json", change: "ev-change" } as any)
+    const verdict = validateValidationEvidence({ workspaceDir: tmp, change: "ev-change", tier: "LOW", frozenDiffRef: null, now })
+    expect(verdict.status).toBe("invalid")
+  })
+
+  it("rejects a change mismatch", async () => {
+    await writeEvidence(validEvidence({ change: "other-change" }))
+    const verdict = validateValidationEvidence({ workspaceDir: tmp, change: "ev-change", tier: "LOW", frozenDiffRef: null, now })
+    expect(verdict.status).toBe("invalid")
+    expect(verdict.reason).toContain("does not match")
+  })
+
+  it("rejects when frozen_diff_ref does not match the policy gate ref", async () => {
+    await writeEvidence(validEvidence({ frozen_diff_ref: "abc123" }))
+    const verdict = validateValidationEvidence({ workspaceDir: tmp, change: "ev-change", tier: "LOW", frozenDiffRef: "def456", now })
+    expect(verdict.status).toBe("invalid")
+    expect(verdict.reason).toContain("frozen_diff_ref")
+  })
+
+  it("allows a null frozen ref (IMPLEMENT gates have no frozen ref)", async () => {
+    await writeEvidence(validEvidence({ frozen_diff_ref: null }))
+    const verdict = validateValidationEvidence({ workspaceDir: tmp, change: "ev-change", tier: "LOW", frozenDiffRef: null, now })
+    expect(verdict.status).toBe("verified")
+  })
+
+  it("rejects stale evidence beyond the freshness window", async () => {
+    await writeEvidence(validEvidence({ resolved_at: "2026-07-31T10:30:00Z" })) // 90 min old
+    const verdict = validateValidationEvidence({ workspaceDir: tmp, change: "ev-change", tier: "LOW", frozenDiffRef: null, now })
+    expect(verdict.status).toBe("invalid")
+    expect(verdict.reason).toContain("stale")
+  })
+
+  it("rejects evidence with too few commands for the tier", async () => {
+    await writeEvidence(validEvidence({ commands: [{ name: "git-diff-check", command: "git diff --check", exit_code: 0, output_tail: "" }] }))
+    const verdict = validateValidationEvidence({ workspaceDir: tmp, change: "ev-change", tier: "MEDIUM", frozenDiffRef: null, now })
+    expect(verdict.status).toBe("invalid")
+    expect(verdict.reason).toContain("tier MEDIUM requires at least 2")
+  })
+
+  it("rejects a command with a non-zero exit code", async () => {
+    await writeEvidence(validEvidence({ commands: [
+      { name: "git-diff-check", command: "git diff --check", exit_code: 0, output_tail: "" },
+      { name: "odoo-tests", command: "odoo-bin --test-enable", exit_code: 1, output_tail: "2 failed" },
+    ] }))
+    const verdict = validateValidationEvidence({ workspaceDir: tmp, change: "ev-change", tier: "MEDIUM", frozenDiffRef: null, now })
+    expect(verdict.status).toBe("invalid")
+    expect(verdict.reason).toContain("exited with 1")
+  })
+
+  it("rejects a known command whose output misses the success pattern", async () => {
+    await writeEvidence(validEvidence({ commands: [
+      { name: "git-diff-check", command: "git diff --check", exit_code: 0, output_tail: "" },
+      { name: "odoo-tests", command: "odoo-bin --test-enable", exit_code: 0, output_tail: "3 FAILED" },
+    ] }))
+    const verdict = validateValidationEvidence({ workspaceDir: tmp, change: "ev-change", tier: "MEDIUM", frozenDiffRef: null, now })
+    expect(verdict.status).toBe("invalid")
+    expect(verdict.reason).toContain("success pattern")
+  })
+
+  it("requires HIGH tier to have 3+ commands", async () => {
+    await writeEvidence(validEvidence())
+    const verdict = validateValidationEvidence({ workspaceDir: tmp, change: "ev-change", tier: "HIGH", frozenDiffRef: null, now })
+    expect(verdict.status).toBe("invalid")
+    expect(verdict.reason).toContain("tier HIGH requires at least 3")
+  })
+})
+
+describe("odf_delegate stop-validation seal", () => {
+  const originalHome = process.env.HOME
+  let tempHome: string
+  const odfDir = path.join(process.cwd(), ".odf")
+
+  beforeEach(async () => {
+    tempHome = await fs.mkdtemp(path.join(os.tmpdir(), "odf-seal-"))
+    process.env.HOME = tempHome
+    const configDir = path.join(tempHome, ".config", "opencode")
+    await fs.mkdir(configDir, { recursive: true })
+    await fs.copyFile(
+      path.resolve(process.cwd(), "odf-registry.json"),
+      path.join(configDir, "odf-registry.json")
+    )
+    vi.resetModules()
+  })
+
+  afterEach(async () => {
+    process.env.HOME = originalHome
+    await fs.rm(tempHome, { recursive: true, force: true })
+    await fs.rm(path.join(odfDir, "policy-gate-seal-test.json"), { force: true })
+    await fs.rm(path.join(odfDir, "validation-evidence-seal-test.json"), { force: true })
+    vi.restoreAllMocks()
+  })
+
+  it("stamps validation=missing on IMPLEMENT when no evidence file exists", async () => {
+    const { createODFDelegate } = await import("./odf-delegation.js")
+    const taskApi = vi.fn().mockResolvedValue({ status: "ok", executive_summary: "done" })
+    const toolCtx = { sessionID: "s1", task: taskApi } as any
+
+    const delegateTool = createODFDelegate(undefined)
+    const output = await delegateTool.execute(
+      { phase: "IMPLEMENT", prompt: "Change name: seal-test\nImplement tasks", context_files: [] },
+      toolCtx
+    )
+
+    const envelope = JSON.parse(output as string)
+    expect(envelope.validation).toBeDefined()
+    expect(envelope.validation.status).toBe("missing")
+  })
+
+  it("stamps validation=verified on IMPLEMENT when evidence passes", async () => {
+    const { createODFDelegate } = await import("./odf-delegation.js")
+    await fs.mkdir(odfDir, { recursive: true })
+    await fs.writeFile(
+      path.join(odfDir, "validation-evidence-seal-test.json"),
+      JSON.stringify({
+        change: "seal-test",
+        phase: "IMPLEMENT",
+        batch: 1,
+        risk_tier: "MEDIUM",
+        frozen_diff_ref: null,
+        resolved_at: new Date().toISOString(),
+        commands: [
+          { name: "git-diff-check", command: "git diff --check", exit_code: 0, output_tail: "" },
+          { name: "odoo-tests", command: "odoo-bin --test-enable", exit_code: 0, output_tail: "12 passed, 0 failed" },
+        ],
+      })
+    )
+    const taskApi = vi.fn().mockResolvedValue({ status: "ok", executive_summary: "done" })
+    const toolCtx = { sessionID: "s1", task: taskApi } as any
+
+    const delegateTool = createODFDelegate(undefined)
+    const output = await delegateTool.execute(
+      { phase: "IMPLEMENT", prompt: "Change name: seal-test\nImplement tasks", context_files: [] },
+      toolCtx
+    )
+
+    const envelope = JSON.parse(output as string)
+    expect(envelope.validation).toBeDefined()
+    expect(envelope.validation.status).toBe("verified")
+  })
+
+  it("does not stamp validation on non-IMPLEMENT phases", async () => {
+    const { createODFDelegate } = await import("./odf-delegation.js")
+    const taskApi = vi.fn().mockResolvedValue({ status: "ok", executive_summary: "planned" })
+    const toolCtx = { sessionID: "s1", task: taskApi } as any
+
+    const delegateTool = createODFDelegate(undefined)
+    const output = await delegateTool.execute(
+      { phase: "DESIGN", prompt: "Design the change", context_files: [] },
+      toolCtx
+    )
+
+    const envelope = JSON.parse(output as string)
+    expect(envelope.validation).toBeNull()
   })
 })
