@@ -77,6 +77,8 @@ The tier is decided by the EVIDENCE in the frozen diff, NEVER by the number of l
 
 Return ODF Result envelope with: status (ok|warning|failed), executive_summary ("PASS/FAIL: X/Y specs compliant, Z critical issues"), compliance matrix (table: requirement, scenario, test, result), test_results, lint_results, review_summary, judgment_day_discrepancies (HIGH tier only), risks, modules_affected, frozen_diff_ref.
 
+**On FAIL**: include the failure disposition fields so the orchestrator can write the receipt — `cause` (`validation-failed`), `evidence.failing` (the commands/tests that failed), and `evidence.refs` (verify-report topic key + frozen ref). The orchestrator records them via `odf_receipt` before escalating.
+
 ## References
 
 - `/home/adruban/.config/opencode/skills/_shared/result-contract.md` — ODF Result envelope

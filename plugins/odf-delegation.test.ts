@@ -25,6 +25,7 @@ import {
   computePolicyGate,
   savePolicyGateJson,
   validateValidationEvidence,
+  mergeReceipt,
   type PolicyGateDecision,
   type ODFRegistry,
   type ODFSkill,
@@ -1176,5 +1177,153 @@ describe("odf_delegate stop-validation seal", () => {
 
     const envelope = JSON.parse(output as string)
     expect(envelope.validation).toBeNull()
+  })
+})
+
+describe("mergeReceipt", () => {
+  let tmp: string
+  beforeEach(async () => {
+    tmp = await fs.mkdtemp(path.join(os.tmpdir(), "odf-receipt-"))
+  })
+  afterEach(async () => {
+    await fs.rm(tmp, { recursive: true, force: true })
+  })
+
+  const receipt = (overrides: Record<string, unknown> = {}) => ({
+    change: "rc-test",
+    phase: "VERIFY",
+    status: "failed",
+    cause: "validation-failed",
+    evidence: { summary: "compliance failed", frozen_diff_ref: "abc123", failing: ["odoo-tests"], refs: ["odf/rc-test/verify-report"] },
+    action: null,
+    review_gate: { attempts_used: 1, budget_lines: 12, verdict: "FAIL" },
+    frozen_diff_ref: "abc123",
+    resolved_at: "2026-07-31T12:00:00Z",
+    ...overrides,
+  })
+
+  it("writes a new receipt to <worktree>/.odf/receipt-{change}.json", () => {
+    const saved = mergeReceipt(tmp, receipt() as any)
+    expect(saved.status).toBe("failed")
+    const onDisk = JSON.parse(fsSync.readFileSync(path.join(tmp, ".odf", "receipt-rc-test.json"), "utf8"))
+    expect(onDisk.cause).toBe("validation-failed")
+  })
+
+  it("does not clobber an existing action with an action-less update", () => {
+    mergeReceipt(tmp, receipt({ action: { committed: "re-plan", user_decision: "re-plan the batch" } }) as any)
+    const incoming = receipt({ status: "blocked", cause: "scope-change" }) as any
+    const result = mergeReceipt(tmp, incoming)
+    expect(result.action?.committed).toBe("re-plan")
+    const onDisk = JSON.parse(fsSync.readFileSync(path.join(tmp, ".odf", "receipt-rc-test.json"), "utf8"))
+    expect(onDisk.action.committed).toBe("re-plan")
+    expect(onDisk.status).toBe("failed") // original retained
+  })
+
+  it("allows a retry to refresh the receipt", () => {
+    mergeReceipt(tmp, receipt({ action: { committed: "re-plan" } }) as any)
+    const incoming = receipt({ action: { committed: "retry" } }) as any
+    const result = mergeReceipt(tmp, incoming)
+    expect(result.action?.committed).toBe("retry")
+  })
+
+  it("returns the incoming receipt when no prior receipt exists", () => {
+    const incoming = receipt({ change: "rc-new" }) as any
+    const result = mergeReceipt(tmp, incoming)
+    expect(result.change).toBe("rc-new")
+    expect(result.status).toBe("failed")
+  })
+})
+
+describe("odf_delegate receipt auto-seal on error", () => {
+  const originalHome = process.env.HOME
+  let tempHome: string
+  const odfDir = path.join(process.cwd(), ".odf")
+
+  beforeEach(async () => {
+    tempHome = await fs.mkdtemp(path.join(os.tmpdir(), "odf-rseal-"))
+    process.env.HOME = tempHome
+    const configDir = path.join(tempHome, ".config", "opencode")
+    await fs.mkdir(configDir, { recursive: true })
+    await fs.copyFile(
+      path.resolve(process.cwd(), "odf-registry.json"),
+      path.join(configDir, "odf-registry.json")
+    )
+    vi.resetModules()
+  })
+
+  afterEach(async () => {
+    process.env.HOME = originalHome
+    await fs.rm(tempHome, { recursive: true, force: true })
+    await fs.rm(path.join(odfDir, "policy-gate-rseal.json"), { force: true })
+    await fs.rm(path.join(odfDir, "receipt-rseal.json"), { force: true })
+    vi.restoreAllMocks()
+  })
+
+  it("writes a failed receipt when the task API rejects", async () => {
+    const { createODFDelegate } = await import("./odf-delegation.js")
+    const taskApi = vi.fn().mockRejectedValue(new Error("task() timed out after 120000ms"))
+    const toolCtx = { sessionID: "s1", task: taskApi } as any
+
+    const delegateTool = createODFDelegate(undefined)
+    const output = await delegateTool.execute(
+      { phase: "IMPLEMENT", prompt: "Change name: rseal\nImplement tasks", context_files: [] },
+      toolCtx
+    )
+
+    const envelope = JSON.parse(output as string)
+    expect(envelope.status).toBe("timeout")
+
+    const receiptFile = path.join(odfDir, "receipt-rseal.json")
+    expect(fsSync.existsSync(receiptFile)).toBe(true)
+    const receipt = JSON.parse(fsSync.readFileSync(receiptFile, "utf8"))
+    expect(receipt.status).toBe("failed")
+    expect(receipt.cause).toBe("timeout")
+    expect(receipt.action).toBeNull()
+    expect(receipt.change).toBe("rseal")
+  })
+})
+
+describe("createODFReceipt tool", () => {
+  const originalHome = process.env.HOME
+  let tempHome: string
+
+  beforeEach(async () => {
+    tempHome = await fs.mkdtemp(path.join(os.tmpdir(), "odf-rtool-"))
+    process.env.HOME = tempHome
+    const configDir = path.join(tempHome, ".config", "opencode")
+    await fs.mkdir(configDir, { recursive: true })
+    await fs.copyFile(
+      path.resolve(process.cwd(), "odf-registry.json"),
+      path.join(configDir, "odf-registry.json")
+    )
+    vi.resetModules()
+  })
+
+  afterEach(async () => {
+    process.env.HOME = originalHome
+    await fs.rm(tempHome, { recursive: true, force: true })
+    vi.restoreAllMocks()
+  })
+
+  it("persists a receipt via the tool", async () => {
+    const { createODFReceipt } = await import("./odf-delegation.js")
+    const workspace = path.join(tempHome, "worktree")
+    await fs.mkdir(workspace, { recursive: true })
+
+    const receiptTool = createODFReceipt()
+    const output = await receiptTool.execute(
+      { change: "my-change", phase: "VERIFY", status: "failed", cause: "validation-failed", evidence_summary: "compliance failed", failing: ["odoo-tests"], refs: ["odf/my-change/verify-report"], workspace_dir: workspace },
+      {} as any
+    )
+    const receipt = JSON.parse(output as string)
+    expect(receipt.status).toBe("failed")
+    expect(receipt.cause).toBe("validation-failed")
+    expect(receipt.review_gate?.verdict).toBe("FAIL")
+
+    const saved = JSON.parse(
+      await fs.readFile(path.join(workspace, ".odf", "receipt-my-change.json"), "utf8")
+    )
+    expect(saved.evidence.failing).toContain("odoo-tests")
+    expect(saved.action).toBeNull()
   })
 })

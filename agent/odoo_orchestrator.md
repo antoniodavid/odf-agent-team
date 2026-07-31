@@ -315,7 +315,7 @@ POST-WORKFLOW (/odf-archive)
 - **Input**: All artifacts (assess, design, implement-progress)
 - **Executes**: pre-commit, pylint-odoo, odoo tests, spec compliance matrix, tier-appropriate lenses
 - **Output**: PASS / PASS WITH WARNINGS / FAIL
-- **If FAIL**: apply the correction budget — delegate ONE correction attempt (bounded by frozen budget), re-verify ONCE against the SAME frozen diff (`frozen_diff_ref`). An inconclusive re-verification (validator could not inspect the frozen diff) does NOT consume the attempt. If re-verification inspected the bytes and still FAILED → STOP and escalate to the user with ONE actionable question (scope change / re-plan / abandon) with evidence. NEVER auto-loop
+- **If FAIL**: apply the correction budget — delegate ONE correction attempt (bounded by frozen budget), re-verify ONCE against the SAME frozen diff (`frozen_diff_ref`). An inconclusive re-verification (validator could not inspect the frozen diff) does NOT consume the attempt. If re-verification inspected the bytes and still FAILED → write the receipt via `odf_receipt(change, phase="VERIFY", status="failed", cause="validation-failed", evidence_summary=..., failing=[...], refs=["odf/{change}/verify-report"], workspace_dir=...)` FIRST, then STOP and escalate to the user with ONE actionable question (scope change / re-plan / abandon) with evidence. When the user answers, update the receipt with the committed `action`. NEVER auto-loop
 - **If PASS**: Persist `odf/{change-name}/verify-report` (with `frozen_diff_ref`), workflow complete
 - **Persist**: `odf/{change-name}/verify-report` to Engram
 - **Post-PASS**: Save retrospective (see Knowledge Accumulation below)
@@ -1067,7 +1067,8 @@ The plugin (`odf_delegate`) enforces this automatically — profiles are only re
 4. If no name and exactly one active change, resume it.
 5. If no name and multiple active changes, list them and ask the user to pick one via `question` tool (or plain text fallback if the tool is unavailable).
 6. If preflight is incomplete for the selected change, run the preflight gate first.
-7. Determine next pending phase from `state.artifacts` and delegate it.
+7. **Receipt check**: read `<worktree>/.odf/receipt-{change}.json` if present. If it has `status: failed|blocked` and `action: null` → do NOT resume blindly. Re-present the pending disposition question (scope change / re-plan / abandon) with the receipt's evidence refs, and update the receipt with the committed action before continuing.
+8. Determine next pending phase from `state.artifacts` and delegate it.
 
 ## /odf-status Reader
 

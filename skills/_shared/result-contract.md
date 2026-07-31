@@ -30,6 +30,17 @@ as the LAST part of their response. The orchestrator parses this to decide next 
 | `odoo_version` | YES | Target Odoo version |
 | `modules_affected` | YES | List of Odoo module technical names affected |
 | `validation_evidence` | NO (IMPLEMENT) | Path to `<worktree>/.odf/validation-evidence-{change}.json` + command/exit_code summary. The plugin seals `validation: {status: verified\|missing\|invalid}` on the delegation envelope with blind rules — prose never counts, only the artifact |
+| `receipt` | NO (on FAIL/blocked) | Reference to `<worktree>/.odf/receipt-{change}.json`. On FAIL the orchestrator records cause/evidence/action via `odf_receipt` BEFORE escalating — a receipt with `action: null` remains pending and is re-discovered by `/odf-continue` |
+
+## Failure Disposition
+
+When a phase ends `blocked` or `failed`, persist the disposition so the learning loop survives sessions:
+
+- `cause` (machine): `validation-failed | error | timeout`
+- `evidence` (refs, not the full report): summary, frozen ref, failing commands/tests, topic keys
+- `action` (human): `scope-change | re-plan | abandon | retry` — set when the user decides; `null` = pending
+
+The orchestrator writes it via `odf_receipt(change, phase, status, cause, ...)` before escalating to the user, and updates the action with the user's answer.
 
 ## Status Values
 

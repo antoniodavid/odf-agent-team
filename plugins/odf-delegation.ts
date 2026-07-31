@@ -1185,6 +1185,148 @@ export function validateValidationEvidence(opts: {
   return { status: "verified", reason: `stop-validation evidence verified (${checked} command(s))`, commands_validated: checked }
 }
 
+// ==========================================
+// RECEIPT + FAILURE DISPOSITION (slice 4)
+// ==========================================
+
+export interface ODFReceipt {
+  change: string
+  phase: "PROPOSE" | "ASSESS" | "QA-PLAN" | "DESIGN" | "IMPLEMENT" | "VERIFY" | "EXPLORE" | "FIX"
+  status: "ok" | "warning" | "blocked" | "failed"
+  cause: "validation-failed" | "error" | "timeout" | "scope-change" | "re-plan" | "abandon" | null
+  evidence: {
+    summary: string
+    frozen_diff_ref: string | null
+    failing: string[]
+    refs: string[]
+  } | null
+  action: { committed: "scope-change" | "re-plan" | "abandon" | "retry" | "none"; user_decision?: string } | null
+  review_gate: { attempts_used: number; budget_lines: number | null; verdict: "FAIL" | "PASS" | "PASS_WITH_WARNINGS" } | null
+  frozen_diff_ref: string | null
+  resolved_at: string
+}
+
+export function saveReceiptJson(workspaceDir: string, receipt: ODFReceipt): void {
+  try {
+    const dir = path.join(workspaceDir, ".odf")
+    fsSync.mkdirSync(dir, { recursive: true })
+    fsSync.writeFileSync(
+      path.join(dir, `receipt-${receipt.change}.json`),
+      JSON.stringify(receipt, null, 2),
+      "utf8"
+    )
+  } catch (err) {
+    console.warn(`[odf-delegation] Failed to persist receipt for ${receipt.change}: ${err}`)
+  }
+}
+
+/**
+ * Upsert a receipt without clobbering a resolved one. A receipt whose `action`
+ * is set is terminal until a deliberate transition; an update with `action:
+ * null` never overwrites an existing set action.
+ */
+export function mergeReceipt(
+  workspaceDir: string,
+  incoming: ODFReceipt
+): ODFReceipt {  try {
+    const existing = JSON.parse(
+      fsSync.readFileSync(path.join(workspaceDir, ".odf", `receipt-${incoming.change}.json`), "utf8")
+    ) as ODFReceipt
+    if (existing.action && !incoming.action) {
+      return existing
+    }
+    if (existing.action && incoming.action && incoming.action.committed !== "retry") {
+      return existing
+    }
+  } catch {
+    // No prior receipt or unreadable → write incoming.
+  }
+  saveReceiptJson(workspaceDir, incoming)
+  return incoming
+}
+
+export function createODFReceipt(): ReturnType<typeof tool> {
+  return tool({    description: `Persist an ODF receipt (failure disposition) for a change.
+
+Writes/merges <worktree>/.odf/receipt-{change}.json. Use after a phase fails or
+blocked: record the cause, evidence refs, and the committed action
+(scope-change | re-plan | abandon | retry). A receipt with an action set is
+terminal until a deliberate transition — an update without action never
+overwrites it. Best-effort like the policy gate: never blocks the flow.`,
+    args: {
+      change: tool.schema
+        .string()
+        .describe("Change name (kebab-case)"),
+      phase: tool.schema
+        .enum(["PROPOSE", "ASSESS", "QA-PLAN", "DESIGN", "IMPLEMENT", "VERIFY", "EXPLORE", "FIX"])
+        .describe("Phase that produced the receipt"),
+      status: tool.schema
+        .enum(["ok", "warning", "blocked", "failed"])
+        .describe("Phase outcome (result-contract status)"),
+      cause: tool.schema
+        .enum(["validation-failed", "error", "timeout", "scope-change", "re-plan", "abandon"])
+        .optional()
+        .describe("Why the phase failed/blocked"),
+      evidence_summary: tool.schema
+        .string()
+        .optional()
+        .describe("Short decision-grade summary of the evidence"),
+      failing: tool.schema
+        .array(tool.schema.string())
+        .optional()
+        .describe("Commands/tests that failed"),
+      refs: tool.schema
+        .array(tool.schema.string())
+        .optional()
+        .describe("Topic keys / paths of the evidence (e.g. odf/{change}/verify-report)"),
+      action: tool.schema
+        .enum(["scope-change", "re-plan", "abandon", "retry", "none"])
+        .optional()
+        .describe("Committed next step (set when the user decides)"),
+      workspace_dir: tool.schema
+        .string()
+        .optional()
+        .describe("Project directory (defaults to cwd)"),
+    },
+    async execute(args: {
+      change: string
+      phase: ODFReceipt["phase"]
+      status: ODFReceipt["status"]
+      cause?: ODFReceipt["cause"]
+      evidence_summary?: string
+      failing?: string[]
+      refs?: string[]
+      action?: "scope-change" | "re-plan" | "abandon" | "retry" | "none"
+      workspace_dir?: string
+    }): Promise<string> {
+      const workspace = resolveWorkspaceRoot(args.workspace_dir || process.cwd())
+      const receipt: ODFReceipt = {
+        change: args.change,
+        phase: args.phase,
+        status: args.status,
+        cause: args.cause || null,
+        evidence:
+          args.evidence_summary || args.failing?.length || args.refs?.length
+            ? {
+                summary: args.evidence_summary || "",
+                frozen_diff_ref: gitHead(workspace),
+                failing: args.failing || [],
+                refs: args.refs || [],
+              }
+            : null,
+      action: args.action ? { committed: args.action } : null,
+      review_gate: args.phase === "VERIFY" ? { attempts_used: 1, budget_lines: null, verdict: args.status === "ok" ? "PASS" : args.status === "warning" ? "PASS_WITH_WARNINGS" : "FAIL" } : null,
+      frozen_diff_ref: gitHead(workspace),
+      resolved_at: new Date().toISOString(),
+    }
+    const merged = mergeReceipt(workspace, receipt)
+    const mergedAction = merged.action?.committed || "pending"
+    console.log(`[odf-delegation] odf_receipt: change=${merged.change} phase=${merged.phase} status=${merged.status} cause=${merged.cause} action=${mergedAction}`)
+    return JSON.stringify(merged, null, 2)
+  },
+})
+}
+
 function createODFPolicyGate(): ReturnType<typeof tool> {
   return tool({
     description: `Resolve and persist the ODF Policy Gate for a change before IMPLEMENT/VERIFY.
@@ -1426,6 +1568,27 @@ Use this instead of generic task() for ODF workflow delegation.`,
             task_api_source: taskApiInfo.source,
             error: errorMessage,
           })
+          // Receipt auto-seal (slice 4): persist a failure disposition so the
+          // learning loop does not depend on orchestrator memory. Best-effort.
+          if (policyGate) {
+            const receipt: ODFReceipt = {
+              change: policyGate.change,
+              phase: args.phase as ODFReceipt["phase"],
+              status: "failed",
+              cause: isTimeout ? "timeout" : "error",
+              evidence: {
+                summary: errorMessage,
+                frozen_diff_ref: policyGate.frozen_diff_ref,
+                failing: [errorMessage],
+                refs: [path.join(".odf", `policy-gate-${policyGate.change}.json`)],
+              },
+              action: null,
+              review_gate: null,
+              frozen_diff_ref: policyGate.frozen_diff_ref,
+              resolved_at: new Date().toISOString(),
+            }
+            mergeReceipt(workspaceRoot, receipt)
+          }
           return JSON.stringify({
             status: isTimeout ? "timeout" : "error",
             phase: args.phase,
@@ -2052,6 +2215,7 @@ You have ODF-specific tools for structured Odoo development:
 - \`odf_community_tool_install(tool_name, workspace_dir)\` — Install a community tool npm package and init
 - \`odf_status(change_name, workspace_dir)\` — Resolve ODF change status from Engram observations
 - \`odf_policy_gate(change, phase, workspace_dir)\` — Resolve + persist the Policy Gate (TDD + frozen diff) before IMPLEMENT/VERIFY
+- \`odf_receipt(change, phase, status, cause, evidence_summary, failing, refs, action, workspace_dir)\` — Persist/merge a failure disposition receipt for a change (VERIFY FAIL, blocked, resolved user decision)
 
 ### Stop-Validation Evidence (IMPLEMENT)
 
@@ -2191,7 +2355,7 @@ export const OdfDelegationPlugin: Plugin = async (ctx) => {
     console.log(`[odf-delegation] Health: ${healthChecks.join(", ")}`)
   }
 
-  console.log(`[odf-delegation] Plugin loaded. Tools: odf_delegate, odf_skill_inject, odf_registry_read, odf_notebooklm_lookup, odf_profile_select, odf_skill_resolve, odf_community_tool_detect, odf_community_tool_install, odf_status, odf_policy_gate`)
+  console.log(`[odf-delegation] Plugin loaded. Tools: odf_delegate, odf_skill_inject, odf_registry_read, odf_notebooklm_lookup, odf_profile_select, odf_skill_resolve, odf_community_tool_detect, odf_community_tool_install, odf_status, odf_policy_gate, odf_receipt`)
 
   return {
     tool: {
@@ -2205,6 +2369,7 @@ export const OdfDelegationPlugin: Plugin = async (ctx) => {
       odf_community_tool_install: createODFCommunityToolInstall(),
       odf_status: createODFStatus(),
       odf_policy_gate: createODFPolicyGate(),
+      odf_receipt: createODFReceipt(),
     },
 
     // Inject ODF system rules into system prompt
