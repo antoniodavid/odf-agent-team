@@ -869,7 +869,7 @@ export interface PolicyGateDecision {
  * Everything else (models, controllers, raw Python) → MEDIUM.
  */
 export function classifyRiskTier(changedPaths: string[]): "LOW" | "MEDIUM" | "HIGH" {
-  // ponytail: filename-only tier, upgrade to content scan when needed
+  // ponytail: filename-first tier, escalate-only content scan in classifyRiskTierWithContent
   const HIGH_PATTERNS = [
     /security\//i,
     /ir\.model\.access/i,
@@ -892,6 +892,47 @@ export function classifyRiskTier(changedPaths: string[]): "LOW" | "MEDIUM" | "HI
   }
   if (changedPaths.length === 0) return "MEDIUM"
   return changedPaths.every(p => LOW_PATTERNS.some(rx => rx.test(p))) ? "LOW" : "MEDIUM"
+}
+
+/**
+ * Content-aware tier escalation (slice 5). Filename-only classification misses
+ * security signals inside otherwise innocent-looking files (raw SQL with
+ * interpolation, eval, subprocess, record rules). This scan can ONLY escalate
+ * to HIGH — never downgrade — and reads at most MAX bytes per changed file,
+ * skipping unreadable or missing ones.
+ */
+const HIGH_CONTENT_PATTERNS = [
+  /env\.cr\s*\.\s*execute|cr\s*\.\s*execute\s*\(/i, // raw SQL
+  /\beval\s*\(/i, // eval()
+  /\bexec\s*\(/i, // exec()
+  /subprocess\s*\.|os\.system\s*\(|shell\s*=\s*True/i, // shell escape
+  /model\s*=\s*["']ir\.(?:rule|model\.access)["']/i, // security record in XML
+  /groups\s*=\s*["'][^"']*["']/i, // group assignment in data/views
+]
+const HIGH_CONTENT_MAX_BYTES = 64 * 1024
+
+export function classifyRiskTierWithContent(changedPaths: string[], workspaceDir: string): "LOW" | "MEDIUM" | "HIGH" {
+  const byName = classifyRiskTier(changedPaths)
+  if (byName === "HIGH") return "HIGH"
+
+  for (const p of changedPaths) {
+    let fd: number | null = null
+    try {
+      const abs = path.resolve(workspaceDir, p)
+      fd = fsSync.openSync(abs, "r")
+      const buf = Buffer.alloc(HIGH_CONTENT_MAX_BYTES)
+      const bytes = fsSync.readSync(fd, buf, 0, HIGH_CONTENT_MAX_BYTES, 0)
+      const content = buf.subarray(0, bytes).toString("utf8")
+      if (HIGH_CONTENT_PATTERNS.some(rx => rx.test(content))) return "HIGH"
+    } catch {
+      // Unreadable or missing file — skip; filename tier stands.
+    } finally {
+      if (fd !== null) {
+        try { fsSync.closeSync(fd) } catch { /* best-effort */ }
+      }
+    }
+  }
+  return byName
 }
 
 function gitHead(workspaceDir: string): string | null {
@@ -1024,7 +1065,7 @@ export function computePolicyGate(opts: {
       } catch {
         changedPaths = []
       }
-      riskTier = classifyRiskTier(changedPaths)
+      riskTier = classifyRiskTierWithContent(changedPaths, workspace)
       correctionBudget = changedLines != null ? Math.min(200, Math.ceil(changedLines / 2)) : null
     } else {
       // git unavailable → fail-open for VERIFY (the odf-verify skill demands bytes).

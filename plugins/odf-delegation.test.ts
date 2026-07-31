@@ -22,6 +22,7 @@ import {
   clearMetricsBuffer,
   ALLOWED_PHASES,
   classifyRiskTier,
+  classifyRiskTierWithContent,
   computePolicyGate,
   savePolicyGateJson,
   validateValidationEvidence,
@@ -441,6 +442,57 @@ describe("classifyRiskTier", () => {
   it("returns MEDIUM for empty or mixed paths", () => {
     expect(classifyRiskTier([])).toBe("MEDIUM")
     expect(classifyRiskTier(["models/sale_order.py", "views/sale_form.xml"])).toBe("MEDIUM")
+  })
+})
+
+describe("classifyRiskTierWithContent", () => {
+  let tmp: string
+  beforeEach(async () => {
+    tmp = await fs.mkdtemp(path.join(os.tmpdir(), "odf-tier-"))
+  })
+  afterEach(async () => {
+    await fs.rm(tmp, { recursive: true, force: true })
+  })
+
+  const write = async (rel: string, content: string) => {
+    const abs = path.join(tmp, rel)
+    await fs.mkdir(path.dirname(abs), { recursive: true })
+    await fs.writeFile(abs, content)
+  }
+
+  it("escalates MEDIUM file to HIGH on raw SQL with interpolation", async () => {
+    await write("models/sale_order.py", "def x():\n    self.env.cr.execute('SELECT * FROM res_partner WHERE id = %s' % partner_id)\n")
+    expect(classifyRiskTierWithContent(["models/sale_order.py"], tmp)).toBe("HIGH")
+  })
+
+  it("escalates MEDIUM file to HIGH on eval/subprocess", async () => {
+    await write("models/sale_order.py", "import subprocess\nsubprocess.run(cmd, shell=True)\n")
+    expect(classifyRiskTierWithContent(["models/sale_order.py"], tmp)).toBe("HIGH")
+    await write("models/sale_order.py", "result = eval(expr)\n")
+    expect(classifyRiskTierWithContent(["models/sale_order.py"], tmp)).toBe("HIGH")
+  })
+
+  it("escalates data XML to HIGH on record rule model", async () => {
+    await write("data/partner_rules.xml", '<record id="partner_rule" model="ir.rule">\n  <field name="domain_force">[...]</field>\n</record>')
+    expect(classifyRiskTierWithContent(["data/partner_rules.xml"], tmp)).toBe("HIGH")
+  })
+
+  it("keeps MEDIUM when content is clean", async () => {
+    await write("models/sale_order.py", "from odoo import models, fields\n\nclass SaleOrder(models.Model):\n    _inherit = 'sale.order'\n")
+    expect(classifyRiskTierWithContent(["models/sale_order.py"], tmp)).toBe("MEDIUM")
+  })
+
+  it("keeps LOW for passive files even with content scan", async () => {
+    await write("views/sale_form.xml", "<odoo><record id='v' model='ir.ui.view'><field name='arch' type='xml'>x</field></record></odoo>")
+    expect(classifyRiskTierWithContent(["views/sale_form.xml"], tmp)).toBe("LOW")
+  })
+
+  it("does not crash on missing files (filename tier stands)", () => {
+    expect(classifyRiskTierWithContent(["models/ghost.py"], tmp)).toBe("MEDIUM")
+  })
+
+  it("stays HIGH from filename alone without reading", async () => {
+    expect(classifyRiskTierWithContent(["security/ir.model.access.csv"], tmp)).toBe("HIGH")
   })
 })
 
