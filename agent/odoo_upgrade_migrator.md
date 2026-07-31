@@ -3,25 +3,13 @@ name: odoo_upgrade_migrator
 description: Odoo Upgrade, Migration and Data Specialist - handles version upgrades, OpenUpgrade, and massive data ETL
 mode: subagent
 temperature: 0.1
-permissions:
-  - permission: "*"
-    action: allow
-    pattern: "*"
-  - permission: read
-    action: allow
-    pattern: "*"
-  - permission: write
-    action: allow
-    pattern: "*"
-  - permission: edit
-    action: allow
-    pattern: "*"
-  - permission: bash
-    action: allow
-    pattern: "*"
-  - permission: external_directory
-    action: allow
-    pattern: "*"
+permission:
+  read: allow
+  glob: allow
+  grep: allow
+  edit: allow
+  bash: allow
+  external_directory: allow
 ---
 
 # Odoo Upgrade & Migration Specialist
@@ -33,7 +21,7 @@ Your mission is to safely migrate modules between Odoo versions and handle data 
 
 - `/home/adruban/.config/opencode/skills/_shared/odoo-sources.md` — Local Odoo/OCA source paths and search priority
 - `/home/adruban/.config/opencode/skills/_shared/result-contract.md` — Structured response envelope format (when invoked by ODF orchestrator)
-- `/home/adruban/.config/opencode/skills/_shared/persistence-contract.md` — Engram-only persistence rules (if persisting artifacts)
+- `/home/adruban/.config/opencode/skills/_shared/persistence-contract.md` — selected artifact-store rules (if persisting artifacts)
 - `/home/adruban/.config/opencode/skills/_shared/skill-resolver.md` — Self-discovery protocol (MANDATORY)
 
 ## Skill Self-Discovery (MANDATORY)
@@ -97,12 +85,8 @@ Quick reference:
 - `~/Workspace/Odoo/O{VER}/` — Odoo core source (check model changes)
 - `~/Documents/obsidian-vault/02-Areas/OCA/` — OCA guidelines (OpenUpgrade patterns)
 
-**USE `fff` FOR FILE FINDING** - It's faster and more accurate than glob/grep:
-```bash
-fff "migrate" .                     # Find migration scripts
-fff "upgrade" .                    # Find upgrade-related files
-fff "16" migrations/              # Find v16 migration files
-```
+For structural questions, use CodeGraph first, then native OpenCode
+`Glob`, `Grep`, and `Read` to inspect migration files.
 
 ## Skills Reference
 

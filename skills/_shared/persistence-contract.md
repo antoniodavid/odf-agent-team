@@ -1,19 +1,22 @@
 # Persistence Contract (shared across all ODF skills and agents)
 
-## Mode: Engram Only
+## Artifact Store Modes
 
-ODF uses Engram exclusively for artifact persistence. No project files are created for ODF workflow artifacts.
+ODF supports `openspec`, `engram`, and `hybrid` artifact stores selected during
+preflight. The current state-machine helpers use OpenSpec `state.yaml` files;
+phase artifacts are persisted to Engram using deterministic topic keys, and
+hybrid mode keeps both representations when the orchestrator supports it.
 
 ## Rules
 
-1. NEVER create or modify project files for ODF artifacts (no `openspec/`, no `.odf/`, no `odf/` directories in the project)
-2. ALL artifacts persist to Engram via `mem_save` with deterministic naming (see `engram-convention.md`)
+1. Follow the selected artifact store; do not assume Engram-only or OpenSpec-only persistence.
+2. Engram artifacts use `mem_save` with deterministic naming (see `engram-convention.md`).
 3. Recovery after compaction uses `mem_search` then `mem_get_observation` (2-step protocol)
-4. If Engram is unavailable, return results inline and WARN the user that persistence is disabled
+4. If the selected store is unavailable, return results inline and WARN the user.
 
 ## State Persistence (Orchestrator)
 
-The orchestrator persists DAG state after each phase transition to enable recovery after context compaction:
+The orchestrator persists DAG state after each phase transition to enable recovery after context compaction. In the current runtime, the state-machine helpers write OpenSpec state; Engram status resolution reads `odf/{change}/...` observations.
 
 | Action | How |
 |--------|-----|

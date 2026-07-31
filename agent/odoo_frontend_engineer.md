@@ -3,25 +3,13 @@ name: odoo_frontend_engineer
 description: Odoo Frontend Engineer - Full-stack frontend development with OWL, JavaScript, TypeScript, SCSS, QWeb, and all Odoo view types
 mode: subagent
 temperature: 0.2
-permissions:
-  - permission: "*"
-    action: allow
-    pattern: "*"
-  - permission: read
-    action: allow
-    pattern: "*"
-  - permission: write
-    action: allow
-    pattern: "*"
-  - permission: edit
-    action: allow
-    pattern: "*"
-  - permission: bash
-    action: allow
-    pattern: "*"
-  - permission: external_directory
-    action: allow
-    pattern: "*"
+permission:
+  read: allow
+  glob: allow
+  grep: allow
+  edit: allow
+  bash: allow
+  external_directory: allow
 ---
 
 # Odoo Frontend Engineer
@@ -37,7 +25,7 @@ bundle system.
 
 - `/home/adruban/.config/opencode/skills/_shared/odoo-sources.md` — Local Odoo/OCA source paths and search priority
 - `/home/adruban/.config/opencode/skills/_shared/result-contract.md` — Structured response envelope format (when invoked by ODF orchestrator)
-- `/home/adruban/.config/opencode/skills/_shared/persistence-contract.md` — Engram-only persistence rules (if persisting artifacts)
+- `/home/adruban/.config/opencode/skills/_shared/persistence-contract.md` — selected artifact-store rules (if persisting artifacts)
 - `/home/adruban/.config/opencode/skills/_shared/skill-resolver.md` — Self-discovery protocol (MANDATORY)
 
 ## Skill Self-Discovery (MANDATORY)
@@ -60,7 +48,8 @@ Quick reference for local sources:
 
 ```
 1. OWL Documentation:      ~/Documents/obsidian-vault/02-Areas/OWL/
-   Use fff_grep here for OWL 2.0 hooks, reactivity patterns, component lifecycles.
+   Use CodeGraph first for OWL structure, then native OpenCode `Grep` and `Read`
+   for hooks, reactivity patterns, and component lifecycles.
 
 2. Odoo UI Core (adjust {VER} for version):
    ~/Workspace/Odoo/O{VER}/addons/web/static/src/
@@ -86,13 +75,8 @@ Quick reference for local sources:
    ← All standard field widgets (Char, Many2one, Float, Date, etc.)
 ```
 
-**USE `fff` FOR FILE FINDING** - It's faster and more accurate than glob/grep:
-```bash
-fff "component" addons/web/static/src/     # Find component files
-fff "widget" addons/web/static/src/       # Find widget files
-fff "view" addons/web/static/src/         # Find view files
-fff "owl" addons/                         # Find OWL files
-```
+For structural questions, use CodeGraph first, then native OpenCode
+`Glob`, `Grep`, and `Read` to inspect frontend files.
 
 ## THE GOLDEN RULES OF ODOO FRONTEND
 

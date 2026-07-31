@@ -14,7 +14,7 @@
   "scripts": {
     "test": "node scripts/odf-test-runner.js --plugin-tests",
     "test:yaml": "node scripts/odf-test-runner.js",
-    "test:unit": "vitest run",
+    "test:unit": "vitest run --exclude backups/** --exclude **/backups/** --exclude **/.cache/** --exclude **/coverage/**",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

@@ -114,6 +114,17 @@ const PROFILES = [
   { name: 'cheap',   desc: 'kimi-k2.6 for all phases (faster, cheaper)' },
 ];
 
+const MANAGED_SCRIPT_PATHS = [
+  'scripts/odf-test-runner.js',
+  'scripts/odf-cli.js',
+  'scripts/odf-cli.d.ts',
+  'scripts/odf-install-tui.mjs',
+  'scripts/odf-registry-validate.js',
+  'scripts/odf-registry-sync.sh',
+  'scripts/lib',
+  'scripts/odf-agent-tests',
+];
+
 // ─── Install helpers ──────────────────────────────────────────────────────
 function run(cmd, opts = {}) {
   return execSync(cmd, {
@@ -134,14 +145,64 @@ function getCurrentVersion() {
   } catch { return 'none'; }
 }
 
+function isWithinConfig(candidate) {
+  const root = path.resolve(CONFIG_DIR);
+  const resolved = path.resolve(candidate);
+  return resolved === root || resolved.startsWith(`${root}${path.sep}`);
+}
+
+function copyPath(src, dst) {
+  if (fs.statSync(src).isDirectory()) {
+    fs.mkdirSync(dst, { recursive: true });
+    copyDir(src, dst);
+  } else {
+    fs.mkdirSync(path.dirname(dst), { recursive: true });
+    fs.copyFileSync(src, dst);
+  }
+}
+
+function registryPaths(section) {
+  try {
+    const registry = JSON.parse(fs.readFileSync(path.join(CONFIG_DIR, 'odf-registry.json'), 'utf8'));
+    return (registry[section] || [])
+      .map(entry => entry.path)
+      .filter(entry => typeof entry === 'string')
+      .map(entry => path.isAbsolute(entry) ? entry : path.join(CONFIG_DIR, entry))
+      .filter(entry => isWithinConfig(entry));
+  } catch {
+    return [];
+  }
+}
+
+function managedPaths() {
+  const commandDir = path.join(CONFIG_DIR, 'command');
+  const commandPaths = fs.existsSync(commandDir)
+    ? fs.readdirSync(commandDir)
+      .filter(entry => entry.startsWith('odf-'))
+      .map(entry => path.join(commandDir, entry))
+    : [];
+  const paths = [
+    path.join(CONFIG_DIR, 'odf-registry.json'),
+    path.join(CONFIG_DIR, 'plugins', 'odf-delegation.ts'),
+    ...MANAGED_SCRIPT_PATHS.map(entry => path.join(CONFIG_DIR, entry)),
+    path.join(CONFIG_DIR, 'openspec', 'config.yaml'),
+    path.join(CONFIG_DIR, 'openspec', 'sdd-init.yaml'),
+    path.join(CONFIG_DIR, 'openspec', 'specs'),
+    ...registryPaths('agents'),
+    ...registryPaths('skills'),
+    ...commandPaths,
+  ];
+  return [...new Set(paths)].filter(isWithinConfig);
+}
+
 function backupConfig() {
   const stamp = new Date().toISOString().replace(/[:.]/g, '-');
-  const backupDir = path.join(CONFIG_DIR, 'backups', `install-${stamp}`);
-  if (!fs.existsSync(path.join(CONFIG_DIR, 'backups'))) {
-    fs.mkdirSync(path.join(CONFIG_DIR, 'backups'), { recursive: true });
-  }
+  const backupDir = path.join(path.dirname(CONFIG_DIR), `${path.basename(CONFIG_DIR)}-backups`, `install-${stamp}`);
   if (fs.existsSync(CONFIG_DIR)) {
-    run(`cp -r "${CONFIG_DIR}" "${backupDir}"`, { silent: true });
+    for (const source of managedPaths()) {
+      if (!fs.existsSync(source)) continue;
+      copyPath(source, path.join(backupDir, path.relative(CONFIG_DIR, source)));
+    }
   }
   return backupDir;
 }
@@ -173,6 +234,12 @@ function copyDir(src, dst) {
       fs.copyFileSync(s, d);
     }
   }
+}
+
+function removeManagedPath(target) {
+  if (!isWithinConfig(target) || !fs.existsSync(target)) return false;
+  fs.rmSync(target, { recursive: true, force: true });
+  return true;
 }
 
 function installFiles(srcDir, components) {
@@ -449,34 +516,38 @@ async function uninstallFlow() {
     return;
   }
 
+  if (!await confirmPrompt(`Remove selected ODF components from ${CONFIG_DIR}?`)) {
+    console.log(`\n  ${fg.yellow}Cancelled.${RESET}`);
+    return;
+  }
+
   console.log(`\n  ${fg.yellow}Creating backup...${RESET}`);
   const backupDir = backupConfig();
 
-  const mapping = {
-    registry: 'odf-registry.json',
-    agents:   'agent',
-    skills:   'skills',
-    commands: 'command',
-    plugins:  'plugins/odf-delegation.ts',
-    scripts:  'scripts',
-    openspec: 'openspec',
-  };
-
   let removed = 0;
   for (const comp of toRemove) {
-    const target = mapping[comp];
-    if (!target) continue;
-    const fullPath = path.join(CONFIG_DIR, target);
-    if (fs.existsSync(fullPath)) {
-      if (comp === 'plugins') {
-        // Only remove odf-delegation.ts, not other plugins
-        const pluginFile = path.join(CONFIG_DIR, 'plugins', 'odf-delegation.ts');
-        if (fs.existsSync(pluginFile)) fs.unlinkSync(pluginFile);
-      } else {
-        fs.rmSync(fullPath, { recursive: true, force: true });
-      }
+    const targets = comp === 'registry'
+      ? [path.join(CONFIG_DIR, 'odf-registry.json')]
+      : comp === 'plugins'
+        ? [path.join(CONFIG_DIR, 'plugins', 'odf-delegation.ts')]
+        : comp === 'agents'
+          ? registryPaths('agents')
+          : comp === 'skills'
+            ? registryPaths('skills')
+            : comp === 'commands'
+              ? (fs.existsSync(path.join(CONFIG_DIR, 'command'))
+                ? fs.readdirSync(path.join(CONFIG_DIR, 'command')).filter(entry => entry.startsWith('odf-')).map(entry => path.join(CONFIG_DIR, 'command', entry))
+                : [])
+              : comp === 'scripts'
+                ? MANAGED_SCRIPT_PATHS.map(entry => path.join(CONFIG_DIR, entry))
+                : comp === 'openspec'
+                  ? [path.join(CONFIG_DIR, 'openspec', 'config.yaml'), path.join(CONFIG_DIR, 'openspec', 'sdd-init.yaml'), path.join(CONFIG_DIR, 'openspec', 'specs')]
+                  : [];
+
+    for (const target of targets) {
+      if (!removeManagedPath(target)) continue;
       removed++;
-      console.log(`  ${fg.red}✕${RESET} Removed: ${target}`);
+      console.log(`  ${fg.red}✕${RESET} Removed: ${path.relative(CONFIG_DIR, target)}`);
     }
   }
 

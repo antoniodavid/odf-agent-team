@@ -10,7 +10,7 @@ tests:
     expected:
       next_phase: "preflight"
 
-  - name: "next phase is assess after preflight"
+  - name: "next phase is propose after preflight"
     input:
       state:
         change: "my-feature"
@@ -26,6 +26,29 @@ tests:
           solution_strategy: "custom"
           chain_strategy: "feature-branch"
           persisted_at: "2026-06-18T00:00:00Z"
+    expected:
+      next_phase: "propose"
+
+  - name: "next phase is assess after propose"
+    input:
+      state:
+        change: "my-feature"
+        phase: "propose"
+        preflight:
+          change: "my-feature"
+          execution_mode: "interactive"
+          artifact_store: "openspec"
+          delivery_strategy: "ask-on-risk"
+          review_budget_lines: 400
+          odoo_version: 18
+          tdd_mode: false
+          solution_strategy: "custom"
+          chain_strategy: "feature-branch"
+          persisted_at: "2026-06-18T00:00:00Z"
+        artifacts:
+          propose: true
+          assess: false
+          design: false
     expected:
       next_phase: "assess"
 
@@ -46,6 +69,7 @@ tests:
           chain_strategy: "feature-branch"
           persisted_at: "2026-06-18T00:00:00Z"
         artifacts:
+          propose: true
           assess: true
           design: false
     expected:

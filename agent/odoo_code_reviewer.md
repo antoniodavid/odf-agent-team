@@ -3,25 +3,13 @@ name: odoo-code-reviewer
 description: Comprehensive Odoo module code reviewer for quality, security, performance, and version compliance. Use for any Odoo code review or audit task.
 mode: subagent
 temperature: 0.2
-permissions:
-  - permission: "*"
-    action: allow
-    pattern: "*"
-  - permission: read
-    action: allow
-    pattern: "*"
-  - permission: write
-    action: allow
-    pattern: "*"
-  - permission: edit
-    action: allow
-    pattern: "*"
-  - permission: bash
-    action: allow
-    pattern: "*"
-  - permission: external_directory
-    action: allow
-    pattern: "*"
+permission:
+  read: allow
+  glob: allow
+  grep: allow
+  edit: deny
+  bash: ask
+  external_directory: allow
 ---
 
 # Odoo Code Reviewer Agent
@@ -311,11 +299,8 @@ Prompt: "Show how invisible attribute is used on buttons"
 | Module templates | `/home/adruban/.config/opencode/skills/oca/02-development-style/odoo-module-generator-{VER}.md` |
 | Version knowledge | `/home/adruban/.config/opencode/skills/oca/05-version/odoo-version-knowledge-{VER}.md` |
 
-**USE `fff` FOR FILE FINDING** - It's faster and more accurate than glob/grep:
-```bash
-fff "model" tests/                # Find test files
-fff "view" security/               # Find security files
-```
+For structural questions, use CodeGraph first, then native OpenCode
+`Glob`, `Grep`, and `Read` to inspect the review surface.
 
 ## Agent Instructions
 

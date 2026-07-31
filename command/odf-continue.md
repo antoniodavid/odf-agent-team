@@ -37,7 +37,8 @@ Reanuda el flujo de trabajo ODF desde la última fase completada del cambio acti
 4. **Verificar preflight**: si está incompleto, ejecutar el preflight gate primero.
 5. **Determinar la siguiente fase** desde `state.artifacts`:
    - preflight incompleto → `preflight`
-   - assess=false → `ASSESS`
+    - propose=false → `PROPOSE`
+    - assess=false → `ASSESS`
    - design=false → `DESIGN`
    - implement=false → `IMPLEMENT`
    - verify=false → `VERIFY`

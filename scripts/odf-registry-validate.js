@@ -26,8 +26,8 @@ function getConfigDir() {
 }
 
 function resolveEntry(registryDir, entryPath) {
-  if (!entryPath) return '';
-  if (entryPath.includes('..')) return '';
+  if (typeof entryPath !== 'string' || !entryPath) return '';
+  if (entryPath.split(/[\\/]/).includes('..')) return '';
 
   let resolved;
   if (path.isAbsolute(entryPath)) {
@@ -55,6 +55,8 @@ function validateCollection(registryDir, entries, kind) {
       missing.push({ name, path: entryPath, reason: 'path resolution rejected' });
     } else if (!fs.existsSync(resolved)) {
       missing.push({ name, path: entryPath, resolved, reason: 'file does not exist' });
+    } else if (!fs.statSync(resolved).isFile()) {
+      missing.push({ name, path: entryPath, resolved, reason: 'path is not a file' });
     }
   }
   if (missing.length > 0) {

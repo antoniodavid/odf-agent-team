@@ -9,6 +9,7 @@ import * as os from "node:os"
 // so we can control $HOME and therefore REGISTRY_PATH.
 import {
   resolvePath,
+  resolveWorkspaceRoot,
   matchSkills,
   resolveAgent,
   formatCompactRules,
@@ -119,8 +120,14 @@ describe("resolvePath", () => {
   })
 
   it("expands ~/ paths that stay within the ODF config directory", () => {
-    expect(resolvePath(registryDir, "~/.config/opencode/skills/odf-assess/SKILL.md")).toBe(
-      path.join(os.homedir(), ".config/opencode/skills/odf-assess/SKILL.md")
+    const configDir = process.env.ODF_CONFIG_DIR && path.isAbsolute(process.env.ODF_CONFIG_DIR)
+      ? process.env.ODF_CONFIG_DIR
+      : path.join(os.homedir(), ".config/opencode")
+    const entry = process.env.ODF_CONFIG_DIR
+      ? path.join(configDir, "skills/odf-assess/SKILL.md")
+      : "~/.config/opencode/skills/odf-assess/SKILL.md"
+    expect(resolvePath(registryDir, entry)).toBe(
+      path.join(configDir, "skills/odf-assess/SKILL.md")
     )
   })
 
@@ -179,6 +186,10 @@ describe("matchSkills", () => {
 })
 
 describe("ALLOWED_PHASES", () => {
+  it("includes PROPOSE as the first workflow delegation phase", () => {
+    expect(ALLOWED_PHASES).toContain("PROPOSE")
+  })
+
   it("includes EXPLORE as a valid delegation phase", () => {
     expect(ALLOWED_PHASES).toContain("EXPLORE")
   })
@@ -186,6 +197,7 @@ describe("ALLOWED_PHASES", () => {
 
 describe("resolveAgent", () => {
   it("returns default agents when keywords are empty", () => {
+    expect(resolveAgent(baseRegistry, "PROPOSE", [])).toBe("odoo_functional_consultant")
     expect(resolveAgent(baseRegistry, "ASSESS", [])).toBe("odoo_functional_consultant")
     expect(resolveAgent(baseRegistry, "DESIGN", [])).toBe("odoo_backend_engineer")
     expect(resolveAgent(baseRegistry, "IMPLEMENT", [])).toBe("odoo_backend_engineer")
@@ -200,6 +212,10 @@ describe("resolveAgent", () => {
 
   it("falls back to phase default when no custom agent matches", () => {
     expect(resolveAgent(baseRegistry, "ASSESS", ["model", "python", "security"])).toBe("odoo_functional_consultant")
+  })
+
+  it("does not route unknown phases to an implementation agent", () => {
+    expect(resolveAgent(baseRegistry, "UNKNOWN", ["model", "python"])).toBeNull()
   })
 
   it("is deterministic for the same inputs", () => {
@@ -534,6 +550,23 @@ describe("createODFDelegate", () => {
     expect(output).toContain("path traversal")
   })
 
+  it("rejects context directories", async () => {
+    const { createODFDelegate } = await import("./odf-delegation.js")
+    const toolCtx = { sessionID: "s1" } as any
+
+    const delegateTool = createODFDelegate(undefined)
+    const output = await delegateTool.execute(
+      { phase: "DESIGN", prompt: "Design a model", context_files: ["plugins"] },
+      toolCtx
+    )
+
+    expect(output).toContain("is not a file")
+  })
+
+  it("resolves the Git root from a nested working directory", () => {
+    expect(resolveWorkspaceRoot(path.join(process.cwd(), "plugins"))).toBe(process.cwd())
+  })
+
   it("falls back when client.task is provided but toolCtx.task is not", async () => {
     const { createODFDelegate } = await import("./odf-delegation.js")
     const taskResult = { status: "ok", executive_summary: "designed" }
@@ -639,5 +672,24 @@ describe("createODFDelegate", () => {
     expect(metrics.length).toBe(1)
     expect(metrics[0].phase).toBe("EXPLORE")
     expect(metrics[0].agent).toBe("odoo_functional_consultant")
+  })
+
+  it("accepts PROPOSE phase and delegates to the proposal agent", async () => {
+    const { createODFDelegate, clearMetricsBuffer, getMetricsBuffer } = await import("./odf-delegation.js")
+    clearMetricsBuffer()
+    const taskApi = vi.fn().mockResolvedValue({ status: "ok", executive_summary: "proposed" })
+    const toolCtx = { sessionID: "s1", task: taskApi } as any
+
+    const delegateTool = createODFDelegate(undefined)
+    const output = await delegateTool.execute(
+      { phase: "PROPOSE", prompt: "Frame the business proposal", context_files: [] },
+      toolCtx
+    )
+
+    const envelope = JSON.parse(output as string)
+    expect(envelope.status).toBe("delegated")
+    expect(envelope.phase).toBe("PROPOSE")
+    expect(envelope.agent).toBe("odoo_functional_consultant")
+    expect(getMetricsBuffer()[0].phase).toBe("PROPOSE")
   })
 })

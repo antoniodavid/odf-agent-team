@@ -203,7 +203,7 @@ design:
       - pattern: "Can Odoo do X?"
         action: Delegate to odoo_functional_consultant directly.
       - pattern: Simple search
-        action: Answer directly or use fff/fff_grep.
+        action: Answer directly or use CodeGraph first, then native Glob/Grep/Read.
 
   error_handling:
     - error: Preflight incomplete

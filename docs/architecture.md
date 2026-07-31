@@ -116,10 +116,10 @@ Regression runner. It:
 2. Orchestrator loads existing change state if any.
 3. If preflight is missing/invalid, the orchestrator asks preflight questions.
 4. Preflight record is written to `openspec/changes/{change}/state.yaml`.
-5. Orchestrator builds an ASSESS prompt and calls `odf_delegate(phase=ASSESS)`.
+5. Orchestrator builds a PROPOSE prompt and calls `odf_delegate(phase=PROPOSE)`.
 6. Plugin resolves agent/skills, invokes `task()`, and returns the result.
 7. Orchestrator updates state and shows an approval gate.
-8. DESIGN/IMPLEMENT/VERIFY repeat the delegate-update-gate cycle.
+8. ASSESS/DESIGN/IMPLEMENT/VERIFY repeat the delegate-update-gate cycle.
 
 ### `/odf-continue`
 

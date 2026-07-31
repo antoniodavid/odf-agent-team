@@ -23,7 +23,13 @@ import * as cli from './odf-cli.js';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const REGISTRY_PATH = path.join(os.homedir(), '.config', 'opencode', 'odf-registry.json');
+function getConfigDir() {
+  const configured = process.env.ODF_CONFIG_DIR?.trim();
+  if (configured && path.isAbsolute(configured)) return path.normalize(configured);
+  return path.join(os.homedir(), '.config', 'opencode');
+}
+
+const REGISTRY_PATH = path.join(getConfigDir(), 'odf-registry.json');
 const TESTS_DIR = path.join(__dirname, 'odf-agent-tests');
 const PLUGIN_TESTS = path.join(__dirname, '..', 'plugins', 'odf-delegation.test.ts');
 
@@ -87,9 +93,19 @@ function matchSkills(registry, context) {
 
 function resolveAgent(registry, phase, taskKeywords) {
   const filteredKeywords = filterStopWords(taskKeywords);
+  const defaults = {
+    PROPOSE: 'odoo_functional_consultant',
+    ASSESS: 'odoo_functional_consultant',
+    'QA-PLAN': 'odoo_qa_engineer',
+    DESIGN: 'odoo_backend_engineer',
+    IMPLEMENT: 'odoo_backend_engineer',
+    VERIFY: 'odoo_qa_engineer',
+    EXPLORE: 'odoo_functional_consultant',
+  };
+  if (!Object.prototype.hasOwnProperty.call(defaults, phase)) return null;
+
   if (filteredKeywords.length === 0) {
-    const defaults = { ASSESS: 'odoo_functional_consultant', DESIGN: 'odoo_backend_engineer', IMPLEMENT: 'odoo_backend_engineer', VERIFY: 'odoo_qa_engineer' };
-    return defaults[phase] || 'odoo_backend_engineer';
+    return defaults[phase];
   }
   for (const agent of registry.agents || []) {
     if (!agent.installed) continue;
@@ -97,8 +113,7 @@ function resolveAgent(registry, phase, taskKeywords) {
     const descLower = agent.description.toLowerCase();
     if (filteredKeywords.some(kw => descLower.includes(kw.toLowerCase()))) return agent.name;
   }
-  const defaults = { ASSESS: 'odoo_functional_consultant', DESIGN: 'odoo_backend_engineer', IMPLEMENT: 'odoo_backend_engineer', VERIFY: 'odoo_qa_engineer' };
-  return defaults[phase] || 'odoo_backend_engineer';
+  return defaults[phase];
 }
 
 // ==========================================
@@ -191,7 +206,13 @@ function runPluginTests() {
   }
 
   console.log('\n🔌 Running unit tests...');
-  const result = spawnSync('npx', ['vitest', 'run'], {
+  const result = spawnSync('npx', [
+    'vitest', 'run',
+    '--exclude', 'backups/**',
+    '--exclude', '**/backups/**',
+    '--exclude', '**/.cache/**',
+    '--exclude', '**/coverage/**',
+  ], {
     stdio: 'inherit',
     shell: false,
     cwd: path.join(__dirname, '..'),
@@ -382,7 +403,9 @@ function runInstallerSuite(suite) {
     }
 
     const sourceDir = tc.input.env?.ODF_SOURCE_DIR || path.join(__dirname, '..');
-    const env = { ...process.env, HOME: tempHome, ODF_SOURCE_DIR: sourceDir, ...(tc.input.env || {}) };
+    // Do not let the caller's installed config redirect an isolated temp HOME.
+    const { ODF_CONFIG_DIR: _inheritedConfigDir, ODF_DIR: _inheritedOdfDir, ...baseEnv } = process.env;
+    const env = { ...baseEnv, HOME: tempHome, ODF_SOURCE_DIR: sourceDir, ...(tc.input.env || {}) };
     const runs = tc.input.runs || 1;
     let lastResult;
     let combinedOutput = '';
@@ -435,8 +458,8 @@ function runInstallerSuite(suite) {
 // ==========================================
 
 function resolveRegistryPath(registryDir, entryPath) {
-  if (!entryPath) return '';
-  if (entryPath.includes('..')) return '';
+  if (typeof entryPath !== 'string' || !entryPath) return '';
+  if (entryPath.split(/[\\/]/).includes('..')) return '';
 
   let resolved;
   if (path.isAbsolute(entryPath)) {
@@ -490,14 +513,14 @@ function runRegistrySuite(suite) {
       test('all skill paths resolve inside the config dir', () => {
         for (const skill of registry.skills || []) {
           const resolved = resolveRegistryPath(registryDir, skill.path);
-          if (!resolved || !fs.existsSync(resolved)) return false;
+          if (!resolved || !fs.existsSync(resolved) || !fs.statSync(resolved).isFile()) return false;
         }
         return true;
       });
       test('all agent paths resolve inside the config dir', () => {
         for (const agent of registry.agents || []) {
           const resolved = resolveRegistryPath(registryDir, agent.path);
-          if (!resolved || !fs.existsSync(resolved)) return false;
+          if (!resolved || !fs.existsSync(resolved) || !fs.statSync(resolved).isFile()) return false;
         }
         return true;
       });

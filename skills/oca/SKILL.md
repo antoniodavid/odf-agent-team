@@ -240,8 +240,8 @@ OCA-specific tools for search, migration, and PR operations.
 
 | Tool | Purpose |
 |------|---------|
-| `fff` | Fast file finder with fuzzy search |
-| `fff_grep` | Fast content search across files |
+| CodeGraph | Structural codebase navigation when indexed |
+| OpenCode `Glob` / `Grep` / `Read` | Native path, text, and file inspection |
 | `gh` | GitHub CLI for PR operations |
 
 ---
@@ -250,12 +250,8 @@ OCA-specific tools for search, migration, and PR operations.
 
 ### Finding Skills
 
-1. **Use `fff`** for fast file finding:
-   ```bash
-   fff "computed" skills/oca/03-patterns/models/
-   fff "view" skills/oca/03-patterns/views/
-   fff "ow" skills/oca/03-patterns/frontend/
-   ```
+1. **Use CodeGraph first** for structural questions, then native OpenCode
+   `Glob`, `Grep`, and `Read` for focused inspection.
 
 2. **Use this SKILL.md** for complete index
 

@@ -17,7 +17,7 @@ Jump directly to the IMPLEMENT phase. Requires DESIGN to be completed.
 
 ## Orchestrator Instructions
 
-1. **Recover state** from Engram (`odf/{change}/state`)
+1. **Recover state** from OpenSpec `state.yaml`, Engram `odf/{change}/state`, or both in hybrid mode
 2. **Verify DESIGN is complete** — if not, warn and suggest `/odf-continue`
 3. **Load design artifact** from Engram (`odf/{change}/design`)
 4. **Determine which tasks are pending** from the design's task breakdown

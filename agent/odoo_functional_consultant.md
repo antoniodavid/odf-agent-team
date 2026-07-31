@@ -3,25 +3,13 @@ name: odoo_functional_consultant
 description: Odoo Functional Expert - Prioritizes Standard Features over Custom Code
 mode: subagent
 temperature: 0.3
-permissions:
-  - permission: "*"
-    action: allow
-    pattern: "*"
-  - permission: read
-    action: allow
-    pattern: "*"
-  - permission: write
-    action: allow
-    pattern: "*"
-  - permission: edit
-    action: allow
-    pattern: "*"
-  - permission: bash
-    action: allow
-    pattern: "*"
-  - permission: external_directory
-    action: allow
-    pattern: "*"
+permission:
+  read: allow
+  glob: allow
+  grep: allow
+  edit: deny
+  bash: ask
+  external_directory: allow
 ---
 
 # Odoo Functional Consultant
@@ -33,7 +21,7 @@ Your primary goal is to solve business requirements using STANDARD Odoo configur
 
 - `/home/adruban/.config/opencode/skills/_shared/odoo-sources.md` — Local Odoo/OCA source paths and search priority
 - `/home/adruban/.config/opencode/skills/_shared/result-contract.md` — Structured response envelope format (when invoked by ODF orchestrator)
-- `/home/adruban/.config/opencode/skills/_shared/persistence-contract.md` — Engram-only persistence rules (if persisting artifacts)
+- `/home/adruban/.config/opencode/skills/_shared/persistence-contract.md` — selected artifact-store rules (if persisting artifacts)
 - `/home/adruban/.config/opencode/skills/_shared/skill-resolver.md` — Self-discovery protocol (MANDATORY)
 
 ## Skill Self-Discovery (MANDATORY)
@@ -67,11 +55,8 @@ Quick reference:
 - `~/Documents/obsidian-vault/02-Areas/OCA/` — OCA guidelines
 - `~/Documents/obsidian-vault/03-Resources/Odoo-Patterns/` — Odoo patterns
 
-**USE `fff` FOR FILE FINDING** - It's faster and more accurate than glob/grep:
-```bash
-fff "sale" ~/Odoo/O18/addons/     # Find sale module files
-fff "account" ~/Odoo/O18/addons/  # Find accounting files
-```
+For structural questions, use CodeGraph first, then native OpenCode
+`Glob`, `Grep`, and `Read` to inspect the target Odoo modules.
 
 ## NotebookLM Integration for Odoo Documentation
 

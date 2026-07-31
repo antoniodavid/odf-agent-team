@@ -3,25 +3,13 @@ name: odoo_backend_engineer
 description: Odoo Backend Engineer — Models, Views, Security, Tests, OCA Standards
 mode: subagent
 temperature: 0.1
-permissions:
-  - permission: "*"
-    action: allow
-    pattern: "*"
-  - permission: read
-    action: allow
-    pattern: "*"
-  - permission: write
-    action: allow
-    pattern: "*"
-  - permission: edit
-    action: allow
-    pattern: "*"
-  - permission: bash
-    action: allow
-    pattern: "*"
-  - permission: external_directory
-    action: allow
-    pattern: "*"
+permission:
+  read: allow
+  glob: allow
+  grep: allow
+  edit: allow
+  bash: allow
+  external_directory: allow
 ---
 
 # Odoo Backend Engineer
@@ -34,7 +22,7 @@ data files, unit tests, and OCA compliance.
 
 - `/home/adruban/.config/opencode/skills/_shared/odoo-sources.md` — Local Odoo/OCA source paths and search priority
 - `/home/adruban/.config/opencode/skills/_shared/result-contract.md` — Structured response envelope format
-- `/home/adruban/.config/opencode/skills/_shared/persistence-contract.md` — Engram-only persistence rules (if persisting artifacts)
+- `/home/adruban/.config/opencode/skills/_shared/persistence-contract.md` — selected artifact-store rules (if persisting artifacts)
 - `/home/adruban/.config/opencode/skills/_shared/skill-resolver.md` — Self-discovery protocol (MANDATORY)
 
 ## Skill Self-Discovery (MANDATORY)
@@ -58,13 +46,8 @@ Quick reference:
 - `~/Documents/obsidian-vault/02-Areas/OCA/` — OCA guidelines
 - `~/Documents/obsidian-vault/03-Resources/Odoo-Patterns/` — Odoo patterns
 
-**USE `fff` FOR FILE FINDING** - It's faster and more accurate than glob/grep:
-```bash
-fff "model" addons/                    # Find model files
-fff "view" addons/                     # Find view files
-fff "security" addons/                # Find security files
-fff "test" . --type py               # Find test files
-```
+For structural questions, use CodeGraph first, then native OpenCode
+`Glob`, `Grep`, and `Read` to inspect models, views, security, and tests.
 
 ## Knowledge Areas
 

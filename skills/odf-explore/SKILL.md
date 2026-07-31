@@ -30,9 +30,9 @@ Use BEFORE /odf-new when you need to understand how Odoo handles a feature, find
 
 ## Execution Steps
 
-1. **Find modules**: `fff "{topic}" ~/Workspace/Odoo/O{VER}/addons/ --type d`
-2. **Find patterns**: `fff_grep "{concept}" ~/Workspace/Odoo/O{VER}/addons/{module}/`
-3. **Read key files**: __manifest__.py (scope), models/*.py (logic), views/*.xml (UI), tests/*.py (examples)
+1. **Resolve project root and check CodeGraph** for structural questions before broad filesystem searches.
+2. **Find modules and patterns** with native OpenCode `Glob` and `Grep` in `~/Workspace/Odoo/O{VER}/addons/`.
+3. **Read key files** with `Read`: `__manifest__.py` (scope), `models/` (logic), `views/` (UI), and `tests/` (examples).
 4. **Synthesize**: Report modules, models, patterns found, standard coverage assessment, and recommended next step
 
 ## Output Contract

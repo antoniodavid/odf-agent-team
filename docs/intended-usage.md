@@ -34,6 +34,9 @@ A normal ODF change follows this flow:
 Preflight gate ──► asks for Odoo version, artifact store, delivery strategy, TDD mode, etc.
    │
    ▼
+PROPOSE ──► business framing and scope approval
+   │
+   ▼
 ASSESS ──► standard vs custom decision
    │
    ▼
@@ -49,11 +52,11 @@ VERIFY ──► tests, lint, compliance, Judgment Day review
 ARCHIVED
 ```
 
-Approval gates pause after each phase unless `--fast` was used. State is persisted to `openspec/changes/{change}/state.yaml` by default.
+Approval gates pause after each phase unless `--fast` was used. The selected artifact store is `openspec`, `engram`, or `hybrid`; the current state-machine helpers persist runtime state to `openspec/changes/{change}/state.yaml`, while Engram stores phase artifacts and status observations.
 
 ## State Persistence
 
-ODF stores change state in OpenSpec files by default. Each change gets a folder under `openspec/changes/{change-name}/` containing:
+With the default `openspec` store, each change gets a folder under `openspec/changes/{change-name}/` containing:
 
 - `proposal.yaml` — intent and scope
 - `spec.yaml` — requirements and scenarios
@@ -63,7 +66,7 @@ ODF stores change state in OpenSpec files by default. Each change gets a folder 
 - `apply-progress.yaml` — implementation progress
 - `verify-report-slice*.yaml` — verification evidence
 
-You can also mirror state to Engram using the `hybrid` artifact store option.
+Use `engram` for Engram-backed artifacts/status or `hybrid` to retain both representations where the runtime supports mirroring.
 
 ## Backward Compatibility
 

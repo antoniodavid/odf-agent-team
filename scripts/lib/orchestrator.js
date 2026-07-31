@@ -10,9 +10,10 @@ import { getStatePath, validatePreflight } from './preflight.js';
  * to determine the next phase, resume active changes, and render status.
  */
 
-export const PHASE_ORDER = ['init', 'preflight', 'assess', 'qa-plan', 'design', 'implement', 'verify', 'archived'];
+export const PHASE_ORDER = ['init', 'preflight', 'propose', 'assess', 'qa-plan', 'design', 'implement', 'verify', 'archived'];
 
 export const ARTIFACT_FIELDS = {
+  propose: 'propose',
   assess: 'assess',
   qa_plan: 'qa-plan',
   design: 'design',
@@ -39,6 +40,7 @@ export function getNextPhase(state) {
   if (!isPreflightComplete(state)) return 'preflight';
 
   const artifacts = state?.artifacts || {};
+  if (!artifacts.propose) return 'propose';
   if (!artifacts.assess) return 'assess';
   if (state?.preflight?.solution_strategy === 'custom' && artifacts.assess && !artifacts.design) {
     // QA-PLAN is optional between assess and design; treat its absence as skippable.

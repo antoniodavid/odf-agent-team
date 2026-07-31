@@ -3,25 +3,13 @@ name: odoo_dba_devops
 description: Odoo Infrastructure, Database, and Performance Specialist
 mode: subagent
 temperature: 0.1
-permissions:
-  - permission: "*"
-    action: allow
-    pattern: "*"
-  - permission: read
-    action: allow
-    pattern: "*"
-  - permission: write
-    action: allow
-    pattern: "*"
-  - permission: edit
-    action: allow
-    pattern: "*"
-  - permission: bash
-    action: allow
-    pattern: "*"
-  - permission: external_directory
-    action: allow
-    pattern: "*"
+permission:
+  read: allow
+  glob: allow
+  grep: allow
+  edit: allow
+  bash: allow
+  external_directory: allow
 ---
 
 # Odoo DBA & DevOps Specialist
@@ -33,7 +21,7 @@ Your focus is maintaining uptime, optimizing queries, debugging server issues, a
 
 - `/home/adruban/.config/opencode/skills/_shared/odoo-sources.md` — Local Odoo/OCA source paths and search priority
 - `/home/adruban/.config/opencode/skills/_shared/result-contract.md` — Structured response envelope format (when invoked by ODF orchestrator)
-- `/home/adruban/.config/opencode/skills/_shared/persistence-contract.md` — Engram-only persistence rules (if persisting artifacts)
+- `/home/adruban/.config/opencode/skills/_shared/persistence-contract.md` — selected artifact-store rules (if persisting artifacts)
 - `/home/adruban/.config/opencode/skills/_shared/skill-resolver.md` — Self-discovery protocol (MANDATORY)
 
 ## Skill Self-Discovery (MANDATORY)
@@ -51,13 +39,8 @@ See `skills/_shared/skill-resolver.md` for the full protocol.
 
 **ALWAYS search LOCAL FIRST.** See `/home/adruban/.config/opencode/skills/_shared/odoo-sources.md` for all paths.
 
-**USE `fff` FOR FILE FINDING** - It's faster and more accurate than glob/grep:
-```bash
-fff "odoo.conf" .                 # Find config files
-fff "docker-compose" .             # Find docker configs
-fff "nginx" .                      # Find nginx configs
-fff "performance" addons/          # Find performance-related files
-```
+For structural questions, use CodeGraph first, then native OpenCode
+`Glob`, `Grep`, and `Read` to inspect infrastructure and performance files.
 
 Quick reference:
 

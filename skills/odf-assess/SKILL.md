@@ -9,7 +9,7 @@ metadata:
 
 ## When to Use
 
-Use as the first phase of /odf-new. Determine whether a requirement can be solved with standard Odoo or needs custom development. NEVER write code in this phase — only specs or config guides.
+Use as Phase 1 of /odf-new, after PROPOSE. Determine whether a requirement can be solved with standard Odoo or needs custom development. NEVER write code in this phase — only specs or config guides.
 
 ## Hard Rules
 

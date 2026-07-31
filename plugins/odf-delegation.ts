@@ -16,7 +16,7 @@ import * as path from "node:path"
 import * as os from "node:os"
 import * as nodeCrypto from "node:crypto"
 import { type Plugin, type ToolContext, tool } from "@opencode-ai/plugin"
-import { execSync } from "node:child_process"
+import { execFileSync, execSync } from "node:child_process"
 import type { createOpencodeClient } from "@opencode-ai/sdk"
 
 export type OpencodeClient = ReturnType<typeof createOpencodeClient>
@@ -49,6 +49,19 @@ function isWithinRoot(candidate: string, root: string): boolean {
     normalizedCandidate === normalizedRoot ||
     normalizedCandidate.startsWith(normalizedRoot + path.sep)
   )
+}
+
+function resolveWorkspaceRoot(cwd = process.cwd()): string {
+  try {
+    const root = execFileSync("git", ["rev-parse", "--show-toplevel"], {
+      cwd,
+      encoding: "utf8",
+    }).trim()
+    if (root) return path.normalize(root)
+  } catch {
+    // Fall back for non-Git workspaces.
+  }
+  return path.normalize(path.resolve(cwd))
 }
 
 // ==========================================
@@ -168,8 +181,8 @@ interface ODFRegistry {
  *   within the allowed roots.
  */
 function resolvePath(registryDir: string, entryPath: string): string {
-  if (!entryPath) return ""
-  if (entryPath.includes("..")) return ""
+  if (typeof entryPath !== "string" || !entryPath) return ""
+  if (entryPath.split(/[\\/]/).includes("..")) return ""
 
   const allowedRoots = [path.normalize(registryDir), getOdfConfigDir()]
 
@@ -184,6 +197,15 @@ function resolvePath(registryDir: string, entryPath: string): string {
 
   if (!allowedRoots.some(root => isWithinRoot(resolved, root))) {
     return ""
+  }
+
+  if (fsSync.existsSync(resolved)) {
+    try {
+      if (!fsSync.statSync(resolved).isFile()) return ""
+      if (!allowedRoots.some(root => isWithinRoot(fsSync.realpathSync(resolved), root))) return ""
+    } catch {
+      return ""
+    }
   }
 
   return resolved
@@ -331,8 +353,13 @@ async function saveRegistryCache(cache: RegistryCache): Promise<void> {
 }
 
 async function computePermissionsFingerprint(registry: ODFRegistry): Promise<string> {
-  // Build a deterministic fingerprint from all skills
-  const parts = registry.skills.map(s => `${s.name}:${(s as any).version || "1.0"}`).sort()
+  // Include rule content so cache invalidation follows behavior, not only metadata.
+  const parts = registry.skills.map(s => JSON.stringify({
+    name: s.name,
+    version: (s as any).version || "1.0",
+    triggers: s.triggers,
+    compact_rules: s.compact_rules,
+  })).sort()
   const hash = await crypto.subtle?.digest?.("SHA-256", new TextEncoder().encode(parts.join("|")))
   if (hash) {
     return Array.from(new Uint8Array(hash)).slice(0, 8).map(b => b.toString(16)).join("")
@@ -715,25 +742,26 @@ function filterStopWords(keywords: string[]): string[] {
   })
 }
 
-function resolveAgent(registry: ODFRegistry, phase: string, taskKeywords: string[]): string {
+const DEFAULT_AGENTS: Record<string, string> = {
+  PROPOSE: "odoo_functional_consultant",
+  ASSESS: "odoo_functional_consultant",
+  "QA-PLAN": "odoo_qa_engineer",
+  DESIGN: "odoo_backend_engineer",
+  IMPLEMENT: "odoo_backend_engineer",
+  VERIFY: "odoo_qa_engineer",
+  EXPLORE: "odoo_functional_consultant",
+}
+
+function resolveAgent(registry: ODFRegistry, phase: string, taskKeywords: string[]): string | null {
+  if (!Object.prototype.hasOwnProperty.call(DEFAULT_AGENTS, phase)) return null
+
   // Filter out stop words before matching
   const filteredKeywords = filterStopWords(taskKeywords)
   if (filteredKeywords.length === 0) {
-    // No meaningful keywords — use defaults
-    const defaults: Record<string, string> = {
-      ASSESS: "odoo_functional_consultant",
-      "QA-PLAN": "odoo_qa_engineer",
-      DESIGN: "odoo_backend_engineer",
-      IMPLEMENT: "odoo_backend_engineer",
-      VERIFY: "odoo_qa_engineer",
-      EXPLORE: "odoo_functional_consultant",
-    }
-    return defaults[phase] || "odoo_backend_engineer"
+    return DEFAULT_AGENTS[phase]
   }
 
   // Check for custom agents matching phase and keywords
-  const taskLower = filteredKeywords.join(" ").toLowerCase()
-
   for (const agent of registry.agents) {
     if (!agent.installed) continue
     if (!agent.phases.includes(phase) && !agent.phases.includes("ANY")) continue
@@ -745,17 +773,7 @@ function resolveAgent(registry: ODFRegistry, phase: string, taskKeywords: string
     }
   }
 
-  // Fallback to default agents
-  const defaults: Record<string, string> = {
-    ASSESS: "odoo_functional_consultant",
-    "QA-PLAN": "odoo_qa_engineer",
-    DESIGN: "odoo_backend_engineer",
-    IMPLEMENT: "odoo_backend_engineer",
-    VERIFY: "odoo_qa_engineer",
-    EXPLORE: "odoo_functional_consultant",
-  }
-
-  return defaults[phase] || "odoo_backend_engineer"
+  return DEFAULT_AGENTS[phase]
 }
 
 // ==========================================
@@ -819,7 +837,7 @@ ${enrichedPrompt}
 ---FALLBACK_PROMPT_END---`
 }
 
-const ALLOWED_PHASES = ["ASSESS", "QA-PLAN", "DESIGN", "IMPLEMENT", "VERIFY", "EXPLORE"]
+const ALLOWED_PHASES = ["PROPOSE", "ASSESS", "QA-PLAN", "DESIGN", "IMPLEMENT", "VERIFY", "EXPLORE"]
 
 // ==========================================
 // TOOL CREATORS
@@ -838,7 +856,7 @@ Use this instead of generic task() for ODF workflow delegation.`,
     args: {
       phase: tool.schema
         .string()
-        .describe("ODF phase: ASSESS, QA-PLAN, DESIGN, IMPLEMENT, VERIFY, EXPLORE"),
+        .describe("ODF phase: PROPOSE, ASSESS, QA-PLAN, DESIGN, IMPLEMENT, VERIFY, EXPLORE"),
       prompt: tool.schema
         .string()
         .describe("The full detailed prompt for the agent."),
@@ -864,15 +882,27 @@ Use this instead of generic task() for ODF workflow delegation.`,
         return `❌ Invalid phase "${args.phase}". Allowed: ${ALLOWED_PHASES.join(", ")}`
       }
 
-      // Validate context_files stay within the workspace root
-      const workspaceRoot = process.cwd()
+      // Validate context_files against the repository root, not a nested cwd.
+      const workspaceRoot = resolveWorkspaceRoot()
       for (const file of args.context_files || []) {
-        if (file.includes("..")) {
+        if (typeof file !== "string" || file.split(/[\\/]/).includes("..")) {
           return `❌ context_files entry "${file}" contains path traversal`
         }
         const resolvedFile = path.resolve(workspaceRoot, file)
         if (!isWithinRoot(resolvedFile, workspaceRoot)) {
           return `❌ context_files entry "${file}" escapes workspace root`
+        }
+        if (fsSync.existsSync(resolvedFile)) {
+          try {
+            if (!fsSync.statSync(resolvedFile).isFile()) {
+              return `❌ context_files entry "${file}" is not a file`
+            }
+            if (!isWithinRoot(fsSync.realpathSync(resolvedFile), workspaceRoot)) {
+              return `❌ context_files entry "${file}" escapes workspace root`
+            }
+          } catch {
+            return `❌ context_files entry "${file}" cannot be read`
+          }
         }
       }
 
@@ -883,7 +913,7 @@ Use this instead of generic task() for ODF workflow delegation.`,
       }
 
       // Detect Odoo version from project
-      const odooVersion = await detectOdooVersion(process.cwd())
+      const odooVersion = await detectOdooVersion(workspaceRoot)
       if (odooVersion) {
         console.log(`[odf-delegation] Detected Odoo version: ${odooVersion}`)
       }
@@ -898,6 +928,9 @@ Use this instead of generic task() for ODF workflow delegation.`,
       // Resolve agent and profile
       const keywords = args.prompt.split(/\s+/).slice(0, 10)
       const agentName = resolveAgent(registry, args.phase, keywords)
+      if (!agentName) {
+        return `❌ No agent configured for phase "${args.phase}"`
+      }
       const profile = await getProfileByPhase(registry, args.phase, args.profile)
       const profileBlock = profile ? formatProfileBlock(profile, args.phase) : ""
       console.log(`[odf-delegation] odf_delegate: phase=${args.phase} agent=${agentName} skills=${skills.length} version=${odooVersion || "auto"} profile=${profile?.name || "default"}`)
@@ -1068,7 +1101,7 @@ the sub-agent model before delegation for optimal phase performance.`,
     args: {
       phase: tool.schema
         .string()
-        .describe("ODF phase: ASSESS, QA-PLAN, DESIGN, IMPLEMENT, VERIFY"),
+        .describe("ODF phase: PROPOSE, ASSESS, QA-PLAN, DESIGN, IMPLEMENT, VERIFY"),
     },
     async execute(args: { phase: string }): Promise<string> {
       const registry = await loadRegistry()
@@ -1101,7 +1134,7 @@ Use this for debugging:
     args: {
       phase: tool.schema
         .string()
-        .describe("ODF phase: ASSESS, QA-PLAN, DESIGN, IMPLEMENT, VERIFY, EXPLORE"),
+        .describe("ODF phase: PROPOSE, ASSESS, QA-PLAN, DESIGN, IMPLEMENT, VERIFY, EXPLORE"),
       task: tool.schema
         .string()
         .describe("Task description to analyze"),
@@ -1149,7 +1182,7 @@ Use this for debugging:
         `**Odoo Version:** ${version || "not detected (no version filter applied)"}`,
         "",
         "### Agent Resolution",
-        `**Selected:** ${agentName}`,
+        `**Selected:** ${agentName || "none"}`,
       ]
 
       if (agent) {
@@ -1730,6 +1763,7 @@ export default OdfDelegationPlugin
 // Exported for unit testing
 export {
   resolvePath,
+  resolveWorkspaceRoot,
   matchSkills,
   resolveAgent,
   formatCompactRules,

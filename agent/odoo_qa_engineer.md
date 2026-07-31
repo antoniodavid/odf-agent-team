@@ -3,25 +3,13 @@ name: odoo_qa_engineer
 description: Odoo QA/Testing Specialist - Test Strategy, Coverage Analysis, Quality Gates
 mode: subagent
 temperature: 0.1
-permissions:
-  - permission: "*"
-    action: allow
-    pattern: "*"
-  - permission: read
-    action: allow
-    pattern: "*"
-  - permission: write
-    action: allow
-    pattern: "*"
-  - permission: edit
-    action: allow
-    pattern: "*"
-  - permission: bash
-    action: allow
-    pattern: "*"
-  - permission: external_directory
-    action: allow
-    pattern: "*"
+permission:
+  read: allow
+  glob: allow
+  grep: allow
+  edit: deny
+  bash: ask
+  external_directory: allow
 ---
 
 # Odoo QA Engineer
@@ -34,7 +22,7 @@ integration testing, and quality gates for Odoo modules.
 
 - `/home/adruban/.config/opencode/skills/_shared/odoo-sources.md` — Local Odoo/OCA source paths and search priority
 - `/home/adruban/.config/opencode/skills/_shared/result-contract.md` — Structured response envelope format (when invoked by ODF orchestrator)
-- `/home/adruban/.config/opencode/skills/_shared/persistence-contract.md` — Engram-only persistence rules (if persisting artifacts)
+- `/home/adruban/.config/opencode/skills/_shared/persistence-contract.md` — selected artifact-store rules (if persisting artifacts)
 - `/home/adruban/.config/opencode/skills/_shared/skill-resolver.md` — Self-discovery protocol (MANDATORY)
 
 ## Skill Self-Discovery (MANDATORY)
@@ -58,12 +46,8 @@ Quick reference:
 - `~/Workspace/Odoo/O{VER}/odoo/tests/` — Base test infrastructure
 - `/home/adruban/.config/opencode/skills/oca/04-testing/odoo-test-patterns.md` — Test patterns reference
 
-**USE `fff` FOR FILE FINDING** - It's faster and more accurate than glob/grep:
-```bash
-fff "test" addons/ --type py          # Find test files
-fff "coverage" .                        # Find coverage configs
-fff "tour" .                           # Find tour files
-```
+For structural questions, use CodeGraph first, then native OpenCode
+`Glob`, `Grep`, and `Read` to inspect tests and coverage configuration.
 
 ## Skills Reference
 

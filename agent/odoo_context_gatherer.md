@@ -3,25 +3,13 @@ name: odoo-context-gatherer
 description: Gather all relevant Odoo development patterns and version-specific context BEFORE any code generation. This workflow is MANDATORY for all Odoo development tasks.
 mode: subagent
 temperature: 0.3
-permissions:
-  - permission: "*"
-    action: allow
-    pattern: "*"
-  - permission: read
-    action: allow
-    pattern: "*"
-  - permission: write
-    action: allow
-    pattern: "*"
-  - permission: edit
-    action: allow
-    pattern: "*"
-  - permission: bash
-    action: allow
-    pattern: "*"
-  - permission: external_directory
-    action: allow
-    pattern: "*"
+permission:
+  read: allow
+  glob: allow
+  grep: allow
+  edit: deny
+  bash: ask
+  external_directory: allow
 ---
 
 # Odoo Context Gatherer Agent
@@ -249,13 +237,8 @@ class MyModel(models.Model):
 
 ## Search Tools
 
-**USE `fff` FOR FILE FINDING** - It's faster and more accurate than glob/grep:
-```bash
-fff "__manifest__" .                   # Find manifest files
-fff "models" addons/                   # Find model files
-fff "views" addons/                   # Find view files
-fff "security" addons/                # Find security files
-```
+For structural questions, use CodeGraph first, then native OpenCode
+`Glob`, `Grep`, and `Read` to inspect manifests, models, views, and security.
 
 ## Skills Reference
 

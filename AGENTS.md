@@ -19,7 +19,7 @@ Each phase is a sub-agent with a defined input/output contract. The orchestrator
 
 | Command | Purpose |
 |---------|---------|
-| `/odf-new <name>` | Start a new change: preflight → full pipeline |
+| `/odf-new <name>` | Start a new change: preflight → propose → full pipeline |
 | `/odf-continue [name]` | Resume a change from its last completed phase |
 | `/odf-status [name]` | Show change state, artifacts, task progress |
 | `/odf-explore <topic>` | Investigate Odoo patterns before committing to a change |
@@ -34,6 +34,7 @@ Each phase is a sub-agent with a defined input/output contract. The orchestrator
 
 | Phase | Agent | Output | Gate |
 |-------|-------|--------|------|
+| **PROPOSE** | `odoo_functional_consultant` | Business intent, scope, capabilities, risks | `question` tool — approve/adjust/cancel |
 | **ASSESS** | `odoo_functional_consultant` | Strategy (standard vs custom) + functional spec | `question` tool — proceed/adjust/cancel |
 | **QA-PLAN** | `odoo_qa_engineer` | Test plan, scenarios, coverage targets | `question` tool — approve/adjust |
 | **DESIGN** | `odoo_backend_engineer` / `odoo_frontend_engineer` | Technical design + tasks | `question` tool — approve & implement |
@@ -119,8 +120,8 @@ ODF can install and detect optional tools:
 
 Two backends:
 
-- **Engram** (default, always-on): `odf/{change}/{artifact-type}` topic keys. State flows through Engram, never inferred from conversation.
-- **OpenSpec** (optional, file-based): `openspec/changes/{change}/` files for team sharing.
+- **Engram**: phase artifacts and status observations use `odf/{change}/{artifact-type}` topic keys.
+- **OpenSpec**: current state-machine helpers use `openspec/changes/{change}/` files for runtime state and team sharing.
 
 Configurable via preflight `artifact_store` field (engram | openspec | hybrid).
 
@@ -187,13 +188,13 @@ ODF is a superset of the generic SDD workflow:
 
 | Aspect | SDD (gentle-ai) | ODF |
 |--------|-----------------|-----|
-| Phases | propose → spec → design → tasks → apply → verify | assess → qa-plan → design → implement → verify |
+| Phases | propose → spec → design → tasks → apply → verify | propose → assess → qa-plan → design → implement → verify |
 | Domain | Generic | Odoo-specific |
 | Sub-agents | 7 generic agents | 11 specialized Odoo agents (backend, frontend, QA, DBA, etc.) |
 | Skills | Code style, commit conventions | OCA governance, Odoo patterns, migration guides |
 | Profile system | No | Yes (default/cheap profiles per phase) |
 | Community tools | CodeGraph | CodeGraph + extensible via plugin tools |
-| Persistence | Engram default | Engram always-on + optional OpenSpec |
+| Persistence | Engram default | Selected `openspec`, `engram`, or `hybrid` mode |
 
 ## Tests
 
@@ -205,7 +206,7 @@ npm run typecheck     # tsc --noEmit
 node scripts/odf-registry-validate.js   # validates all registered paths exist
 ```
 
-**Critical quirk**: the test runner reads the registry from the **installed** location (`~/.config/opencode/odf-registry.json`), NOT from this repo. Set `ODF_CONFIG_DIR=/path/to/repo` to validate against the repo copy.
+**Registry selection**: the test runner honors an absolute `ODF_CONFIG_DIR`; otherwise it derives the registry from `HOME/.config/opencode`. Set `ODF_CONFIG_DIR=/path/to/repo` to validate against the repo copy.
 
 ## Registry lifecycle
 

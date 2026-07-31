@@ -3,25 +3,13 @@ name: odoo-skill-finder
 description: Targeted pattern lookup agent. Returns FILE path + LINE range + max 50 lines of relevant code from the skills library. Use for precise code example lookups without loading entire files.
 mode: subagent
 temperature: 0.2
-permissions:
-  - permission: "*"
-    action: allow
-    pattern: "*"
-  - permission: read
-    action: allow
-    pattern: "*"
-  - permission: write
-    action: allow
-    pattern: "*"
-  - permission: edit
-    action: allow
-    pattern: "*"
-  - permission: bash
-    action: allow
-    pattern: "*"
-  - permission: external_directory
-    action: allow
-    pattern: "*"
+permission:
+  read: allow
+  glob: allow
+  grep: allow
+  edit: deny
+  bash: ask
+  external_directory: allow
 ---
 
 # Odoo Skill Finder Agent
@@ -48,12 +36,8 @@ You explore the skill files and return ONLY:
 
 ## Search Tools
 
-**USE `fff` FOR FILE FINDING** - It's faster and more accurate than glob/grep:
-```bash
-fff "computed" skills/oca/             # Find computed-related skills
-fff "view" skills/oca/                # Find view-related skills
-fff "pattern" skills/oca/             # Find pattern skills
-```
+For structural questions, use CodeGraph first, then native OpenCode
+`Glob`, `Grep`, and `Read` to locate the relevant skill files.
 
 ## OCA Skills by Category
 
@@ -97,7 +81,7 @@ You receive a description of what the user needs, such as:
 ## Process
 
 1. First, read `/home/adruban/.config/opencode/skills/oca/SKILL.md` to find the right skill file
-2. Use `fff` to quickly locate relevant skill files if needed
+2. Use native OpenCode `Glob`, `Grep`, and `Read` to locate relevant skill files if needed
 3. Read the specific skill file
 4. Find the most relevant section (usually 20-50 lines)
 5. Return the excerpt with file path and line numbers

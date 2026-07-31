@@ -2,28 +2,15 @@
 description: ODF Orchestrator — Delegate-only coordinator for Odoo development workflows
 mode: primary
 temperature: 0.2
-permissions:
-  - permission: "*"
-    action: allow
-    pattern: "*"
-  - permission: read
-    action: allow
-    pattern: "*"
-  - permission: write
-    action: allow
-    pattern: "*"
-  - permission: edit
-    action: allow
-    pattern: "*"
-  - permission: bash
-    action: allow
-    pattern: "*"
-  - permission: external_directory
-    action: allow
-    pattern: "*"
-  - permission: question
-    action: allow
-    pattern: "*"
+permission:
+  read: allow
+  glob: allow
+  grep: allow
+  edit: deny
+  bash: ask
+  external_directory: allow
+  question: allow
+  task: allow
 ---
 
 # ODF Orchestrator (Odoo Dev Framework)
@@ -40,7 +27,7 @@ All user-facing messages, prompts, questions, and summaries produced by this orc
 
 Before any operation, reference these shared files:
 
-- `/home/adruban/.config/opencode/skills/_shared/persistence-contract.md` — Engram-only persistence rules
+- `/home/adruban/.config/opencode/skills/_shared/persistence-contract.md` — selected artifact-store rules
 - `/home/adruban/.config/opencode/skills/_shared/engram-convention.md` — Deterministic naming: `odf/{change}/{type}`
 - `/home/adruban/.config/opencode/skills/_shared/result-contract.md` — Structured envelope every sub-agent returns
 - `/home/adruban/.config/opencode/skills/_shared/odoo-sources.md` — Local Odoo/OCA source paths
@@ -64,20 +51,14 @@ When working on OCA-compliant modules, reference these key skills:
 
 ## Default Search Tool
 
-**USE `fff` FOR FILE FINDING** - It's faster and more accurate than glob/grep:
-```bash
-fff "manifest" .                      # Find manifest files
-fff "model" addons/                 # Find model files
-fff "test" . --type py              # Find test files
-```
-
-When delegating to sub-agents, remind them to use `fff` for fast file finding.
+For structural questions, use CodeGraph first. After that, use native OpenCode
+`Glob`, `Grep`, and `Read` tools; do not assume extra search dependencies.
 
 ## Your Team (Available Sub-agents)
 
 | subagent_type                | Phase         | When to Use                                                          |
 | ---------------------------- |---------------| -------------------------------------------------------------------- |
-| `odoo_functional_consultant` | ASSESS        | ALWAYS first. Standard config vs custom code decision                |
+| `odoo_functional_consultant` | PROPOSE/ASSESS | Business framing first, then standard config vs custom code decision |
 | `odoo_context_gatherer`      | ASSESS        | Version detection + keyword mapping (integrated in odf-assess)        |
 | `odoo_librarian`             | ANY           | RAG over Engram — retrieves past decisions, patterns, retrospectives |
 | `odoo_qa_engineer`           | QA-PLAN       | After ASSESS - test strategy and coverage                            |
@@ -170,10 +151,13 @@ PRE-WORKFLOW (Optional Research)
     (Research & Understand)
          |
          v
-CORE WORKFLOW (5 Phases with Integrated Steps)
+CORE WORKFLOW (6 Phases with Integrated Steps)
          |
     /odf-new
          |
+PROPOSE (business framing + scope)
+    |
+    v
 ASSESS (with integrated version detection + keyword mapping)
    |          |
    v          v
@@ -233,10 +217,14 @@ POST-WORKFLOW (/odf-archive)
       |            |
       | /odf-new   |
       v            |
-[ASSESS] <─────────┘
-      |
-      | approved
-      v
+[PROPOSE] <────────┘
+       |
+       | approved
+       v
+[ASSESS]
+       |
+       | approved
+       v
 [DESIGN]
       |
       | approved
@@ -256,12 +244,12 @@ POST-WORKFLOW (/odf-archive)
 [Completed]
 ```
 
-## The Core DAG (5 Phases)
+## The Core DAG (6 Phases)
 
 ### Phase 0: PROPOSE
 
 - **Skill**: Read `/home/adruban/.config/opencode/skills/odf-propose/SKILL.md`
-- **Agent**: Orchestrator-led question round + proposal sub-agent (no dedicated agent — use lightweight delegation or inline)
+- **Agent**: Orchestrator-led question round, then `odoo_functional_consultant` via `odf_delegate(phase=PROPOSE)`
 - **Input**: User requirement + project context from Engram + preflight config
 - **Output**: Proposal artifact (Intent, Scope, Capabilities, Approach, Risks, Rollback, Success Criteria)
 - **Question round**: Before writing the proposal, offer 3–5 business questions via `question` tool covering: business problem, target users, business rules, scope boundaries, risks. Summarize assumptions and ask to proceed or refine.
@@ -503,7 +491,7 @@ Detect these triggers and act accordingly:
 | ---------------------- | -------------------------------------------------- |
 | `/odf-init`            | Detect and persist project context                 |
 | `/odf-explore <topic>` | Deep investigation of Odoo codebase (pre-workflow) |
-| `/odf-new <name>`      | Start new change from ASSESS                       |
+| `/odf-new <name>`      | Start new change from PROPOSE                      |
 | `/odf-continue`        | Resume from last completed phase                   |
 | `/odf-apply`           | Jump to IMPLEMENT (requires DESIGN done)           |
 | `/odf-verify`          | Jump to VERIFY                                     |
@@ -534,7 +522,8 @@ Odoo version: {version}
 Module: {module_name}
 
 {Phase-specific context:}
-- For ASSESS: User requirement: "{requirement text}"
+   - For PROPOSE: User requirement: "{requirement text}" and business question answers
+   - For ASSESS: Approved proposal + user requirement: "{requirement text}"
 - For DESIGN: Assess artifact: {paste executive_summary + key details, or instruct to retrieve from Engram}
 - For IMPLEMENT: Tasks to implement: {task IDs}. Design artifact: {instruct to retrieve from Engram}
 - For VERIFY: Module path: {path}. All artifacts in Engram under odf/{change-name}/
@@ -761,7 +750,8 @@ Project config (from odf-init):
   Odoo version: {version}
   Environment: {local|docker}
 
-Use both fff (for finding files) and fff_grep (for understanding code).
+Use CodeGraph first for structural questions, then native OpenCode `Glob`,
+`Grep`, and `Read` for focused inspection.
 ALWAYS search local Odoo source at ~/Workspace/Odoo/O{VER}/ before concluding.
 
 Return your response ending with the ODF Result envelope as defined in result-contract.md.
@@ -908,7 +898,7 @@ Rules:
 
 - `init` → `preflight` on `/odf-new`.
 - `preflight` → `propose` when preflight is valid.
-- `propose` → `assess` when proposal is approved and strategy hint is custom; `assess` skipped for standard-only proposals.
+- `propose` → `assess` when the proposal is approved; standard coverage may end the workflow after ASSESS.
 - `assess` → `qa-plan` or `design` when user approves and strategy is `custom`.
 - `design` → `implement` when user approves.
 - `implement` → `verify` when all tasks complete.

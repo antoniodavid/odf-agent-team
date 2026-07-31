@@ -1,4 +1,5 @@
 export interface StateArtifactMap {
+  propose?: boolean;
   assess?: boolean;
   qa_plan?: boolean;
   design?: boolean;

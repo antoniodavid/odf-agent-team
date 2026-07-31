@@ -2,7 +2,7 @@
 
 ## Naming Rules
 
-ALL ODF artifacts persisted to Engram MUST follow this deterministic naming:
+ODF artifacts persisted to Engram MUST follow this deterministic naming. OpenSpec-only artifacts use their file paths instead.
 
 ```
 title:     odf/{change-name}/{artifact-type}

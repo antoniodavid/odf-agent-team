@@ -26,6 +26,7 @@ function makeState(overrides: Record<string, unknown> = {}) {
       persisted_at: '2026-06-18T00:00:00Z',
     },
     artifacts: {
+      propose: false,
       assess: false,
       design: false,
       implement: false,
@@ -47,7 +48,7 @@ function makeState(overrides: Record<string, unknown> = {}) {
 
 describe('orchestrator state machine', () => {
   it('defines expected phase order', () => {
-    expect(PHASE_ORDER).toEqual(['init', 'preflight', 'assess', 'qa-plan', 'design', 'implement', 'verify', 'archived']);
+    expect(PHASE_ORDER).toEqual(['init', 'preflight', 'propose', 'assess', 'qa-plan', 'design', 'implement', 'verify', 'archived']);
   });
 
   describe('isPreflightComplete', () => {
@@ -69,14 +70,22 @@ describe('orchestrator state machine', () => {
       expect(getNextPhase({})).toBe('preflight');
     });
 
-    it('returns assess after preflight', () => {
-      expect(getNextPhase(makeState())).toBe('assess');
+    it('returns propose after preflight', () => {
+      expect(getNextPhase(makeState())).toBe('propose');
+    });
+
+    it('returns assess after propose is done', () => {
+      const state = makeState({
+        phase: 'propose',
+        artifacts: { ...makeState().artifacts, propose: true },
+      });
+      expect(getNextPhase(state)).toBe('assess');
     });
 
     it('returns design after assess is done', () => {
       const state = makeState({
         phase: 'assess',
-        artifacts: { ...makeState().artifacts, assess: true },
+        artifacts: { ...makeState().artifacts, propose: true, assess: true },
       });
       expect(getNextPhase(state)).toBe('design');
     });
@@ -84,7 +93,7 @@ describe('orchestrator state machine', () => {
     it('returns implement after design is done', () => {
       const state = makeState({
         phase: 'design',
-        artifacts: { ...makeState().artifacts, assess: true, design: true },
+        artifacts: { ...makeState().artifacts, propose: true, assess: true, design: true },
       });
       expect(getNextPhase(state)).toBe('implement');
     });
@@ -92,7 +101,7 @@ describe('orchestrator state machine', () => {
     it('returns verify after implement is done', () => {
       const state = makeState({
         phase: 'implement',
-        artifacts: { ...makeState().artifacts, assess: true, design: true, implement: true },
+        artifacts: { ...makeState().artifacts, propose: true, assess: true, design: true, implement: true },
       });
       expect(getNextPhase(state)).toBe('verify');
     });
@@ -100,7 +109,7 @@ describe('orchestrator state machine', () => {
     it('returns archived when all artifacts are done', () => {
       const state = makeState({
         phase: 'verify',
-        artifacts: { assess: true, qa_plan: true, design: true, implement: true, qa_review: true, qa_aggregate: true, verify: true },
+        artifacts: { propose: true, assess: true, qa_plan: true, design: true, implement: true, qa_review: true, qa_aggregate: true, verify: true },
       });
       expect(getNextPhase(state)).toBe('archived');
     });
@@ -142,7 +151,7 @@ describe('orchestrator state machine', () => {
       const table = renderStatusTable([{ change: 'my-change', state: makeState() }]);
       expect(table).toContain('| Cambio ');
       expect(table).toContain('my-change');
-      expect(table).toContain('assess');
+      expect(table).toContain('propose');
     });
   });
 
@@ -151,13 +160,20 @@ describe('orchestrator state machine', () => {
       const detail = renderStatusDetail('my-change', makeState());
       expect(detail).toContain('Estado ODF: my-change');
       expect(detail).toContain('- **Fase actual**: init');
-      expect(detail).toContain('- **Siguiente fase**: assess');
+      expect(detail).toContain('- **Siguiente fase**: propose');
     });
   });
 
   describe('updateStateAfterPhase', () => {
     it('marks artifact complete and updates timestamp', () => {
       const state = makeState({ phase: 'preflight' });
+      const updated = updateStateAfterPhase(state, 'propose');
+      expect(updated.artifacts!.propose).toBe(true);
+      expect(updated.phase).toBe('propose');
+    });
+
+    it('marks assess complete and updates its strategy', () => {
+      const state = makeState({ phase: 'propose', artifacts: { ...makeState().artifacts, propose: true } });
       const updated = updateStateAfterPhase(state, 'assess', { strategy: 'custom' });
       expect(updated.artifacts!.assess).toBe(true);
       expect(updated.phase).toBe('assess');

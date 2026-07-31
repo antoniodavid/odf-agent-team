@@ -2,7 +2,7 @@
 
 > Tu equipo de desarrollo Odoo con IA — skills, agentes y workflow OCA-compliant para OpenCode.
 
-**ODF (Odoo Development Framework)** es un sistema de agentes AI especializados en desarrollo Odoo. Incluye 31 skills, 12 agentes, 21 comandos, pipeline completo de desarrollo (ASSESS → DESIGN → IMPLEMENT → VERIFY), orquestador conversacional con preflight gate, e instalador idempotente.
+**ODF (Odoo Development Framework)** es un sistema de agentes AI especializados en desarrollo Odoo. Incluye 31 skills, 12 agentes, 21 comandos, pipeline completo de desarrollo (PROPOSE → ASSESS → QA-PLAN → DESIGN → IMPLEMENT → VERIFY), orquestador conversacional con preflight gate, e instalador idempotente.
 
 ## Quick Install
 
@@ -131,7 +131,7 @@ Cada fase se delega al agente especializado a través del plugin `odf_delegate`,
 | Agente | Rol | Fases |
 |--------|-----|-------|
 | `odoo_orchestrator` | Coordinador principal | ALL |
-| `odoo_functional_consultant` | Análisis standard vs custom | ASSESS |
+| `odoo_functional_consultant` | Propuesta y análisis standard vs custom | PROPOSE, ASSESS |
 | `odoo_backend_engineer` | Python models, views, security | DESIGN, IMPLEMENT |
 | `odoo_frontend_engineer` | OWL, JS/TS, SCSS, QWeb | DESIGN, IMPLEMENT |
 | `odoo_qa_engineer` | Test strategy, coverage | QA-PLAN, VERIFY |
@@ -149,6 +149,7 @@ Cada fase se delega al agente especializado a través del plugin `odf_delegate`,
 ODF Agent Team
 ├── Registry (31 skills, 12 agents, 2 profiles, package metadata)
 ├── Orchestrator (odoo_orchestrator) — preflight gate + state machine
+│   ├── PROPOSE    → odoo_functional_consultant
 │   ├── ASSESS     → odoo_functional_consultant
 │   ├── QA-PLAN   → odoo_qa_engineer
 │   ├── DESIGN    → odoo_backend_engineer (or custom agent)

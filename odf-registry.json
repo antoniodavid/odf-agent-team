@@ -795,7 +795,7 @@
         "investigate",
         "how does"
       ],
-      "compact_rules": "Research Odoo codebase. Local source first, never guess.\n- fff to find modules, fff_grep for patterns\n- Read models/ + views/ + tests/ before concluding\n- Determine standard coverage: Yes/No/Partial\n- Output: modules+models found, standard assessment, recommendation",
+      "compact_rules": "Research Odoo codebase. Local source first, never guess.\n- For structural questions, use CodeGraph first, then native Glob/Grep/Read\n- Read models/ + views/ + tests/ before concluding\n- Determine standard coverage: Yes/No/Partial\n- Output: modules+models found, standard assessment, recommendation",
       "path": "skills/odf-explore/SKILL.md",
       "odoo_versions": [
         14,
@@ -1188,6 +1188,7 @@
       "mode": "subagent",
       "description": "Standard vs custom assessment, functional analysis",
       "phases": [
+        "PROPOSE",
         "ASSESS"
       ],
       "model": null,
