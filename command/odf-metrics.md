@@ -13,24 +13,25 @@ Examples:
 
 ## What This Does
 
-Reads delegation metrics from Engram (`odf/metrics/delegation/*`) and presents:
+Reads delegation metrics from the plugin's local JSONL log (canonical source, `${ODF_CONFIG_DIR:-~/.config/opencode}/metrics/delegations-YYYY-MM-DD.jsonl`) and presents:
 - Agent performance (delegations, duration, tokens)
 - Skill resolution rates
 - Most-used skills
 - Errors and timeouts
-- Trends over time
+
+Engram is NOT the metrics source — the plugin never writes delegations to Engram.
 
 ## Orchestrator Instructions
 
 ### 1. Fetch metrics
 
-```
-FROM ENGRAM:
-  mem_search("odf/metrics/delegation/", limit: 100)
-  FOR EACH result: mem_get_observation(id)
+Run the read-only aggregator:
 
-FILTER by last N days (default: 1)
 ```
+node scripts/odf-metrics.js [--days N]
+```
+
+Respects `ODF_CONFIG_DIR` when set; falls back to `~/.config/opencode/metrics`. Read-only — never write to the metrics directory (the plugin owns the writer side) and never append to Engram.
 
 ### 2. Build dashboard
 
@@ -58,19 +59,15 @@ ODF: Agent Observatory (last {N}d)
 
 === Errors ===
   {timestamp} | {agent} | {error} | {duration}s
-
-=== Trends (last 7d vs previous 7d) ===
-  Delegations:    +15%
-  Avg duration:   -5%  (improving)
-  Resolution:     +3%  (improving)
-  Errors:         -50% (improving)
 ```
 
-### 3. Show trends when --days >= 7
+### 3. Show trends when --days >= 7 (optional)
 
-Compare current period vs previous period of same length.
+Compare current period vs previous period of the same length. The script returns a single aggregate; for trends, run it twice (`--days N` and `--days 2N`) and diff the overall block.
 
-### 4. Store in Engram on each run
+### 4. Cache snapshot (optional, never a source)
+
+If a snapshot is wanted for cross-session reference, store the dashboard TEXT in Engram — it is a denormalized cache, NOT the source of truth:
 
 ```
 mem_save(
