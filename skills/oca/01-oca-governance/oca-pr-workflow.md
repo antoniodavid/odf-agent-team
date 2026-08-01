@@ -404,6 +404,8 @@ Find correct runbot at: https://runbot.odoo-community.org/runbot
 
 ### Rebuilding Test Database
 
+> ⚠️ **CI-SANDBOX ONLY.** The `dropdb`/`createdb -T` sequence below applies ONLY to the OCA runbot's isolated sandbox databases (named after the GitHub username) inside the runbot container. It must NEVER be run against a developer's local/remote project database, and it is NOT a general testing recipe. For your own project tests, use a dedicated throwaway test DB and never drop the developer DB.
+
 ```bash
 # In runbot container
 dropdb [github_username]

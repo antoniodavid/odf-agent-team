@@ -45,8 +45,9 @@ ODF: Verifying "{change-name}"
   pre-commit: Passed (3 auto-fixed)
   pylint-odoo: No issues
 
-  -- Tests --
-  odoo-bin --test-enable: 12 passed, 0 failed
+   -- Tests --
+   docker compose run --rm odoo odoo -i {module} --test-enable: 12 passed, 0 failed
+   (use the project's testing.test_command from odf-init/{project}; substitute the module under test for {module})
 
   -- OCA Compliance --
   Manifest: version, license, author OK

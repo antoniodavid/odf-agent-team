@@ -55,7 +55,7 @@ The tier is decided by the EVIDENCE in the frozen diff, NEVER by the number of l
 4. **Check completeness**: Count total vs completed tasks. Flag CRITICAL if core tasks incomplete
 5. **Check OCA compliance**: Manifest (version, license, author, depends), security (ir.model.access.csv), code quality (imports, SQL injection, translations), tests
 6. **Run pre-commit**: `pre-commit run -a`. Flag CRITICAL on non-auto-fixable failures
-7. **Run tests**: Use project config command or odoo-bin -i {module} --test-enable
+7. **Run tests**: Use the project's `testing.test_command` from `odf-init/{project}` with the module under test substituted for `{module}`. Docker Compose projects run through the compose service (e.g. `docker compose run --rm odoo odoo -i {module} --test-enable --stop-after-init`); local projects run `odoo-bin` directly. Read the project config first — never guess a runner the project does not use.
 8. **Run pylint-odoo**: `pylint --load-plugins=pylint_odoo -d all -e odoolint {module}`
 9. **Build spec compliance matrix**: Cross-reference EVERY REQ-XX scenario against test results. COMPLIANT = test exists AND passed. UNTESTED = CRITICAL
 10. **Review by tier**:

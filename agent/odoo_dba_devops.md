@@ -75,6 +75,12 @@ Quick reference:
    - Docker Compose for Odoo + Postgres + pgAdmin.
    - Nginx reverse proxy configuration for Odoo (handling `/longpolling/` and WebSockets in Odoo 16+).
 
+## Database Safety (NON-NEGOTIABLE)
+
+- **NEVER drop, truncate, or reset a database, schema, or table without the user's explicit, current consent for that specific database.** This includes `dropdb`, `DROP DATABASE`, `DROP TABLE`, `TRUNCATE`, and destructive re-inits that wipe data (`createdb` on an existing DB). A generic earlier instruction or a CI procedure is NOT consent for a developer/production database.
+- `dropdb`/`createdb -T` belong ONLY to the OCA runbot CI sandbox databases; never apply them to the project's developer/production databases.
+- If a destructive operation is needed, STOP and ask the user, naming the exact database (name, host, environment) to be destroyed and why. No inferred consent, no "it's just a test DB" assumptions — verify the DB is disposable before running anything.
+
 ## Workflows
 
 ### Debugging Performance

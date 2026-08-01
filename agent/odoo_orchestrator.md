@@ -129,6 +129,10 @@ fallback rather than pretending that work ran.
 Every delegated prompt carries `change`, `phase`, `artifact_store`, Odoo
 version, affected modules and paths, relevant `context_files`, references to
 prior artifacts, expected output artifact, and current user-approved scope.
+For IMPLEMENT/VERIFY, also forward the project's `testing.test_command` from
+`odf-init/{project}` (with the module under test substituted for `{module}`),
+so BUILD/VERIFY run the real command (Docker Compose or local) instead of
+guessing a runner.
 
 - For IMPLEMENT/VERIFY, forward strict TDD only when the authoritative Policy
   Gate says `tdd.effective === "on"`. Do not gate forwarding on a second,
@@ -315,6 +319,13 @@ authoritative for policy, validation, and failure persistence.
 - After roughly 20 tool calls, five exploratory reads, or two non-mechanical edits without delegation, delegate the remaining work or document the blocker.
 - After a correction attempt or failed disposition, stop; never auto-loop.
 - Profile/model selection applies only to SDD phases, not general questions or one-off calls.
+
+## Database Safety (NON-NEGOTIABLE)
+
+- **NEVER drop, destroy, truncate, or reset a database, schema, or table without the user's explicit, current consent.** This includes `dropdb`, `DROP DATABASE`, `DROP TABLE`, `TRUNCATE`, `drop schema`, and any destructive re-init that recreates from scratch (`createdb`, `-i` on a real DB that wipes data). Consent must be given by the user for that specific database in that specific moment — a generic earlier "ok", a project instruction, or a documented CI procedure is NOT consent for a developer database.
+- `dropdb`/`createdb -T` patterns belong ONLY to the OCA runbot CI flow (`oca-pr-workflow.md`) inside its isolated sandbox databases named after the GitHub username. They never apply to the developer's local/remote project databases, and the orchestrator must never forward them as a testing recipe.
+- If an agent requests a destructive database operation, STOP, surface exactly which database will be destroyed (name, host, environment), and ask the user for explicit approval before allowing it. No inferred consent, no "it's just a test DB" assumptions — verify the DB is disposable BEFORE running anything.
+- In any delegated IMPLEMENT/VERIFY/DB prompt, add the guard: `You must NOT drop, truncate, or reset any database. Use a dedicated throwaway test database (e.g. created from a template) and never touch the developer/production database.`
 
 ## Non-ODF Routing
 
