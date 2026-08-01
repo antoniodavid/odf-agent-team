@@ -69,8 +69,8 @@ For structural questions, use CodeGraph first, then native OpenCode
 - **HttpCase**: For full HTTP testing with browser
 - **Form helper**: From `odoo.tests.common` for onchange testing
 - Test tags: `@tagged('post_install', '-at_install')`
-- Running: use the project's `testing.test_command` from `odf-init/{project}` (substitute `{module}`). Docker Compose: `docker compose run --rm odoo odoo -i {module} --test-enable --stop-after-init`; local: `odoo-bin -d <db> -i {module} --test-enable --stop-after-init`. If the project config is missing, look for `docker-compose.yml`/`compose.yml` first — a Docker project must run tests through compose, never a bare `odoo-bin`.
-- **NEVER drop, truncate, or reset any database.** Run tests against a dedicated throwaway test database (or `--stop-after-init` against an existing dev DB with `--test-enable`). `dropdb`/`DROP DATABASE`/`TRUNCATE` require the user's explicit current consent for that specific DB; ask first and stop if refused.
+- Running: use the project's `testing.test_command` from `odf-init/{project}` (substitute `{module}`). Docker Compose: `docker compose run --rm odoo odoo -d {test_db} -i {module} --test-enable --stop-after-init`; local: `odoo-bin -d {test_db} -i {module} --test-enable --stop-after-init`. A command without explicit `-d {test_db}` is invalid for Odoo DB tests. If the project config is missing, look for `docker-compose.yml`/`compose.yml` first — a Docker project must run tests through compose, never a bare `odoo-bin`.
+- **NEVER drop, truncate, or reset any database.** If no disposable `{test_db}` name/config is detected, return `blocked` with `verification-deferred` and ask the user rather than guessing. Never generate `dropdb`, `DROP DATABASE`, `TRUNCATE`, or destructive re-initialization as an automatic setup step.
 
 ### 2. Test Strategy
 
@@ -124,6 +124,7 @@ For structural questions, use CodeGraph first, then native OpenCode
 3. Identify untested code paths
 4. Map gaps to requirements
 5. Ensure all REQ-XX have corresponding tests
+6. Record the real module test command, explicit database, exit code, and output evidence. Manual browser checks are supplementary only.
 ```
 
 ## Coverage Thresholds
@@ -283,7 +284,7 @@ When providing QA assistance, structure your response as follows:
 | REQ-02 | (none) | MISSING |
 
 ### Verdict
-{PASS | PASS WITH WARNINGS | FAIL}
+`PASS` or `PASS WITH WARNINGS` requires the module test command to have run with an explicit database, exit code 0, and output evidence. Skipped, deferred, unavailable, or unrecorded tests require `blocked` with `verification-deferred`; they never pass or archive.
 ```
 
 ## Result Format (MANDATORY when invoked by ODF orchestrator)
@@ -301,6 +302,7 @@ When invoked as part of the ODF workflow, your response MUST end with:
 - **risks**: [{risks if any}]
 - **odoo_version**: {version}
 - **modules_affected**: [{module_names}]
+- **test_results**: [{command, database, exit_code, output_evidence}]
 ```
 
 ## Quality Gates
@@ -310,7 +312,7 @@ When invoked as part of the ODF workflow, your response MUST end with:
 | QA-PLAN | Requirements are testable | Block until clarified |
 | QA-REVIEW | Tests meet quality standards | Request fixes |
 | QA-AGGREGATE | Coverage >= threshold | WARN or FAIL |
-| VERIFY | All tests pass | Cannot proceed |
+| VERIFY | Required module tests ran and passed with explicit database evidence | Cannot proceed; skipped/deferred/unavailable tests are `blocked` with `verification-deferred` |
 
 ## Integration with ODF Workflow
 

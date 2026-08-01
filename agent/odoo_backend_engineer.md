@@ -86,8 +86,8 @@ For structural questions, use CodeGraph first, then native OpenCode
 - `SavepointCase` / `HttpCase`: for more complex scenarios
 - Test tags: `@tagged('post_install', '-at_install')`
 - `Form` helper from `odoo.tests.common` for testing onchanges
-- Running: use the project's `testing.test_command` from `odf-init/{project}` (substitute `{module}`). Docker Compose: `docker compose run --rm odoo odoo -i {module} --test-enable --stop-after-init`; local: `odoo-bin -d <db> -i {module} --test-enable --stop-after-init`. If the project config is missing, look for `docker-compose.yml`/`compose.yml` first — a Docker project must run tests through compose, never a bare `odoo-bin`.
-- **NEVER drop, truncate, or reset any database.** Run tests against a dedicated throwaway test database (or `--stop-after-init` against an existing dev DB with `--test-enable`). `dropdb`/`DROP DATABASE`/`TRUNCATE` require the user's explicit current consent for that specific DB; ask first and stop if refused.
+- Running: use the project's `testing.test_command` from `odf-init/{project}` (substitute `{module}`). Docker Compose: `docker compose run --rm odoo odoo -d {test_db} -i {module} --test-enable --stop-after-init`; local: `odoo-bin -d {test_db} -i {module} --test-enable --stop-after-init`. A command without explicit `-d {test_db}` is invalid for Odoo DB tests. If the project config is missing, look for `docker-compose.yml`/`compose.yml` first — a Docker project must run tests through compose, never a bare `odoo-bin`.
+- **NEVER drop, truncate, or reset any database.** If no disposable `{test_db}` name/config is detected, block and ask the user rather than guessing. Never generate `dropdb`, `DROP DATABASE`, `TRUNCATE`, or destructive re-initialization as an automatic setup step.
 
 ### 5. OCA Compliance
 

@@ -42,7 +42,7 @@ Variables de entorno útiles:
 | **Agentes** | 12 | Especialistas: backend, frontend, QA, functional, DBA, APIs, migraciones |
 | **Comandos** | 21 | Definiciones de slash commands en `command/` |
 | **Comandos nativos** | 4 | `/odf-new`, `/odf-continue`, `/odf-status`, `/odf-explore` registrados en el orchestrator |
-| **Plugin** | 1 | `odf-delegation.ts` — delegación real vía `task()`, inyección de skills, métricas, fallback |
+| **Plugin** | 1 | `odf-delegation.ts` — delegación real vía `task()`, inyección de skills, métricas y bloqueos seguros |
 | **Perfiles** | 2 | `default` (deepseek-r1 + kimi-k2.6), `cheap` (kimi-k2.6 todas las fases) |
 | **Tests** | 307 | 188 unit tests (Vitest) + 119 aserciones de escenarios YAML |
 
@@ -110,7 +110,7 @@ Las fases legacy siguen funcionando como adaptadores compatibles:
 
 `QA-PLAN`/`QA-REVIEW`/`QA-AGGREGATE`/`QA-REPORT` son lentes de QA anidadas en `PLAN`, `BUILD` y `VERIFY`, no etapas canónicas obligatorias. La ruta concreta se decide por tipo de trabajo (config estándar, cambio pequeño, normal, cross-domain, migración, bugfix, investigación).
 
-Cada fase se delega al agente especializado a través del plugin `odf_delegate`, que invoca la API nativa `task()` de OpenCode y devuelve un resultado estructurado. Si `task()` no está disponible, el plugin devuelve un envelope de fallback con el prompt enriquecido.
+Cada fase se delega al agente especializado a través del plugin `odf_delegate`, que invoca la API nativa `task()` de OpenCode y devuelve un resultado estructurado. Si `task()` no está disponible, el plugin devuelve un envelope `blocked` con una instrucción accionable para reiniciar OpenCode; nunca devuelve un prompt ejecutable como si la delegación hubiera ocurrido.
 
 ## Comandos Nativos
 
@@ -164,7 +164,7 @@ ODF Agent Team
 │   ├── PLAN      → odoo_qa_engineer + odoo_backend/frontend_engineer (optional)
 │   ├── BUILD     → odoo_backend_engineer (or custom agent)
 │   └── VERIFY    → odoo_qa_engineer + Judgment Day
-├── Plugin (odf-delegation.ts: task() invocation, skill injection, metrics, fallback)
+├── Plugin (odf-delegation.ts: task() invocation, skill injection, metrics, safe blocking)
 │   ├── odf_workflow_route — canonical thin-spine routing
 │   ├── odf_workflow_status — OpenSpec-first status adapter (read-only)
 │   ├── odf_policy_gate / odf_receipt — TDD gate + failure receipts

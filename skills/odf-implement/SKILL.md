@@ -41,7 +41,7 @@ Use after DESIGN returns approved task breakdown. Implement assigned tasks in ba
    - **LOW**: ≥ 1 — e.g. `git diff --check` (+ AST parse of changed `.py`, or `xmllint --noout` when only views changed)
    - **MEDIUM**: ≥ 2 — LOW + module lint (pre-commit `--files` or pylint-odoo) + module tests (`test_command`)
    - **HIGH**: ≥ 3 — MEDIUM + `pre-commit run -a` + automated security scan (grep for `env.cr.execute` with interpolation, `eval(`, `subprocess` with `shell=True`)
-   - **Running module tests**: use the project's `testing.test_command` from `odf-init/{project}` and substitute the module under test for `{module}`. Docker Compose projects run through the compose service (e.g. `docker compose run --rm odoo odoo -i {module} --test-enable --stop-after-init`); local projects run `odoo-bin` directly. Never invent a command when the project config exists — read it first.
+    - **Running module tests**: use the project's `testing.test_command` from `odf-init/{project}` and substitute `{module}` only. The persisted Docker template is `docker compose run --rm odoo odoo -d {test_db} -i {module} --test-enable --stop-after-init`; the local template is `odoo-bin -d {test_db} -i {module} --test-enable --stop-after-init`. A command without explicit `-d {test_db}` is invalid for Odoo DB tests. If no disposable test database name/config is detected, block and ask the user rather than guessing. Never run or document `dropdb`, `DROP DATABASE`, `TRUNCATE`, or destructive re-initialization as automatic setup.
    - Evidence format:
    ```json
    {
@@ -50,7 +50,7 @@ Use after DESIGN returns approved task breakdown. Implement assigned tasks in ba
      "resolved_at": "<ISO-8601>",
      "commands": [
        { "name": "git-diff-check", "command": "git diff --check", "exit_code": 0, "output_tail": "..." },
-       { "name": "odoo-tests", "command": "docker compose run --rm odoo odoo -i {module} --test-enable --stop-after-init", "exit_code": 0, "output_tail": "... 0 failed ..." }
+        { "name": "odoo-tests", "command": "docker compose run --rm odoo odoo -d {test_db} -i {module} --test-enable --stop-after-init", "database": "{test_db}", "exit_code": 0, "output_tail": "... 0 failed ..." }
      ]
    }
    ```

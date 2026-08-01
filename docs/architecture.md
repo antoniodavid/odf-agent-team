@@ -110,7 +110,7 @@ The ODF-specific delegation engine. Exposes tools such as `odf_delegate`, `odf_w
 4. Injects compact rules and the active SDD profile into the prompt.
 5. Enforces the authoritative TDD Policy Gate for IMPLEMENT/VERIFY and the stop-validation evidence seal.
 6. Invokes OpenCode's native `task()` API.
-7. Returns a result envelope with `status` (`ok`, `fallback`, `error`, `timeout`), `agent`, `skills`, and `result`; on failure it auto-seals a receipt.
+7. Returns a result envelope with `status` (`delegated`, `blocked`, `error`, `timeout`), `agent`, `skills`, and `result`; unavailable task APIs block without an executable fallback prompt, and task failures auto-seal a receipt.
 
 `odf_workflow_route` resolves the canonical thin-spine route for a work type; `odf_workflow_status` derives canonical status (read-only) from OpenSpec/Engram/`.odf` with OpenSpec as authority.
 

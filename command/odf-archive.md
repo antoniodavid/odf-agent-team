@@ -28,6 +28,8 @@ Formalizes the closure of a completed ODF change:
    ```
    - If not found: Error "Change not verified. Run /odf-verify first."
    - If found: Continue
+   - The verify report MUST contain a real module test result with the exact `command`, explicit isolated `database`, `exit_code: 0`, and `output_evidence` showing the passing result. Manual browser checks do not satisfy this requirement.
+   - Reject reports whose tests are skipped, deferred, unavailable, unrecorded, or missing an explicit `-d {test_db}`. Treat them as `blocked` with `verification-deferred`; never archive them.
 
 2. **Collect all artifacts:**
    ```
@@ -161,12 +163,14 @@ ODF: Change Archived
 ## When to Archive
 
 **Archive when:**
-- VERIFY passed (PASS or PASS WITH WARNINGS)
+- VERIFY passed (PASS or PASS WITH WARNINGS) only after the required module test command actually ran and passed with valid database and output evidence
 - All tasks completed
 - Code is in production or merged
 
 **Do NOT archive when:**
 - VERIFY failed (fix and re-verify first)
+- Tests are skipped, deferred, unavailable, or missing command/database/exit-code/output evidence
+- VERIFY is `blocked` or `verification-deferred`, even when manual browser checks passed
 - Change is still active/work in progress
 - Tasks remain incomplete
 

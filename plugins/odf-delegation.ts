@@ -420,7 +420,7 @@ interface DelegationMetrics {
   skill_resolution: "injected" | "self-discovered" | "none"
   duration_ms: number
   token_estimate: number
-  status: "ok" | "fallback" | "error" | "timeout"
+  status: "ok" | "blocked" | "error" | "timeout"
   task_api_source: "ctx.task" | "toolCtx.task" | "sdk" | "unavailable"
   error?: string
 }
@@ -787,7 +787,7 @@ function resolveAgent(registry: ODFRegistry, phase: string, taskKeywords: string
 }
 
 // ==========================================
-// TASK INVOCATION AND FALLBACK
+// TASK INVOCATION
 // ==========================================
 
 type TaskApi = (input: {
@@ -795,6 +795,31 @@ type TaskApi = (input: {
   prompt: string
   context_files?: string[]
 }) => Promise<unknown>
+
+const EXECUTOR_BOUNDARY = `## Executor Boundary (non-negotiable)
+- Executor only: do not delegate, call nested agents, or ask whether to proceed.
+- Return a complete ODF Result as the last section of the response.
+- If required evidence, context, or tooling is missing, stop with status: blocked; do not claim success.
+- Never drop, truncate, or reset any database, schema, or table.
+- Never run dropdb, DROP DATABASE, TRUNCATE, or destructive re-initialization without current explicit user consent for that exact database.
+- Test commands must name an isolated database with -d <test_db> and must not drop it automatically.`
+
+function isEmptyTaskResult(result: unknown): boolean {
+  return result == null ||
+    (typeof result === "string" && result.trim().length === 0) ||
+    (typeof result === "object" && result !== null && !Array.isArray(result) && Object.keys(result).length === 0)
+}
+
+function isCancellation(result: unknown): boolean {
+  if (typeof result === "string") return /^(cancelled|canceled|aborted)$/i.test(result.trim())
+  if (!result || typeof result !== "object" || Array.isArray(result)) return false
+  const status = (result as { status?: unknown }).status
+  return typeof status === "string" && /^(cancelled|canceled|aborted)$/i.test(status.trim())
+}
+
+function isCancellationMessage(message: string): boolean {
+  return /\b(cancelled|canceled|aborted)\b/i.test(message)
+}
 
 function findTaskApi(toolCtx: ToolContext, client?: OpencodeClient): { taskApi: TaskApi; source: DelegationMetrics["task_api_source"] } | null {
   if (typeof (toolCtx as any).task === "function") {
@@ -819,32 +844,9 @@ async function invokeTask(
       setTimeout(() => reject(new Error(`task() timed out after ${timeoutMs}ms`)), timeoutMs)
     }),
   ])
+  if (isCancellation(result)) throw new Error("task-cancelled: task() was cancelled")
+  if (isEmptyTaskResult(result)) throw new Error("empty-task-result: task() returned no usable result")
   return { status: "delegated", result }
-}
-
-function buildFallbackOutput(
-  phase: string,
-  agentName: string,
-  skills: ODFSkill[],
-  enrichedPrompt: string,
-  profile: { model: string; temperature: number; reasoning?: boolean; name?: string } | null
-): string {
-  const profileLine = profile
-    ? `Profile: ${profile.name || "default"} | Model: ${profile.model} | Temperature: ${profile.temperature} | Reasoning: ${profile.reasoning ? "enabled" : "disabled"}`
-    : "Profile: default"
-  return `ODF Delegation (fallback — task() unavailable):
-
-Phase: ${phase}
-Agent: ${agentName}
-${profileLine}
-Skills injected: ${skills.length > 0 ? skills.map(s => s.name).join(", ") : "none"}
-Status: fallback
-
-Use task() with agent="${agentName}" and the enriched prompt below:
-
----FALLBACK_PROMPT_START---
-${enrichedPrompt}
----FALLBACK_PROMPT_END---`
 }
 
 const ALLOWED_PHASES = ["PROPOSE", "ASSESS", "QA-PLAN", "DESIGN", "IMPLEMENT", "VERIFY", "EXPLORE", "FIX"]
@@ -1116,8 +1118,10 @@ function extractChangeName(prompt: string): string | null {
 export interface ValidationEvidenceCommand {
   name: string
   command: string
+  database?: string
   exit_code: number
   output_tail: string
+  output_evidence?: string
 }
 
 export interface ValidationEvidenceFile {
@@ -1226,8 +1230,16 @@ export function validateValidationEvidence(opts: {
     if (cmd.exit_code !== 0) {
       return { status: "invalid", reason: `command "${cmd.name}" exited with ${cmd.exit_code}`, commands_validated: checked }
     }
+    if (["odoo-tests", "odoo-test", "pytest-odoo"].includes(cmd.name)) {
+      if (typeof cmd.database !== "string" || !cmd.database.trim()) {
+        return { status: "invalid", reason: `command "${cmd.name}" is missing an explicit isolated database`, commands_validated: checked }
+      }
+      if (!/\s-d\s+\S+/.test(cmd.command)) {
+        return { status: "invalid", reason: `command "${cmd.name}" is missing explicit -d <test_db>`, commands_validated: checked }
+      }
+    }
     const pattern = EVIDENCE_PATTERNS[cmd.name]
-    if (pattern && !pattern.test(cmd.output_tail || "")) {
+    if (pattern && !pattern.test(cmd.output_evidence || cmd.output_tail || "")) {
       return { status: "invalid", reason: `command "${cmd.name}" output does not match expected success pattern`, commands_validated: checked }
     }
     checked += 1
@@ -1441,7 +1453,7 @@ function createODFDelegate(client?: OpencodeClient, canonicalDirectory?: string)
 This tool:
 1. Reads the ODF registry to find the best agent for the phase
 2. Injects relevant skill compact rules into the prompt
-3. Delegates via the native task tool when available, or falls back to an instruction envelope
+ 3. Delegates via the native task tool when available, or returns a structured blocked envelope when unavailable
 
 Use this instead of generic task() for ODF workflow delegation.`,
     args: {
@@ -1582,11 +1594,12 @@ Use this instead of generic task() for ODF workflow delegation.`,
       const enrichedPrompt = hasInjection
         ? `${[rules, profileBlock].filter(Boolean).join("\n\n")}\n\n---\n\n${args.prompt}\n\n## Skill Resolution Status\nReport: injected (received from odf-delegation plugin)`
         : `${args.prompt}\n\n## Skill Resolution Status\nReport: none (no matching skills in registry)`
-      const delegationPrompt = policyGate
-        ? `${enrichedPrompt}\n\n## Policy Gate Decision (authoritative, do not recompute)\n${JSON.stringify(policyGate, null, 2)}`
-        : enrichedPrompt
+      const delegationPrompt = [
+        enrichedPrompt,
+        policyGate ? `## Policy Gate Decision (authoritative, do not recompute)\n${JSON.stringify(policyGate, null, 2)}` : "",
+        EXECUTOR_BOUNDARY,
+      ].filter(Boolean).join("\n\n")
 
-      const duration = Date.now() - startTime
       const taskApiInfo = findTaskApi(toolCtx, client)
       const profilePayload = profile
         ? { name: profile.name, model: profile.model, temperature: profile.temperature, reasoning: profile.reasoning }
@@ -1635,6 +1648,12 @@ Use this instead of generic task() for ODF workflow delegation.`,
         } catch (err) {
           const errorMessage = err instanceof Error ? err.message : String(err)
           const isTimeout = errorMessage.includes("timed out")
+          const isCancelled = isCancellationMessage(errorMessage)
+          const reason = isCancelled
+            ? "task-cancelled"
+            : errorMessage.startsWith("empty-task-result")
+              ? "empty-task-result"
+              : undefined
           recordMetrics({
             timestamp: new Date().toISOString(),
             session_id: toolCtx.sessionID,
@@ -1644,7 +1663,7 @@ Use this instead of generic task() for ODF workflow delegation.`,
             skill_resolution: skills.length > 0 ? "injected" : "none",
             duration_ms: Date.now() - startTime,
             token_estimate: estimateTokens(delegationPrompt),
-            status: isTimeout ? "timeout" : "error",
+            status: isTimeout ? "timeout" : isCancelled ? "blocked" : "error",
             task_api_source: taskApiInfo.source,
             error: errorMessage,
           })
@@ -1654,7 +1673,7 @@ Use this instead of generic task() for ODF workflow delegation.`,
             const receipt: ODFReceipt = {
               change: policyGate.change,
               phase: args.phase as ODFReceipt["phase"],
-              status: "failed",
+              status: isCancelled ? "blocked" : "failed",
               cause: isTimeout ? "timeout" : "error",
               evidence: {
                 summary: errorMessage,
@@ -1670,18 +1689,22 @@ Use this instead of generic task() for ODF workflow delegation.`,
             mergeReceipt(workspaceRoot, receipt)
           }
           return JSON.stringify({
-            status: isTimeout ? "timeout" : "error",
+            status: isTimeout ? "timeout" : isCancelled ? "blocked" : "error",
+            reason,
             phase: args.phase,
             agent: agentName,
             profile: profilePayload,
             policy_gate: policyGate,
+            validation: null,
+            receipt: null,
             task_api_source: taskApiInfo.source,
+            result: null,
             message: errorMessage,
           }, null, 2)
         }
       }
 
-      // Fallback: task() not available
+      const message = "Native task() API is unavailable. Restart OpenCode after loading the plugin, then retry the delegation."
       recordMetrics({
         timestamp: new Date().toISOString(),
         session_id: toolCtx.sessionID,
@@ -1689,13 +1712,27 @@ Use this instead of generic task() for ODF workflow delegation.`,
         agent: agentName,
         skills_injected: skills.map(s => s.name),
         skill_resolution: skills.length > 0 ? "injected" : "none",
-        duration_ms: duration,
+        duration_ms: Date.now() - startTime,
         token_estimate: estimateTokens(delegationPrompt),
-        status: "fallback",
+        status: "blocked",
         task_api_source: "unavailable",
+        error: "task-api-unavailable",
       })
 
-      return buildFallbackOutput(args.phase, agentName, skills, delegationPrompt, profile)
+      return JSON.stringify({
+        status: "blocked",
+        reason: "task-api-unavailable",
+        phase: args.phase,
+        agent: agentName,
+        skills_injected: skills.map(s => s.name),
+        profile: profilePayload,
+        policy_gate: policyGate,
+        validation: null,
+        receipt: null,
+        task_api_source: "unavailable",
+        result: null,
+        message,
+      }, null, 2)
     },
   })
 }

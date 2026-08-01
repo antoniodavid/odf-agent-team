@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "last_updated": "2026-06-18T00:00:00Z",
+  "last_updated": "2026-08-01T00:00:00Z",
   "package": {
     "name": "odf-agent-team",
     "version": "1.1.0",
@@ -389,7 +389,7 @@
         "widget",
         "static/src"
       ],
-      "compact_rules": "- Use correct OWL version for target Odoo (1.x v15, 2.x v16-17, 3.x v18+)\n- Register components in correct registries\n- Use services via useService()\n- Props validation with static props\n- Lifecycle hooks: setup(), willStart(), willUpdateProps()",
+      "compact_rules": "- OWL version: 2.x for Odoo 16-18; 3.x for Odoo 19\n- Read target Odoo Community source before coding; Enterprise source only when applicable\n- Register lifecycle hooks (onWillStart, onMounted, onWillUpdateProps, onWillUnmount) inside setup()\n- Declare every child in static components; define child classes before static fields to avoid TDZ\n- Use services via useService() and register components in the correct registry\n- Include every OWL XML template in the correct asset bundle and order; test asset/template completeness\n- Methods called through orm.call require @api.model where applicable; test the RPC path\n- Odoo 18 HOOT tests use *.test.js and belong in web.assets_tests\n- Reuse native Odoo components, services, Bootstrap/Odoo utilities, o_* naming, and existing design tokens; avoid parallel design systems",
       "path": "skills/oca/03-patterns/frontend/odoo-owl-components.md",
       "odoo_versions": [
         15,
@@ -399,15 +399,20 @@
         19
       ],
       "sdd_phase": "DESIGN",
-      "version": "1.0",
+      "version": "1.1",
       "changelog": [
+        {
+          "version": "1.1",
+          "date": "2026-08-01",
+          "change": "Corrected Odoo 18 OWL version and added runtime/frontend compatibility gates"
+        },
         {
           "version": "1.0",
           "date": "2026-04-01",
           "change": "Initial version"
         }
       ],
-      "last_updated": "2026-05-14"
+      "last_updated": "2026-08-01"
     },
     {
       "name": "odoo-test-patterns",
@@ -588,7 +593,7 @@
         "develop",
         "build"
       ],
-      "compact_rules": "Implement assigned tasks in batches following spec + design.\n- Read REQ-XX from assess before implementing each task\n- Follow design decisions. If wrong: NOTE IT, don't silently deviate\n- Tests with code: same commit as behavior they verify\n- Smoke tests per batch: pre-commit + pylint-odoo on changed files\n- Mark tasks [x] as you go. If blocked: status: blocked",
+      "compact_rules": "Implement assigned tasks in batches following spec + design.\n- Read REQ-XX from assess before implementing each task\n- Follow design decisions. If wrong: NOTE IT, don't silently deviate\n- Tests with code: same commit as behavior they verify\n- Odoo DB tests require explicit -d {test_db}; Docker: docker compose run --rm odoo odoo -d {test_db} -i {module} --test-enable --stop-after-init\n- If no disposable test database is detected, block and ask; never guess or run destructive database setup\n- Smoke tests per batch: pre-commit + pylint-odoo on changed files\n- Mark tasks [x] as you go. If blocked: status: blocked",
       "path": "skills/odf-implement/SKILL.md",
       "odoo_versions": [
         14,
@@ -624,7 +629,7 @@
         "qa gate",
         "quality"
       ],
-      "compact_rules": "Quality gate: evidence-based risk tiers + lens review + single-attempt correction budget.\n- Classify tier from the FROZEN diff (never diff size): HIGH (security/perms/raw SQL/money/data-loss/subprocess/public endpoints → 4 lenses risk/resilience/readability/reliability), MEDIUM (1 lens, default readability), LOW (0 lenses: structural readback + native tools, no reviewers)\n- Judgment Day 3-pass review runs ONLY for HIGH tier\n- Execute tests (static analysis alone is not verification)\n- Every REQ-XX must have a PASSING test (COMPLIANT) or it's UNTESTED (CRITICAL)\n- Correction budget: min(200, ceil(original_changed_lines/2)) lines, ONE attempt, re-verify once against same frozen diff (frozen_diff_ref); inconclusive validator doesn't consume the attempt; failed → escalate to user, never auto-loop\n- Never fix issues \u2014 only report. Orchestrator decides",
+      "compact_rules": "Quality gate: evidence-based risk tiers + lens review + single-attempt correction budget.\n- Classify tier from the FROZEN diff (never diff size): HIGH (security/perms/raw SQL/money/data-loss/subprocess/public endpoints → 4 lenses risk/resilience/readability/reliability), MEDIUM (1 lens, default readability), LOW (0 lenses: structural readback + native tools, no reviewers)\n- Judgment Day 3-pass review runs ONLY for HIGH tier\n- Run the real module test suite with explicit -d {test_db}; record command, database, exit_code, and output evidence\n- Static analysis and manual browser checks never substitute for module tests\n- Skipped, deferred, unavailable, or unrecorded tests → blocked with verification-deferred; never PASS or PASS WITH WARNINGS\n- Every REQ-XX must have a PASSING test (COMPLIANT) or it's UNTESTED (CRITICAL)\n- Correction budget: min(200, ceil(original_changed_lines/2)) lines, ONE attempt, re-verify once against same frozen diff (frozen_diff_ref); inconclusive validator doesn't consume the attempt; failed → escalate to user, never auto-loop\n- Never fix issues \u2014 only report. Orchestrator decides",
       "path": "skills/odf-verify/SKILL.md",
       "odoo_versions": [
         14,
@@ -831,7 +836,7 @@
         "detect",
         "project context"
       ],
-      "compact_rules": "Detect + persist Odoo project context to Engram.\n- Version: __manifest__.py \u2192 odoo-bin \u2192 Dockerfile \u2192 ask\n- Modules: find __manifest__.py, classify (custom/oca)\n- Test runner: odoo-bin \u2192 Docker \u2192 pytest-odoo\n- Persist YAML even partial. Upsert via topic_key",
+      "compact_rules": "Detect + persist Odoo project context to Engram.\n- Version: __manifest__.py \u2192 odoo-bin \u2192 Dockerfile \u2192 ask\n- Modules: find __manifest__.py, classify (custom/oca)\n- Test runner: Docker Compose or local odoo-bin with explicit -d {test_db} -i {module} --test-enable --stop-after-init\n- If no disposable test database name/config is detected, block and ask; never guess\n- Never generate dropdb, DROP DATABASE, TRUNCATE, or destructive re-initialization as automatic setup\n- Persist YAML even partial. Upsert via topic_key",
       "path": "skills/odf-init/SKILL.md",
       "odoo_versions": [
         14,
@@ -1215,7 +1220,7 @@
     {
       "name": "odoo_frontend_engineer",
       "mode": "subagent",
-      "description": "OWL, JS/TS, SCSS, QWeb, all view types",
+      "description": "Odoo frontend, OWL, UI/UX, JS/TS, SCSS, QWeb, all view types, and native design-system reuse",
       "phases": [
         "DESIGN",
         "IMPLEMENT"

@@ -263,6 +263,18 @@ describe("invokeTask", () => {
       context_files: ["models/x.py"],
     })
   })
+
+  it.each([null, undefined, "   ", {}])("rejects unusable task results: %j", async result => {
+    const taskApi = vi.fn().mockResolvedValue(result)
+    await expect(invokeTask(taskApi, "odoo_backend_engineer", "build a model")).rejects.toThrow("empty-task-result")
+    expect(taskApi).toHaveBeenCalledTimes(1)
+  })
+
+  it("treats cancellation as terminal without retrying", async () => {
+    const taskApi = vi.fn().mockResolvedValue({ status: "cancelled" })
+    await expect(invokeTask(taskApi, "odoo_backend_engineer", "build a model")).rejects.toThrow("task-cancelled")
+    expect(taskApi).toHaveBeenCalledTimes(1)
+  })
 })
 
 describe("getProfileByPhase", () => {
@@ -851,7 +863,7 @@ describe("createODFDelegate", () => {
     expect(taskApi).toHaveBeenCalledTimes(1)
   })
 
-  it("returns a fallback instruction envelope when task() is unavailable", async () => {
+  it("returns a blocked envelope when task() is unavailable", async () => {
     const { createODFDelegate, clearMetricsBuffer, getMetricsBuffer } = await import("./odf-delegation.js")
     clearMetricsBuffer()
     const toolCtx = { sessionID: "s1" } as any
@@ -862,16 +874,35 @@ describe("createODFDelegate", () => {
       toolCtx
     )
 
-    expect(typeof output).toBe("string")
-    expect(output).toContain("fallback")
-    expect(output).toContain("Status: fallback")
-    expect(output).toContain("Agent: odoo_backend_engineer")
-    expect(output).toContain("---FALLBACK_PROMPT_START---")
+    const envelope = JSON.parse(output as string)
+    expect(envelope.status).toBe("blocked")
+    expect(envelope.reason).toBe("task-api-unavailable")
+    expect(envelope.task_api_source).toBe("unavailable")
+    expect(envelope.result).toBeNull()
+    expect(envelope.message).toContain("Restart OpenCode")
 
     const metrics = getMetricsBuffer()
     expect(metrics.length).toBe(1)
-    expect(metrics[0].status).toBe("fallback")
+    expect(metrics[0].status).toBe("blocked")
     expect(metrics[0].task_api_source).toBe("unavailable")
+    expect(metrics[0].error).toBe("task-api-unavailable")
+  })
+
+  it("appends executor and database boundaries to delegated prompts", async () => {
+    const { createODFDelegate } = await import("./odf-delegation.js")
+    const taskApi = vi.fn().mockResolvedValue({ status: "ok", executive_summary: "verified" })
+    const delegateTool = createODFDelegate(undefined, tempHome)
+
+    await delegateTool.execute(
+      { phase: "VERIFY", change: "boundary-test", prompt: "Verify the implementation", context_files: [] },
+      { sessionID: "s1", task: taskApi } as any
+    )
+
+    const calledPrompt = taskApi.mock.calls[0][0].prompt
+    expect(calledPrompt).toContain("## Executor Boundary (non-negotiable)")
+    expect(calledPrompt).toContain("do not delegate")
+    expect(calledPrompt).toContain("-d <test_db>")
+    expect(calledPrompt).toContain("Never run dropdb")
   })
 
   it("returns an error envelope when task() throws", async () => {
@@ -990,7 +1021,7 @@ describe("createODFDelegate", () => {
         resolved_at: new Date().toISOString(),
         commands: [
           { name: "git-diff-check", command: "git diff --check", exit_code: 0, output_tail: "" },
-          { name: "odoo-tests", command: "odoo-bin --test-enable", exit_code: 0, output_tail: "1 passed, 0 failed" },
+          { name: "odoo-tests", command: "odoo-bin -d odf_test_db -i test_module --test-enable --stop-after-init", database: "odf_test_db", exit_code: 0, output_tail: "1 passed, 0 failed" },
         ],
       }),
       "utf8"
@@ -1242,7 +1273,7 @@ describe("validateValidationEvidence", () => {
     resolved_at: "2026-07-31T11:30:00Z",
     commands: [
       { name: "git-diff-check", command: "git diff --check", exit_code: 0, output_tail: "" },
-      { name: "odoo-tests", command: "odoo-bin --test-enable", exit_code: 0, output_tail: "12 passed, 0 failed" },
+      { name: "odoo-tests", command: "odoo-bin -d odf_test_db -i test_module --test-enable --stop-after-init", database: "odf_test_db", exit_code: 0, output_tail: "12 passed, 0 failed" },
     ],
     ...overrides,
   })
@@ -1251,6 +1282,16 @@ describe("validateValidationEvidence", () => {
     await writeEvidence(validEvidence())
     const verdict = validateValidationEvidence({ workspaceDir: tmp, change: "ev-change", tier: "MEDIUM", frozenDiffRef: null, now })
     expect(verdict).toEqual({ status: "verified", reason: expect.stringContaining("2 command(s)"), commands_validated: 2 })
+  })
+
+  it("rejects Odoo test evidence without an explicit database", async () => {
+    await writeEvidence(validEvidence({ commands: [
+      { name: "git-diff-check", command: "git diff --check", exit_code: 0, output_tail: "" },
+      { name: "odoo-tests", command: "odoo-bin --test-enable", exit_code: 0, output_tail: "12 passed, 0 failed" },
+    ] }))
+    const verdict = validateValidationEvidence({ workspaceDir: tmp, change: "ev-change", tier: "MEDIUM", frozenDiffRef: null, now })
+    expect(verdict.status).toBe("invalid")
+    expect(verdict.reason).toContain("explicit isolated database")
   })
 
   it("returns missing when the evidence file does not exist", () => {
@@ -1301,7 +1342,7 @@ describe("validateValidationEvidence", () => {
   it("rejects a command with a non-zero exit code", async () => {
     await writeEvidence(validEvidence({ commands: [
       { name: "git-diff-check", command: "git diff --check", exit_code: 0, output_tail: "" },
-      { name: "odoo-tests", command: "odoo-bin --test-enable", exit_code: 1, output_tail: "2 failed" },
+      { name: "odoo-tests", command: "odoo-bin -d odf_test_db -i test_module --test-enable --stop-after-init", database: "odf_test_db", exit_code: 1, output_tail: "2 failed" },
     ] }))
     const verdict = validateValidationEvidence({ workspaceDir: tmp, change: "ev-change", tier: "MEDIUM", frozenDiffRef: null, now })
     expect(verdict.status).toBe("invalid")
@@ -1311,7 +1352,7 @@ describe("validateValidationEvidence", () => {
   it("rejects a known command whose output misses the success pattern", async () => {
     await writeEvidence(validEvidence({ commands: [
       { name: "git-diff-check", command: "git diff --check", exit_code: 0, output_tail: "" },
-      { name: "odoo-tests", command: "odoo-bin --test-enable", exit_code: 0, output_tail: "3 FAILED" },
+      { name: "odoo-tests", command: "odoo-bin -d odf_test_db -i test_module --test-enable --stop-after-init", database: "odf_test_db", exit_code: 0, output_tail: "3 FAILED" },
     ] }))
     const verdict = validateValidationEvidence({ workspaceDir: tmp, change: "ev-change", tier: "MEDIUM", frozenDiffRef: null, now })
     expect(verdict.status).toBe("invalid")
@@ -1381,7 +1422,7 @@ describe("odf_delegate stop-validation seal", () => {
         resolved_at: new Date().toISOString(),
         commands: [
           { name: "git-diff-check", command: "git diff --check", exit_code: 0, output_tail: "" },
-          { name: "odoo-tests", command: "odoo-bin --test-enable", exit_code: 0, output_tail: "12 passed, 0 failed" },
+          { name: "odoo-tests", command: "odoo-bin -d odf_test_db -i test_module --test-enable --stop-after-init", database: "odf_test_db", exit_code: 0, output_tail: "12 passed, 0 failed" },
         ],
       })
     )

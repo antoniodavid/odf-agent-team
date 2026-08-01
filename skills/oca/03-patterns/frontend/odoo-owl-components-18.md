@@ -505,6 +505,26 @@ dialog.add(ConfirmationDialog, {
 - [ ] Proper lifecycle hooks usage
 - [ ] Include in manifest assets
 
+## Mandatory Implementation Gates (v18)
+
+- Confirm Odoo 18 and read the target Community source before coding; Odoo 18 uses OWL 2.x.
+- Register `onWillStart`, `onMounted`, `onWillUpdateProps`, and `onWillUnmount` in `setup()` only.
+- Declare every child in `static components`; define child classes before static fields to avoid TDZ errors.
+- Methods called through `orm.call` must use the required `@api.model` contract, and the RPC path must be tested.
+- Validate `ir.actions.client` fields against source; do not add `groups_id`. Use menus, ACLs, and server guards for access.
+- Include every OWL XML template in the correct asset bundle and order, then test that templates load. HOOT files are `*.test.js` and belong in `web.assets_tests`.
+- Three.js OrbitControls `change` handlers must not recursively call `update()`.
+
+## Native Odoo Design System
+
+Reuse Community patterns from `<odoo-root>/addons/web/static/src/` (core,
+ControlPanel, search, dialogs, views, webclient, SCSS, and tokens). For an
+Enterprise target, also inspect the matching `<odoo-root>/enterprise/*/static/src/`
+implementation. Prefer native components/services, Bootstrap/Odoo utilities,
+`o_*` naming, existing spacing and status patterns, accessibility, responsive
+behavior, and minimal custom CSS. Odoo source takes precedence over generic UI
+guidance.
+
 ## AI Agent Instructions (v18 OWL)
 
 When generating Odoo 18.0 OWL components:

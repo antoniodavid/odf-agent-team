@@ -99,7 +99,7 @@ rewritten automatically.
 Existing ODF users keep working:
 
 - Absolute paths in old `odf-registry.json` entries still resolve.
-- The plugin returns a fallback envelope when `task()` is unavailable.
+- The plugin returns a structured `blocked` envelope with `reason: task-api-unavailable` when `task()` is unavailable; it never returns an executable fallback prompt.
 - Older slash commands (`/odf-init`, `/odf-fix`, etc.) remain unchanged.
 - Legacy phase IDs (`PROPOSE`, `ASSESS`, `QA-PLAN`, `DESIGN`, `IMPLEMENT`, `VERIFY`) map to the thin-spine adapters.
 

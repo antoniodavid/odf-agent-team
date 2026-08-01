@@ -120,9 +120,10 @@ not a mandatory step before every VERIFY. VERIFY remains an independent stage.
 6. Use parallel agents only for independent DESIGN/IMPLEMENT work. VERIFY remains sequential.
 7. Keep a session launch log keyed by `(phase, task fingerprint)`; do not launch the same pair twice.
 
-The plugin resolves profiles only for SDD phases. Its fallback envelope is
-valid when `task()` is unavailable; show the enriched prompt and explain the
-fallback rather than pretending that work ran.
+The plugin resolves profiles only for SDD phases. If `task()` is unavailable,
+the plugin returns a structured `blocked` envelope with
+`reason: task-api-unavailable`; do not show or execute an enriched fallback
+prompt. Restart OpenCode after loading the plugin, then retry.
 
 ## Forwarding Contract
 
@@ -130,9 +131,9 @@ Every delegated prompt carries `change`, `phase`, `artifact_store`, Odoo
 version, affected modules and paths, relevant `context_files`, references to
 prior artifacts, expected output artifact, and current user-approved scope.
 For IMPLEMENT/VERIFY, also forward the project's `testing.test_command` from
-`odf-init/{project}` (with the module under test substituted for `{module}`),
-so BUILD/VERIFY run the real command (Docker Compose or local) instead of
-guessing a runner.
+`odf-init/{project}` (with `{module}` substituted), so BUILD/VERIFY run the
+real command instead of guessing a runner. The persisted Docker template MUST
+be `docker compose run --rm odoo odoo -d {test_db} -i {module} --test-enable --stop-after-init`; the local template is `odoo-bin -d {test_db} -i {module} --test-enable --stop-after-init`. A command without explicit `-d {test_db}` is invalid. If no disposable test database name/config is detected, block and ask the user for the exact isolated database; never guess.
 
 - For IMPLEMENT/VERIFY, forward strict TDD only when the authoritative Policy
   Gate says `tdd.effective === "on"`. Do not gate forwarding on a second,
@@ -236,7 +237,7 @@ comes from `odf_workflow_route`; adapters must not create extra business stages.
 
 1. Call `odf_policy_gate(change, phase="VERIFY")` before delegation. Pass through its `frozen_diff_ref`, `risk_tier`, `changed_lines`, `correction_budget_lines`, and effective TDD; never recompute them. Forward strict TDD only when `tdd.effective === "on"`.
 2. The risk tier is evidence-based: changed-path and content signals may escalate to HIGH, never downgrade. Use the tier to select lenses: HIGH four, MEDIUM one, LOW zero.
-3. Verify tests, lint, OCA compliance, spec coverage, and the frozen candidate. Persist `odf/{change}/verify-report` on PASS or PASS WITH WARNINGS.
+3. Verify the real module test suite, lint, OCA compliance, spec coverage, and the frozen candidate. Persist `odf/{change}/verify-report` on PASS or PASS WITH WARNINGS only when the required test command actually ran and passed. The test result record MUST include command, explicit database, exit code, and output evidence. A manual browser check is supplementary. Skipped, deferred, unavailable, or unrecorded tests yield `blocked` with `verification-deferred`, never PASS or PASS WITH WARNINGS.
 4. On FAIL, allow one correction attempt within the returned budget and re-verify once against the same frozen ref. An inconclusive frozen-byte inspection does not consume the attempt.
 5. If the inspected re-verification still fails, write `odf_receipt` FIRST with cause/evidence/refs, then stop for exactly one actionable disposition: scope change, re-plan, or abandon. In `interactive`, use `question`; in `batch`, present the same disposition without auto-continuing. Never auto-loop.
 6. Update the receipt with the user's committed action. A successful VERIFY saves a retrospective under `odf-learned/{project}/{change}`.
@@ -249,12 +250,15 @@ then runs preflight if needed, checks pending receipt state, and delegates the
 next artifact.
 
 Before resuming, re-discover `<worktree>/.odf/receipt-{change}.json`. If its
-status is `failed` or `blocked` and `action` is `null`, stop and re-present the
-disposition question with its evidence references. Do not resume blindly.
+status is `failed`, `blocked`, or `verification-deferred` and `action` is
+`null`, stop and re-present the disposition question with its evidence
+references. Do not resume blindly.
 
-Archive requires an approved successful VERIFY outcome/receipt; a pending
-failed or blocked receipt, or a transport-only `delegated` result, cannot be
-archived. Save the retrospective only after successful VERIFY.
+Archive requires an approved successful VERIFY outcome/receipt with valid
+module test evidence; a pending, failed, blocked, or `verification-deferred`
+receipt, missing test record, or transport-only `delegated` result cannot be
+archived. Manual checks never substitute for the module suite. Save the
+retrospective only after successful VERIFY.
 
 ## Other Commands
 
@@ -289,7 +293,7 @@ reads both layers.
 
 | Layer | Status | Important fields |
 |---|---|---|
-| Plugin outer envelope | `delegated`, `fallback`, `error`, `timeout` | `policy_gate`, `validation`, `receipt`, `result`, phase/agent/profile metadata |
+| Plugin outer envelope | `delegated`, `blocked`, `error`, `timeout` | `policy_gate`, `validation`, `receipt`, `result`, phase/agent/profile metadata |
 | Agent inner `## ODF Result` | `ok`, `warning`, `blocked`, `failed` | `executive_summary`, `strategy`, `artifacts_saved`, `next_recommended`, `risks`, `odoo_version`, `modules_affected` |
 
 Interpret inner `ok`/`warning` as eligible for the next gate, `blocked` as a
@@ -318,6 +322,7 @@ authoritative for policy, validation, and failure persistence.
 - After wrong `cwd`, accidental mutation, merge recovery, or environment workaround, stop and audit before continuing.
 - After roughly 20 tool calls, five exploratory reads, or two non-mechanical edits without delegation, delegate the remaining work or document the blocker.
 - After a correction attempt or failed disposition, stop; never auto-loop.
+- Empty, whitespace-only, null, cancelled, or empty-object task results are terminal error/blocked outcomes; never retry implicitly.
 - Profile/model selection applies only to SDD phases, not general questions or one-off calls.
 
 ## Database Safety (NON-NEGOTIABLE)
@@ -325,7 +330,7 @@ authoritative for policy, validation, and failure persistence.
 - **NEVER drop, destroy, truncate, or reset a database, schema, or table without the user's explicit, current consent.** This includes `dropdb`, `DROP DATABASE`, `DROP TABLE`, `TRUNCATE`, `drop schema`, and any destructive re-init that recreates from scratch (`createdb`, `-i` on a real DB that wipes data). Consent must be given by the user for that specific database in that specific moment — a generic earlier "ok", a project instruction, or a documented CI procedure is NOT consent for a developer database.
 - `dropdb`/`createdb -T` patterns belong ONLY to the OCA runbot CI flow (`oca-pr-workflow.md`) inside its isolated sandbox databases named after the GitHub username. They never apply to the developer's local/remote project databases, and the orchestrator must never forward them as a testing recipe.
 - If an agent requests a destructive database operation, STOP, surface exactly which database will be destroyed (name, host, environment), and ask the user for explicit approval before allowing it. No inferred consent, no "it's just a test DB" assumptions — verify the DB is disposable BEFORE running anything.
-- In any delegated IMPLEMENT/VERIFY/DB prompt, add the guard: `You must NOT drop, truncate, or reset any database. Use a dedicated throwaway test database (e.g. created from a template) and never touch the developer/production database.`
+- In every delegated prompt, add the executor-only boundary and database guard: `You must NOT delegate or ask whether to proceed. Return a complete ODF Result. You must NOT drop, truncate, or reset any database, schema, or table. Never run dropdb, DROP DATABASE, TRUNCATE, or destructive re-initialization without current explicit user consent for that exact database. Test commands must use an isolated -d <test_db> and must not drop it automatically.`
 
 ## Non-ODF Routing
 

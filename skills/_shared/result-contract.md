@@ -10,7 +10,7 @@ plugin does not invent or rewrite the inner result; the orchestrator reads both.
 
 ```json
 {
-  "status": "delegated | fallback | error | timeout",
+  "status": "delegated | blocked | error | timeout",
   "phase": "IMPLEMENT",
   "agent": "odoo_backend_engineer",
   "skills_injected": [],
@@ -25,16 +25,18 @@ plugin does not invent or rewrite the inner result; the orchestrator reads both.
 
 | Field | Meaning |
 |---|---|
-| `status` | Delegation transport outcome, not the agent's phase verdict |
+| `status` | Delegation transport outcome, not the agent's phase verdict. `blocked` means no executable delegation occurred. |
 | `policy_gate` | Authoritative gate decision for IMPLEMENT/VERIFY, or `null` |
 | `validation` | Plugin seal for IMPLEMENT evidence: `verified`, `missing`, or `invalid`, or `null` |
 | `receipt` | Optional receipt or receipt reference; failure persistence may also be on disk |
 | `result` | Raw return value from `task()`; the plugin does not synthesize its inner fields |
 | Other fields | Existing phase, agent, skill, profile, and task-source metadata remain compatible |
 
-Fallback output remains a textual instruction envelope when `task()` is
-unavailable. Errors and timeouts may persist a failure receipt, but that does
-not change their outer transport status.
+When `task()` is unavailable, the plugin returns a structured `blocked` envelope
+with `reason: task-api-unavailable`; it never returns an executable fallback
+prompt. Empty, cancelled, or unusable task results are terminal errors/blocked
+outcomes and are never retried implicitly. Errors and timeouts may persist a
+failure receipt, but that does not change their outer transport status.
 
 ## Inner Agent Envelope
 
