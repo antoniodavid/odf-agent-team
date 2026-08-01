@@ -19,6 +19,14 @@ import { type Plugin, type ToolContext, tool } from "@opencode-ai/plugin"
 import { execFileSync, execSync } from "node:child_process"
 import type { createOpencodeClient } from "@opencode-ai/sdk"
 import { resolveWorkflowRoute, type WorkType, type WorkflowRoute } from "./odf-workflow.js"
+import {
+  deriveWorkflowStatus,
+  normalizeArtifactKey,
+  parseWorkflowState,
+  type WorkflowReceipt,
+  type WorkflowStage,
+  type WorkflowStatus,
+} from "./odf-workflow-status.js"
 
 export type OpencodeClient = ReturnType<typeof createOpencodeClient>
 
@@ -2116,29 +2124,109 @@ function injectCommunityToolGuidance(prompt: string, registry: ODFRegistry): str
 // ODF STATUS FROM ENGRAM
 // ==========================================
 
-interface ODFChangeStatus {
+export interface ODFChangeStatus {
   change: string
   phase: string
   artifacts: Record<string, string>  // artifact type → "done" | "pending" | "in-progress"
   applyProgress: { completed: number; total: number }
   lastUpdated: string | null
+  workflowStatus: WorkflowStatus
 }
 
-function parseTaskProgress(content: string): { completed: number; total: number } {
-  const lines = content.split("\n")
-  let total = 0
-  let completed = 0
-  for (const line of lines) {
-    const trimmed = line.trim()
-    if (/^[-*]\s+\[.\]\s/.test(trimmed)) {
-      total++
-      if (/^[-*]\s+\[x\]\s/i.test(trimmed)) completed++
+interface StatusArtifact {
+  key: string
+  content: string
+  created: string | null
+  source: "openspec" | "engram"
+}
+
+interface EngramSnapshot {
+  change: string
+  artifacts: Map<string, { content: string; created: string | null }>
+}
+
+interface OpenSpecSnapshot {
+  change: string
+  state: StatusArtifact | null
+  artifacts: StatusArtifact[]
+  warnings: string[]
+}
+
+const CHANGE_NAME_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]*$/
+const OPEN_SPEC_ARTIFACT_STEMS = new Set([
+  "decision", "plan", "build", "verify", "proposal", "propose", "assess", "spec", "qa-plan", "design",
+  "tasks", "apply-progress", "implement-progress", "archive-report",
+])
+
+function openSpecStem(fileName: string): string {
+  return fileName.replace(/\.(json|ya?ml|md)$/i, "").toLowerCase()
+}
+
+function isOpenSpecArtifact(fileName: string): boolean {
+  const stem = openSpecStem(fileName)
+  return OPEN_SPEC_ARTIFACT_STEMS.has(stem) || /^verify-report(?:-.+)?$/.test(stem)
+}
+
+function openSpecRef(changeName: string, fileName: string): string {
+  return ["openspec", "changes", changeName, fileName].join("/")
+}
+
+async function readOpenSpecFile(changeName: string, changeDir: string, fileName: string): Promise<StatusArtifact | null> {
+  try {
+    const filePath = path.join(changeDir, fileName)
+    const stat = await fs.stat(filePath)
+    if (!stat.isFile()) return null
+    return {
+      key: openSpecRef(changeName, fileName),
+      content: await fs.readFile(filePath, "utf8"),
+      created: stat.mtime.toISOString(),
+      source: "openspec",
     }
+  } catch {
+    return null
   }
-  return { completed, total }
 }
 
-export async function loadEngramStatus(workspaceRoot: string, changeName?: string): Promise<ODFChangeStatus | null> {
+/** Read one explicit OpenSpec change without discovering or mutating state. */
+export async function loadOpenSpecStatus(workspaceRoot: string, changeName: string): Promise<OpenSpecSnapshot | null> {
+  if (!CHANGE_NAME_PATTERN.test(changeName)) return null
+  const changeDir = path.join(workspaceRoot, "openspec", "changes", changeName)
+  try {
+    const stat = await fs.stat(changeDir)
+    if (!stat.isDirectory()) return null
+  } catch {
+    return null
+  }
+
+  const stateFile = await readOpenSpecFile(changeName, changeDir, "state.yaml")
+  let state: StatusArtifact | null = null
+  const warnings: string[] = []
+  if (stateFile) {
+    const parsed = parseWorkflowState(stateFile.content)
+    warnings.push(...parsed.warnings)
+    if (parsed.state) state = stateFile
+    else warnings.push("OpenSpec state was not read; status is derived from Engram artifacts.")
+  } else {
+    warnings.push("OpenSpec state was not read; status is derived from Engram artifacts.")
+  }
+
+  const entries = await fs.readdir(changeDir, { withFileTypes: true })
+  const artifacts: StatusArtifact[] = []
+  for (const entry of entries.sort((a, b) => a.name.localeCompare(b.name))) {
+    if (!entry.isFile() || entry.name === "state.yaml" || !isOpenSpecArtifact(entry.name)) continue
+    const artifact = await readOpenSpecFile(changeName, changeDir, entry.name)
+    if (artifact) artifacts.push(artifact)
+  }
+  return { change: changeName, state, artifacts, warnings: Array.from(new Set(warnings)) }
+}
+
+interface EngramObservation {
+  content: string
+  topic_key?: string
+  created_at?: string
+}
+
+async function readEngramObservations(workspaceRoot: string): Promise<EngramObservation[] | null> {
   let project: string
   try {
     project = path.basename(
@@ -2148,8 +2236,9 @@ export async function loadEngramStatus(workspaceRoot: string, changeName?: strin
     project = path.basename(workspaceRoot)
   }
 
-  // Use engram CLI export to get observations
-  const tmpFile = path.join(os.tmpdir(), `odf-status-${Date.now()}.json`)
+  // ponytail: unique tmpdir (not a Date.now() filename) so parallel workers never race the same path
+  const tmpDir = fsSync.mkdtempSync(path.join(os.tmpdir(), "odf-status-"))
+  const tmpFile = path.join(tmpDir, "export.json")
   try {
     execFileSync("engram", ["export", "--project", project, "--output", tmpFile], {
       encoding: "utf8",
@@ -2157,22 +2246,22 @@ export async function loadEngramStatus(workspaceRoot: string, changeName?: strin
       timeout: 15_000,
     })
   } catch {
-    // engram CLI not available
-    try { fsSync.unlinkSync(tmpFile) } catch { /* ignore */ }
+    try { fsSync.rmSync(tmpDir, { recursive: true, force: true }) } catch { /* ignore */ }
     return null
   }
 
-  let observations: Array<{ title: string; content: string; topic_key?: string; created_at?: string }>
   try {
     const raw = fsSync.readFileSync(tmpFile, "utf8")
-    observations = JSON.parse(raw)
+    const parsed = JSON.parse(raw)
+    return Array.isArray(parsed) ? parsed : null
   } catch {
-    try { fsSync.unlinkSync(tmpFile) } catch { /* ignore */ }
     return null
+  } finally {
+    try { fsSync.rmSync(tmpDir, { recursive: true, force: true }) } catch { /* ignore */ }
   }
-  try { fsSync.unlinkSync(tmpFile) } catch { /* ignore */ }
+}
 
-  // Find all ODF changes
+function selectEngramSnapshot(observations: EngramObservation[], changeName?: string): EngramSnapshot | null {
   const changeMap = new Map<string, Map<string, { content: string; created: string | null }>>()
   for (const obs of observations) {
     const key = obs.topic_key || ""
@@ -2182,28 +2271,20 @@ export async function loadEngramStatus(workspaceRoot: string, changeName?: strin
     if (!changeMap.has(change)) changeMap.set(change, new Map())
     changeMap.get(change)!.set(artifactType, { content: obs.content, created: obs.created_at || null })
   }
+  if (changeMap.size === 0) return null
+  if (changeName && !changeMap.has(changeName)) return null
 
-  if (changeMap.size === 0) {
-    return null
-  }
-
-  // If specific change requested, filter
   const targetKeys = changeName && changeMap.has(changeName)
     ? new Map([[changeName, changeMap.get(changeName)!]])
     : changeMap
-
-  // Take the most recent change
   let bestChange: string | null = changeName || null
   if (!bestChange) {
-    // Pick the change with the newest artifact timestamp.
     let newestTimestamp: string | null = null
     let fallbackArtifactCount = 0
     for (const [name, artifacts] of targetKeys) {
       let latestTimestamp: string | null = null
       for (const { created } of artifacts.values()) {
-        if (created && (!latestTimestamp || created > latestTimestamp)) {
-          latestTimestamp = created
-        }
+        if (created && (!latestTimestamp || created > latestTimestamp)) latestTimestamp = created
       }
       if (latestTimestamp && (!newestTimestamp || latestTimestamp > newestTimestamp)) {
         newestTimestamp = latestTimestamp
@@ -2215,46 +2296,184 @@ export async function loadEngramStatus(workspaceRoot: string, changeName?: strin
     }
   }
   if (!bestChange) return null
-
   const artifacts = targetKeys.get(bestChange)
-  if (!artifacts) return null
+  return artifacts ? { change: bestChange, artifacts } : null
+}
 
-  const status: ODFChangeStatus = {
+function readReceiptJson(workspaceRoot: string, changeName: string): WorkflowReceipt | null {
+  try {
+    return JSON.parse(
+      fsSync.readFileSync(path.join(workspaceRoot, ".odf", `receipt-${changeName}.json`), "utf8")
+    ) as WorkflowReceipt
+  } catch {
+    return null
+  }
+}
+
+function buildEngramStatus(
+  workspaceRoot: string,
+  snapshot: EngramSnapshot,
+  warnings: string[] = []
+): ODFChangeStatus {
+  const { change: bestChange, artifacts } = snapshot
+
+  const status = {
     change: bestChange,
     phase: "init",
     artifacts: {},
     applyProgress: { completed: 0, total: 0 },
     lastUpdated: null,
-  }
+  } as ODFChangeStatus
 
   // Map artifact types to state
   const artifactStates: Record<string, string> = {}
   for (const [type, data] of artifacts) {
     artifactStates[type] = "done"
-    if (data.created && (!status.lastUpdated || data.created > status.lastUpdated)) {
+    if (data.created && Number.isFinite(Date.parse(data.created)) && (!status.lastUpdated || data.created > status.lastUpdated)) {
       status.lastUpdated = data.created
     }
   }
   status.artifacts = artifactStates
 
-  // Determine phase from artifacts
-  const phaseOrder = ["propose", "assess", "qa-plan", "design", "implement", "verify", "archive"]
-  for (const phase of phaseOrder) {
-    if (artifactStates[phase] === "done") {
-      status.phase = phase
-    }
-  }
-
-  // Task progress from canonical implement-progress, legacy apply-progress, or tasks.
-  const implementProgress = artifacts.get("implement-progress") || artifacts.get("apply-progress")
-  const tasks = artifacts.get("tasks")
-  if (implementProgress) {
-    status.applyProgress = parseTaskProgress(implementProgress.content)
-  } else if (tasks) {
-    status.applyProgress = parseTaskProgress(tasks.content)
+  const workflowArtifacts = Array.from(artifacts.entries()).map(([type, data]) => ({
+    key: `odf/${bestChange}/${type}`,
+    content: data.content,
+    created_at: data.created,
+  }))
+  status.workflowStatus = deriveWorkflowStatus({
+    change: bestChange,
+    artifacts: workflowArtifacts,
+    receipt: readReceiptJson(workspaceRoot, bestChange),
+    source: { state: "engram", artifacts: workflowArtifacts.map((artifact) => artifact.key) },
+    warnings,
+  })
+  status.phase = status.workflowStatus.legacy_phase?.toLowerCase() || "init"
+  status.applyProgress = {
+    completed: status.workflowStatus.progress.completed,
+    total: status.workflowStatus.progress.total,
   }
 
   return status
+}
+
+export async function loadEngramStatus(workspaceRoot: string, changeName?: string): Promise<ODFChangeStatus | null> {
+  const observations = await readEngramObservations(workspaceRoot)
+  const snapshot = observations ? selectEngramSnapshot(observations, changeName) : null
+  return snapshot ? buildEngramStatus(workspaceRoot, snapshot) : null
+}
+
+function contentStatus(content: string): string | null {
+  try {
+    const parsed = JSON.parse(content) as Record<string, unknown>
+    const status = parsed.status || parsed.final_verdict || (parsed.outcome as Record<string, unknown> | undefined)?.status
+    return typeof status === "string" ? status.toLowerCase() : null
+  } catch {
+    return content.match(/(?:^|\n)\s*(?:status|final_verdict):\s*["']?([A-Za-z_-]+)/i)?.[1]?.toLowerCase() || null
+  }
+}
+
+function conflictWarnings(openSpec: OpenSpecSnapshot, engram: EngramSnapshot | null): string[] {
+  if (!engram) return []
+  const warnings: string[] = []
+  const add = (message: string): void => {
+    if (!warnings.includes(message)) warnings.push(message)
+  }
+  const compare = (open: StatusArtifact, legacy: StatusArtifact, label: string): void => {
+    if (open.content !== legacy.content) add(`Conflicting ${label} content; OpenSpec artifact "${open.key}" was kept over Engram "${legacy.key}".`)
+    if (open.created && legacy.created && open.created !== legacy.created) {
+      add(`Conflicting ${label} timestamps; OpenSpec artifact "${open.key}" was kept over Engram "${legacy.key}".`)
+    }
+    const openStatus = contentStatus(open.content)
+    const legacyStatus = contentStatus(legacy.content)
+    if (openStatus && legacyStatus && openStatus !== legacyStatus) {
+      add(`Conflicting ${label} status; OpenSpec artifact "${open.key}" was kept over Engram "${legacy.key}".`)
+    }
+  }
+
+  const openState = openSpec.state
+  const engramState = Array.from(engram.artifacts.entries())
+    .map(([type, data]) => ({ type, data }))
+    .find(({ type }) => normalizeArtifactKey(type).type === "state")
+  if (openState && engramState) {
+    compare(openState, { key: `odf/${engram.change}/${engramState.type}`, ...engramState.data, source: "engram" }, "state")
+  }
+
+  for (const [type, data] of engram.artifacts) {
+    const legacy: StatusArtifact = { key: `odf/${engram.change}/${type}`, ...data, source: "engram" }
+    const normalized = normalizeArtifactKey(legacy.key)
+    if (!normalized.group) continue
+    const candidates = openSpec.artifacts.filter((artifact) => normalizeArtifactKey(artifact.key).group === normalized.group)
+    const open = candidates.find((artifact) => normalizeArtifactKey(artifact.key).type === normalized.type) || candidates[0]
+    if (open) compare(open, legacy, `artifact ${normalized.group}`)
+  }
+  return warnings
+}
+
+function buildMergedStatus(
+  workspaceRoot: string,
+  openSpec: OpenSpecSnapshot,
+  engram: EngramSnapshot | null,
+): ODFChangeStatus {
+  const warnings = [...openSpec.warnings, ...conflictWarnings(openSpec, engram)]
+  const openGroups = new Set(openSpec.artifacts
+    .map((artifact) => normalizeArtifactKey(artifact.key).group)
+    .filter((group): group is WorkflowStage => Boolean(group)))
+  const mergedArtifacts = [...openSpec.artifacts]
+  if (engram) {
+    for (const [type, data] of engram.artifacts) {
+      const artifact: StatusArtifact = { key: `odf/${engram.change}/${type}`, ...data, source: "engram" }
+      const normalized = normalizeArtifactKey(artifact.key)
+      if (
+        normalized.type === "state" ||
+        (normalized.group !== null && openGroups.has(normalized.group))
+      ) continue
+      mergedArtifacts.push(artifact)
+    }
+  }
+
+  const sourceRefs = [
+    ...(openSpec.state ? [openSpec.state.key] : []),
+    ...openSpec.artifacts.map((artifact) => artifact.key),
+    ...(engram ? Array.from(engram.artifacts.keys()).map((type) => `odf/${engram.change}/${type}`) : []),
+  ]
+  const workflowStatus = deriveWorkflowStatus({
+    change: openSpec.change,
+    state: openSpec.state?.content || null,
+    artifacts: mergedArtifacts,
+    receipt: readReceiptJson(workspaceRoot, openSpec.change),
+    source: { state: "openspec", artifacts: Array.from(new Set(sourceRefs)) },
+    warnings: Array.from(new Set(warnings)),
+  })
+  const artifactStates: Record<string, string> = {}
+  for (const artifact of mergedArtifacts) artifactStates[normalizeArtifactKey(artifact.key).type] = "done"
+  let lastUpdated: string | null = null
+  for (const artifact of mergedArtifacts) {
+    if (artifact.created && Number.isFinite(Date.parse(artifact.created)) && (!lastUpdated || artifact.created > lastUpdated)) {
+      lastUpdated = artifact.created
+    }
+  }
+  return {
+    change: openSpec.change,
+    phase: workflowStatus.legacy_phase?.toLowerCase() || "init",
+    artifacts: artifactStates,
+    applyProgress: { completed: workflowStatus.progress.completed, total: workflowStatus.progress.total },
+    lastUpdated,
+    workflowStatus,
+  }
+}
+
+async function loadCombinedWorkflowStatus(workspaceRoot: string, changeName?: string): Promise<ODFChangeStatus | null> {
+  const requestedChange = changeName?.trim() || undefined
+  const observations = await readEngramObservations(workspaceRoot)
+  const engram = observations
+    ? selectEngramSnapshot(observations, requestedChange)
+    : null
+  const targetChange = requestedChange || engram?.change
+  const openSpec = targetChange ? await loadOpenSpecStatus(workspaceRoot, targetChange) : null
+  if (!openSpec?.state) {
+    return engram ? buildEngramStatus(workspaceRoot, engram, openSpec?.warnings || []) : null
+  }
+  return buildMergedStatus(workspaceRoot, openSpec, engram)
 }
 
 function createODFStatus(): ReturnType<typeof tool> {
@@ -2279,7 +2498,41 @@ and timestamps. Useful for /odf-status when no openspec/ directory exists.`,
       if (!status) {
         return JSON.stringify({ status: "not-found", message: "No ODF changes found in Engram" }, null, 2)
       }
-      return JSON.stringify({ status: "found", ...status }, null, 2)
+      const { workflowStatus: _workflowStatus, ...legacyStatus } = status
+      return JSON.stringify({ status: "found", ...legacyStatus }, null, 2)
+    },
+  })
+}
+
+function createODFWorkflowStatus(): ReturnType<typeof tool> {
+  return tool({
+    description: `Show canonical ODF workflow progress derived read-only from OpenSpec/Engram-compatible artifacts.
+
+Returns canonical stages and legacy compatibility fields. It never writes state or receipts.`,
+    args: {
+      change_name: tool.schema
+        .string()
+        .optional()
+        .describe("Change name to inspect (omit for latest active change)"),
+      workspace_dir: tool.schema
+        .string()
+        .optional()
+        .describe("Project directory (defaults to cwd)"),
+    },
+    async execute(args: { change_name?: string; workspace_dir?: string }): Promise<string> {
+      const workspace = args.workspace_dir || process.cwd()
+      const status = await loadCombinedWorkflowStatus(workspace, args.change_name)
+      if (!status) {
+        return JSON.stringify({ status: "not-found", message: "No ODF changes found in Engram" }, null, 2)
+      }
+      return JSON.stringify({
+        status: "found",
+        ...status.workflowStatus,
+        phase: status.phase,
+        artifacts: status.artifacts,
+        applyProgress: status.applyProgress,
+        lastUpdated: status.lastUpdated,
+      }, null, 2)
     },
   })
 }
@@ -2332,7 +2585,7 @@ function createODFWorkflowRoute(): ReturnType<typeof tool> {
 - \`odf_workflow_route\`: read-only canonical route selection by work type
 - \`odf_skill_inject\`, \`odf_skill_resolve\`, \`odf_registry_read\`: standards and routing inspection
 - \`odf_policy_gate\`, \`odf_receipt\`: policy and failure persistence
-- \`odf_status\`, \`odf_profile_select\`, \`odf_notebooklm_lookup\`: state, profile, and research lookup
+- \`odf_status\`, \`odf_workflow_status\`, \`odf_profile_select\`, \`odf_notebooklm_lookup\`: state, canonical progress, profile, and research lookup
 - \`odf_community_tool_detect\`, \`odf_community_tool_install\`: optional community tooling
 
 ## Non-negotiable invariants
@@ -2420,7 +2673,7 @@ export const OdfDelegationPlugin: Plugin = async (ctx) => {
     console.log(`[odf-delegation] Health: ${healthChecks.join(", ")}`)
   }
 
-  console.log(`[odf-delegation] Plugin loaded. Tools: odf_delegate, odf_workflow_route, odf_skill_inject, odf_registry_read, odf_notebooklm_lookup, odf_profile_select, odf_skill_resolve, odf_community_tool_detect, odf_community_tool_install, odf_status, odf_policy_gate, odf_receipt`)
+  console.log(`[odf-delegation] Plugin loaded. Tools: odf_delegate, odf_workflow_route, odf_skill_inject, odf_registry_read, odf_notebooklm_lookup, odf_profile_select, odf_skill_resolve, odf_community_tool_detect, odf_community_tool_install, odf_status, odf_workflow_status, odf_policy_gate, odf_receipt`)
 
   return {
     tool: {
@@ -2434,6 +2687,7 @@ export const OdfDelegationPlugin: Plugin = async (ctx) => {
       odf_community_tool_detect: createODFCommunityToolDetect(),
       odf_community_tool_install: createODFCommunityToolInstall(),
       odf_status: createODFStatus(),
+      odf_workflow_status: createODFWorkflowStatus(),
       odf_policy_gate: createODFPolicyGate(),
       odf_receipt: createODFReceipt(),
     },
@@ -2459,6 +2713,7 @@ export {
   findTaskApi,
   createODFDelegate,
   createODFWorkflowRoute,
+  createODFWorkflowStatus,
   getProfileByPhase,
   recordMetrics,
   ALLOWED_PHASES,

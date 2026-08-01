@@ -28,10 +28,28 @@ Muestra todos los cambios ODF activos o el detalle de un cambio específico.
 
 ## Instrucciones para el orquestador
 
-1. **Cargar cambios activos** desde `openspec/changes/*/state.yaml` (y/o Engram `odf/*/state`).
-2. Si hay nombre, renderizar **detalle del cambio** usando `renderStatusDetail(change, state)`.
-3. Si no hay nombre, renderizar **tabla resumen** usando `renderStatusTable(states)`.
-4. Incluir el comando sugerido para continuar cada cambio.
+1. **Consultar `odf_workflow_status` en modo read-only**. Para un cambio nombrado, lee primero `openspec/changes/{change}/state.yaml` y sus artefactos; Engram completa grupos ausentes y conserva los conflictos como warnings.
+2. Si no existe un `state.yaml` OpenSpec válido, usar Engram como fallback, mostrar `source.state: engram` y su advertencia, sin presentarlo como autoridad OpenSpec. Sin nombre, conservar la selección Engram existente y consultar OpenSpec solo para ese cambio seleccionado.
+3. Si hay nombre, renderizar **detalle del cambio** usando `renderStatusDetail(change, state)`.
+4. Si no hay nombre, renderizar **tabla resumen** usando `renderStatusTable(states)`.
+5. Incluir el comando sugerido para continuar cada cambio.
+
+## Campos canónicos
+
+En el detalle, mostrar estos campos además de los legacy (`phase`, `artifacts`, `applyProgress`, `lastUpdated`):
+
+- `canonical_stage`
+- `legacy_phase`
+- `completed_canonical_stages`
+- `pending_stage`
+- `progress` (`completed`, `total`, `known`, `source`)
+- `artifact_refs`
+- `receipt` (`state`, `status`, `action`, `ref`)
+- `resumable`
+- `source` (`state`, `artifacts`)
+- `warnings`
+
+OpenSpec es la autoridad de estado y de los artefactos canónicos cuando está disponible. El comando no escribe `state.yaml`, artefactos ni receipts.
 
 ## Contrato de enrutamiento
 
@@ -69,6 +87,14 @@ Comandos:
 - **Estrategia**: custom
 - **Fase actual**: ASSESS
 - **Siguiente fase**: design
+- **Etapa canónica**: DECIDE
+- **Etapa canónica pendiente**: PLAN
+- **Etapas canónicas completadas**: DECIDE
+- **Progreso**: 0/0 (desconocido; source: null)
+- **Refs de artefactos**: DECIDE=[odf/sale-discount-field/assess]
+- **Receipt**: none (resumable: true)
+- **Fuente**: engram
+- **Warnings**: []
 
 **Artefactos**:
 - [x] assess

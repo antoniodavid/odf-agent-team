@@ -36,12 +36,12 @@ Reanuda el flujo ODF desde la última etapa completada del cambio activo más re
    - Si hay varios activos y no hay nombre: listarlos y pedir al usuario.
 4. **Verificar preflight**: si está incompleto, ejecutar el preflight gate primero.
 5. **Resolver la ruta** con `odf_workflow_route(work_type)` y usar sus etapas canónicas: `DECIDE -> optional PLAN -> BUILD -> VERIFY`.
-6. **Leer estado y artefactos legacy mediante el adaptador**, sin reinterpretarlos como etapas nuevas:
+6. **Consultar `odf_workflow_status`** y usar `canonical_stage`, `pending_stage`, `resumable` y `receipt` como estado canónico; después despachar la siguiente etapa mediante el adaptador legacy, sin reinterpretar las fases históricas como etapas nuevas:
    - `PROPOSE` + `ASSESS` → `DECIDE`
    - `QA-PLAN` + `DESIGN` → `PLAN`
    - `IMPLEMENT` → `BUILD`
    - `VERIFY` → `VERIFY`
-7. **Redescubrir el receipt pendiente** en `<worktree>/.odf/receipt-{change}.json`. Si está `failed` o `blocked` con `action: null`, detenerse y volver a presentar su disposición con la evidencia.
+7. **Redescubrir el receipt pendiente** en `<worktree>/.odf/receipt-{change}.json` o mediante el estado adaptado. Si `receipt.state` es `pending`, detenerse y volver a presentar su disposición con la evidencia; nunca reanudar aunque el artefacto OpenSpec/Engram sugiera una etapa pendiente.
 8. **Seleccionar la primera etapa canónica pendiente**. No inventar una fase, no repetir trabajo ya completado y no relanzar un adaptador cuyo artefacto ya esté confirmado.
 9. **Delegar** la siguiente etapa mediante `odf_delegate`; usar el adaptador legacy solo para ejecutar o leer contratos históricos.
 10. **Mostrar la puerta de aprobación** después de la etapa cuando el modo de interacción la requiera.
@@ -66,6 +66,8 @@ ODF: Continuando "{change-name}"
 
 Última etapa: {stage}
 Siguiente etapa: {next-stage}
+Etapa canónica: {canonical_stage}
+Etapa canónica pendiente: {pending_stage}
 Agente: {agent}
 ...
 ```
