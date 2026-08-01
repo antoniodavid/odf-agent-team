@@ -783,6 +783,26 @@ describe("createODFDelegate", () => {
     expect(metrics[0].task_api_source).toBe("toolCtx.task")
   })
 
+  it("delegates FIX through task() with the backend default agent", async () => {
+    const { createODFDelegate } = await import("./odf-delegation.js")
+    const taskApi = vi.fn().mockResolvedValue({ status: "ok", executive_summary: "diagnosed" })
+    const toolCtx = { sessionID: "s1", task: taskApi } as any
+
+    const delegateTool = createODFDelegate(undefined)
+    const output = await delegateTool.execute(
+      { phase: "FIX", prompt: "Diagnose a backend bug", context_files: [] },
+      toolCtx
+    )
+
+    const envelope = JSON.parse(output as string)
+    expect(envelope.status).toBe("delegated")
+    expect(envelope.phase).toBe("FIX")
+    expect(envelope.agent).toBe("odoo_backend_engineer")
+    expect(envelope.policy_gate).toBeNull()
+    expect(envelope.task_api_source).toBe("toolCtx.task")
+    expect(taskApi).toHaveBeenCalledTimes(1)
+  })
+
   it.each(["IMPLEMENT", "VERIFY"])("blocks %s when change is missing without invoking task()", async phase => {
     const { createODFDelegate, clearMetricsBuffer } = await import("./odf-delegation.js")
     clearMetricsBuffer()

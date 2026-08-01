@@ -1,12 +1,15 @@
 ---
-description: "Run QA activities for an ODF change. Usage: /odf-qa <change-name> [--plan|--review|--coverage|--report]"
+description: "Ejecutar lentes QA para un cambio ODF. Uso: /odf-qa <change-name> [--plan|--review|--coverage|--report]"
 ---
 
-# ODF: QA Activities
+# ODF: QA (utilidad y lente)
 
-Run quality assurance activities for an active ODF change.
+QA es una utilidad/lente del workflow, no una etapa canónica del DAG. Puede
+producir intención de pruebas para `PLAN`, evidencia de revisión por lote para
+`BUILD` o agregación de cobertura para `VERIFY`, según la ruta, el riesgo y el
+tipo de trabajo.
 
-## Parse Command
+## Parsear comando
 
 ```
 /odf-qa <change-name>              — Run full QA suite (all activities)
@@ -16,84 +19,82 @@ Run quality assurance activities for an active ODF change.
 /odf-qa <change-name> --report    — Generate final QA report
 ```
 
-## Options
+## Opciones
 
 | Option | Description | When to Use |
 |--------|-------------|-------------|
-| (none) | Full QA suite | Default - runs all applicable QA |
-| `--plan` | Generate test plan | After ASSESS, before DESIGN |
-| `--review` | Review existing tests | After IMPLEMENT batches |
-| `--coverage` | Coverage analysis | Anytime to see current coverage |
-| `--report` | Final QA report | Before VERIFY |
+| (none) | Lentes QA aplicables | Ejecuta la cobertura QA seleccionada por ruta/riesgo/tipo de trabajo |
+| `--plan` | Intención de pruebas | Dentro de `PLAN`, después de `DECIDE` cuando aplica |
+| `--review` | Evidencia de revisión de tests | Dentro de `BUILD`, por lote de implementación |
+| `--coverage` | Agregación de cobertura | Dentro de `VERIFY` o como lectura previa |
+| `--report` | Informe QA auxiliar | Durante o después de `VERIFY`, cuando se solicite |
 
-## Orchestrator Instructions
+## Instrucciones para el orquestador
 
-### 1. Detect QA Phase
+### 1. Detectar la lente QA
 
-Based on the change's current state, determine which QA activity to run:
+Usar el flag explícito si existe. Sin flag, consultar `odf_workflow_route`, el
+riesgo y el tipo de trabajo para seleccionar solo las lentes aplicables. No
+crear una etapa `QA` ni hacer obligatorios `QA-REVIEW` o `QA-AGGREGATE` antes de
+`VERIFY`.
 
 ```
-State: ASSESS complete, no qa-plan
-  → Run QA-PLAN (generate test plan)
-
-State: DESIGN complete, IMPLEMENT in progress
-  → Run QA-REVIEW (review tests from last batch)
-
-State: All IMPLEMENT batches done
-  → Run QA-AGGREGATE + QA-REPORT (final QA before VERIFY)
-
-State: VERIFY complete
-  → Run QA-REPORT (compile final QA metrics)
+--plan      → PLAN: test intent; legacy artifact qa-plan
+--review    → BUILD: batch review evidence; legacy artifact qa-review
+--coverage  → VERIFY: coverage aggregation; legacy artifact qa-aggregate
+--report    → QA report utility; legacy artifact qa-report
 ```
 
-### 2. Check Project Config
+### 2. Comprobar configuración del proyecto
 
 ```
 mem_search("odf-init/{project}") → project config
-Use for:
-  - Test command template
-  - Coverage tool configuration
-  - Odoo version
+Usar para:
+   - Plantilla del comando de tests
+   - Configuración de la herramienta de cobertura
+   - Versión de Odoo
 ```
 
-### 3. Launch QA Activity
+### 3. Ejecutar la actividad QA
 
-Based on activity type:
+Cuando la actividad delegue trabajo ODF, usar `odf_delegate` y su resolución de
+skills; no llamar `task()` directamente. Los nombres legacy de los artefactos
+se conservan como adaptadores de compatibilidad.
 
-**QA-PLAN** (after ASSESS):
+**QA-PLAN** (lente de `PLAN`; nombre legacy):
 ```
-Read: /home/adruban/.config/opencode/skills/odf-qa/SKILL.md
-Launch: odoo_qa_engineer via Task tool
-Input: assess artifact + user requirement
-Output: qa-plan.md artifact
-Gate: Show test plan, ask "Approve test plan?"
-```
-
-**QA-REVIEW** (during IMPLEMENT):
-```
-Read: /home/adruban/.config/opencode/skills/odf-qa/SKILL.md
-Launch: odoo_qa_engineer via Task tool
-Input: tests written in last batch
-Output: qa-review.md artifact
-No gate - show review summary only
+Leer: /home/adruban/.config/opencode/skills/odf-qa/SKILL.md
+Ejecutar: odoo_qa_engineer mediante odf_delegate
+Entrada: artefacto de assess + requisito del usuario
+Salida: artefacto qa-plan.md
+Rol: intención de pruebas dentro de PLAN; la aprobación sigue el modo activo
 ```
 
-**QA-AGGREGATE** (before VERIFY):
+**QA-REVIEW** (lente de `BUILD`; nombre legacy):
 ```
-Read: /home/adruban/.config/opencode/skills/odf-qa/SKILL.md
-Launch: odoo_qa_engineer via Task tool
-Input: all implement-progress artifacts
-Output: qa-aggregate.md artifact
-Gate: Must pass coverage threshold to continue
+Leer: /home/adruban/.config/opencode/skills/odf-qa/SKILL.md
+Ejecutar: odoo_qa_engineer mediante odf_delegate
+Entrada: tests escritos en el último lote
+Salida: artefacto qa-review.md
+Rol: evidencia del lote dentro de BUILD; opcional según ruta/riesgo/tipo de trabajo
 ```
 
-**QA-REPORT** (after VERIFY):
+**QA-AGGREGATE** (lente de `VERIFY`; nombre legacy):
 ```
-Read: /home/adruban/.config/opencode/skills/odf-qa/SKILL.md
-Launch: odoo_qa_engineer via Task tool
-Input: all artifacts (assess, design, implement, verify)
-Output: qa-report.md artifact
-No gate - compile final metrics
+Leer: /home/adruban/.config/opencode/skills/odf-qa/SKILL.md
+Ejecutar: odoo_qa_engineer mediante odf_delegate
+Entrada: todos los artefactos implement-progress
+Salida: artefacto qa-aggregate.md
+Rol: agregación de cobertura dentro de VERIFY; no convertirla en gate universal
+```
+
+**QA-REPORT** (utilidad de `VERIFY`; nombre legacy):
+```
+Leer: /home/adruban/.config/opencode/skills/odf-qa/SKILL.md
+Ejecutar: odoo_qa_engineer mediante odf_delegate
+Entrada: todos los artefactos (assess, design, implement, verify)
+Salida: artefacto qa-report.md
+Rol: utilidad de informe opcional; VERIFY sigue siendo el gate de calidad independiente
 ```
 
 ### 4. Persist QA Artifacts

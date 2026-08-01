@@ -1,10 +1,12 @@
 ---
-description: "Implement tasks from current ODF change. Usage: /odf-apply [batch]"
+description: "Alias de BUILD para implementar tareas del cambio ODF. Uso: /odf-apply [batch]"
 ---
 
-# ODF: Implement Tasks
+# ODF: BUILD (alias /odf-apply)
 
-Jump directly to the IMPLEMENT phase. Requires DESIGN to be completed.
+`/odf-apply` es un alias de la etapa canónica `BUILD`. Ejecuta el adaptador
+legacy `IMPLEMENT` para un lote, pero no salta silenciosamente preflight,
+decisión de ruta ni el `PLAN`/`DESIGN` requerido.
 
 ## Parse Arguments
 
@@ -17,31 +19,33 @@ Jump directly to the IMPLEMENT phase. Requires DESIGN to be completed.
 
 ## Orchestrator Instructions
 
-1. **Recover state** from OpenSpec `state.yaml`, Engram `odf/{change}/state`, or both in hybrid mode
-2. **Verify DESIGN is complete** — if not, warn and suggest `/odf-continue`
-3. **Load design artifact** from Engram (`odf/{change}/design`)
-4. **Determine which tasks are pending** from the design's task breakdown
-5. **Launch IMPLEMENT phase**: Read `/home/adruban/.config/opencode/skills/odf-implement/SKILL.md`
-6. **Delegate to appropriate agent(s)** based on task domain:
-   - Python models, views, security — `odoo_backend_engineer`
-   - JS/OWL/QWeb components — `odoo_frontend_engineer`
-   - API/webhook controllers — `odoo_api_integrator`
-   - Multiple domains — launch in parallel if tasks are independent
-7. **Show progress** after each batch
-8. **Update state** in Engram
+1. **Recuperar estado y preflight** desde OpenSpec `state.yaml`, Engram `odf/{change}/state`, o ambos en modo híbrido.
+2. **Resolver la ruta** con `odf_workflow_route(work_type)`. La ruta debe incluir `BUILD`; si falta la decisión de ruta, detenerse y continuar con `/odf-continue`.
+3. **Verificar el PLAN requerido**: leer el diseño/tareas canónicas o el artefacto legacy `odf/{change}/design`. Si no está completo, detenerse y sugerir `/odf-continue`; no hacer bypass directo.
+4. **Determinar las tareas pendientes** desde el desglose de tareas, fusionando el progreso existente sin sobrescribirlo.
+5. **Antes de cada lote**, ejecutar `odf_policy_gate(change, phase="IMPLEMENT")`; su decisión es autoritativa.
+6. **Delegar el lote** mediante `odf_delegate` usando el adaptador legacy `IMPLEMENT` para `BUILD`. No llamar `task()` directamente.
+7. **Seleccionar el agente** según el dominio de la tarea:
+   - Modelos Python, vistas y seguridad — `odoo_backend_engineer`
+   - Componentes JS/OWL/QWeb — `odoo_frontend_engineer`
+   - Controladores API/webhook — `odoo_api_integrator`
+   - Múltiples dominios — ejecutar en paralelo solo si las tareas son independientes
+8. **Cerrar el lote solo con evidencia válida**: la validation seal debe ser `validation.status === "verified"`; persistir la evidencia del lote y actualizar `odf/{change}/implement-progress` mediante merge, nunca overwrite. Si falta o es inválida, detenerse para corrección.
+9. **Mostrar progreso** después de cada lote y respetar la aprobación/disposición del modo activo.
 
 ## Output
 
 ```
-ODF: Implementing "{change-name}"
+ODF: Implementando "{change-name}"
 
-  Tasks: {completed}/{total}
-  Batch: {current batch description}
-  Agent: {agent used}
+  Tareas: {completed}/{total}
+  Lote: {current batch description}
+  Agente: {agent used}
 
-  [x] 1.1 Created model sale.discount.rule
-  [x] 1.2 Added views for discount configuration
-  [ ] 1.3 Security rules (next batch)
+  [x] 1.1 Modelo sale.discount.rule creado
+  [x] 1.2 Vistas de configuración creadas
+  [ ] 1.3 Reglas de seguridad (siguiente lote)
 
-  Progress: 2/8 tasks complete. Continue with next batch?
+   Evidencia: validation verificada; implement-progress fusionado
+   Progreso: 2/8 tareas completadas. ¿Continuar con el siguiente lote?
 ```

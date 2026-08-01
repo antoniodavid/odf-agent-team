@@ -6,7 +6,9 @@ agent: odoo_orchestrator
 
 # /odf-new — Iniciar cambio ODF
 
-Inicia un nuevo cambio de desarrollo Odoo con el flujo de trabajo ODF completo (PROPOSE → ASSESS → DESIGN → IMPLEMENT → VERIFY).
+Starts a new ODF change using the canonical flow `DECIDE -> optional PLAN -> BUILD -> VERIFY`.
+Legacy mapping remains compatible: `DECIDE = PROPOSE + ASSESS`, `PLAN = QA-PLAN + DESIGN`,
+and `BUILD = IMPLEMENT`.
 
 ## Uso
 
@@ -36,10 +38,14 @@ Inicia un nuevo cambio de desarrollo Odoo con el flujo de trabajo ODF completo (
 4. **Cargar configuración del proyecto** desde `odf-init/{project}` si existe.
 5. **Ejecutar preflight gate**: si el preflight no está completo, preguntar los campos faltantes en español.
 6. **Persistir preflight** en `openspec/changes/{change}/state.yaml` antes de delegar.
-7. **Ejecutar PROPOSE** vía `odf_delegate(phase=PROPOSE, prompt, context_files)` y aprobar el alcance.
-8. **Delegar ASSESS** vía `odf_delegate(phase=ASSESS, prompt, context_files)`.
-9. **Mostrar puerta de aprobación** con resumen, estrategia y riesgos.
-9. Si `--fast`, saltar puertas intermedias excepto la de IMPLEMENT.
+7. **Resolve the route** with `odf_workflow_route(work_type)` before selecting workflow depth.
+8. **Run DECIDE** through the compatible `PROPOSE` and `ASSESS` adapters.
+9. **Run optional PLAN**, then BUILD and VERIFY according to the resolved route.
+10. If `--fast`, skip voluntary approval gates only where existing compatibility permits; never skip preflight, Policy Gate, validation evidence, VERIFY, or failure disposition.
+
+Standard configuration may stop after DECIDE with optional verification. Small changes may
+use an inline plan before BUILD. Existing public phase commands and legacy phase IDs remain
+available for compatibility; they have not disappeared.
 
 ## Contrato de enrutamiento
 

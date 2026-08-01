@@ -24,7 +24,7 @@ user disposition.
 | Layer | Owns | Does not own |
 |---|---|---|
 | Orchestrator | Routing, state, approvals, user disposition, Spanish summaries | Code, specs, designs, policy/evidence recomputation |
-| Plugin | Registry, agent/skill resolution, task invocation, policy/evidence/receipt/metrics seals | Domain decisions or invented inner results |
+| Plugin | Workflow route resolution, registry/agent/skill resolution, task invocation, policy/evidence/receipt/metrics seals | Domain decisions or invented inner results |
 | Agent prompt | Domain role, task scope, boundaries, project context | Workflow state or shared policy decisions |
 | Phase skill | Phase method, hard rules, decision gates, output artifact | Cross-phase orchestration or task invocation |
 | Test runner | Deterministic regression checks for the ODF pack | Odoo feature decisions |
@@ -92,16 +92,23 @@ replace a default when their phase and triggers match.
 The phase skill defines the method and artifact; the agent supplies domain
 execution. The orchestrator supplies neither implementation nor domain advice.
 
-| Phase | Skill | Required output |
+| Canonical stage | Legacy skill adapter | Required output |
 |---|---|---|
-| PROPOSE | `odf-propose` | Lightweight business proposal |
-| ASSESS | `odf-assess` | Standard/custom strategy and functional spec |
-| QA-PLAN | `odf-qa` | Scenarios, coverage targets, fixtures |
-| DESIGN | `odf-design` | Technical design and task breakdown |
-| IMPLEMENT | `odf-implement` | Code/tests plus merged implementation progress |
+| DECIDE | `odf-propose` + `odf-assess` | Business scope and standard/custom decision |
+| PLAN | `odf-qa` + `odf-design` | QA lens, technical design, and task breakdown |
+| BUILD | `odf-implement` | Code/tests plus merged implementation progress |
 | VERIFY | `odf-verify` | Evidence-based verdict and compliance report |
 | EXPLORE | `odf-explore` | Investigation findings and recommendation |
 | FIX | `odf-fix` | Diagnose, fix, verify report |
+
+`QA` is embedded in PLAN, BUILD, and VERIFY. Extra QA review or aggregation is
+selected only when `odf_workflow_route`, risk, or work type requires it; it is
+not a mandatory step before every VERIFY. VERIFY remains an independent stage.
+
+## Plugin Tools
+
+- `odf_workflow_route(work_type)` selects route depth from the executable matrix.
+- `odf_delegate` runs legacy phase adapters and preserves their contracts.
 
 ## Delegation Rules
 
@@ -173,8 +180,11 @@ Flow:
 ## Workflow State
 
 ```text
-init -> preflight -> propose -> assess -> qa-plan -> design -> implement -> verify -> archived
+init -> preflight -> DECIDE -> optional PLAN -> BUILD -> VERIFY -> archived
 ```
+
+Call `odf_workflow_route` to select the route depth. Legacy phase IDs are an
+adapter for execution and persistence, not separate business decisions.
 
 After every transition, update `odf/{change}/state` with the current phase,
 preflight, project/version, modules, artifact flags, task progress, and
@@ -182,6 +192,9 @@ timestamps. On session start or after compaction, rediscover active state and
 resume from the last completed phase.
 
 ## Phase Gates
+
+The following phase headings are legacy adapter checkpoints. Canonical routing
+comes from `odf_workflow_route`; adapters must not create extra business stages.
 
 ### PROPOSE
 
@@ -199,7 +212,7 @@ resume from the last completed phase.
 ### QA-PLAN
 
 - Delegate the test plan from ASSESS; persist `odf/{change}/qa-plan`.
-- In `interactive`, ask for approval before DESIGN; in `batch`, continue only for inner `ok`/`warning`. `blocked`/`failed`, correction, or disposition stops. QA reviews continue during IMPLEMENT and are aggregated before VERIFY.
+- Treat this as PLAN's optional QA lens, not a mandatory precondition for every BUILD or VERIFY. In `interactive`, ask for approval before DESIGN; in `batch`, continue only for inner `ok`/`warning`. `blocked`/`failed`, correction, or disposition stops.
 
 ### DESIGN
 
@@ -212,7 +225,7 @@ resume from the last completed phase.
 2. Delegate one bounded task batch at a time. On continuation, apply the prior-progress merge instruction; read existing `odf/{change}/implement-progress`, merge new progress, and never overwrite it.
 3. After each batch, read the plugin's `validation` seal. Close the batch only when `validation.status === "verified"`.
 4. If validation is `missing` or `invalid`, do not close the batch. Stop for correction before any corrective pass; after the single corrective pass rewrites the evidence artifact, re-check the seal and never auto-loop.
-5. In `interactive`, show progress and ask whether to continue. In `batch`, auto-continue only when the inner result is `ok`/`warning`, validation is verified, and no correction or disposition is pending. `--fast` still requires IMPLEMENT approval. Run QA review and aggregate coverage before VERIFY.
+5. In `interactive`, show progress and ask whether to continue. In `batch`, auto-continue only when the inner result is `ok`/`warning`, validation is verified, and no correction or disposition is pending. `--fast` still requires IMPLEMENT approval. If route, risk, or work type selects QA review or aggregation, produce that evidence inside BUILD or VERIFY; do not make it a universal pre-VERIFY step.
 6. Persist `odf/{change}/implement-progress`.
 
 ### VERIFY
@@ -245,9 +258,9 @@ archived. Save the retrospective only after successful VERIFY.
 |---|---|
 | `/odf-init` | Detect and persist project version, modules, test runner, lint, and conventions |
 | `/odf-explore <topic>` | Research before the formal workflow; delegate via `EXPLORE` |
-| `/odf-fix <description>` | Diagnose -> fix -> verify using the domain agent; suggest `/odf-new` if architectural |
+| `/odf-fix <description>` | Composite diagnose -> BUILD -> VERIFY; escalate architectural fixes through DECIDE/PLAN |
 | `/odf-status [change]` | Render state and artifacts in Spanish |
-| `/odf-apply` | Continue IMPLEMENT only after DESIGN is complete |
+| `/odf-apply` | BUILD alias using the legacy IMPLEMENT adapter after route, preflight, and required PLAN checks |
 | `/odf-verify` | Run VERIFY for an existing implementation |
 | `/odf-archive <change>` | Require a passing verify report, save retrospective, mark archived |
 | `/odf-metrics` | Show canonical delegation metrics |

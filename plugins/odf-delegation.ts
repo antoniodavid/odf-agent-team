@@ -18,6 +18,7 @@ import * as nodeCrypto from "node:crypto"
 import { type Plugin, type ToolContext, tool } from "@opencode-ai/plugin"
 import { execFileSync, execSync } from "node:child_process"
 import type { createOpencodeClient } from "@opencode-ai/sdk"
+import { resolveWorkflowRoute, type WorkType, type WorkflowRoute } from "./odf-workflow.js"
 
 export type OpencodeClient = ReturnType<typeof createOpencodeClient>
 
@@ -750,6 +751,7 @@ const DEFAULT_AGENTS: Record<string, string> = {
   IMPLEMENT: "odoo_backend_engineer",
   VERIFY: "odoo_qa_engineer",
   EXPLORE: "odoo_functional_consultant",
+  FIX: "odoo_backend_engineer",
 }
 
 function resolveAgent(registry: ODFRegistry, phase: string, taskKeywords: string[]): string | null {
@@ -837,7 +839,7 @@ ${enrichedPrompt}
 ---FALLBACK_PROMPT_END---`
 }
 
-const ALLOWED_PHASES = ["PROPOSE", "ASSESS", "QA-PLAN", "DESIGN", "IMPLEMENT", "VERIFY", "EXPLORE"]
+const ALLOWED_PHASES = ["PROPOSE", "ASSESS", "QA-PLAN", "DESIGN", "IMPLEMENT", "VERIFY", "EXPLORE", "FIX"]
 
 // ==========================================
 // POLICY GATE (slice 1)
@@ -1437,7 +1439,7 @@ Use this instead of generic task() for ODF workflow delegation.`,
     args: {
       phase: tool.schema
         .string()
-        .describe("ODF phase: PROPOSE, ASSESS, QA-PLAN, DESIGN, IMPLEMENT, VERIFY, EXPLORE"),
+        .describe("ODF phase: PROPOSE, ASSESS, QA-PLAN, DESIGN, IMPLEMENT, VERIFY, EXPLORE, FIX"),
       prompt: tool.schema
         .string()
         .describe("The full detailed prompt for the agent."),
@@ -2282,6 +2284,33 @@ and timestamps. Useful for /odf-status when no openspec/ directory exists.`,
   })
 }
 
+function createODFWorkflowRoute(): ReturnType<typeof tool> {
+  return tool({
+    description: "Resolve the canonical ODF route for a work type. Read-only: does not delegate, mutate state, or run shell commands.",
+    args: {
+      work_type: tool.schema
+        .enum([
+          "question",
+          "investigation",
+          "standard-config",
+          "small-change",
+          "feature",
+          "cross-domain",
+          "bugfix",
+          "migration",
+          "security",
+          "verify-only",
+        ])
+        .describe("Type of work to route"),
+    },
+    async execute(args: { work_type: WorkType }): Promise<string> {
+      const route: WorkflowRoute = resolveWorkflowRoute(args.work_type)
+      const description = `${route.entry} entry; stages ${route.stages.join(" -> ")}; plan ${route.plan}; verification ${route.verification}; risk ${route.risk}.`
+      return JSON.stringify({ ...route, description }, null, 2)
+    },
+  })
+}
+
 // ==========================================
 // SYSTEM PROMPT INJECTION
 // ==========================================
@@ -2300,6 +2329,7 @@ and timestamps. Useful for /odf-status when no openspec/ directory exists.`,
 ## Tools
 
 - \`odf_delegate\`: phase delegation with skill injection and metrics
+- \`odf_workflow_route\`: read-only canonical route selection by work type
 - \`odf_skill_inject\`, \`odf_skill_resolve\`, \`odf_registry_read\`: standards and routing inspection
 - \`odf_policy_gate\`, \`odf_receipt\`: policy and failure persistence
 - \`odf_status\`, \`odf_profile_select\`, \`odf_notebooklm_lookup\`: state, profile, and research lookup
@@ -2390,11 +2420,12 @@ export const OdfDelegationPlugin: Plugin = async (ctx) => {
     console.log(`[odf-delegation] Health: ${healthChecks.join(", ")}`)
   }
 
-  console.log(`[odf-delegation] Plugin loaded. Tools: odf_delegate, odf_skill_inject, odf_registry_read, odf_notebooklm_lookup, odf_profile_select, odf_skill_resolve, odf_community_tool_detect, odf_community_tool_install, odf_status, odf_policy_gate, odf_receipt`)
+  console.log(`[odf-delegation] Plugin loaded. Tools: odf_delegate, odf_workflow_route, odf_skill_inject, odf_registry_read, odf_notebooklm_lookup, odf_profile_select, odf_skill_resolve, odf_community_tool_detect, odf_community_tool_install, odf_status, odf_policy_gate, odf_receipt`)
 
   return {
     tool: {
       odf_delegate: createODFDelegate(client, directory),
+      odf_workflow_route: createODFWorkflowRoute(),
       odf_skill_inject: createODFSkillInject(),
       odf_skill_resolve: createODFSkillResolve(),
       odf_registry_read: createODFRegistryRead(),
@@ -2427,6 +2458,7 @@ export {
   invokeTask,
   findTaskApi,
   createODFDelegate,
+  createODFWorkflowRoute,
   getProfileByPhase,
   recordMetrics,
   ALLOWED_PHASES,
@@ -2436,6 +2468,8 @@ export {
   type ODFAgent,
   type ODFCommunityTool,
   type DelegationMetrics,
+  type WorkType,
+  type WorkflowRoute,
 }
 
 export function getMetricsBuffer(): DelegationMetrics[] {
