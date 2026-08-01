@@ -2,7 +2,7 @@
 
 > Tu equipo de desarrollo Odoo con IA — skills, agentes y workflow OCA-compliant para OpenCode.
 
-**ODF (Odoo Development Framework)** es un sistema de agentes AI especializados en desarrollo Odoo. Incluye 31 skills, 12 agentes, 21 comandos, pipeline completo de desarrollo (PROPOSE → ASSESS → QA-PLAN → DESIGN → IMPLEMENT → VERIFY), orquestador conversacional con preflight gate, e instalador idempotente.
+**ODF (Odoo Development Framework)** es un sistema de agentes AI especializados en desarrollo Odoo. Incluye 31 skills, 12 agentes, 21 comandos, pipeline thin-spine de desarrollo (`preflight → DECIDE → optional PLAN → BUILD → VERIFY → archived`), orquestador conversacional con preflight gate, e instalador idempotente.
 
 ## Quick Install
 
@@ -44,7 +44,7 @@ Variables de entorno útiles:
 | **Comandos nativos** | 4 | `/odf-new`, `/odf-continue`, `/odf-status`, `/odf-explore` registrados en el orchestrator |
 | **Plugin** | 1 | `odf-delegation.ts` — delegación real vía `task()`, inyección de skills, métricas, fallback |
 | **Perfiles** | 2 | `default` (deepseek-r1 + kimi-k2.6), `cheap` (kimi-k2.6 todas las fases) |
-| **Tests** | 210 | 92 unit tests (Vitest) + 118 aserciones de escenarios YAML |
+| **Tests** | 307 | 188 unit tests (Vitest) + 119 aserciones de escenarios YAML |
 
 ## Uso Rápido
 
@@ -95,11 +95,20 @@ ODF ahora incluye un **preflight gate** que captura las decisiones del proyecto 
 - Estrategia de solución (`standard` / `custom` / `pending`)
 - Estrategia de cadena de PRs (`none` / `chained` / `feature-branch`)
 
-El **orchestrator** (`agent/odoo_orchestrator.md`) coordina el flujo:
+El **orchestrator** (`agent/odoo_orchestrator.md`) coordina el flujo thin-spine:
 
 ```
-init → preflight → assess → design → implement → verify → archived
+init → preflight → DECIDE → optional PLAN → BUILD → VERIFY → archived
 ```
+
+Las fases legacy siguen funcionando como adaptadores compatibles:
+
+- `DECIDE` = `PROPOSE` + `ASSESS`
+- `PLAN` = `QA-PLAN` + `DESIGN` (opcional; ver ejemplos de enrutado)
+- `BUILD` = `IMPLEMENT`
+- `VERIFY` se mantiene como etapa independiente
+
+`QA-PLAN`/`QA-REVIEW`/`QA-AGGREGATE`/`QA-REPORT` son lentes de QA anidadas en `PLAN`, `BUILD` y `VERIFY`, no etapas canónicas obligatorias. La ruta concreta se decide por tipo de trabajo (config estándar, cambio pequeño, normal, cross-domain, migración, bugfix, investigación).
 
 Cada fase se delega al agente especializado a través del plugin `odf_delegate`, que invoca la API nativa `task()` de OpenCode y devuelve un resultado estructurado. Si `task()` no está disponible, el plugin devuelve un envelope de fallback con el prompt enriquecido.
 
@@ -111,6 +120,8 @@ Cada fase se delega al agente especializado a través del plugin `odf_delegate`,
 | `/odf-continue` | `/odf-continue [nombre]` | Reanuda el cambio activo más reciente o uno nombrado |
 | `/odf-status` | `/odf-status [nombre]` | Lista cambios activos o muestra detalle de uno |
 | `/odf-explore` | `/odf-explore <tema> [--version N] [--module M]` | Investigación profunda sin crear un cambio formal |
+
+Otros comandos públicos (en `command/`) siguen disponibles: `/odf-fix` (diagnose → BUILD → VERIFY), `/odf-apply` (alias de BUILD vía adaptador IMPLEMENT), `/odf-verify` (ejecuta VERIFY), `/odf-qa` (lente de QA), `/odf-archive`, `/odf-profile`, `/odf-tdd-toggle`, `/odf-health`, `/odf-metrics`, etc.
 
 ## Skills Destacados
 
@@ -128,34 +139,36 @@ Cada fase se delega al agente especializado a través del plugin `odf_delegate`,
 
 ## Agentes
 
-| Agente | Rol | Fases |
-|--------|-----|-------|
+| Agente | Rol | Etapas |
+|--------|-----|--------|
 | `odoo_orchestrator` | Coordinador principal | ALL |
-| `odoo_functional_consultant` | Propuesta y análisis standard vs custom | PROPOSE, ASSESS |
-| `odoo_backend_engineer` | Python models, views, security | DESIGN, IMPLEMENT |
-| `odoo_frontend_engineer` | OWL, JS/TS, SCSS, QWeb | DESIGN, IMPLEMENT |
-| `odoo_qa_engineer` | Test strategy, coverage | QA-PLAN, VERIFY |
-| `odoo_api_integrator` | HTTP controllers, webhooks | DESIGN, IMPLEMENT |
+| `odoo_functional_consultant` | Propuesta y análisis standard vs custom | DECIDE (PROPOSE, ASSESS) |
+| `odoo_backend_engineer` | Python models, views, security | PLAN, BUILD |
+| `odoo_frontend_engineer` | OWL, JS/TS, SCSS, QWeb | PLAN, BUILD |
+| `odoo_qa_engineer` | Test strategy, coverage | PLAN (lente QA), VERIFY |
+| `odoo_api_integrator` | HTTP controllers, webhooks | PLAN, BUILD |
 | `odoo_dba_devops` | PostgreSQL, Docker, performance | ANY |
 | `odoo_upgrade_migrator` | OpenUpgrade, migrations | ANY |
 | `odoo_code_reviewer` | Code review | VERIFY |
-| `odoo_context_gatherer` | Pattern discovery | ASSESS |
-| `odoo_skill_finder` | Skill lookup fallback | DESIGN, IMPLEMENT |
-| `odoo_stock_lot_specialist` | Lot/serial, FEFO, traceability | DESIGN, IMPLEMENT |
+| `odoo_context_gatherer` | Pattern discovery | DECIDE |
+| `odoo_skill_finder` | Skill lookup fallback | PLAN, BUILD |
+| `odoo_stock_lot_specialist` | Lot/serial, FEFO, traceability | PLAN, BUILD |
 
 ## Arquitectura
 
 ```
 ODF Agent Team
 ├── Registry (31 skills, 12 agents, 2 profiles, package metadata)
-├── Orchestrator (odoo_orchestrator) — preflight gate + state machine
-│   ├── PROPOSE    → odoo_functional_consultant
-│   ├── ASSESS     → odoo_functional_consultant
-│   ├── QA-PLAN   → odoo_qa_engineer
-│   ├── DESIGN    → odoo_backend_engineer (or custom agent)
-│   ├── IMPLEMENT → odoo_backend_engineer (or custom agent)
+├── Orchestrator (odoo_orchestrator) — preflight gate + thin-spine state machine
+│   ├── DECIDE    → odoo_functional_consultant (PROPOSE + ASSESS adapters)
+│   ├── PLAN      → odoo_qa_engineer + odoo_backend/frontend_engineer (optional)
+│   ├── BUILD     → odoo_backend_engineer (or custom agent)
 │   └── VERIFY    → odoo_qa_engineer + Judgment Day
 ├── Plugin (odf-delegation.ts: task() invocation, skill injection, metrics, fallback)
+│   ├── odf_workflow_route — canonical thin-spine routing
+│   ├── odf_workflow_status — OpenSpec-first status adapter (read-only)
+│   ├── odf_policy_gate / odf_receipt — TDD gate + failure receipts
+│   └── odf_status — legacy Engram status fallback
 ├── Commands (21 slash commands, 4 nativos en registry)
 ├── Installer (idempotent install.sh + package.json)
 └── Observatory (metrics, tests, health checks)
