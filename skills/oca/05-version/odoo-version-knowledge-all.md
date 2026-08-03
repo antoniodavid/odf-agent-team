@@ -88,7 +88,7 @@ Legend: ✅ = Supported, ⚠️ DEP = Deprecated, ⚠️ REC = Recommended, ✅ 
 | `@odoo-module` | ➖ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | OWL 1.x | ➖ | ✅ | ❌ | ❌ | ❌ | ❌ |
 | OWL 2.x | ➖ | ➖ | ✅ | ✅ | ✅ | ❌ |
-| OWL 3.x | ➖ | ➖ | ➖ | ➖ | ➖ | ✅ |
+| OWL 2.8.x | ➖ | ➖ | ➖ | ➖ | ➖ | ✅ |
 
 ### Security/Rules
 
@@ -170,7 +170,7 @@ Legend: ✅ = Supported, ⚠️ DEP = Deprecated, ⚠️ REC = Recommended, ✅ 
 ### v18 → v19
 1. **MUST** add type hints everywhere
 2. **MUST** use `SQL()` for all raw SQL
-3. Migrate to OWL 3.x
+3. Migrate to OWL 2.8.x
 4. Update Python to 3.12+
 
 ## Quick Reference Cards

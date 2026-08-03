@@ -130,7 +130,7 @@ Implementation patterns organized by functional area.
 | `odoo-owl-components-16` | OWL 2.x (Odoo 16-17) |
 | `odoo-owl-components-17` | OWL 2.x (Odoo 17) |
 | `odoo-owl-components-18` | OWL 2.x (Odoo 18) |
-| `odoo-owl-components-19` | OWL 3.x (Odoo 19) |
+| `odoo-owl-components-19` | OWL 2.8.x (Odoo 19) |
 | `odoo-owl-components-15-16` | OWL 15-16 transition |
 | `odoo-owl-components-16-17` | OWL 16-17 continuity |
 | `odoo-owl-components-17-18` | OWL 17-18 transition |

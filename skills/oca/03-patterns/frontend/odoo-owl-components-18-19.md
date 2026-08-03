@@ -10,7 +10,7 @@
 
 ## Changes Summary
 
-| Feature | OWL 2.x (v18) | OWL 3.x (v19) |
+| Feature | OWL 2.x (v18) | OWL 2.8.x (v19) |
 |---------|---------------|---------------|
 | Reactivity | Standard | Enhanced |
 | Props validation | Runtime | Enhanced + TypeScript-like |
@@ -18,7 +18,7 @@
 | Error boundaries | Basic | Enhanced |
 | Performance | Good | Improved |
 
-## Enhanced Reactivity in OWL 3.x
+## Enhanced Reactivity in OWL 2.8.x
 
 ### Before (OWL 2.x)
 ```javascript
@@ -40,7 +40,7 @@ toggleSelect(id) {
 }
 ```
 
-### After (OWL 3.x)
+### After (OWL 2.8.x)
 ```javascript
 setup() {
     this.state = useState({
@@ -70,7 +70,7 @@ static props = {
 };
 ```
 
-### After (OWL 3.x)
+### After (OWL 2.8.x)
 ```javascript
 /**
  * @typedef {Object} MyComponentProps
@@ -139,7 +139,7 @@ export class MyComponent extends Component {
 registry.category("actions").add("my_module.my_action", MyComponent);
 ```
 
-### After (OWL 3.x - v19)
+### After (OWL 2.8.x - v19)
 
 ```javascript
 /** @odoo-module **/

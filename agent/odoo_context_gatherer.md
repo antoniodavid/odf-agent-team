@@ -180,7 +180,7 @@ Return a structured context document in this EXACT format:
 - `SQL()` builder REQUIRED (no raw SQL)
 - SQL constraints use `models.Constraint()` class
 - `groups_id` cannot be set in `res.users.create()`
-- OWL 3.x patterns
+- OWL 2.8.x patterns (Odoo 16-19 all bundle OWL 2.x; 19 ships 2.8.4)
 
 ## EXAMPLE EXECUTION
 

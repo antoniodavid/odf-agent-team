@@ -496,7 +496,7 @@ this.dialog.add(Component, {}, {
 
 ## Version Notes
 
-### Odoo 19 (OWL 3.x)
+### Odoo 19 (OWL 2.8.x)
 - Dialog service API unchanged from OWL 2.x
 - Use new `useService` hook pattern
 

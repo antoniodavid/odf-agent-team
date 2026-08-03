@@ -3,7 +3,7 @@
 ```
 ╔══════════════════════════════════════════════════════════════════════════════╗
 ║  ODOO 19.0 ORM PATTERNS                                                      ║
-║  Type hints mandatory, SQL() required, OWL 3.x                               ║
+║  Type hints mandatory, SQL() required, OWL 2.8.x                               ║
 ║  WARNING: v19 is in development - patterns may change                        ║
 ║  VERIFY: https://github.com/odoo/odoo/tree/master/odoo/models.py             ║
 ╚══════════════════════════════════════════════════════════════════════════════╝
@@ -551,7 +551,7 @@ def _check_lines(self) -> None:
 2. **Use SQL() builder** - Never use string SQL queries
 3. **_check_company_auto = True** - On multi-company models
 4. **check_company=True** - On relational fields
-5. **Use OWL 3.x patterns** - For frontend components
+5. **Use OWL 2.8.x patterns** - For frontend components (Odoo 19 bundles OWL 2.8.4; OWL 2.8.x does not exist in Odoo)
 6. **from __future__ import annotations** - For forward references
 
 ## Type Hint Reference

@@ -193,7 +193,7 @@ If answer is unclear, look for:
 | Type hints on fields | ❌ | ❌ | ❌ | ❌ | ⚠️ | ✅ |
 | `SQL()` builder | ❌ | ❌ | ❌ | ❌ | ⚠️ | ✅ |
 | OWL 2.x | ❌ | ❌ | ✅ | ✅ | ✅ | ❌ |
-| OWL 3.x | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ |
+| OWL 2.8.x | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ |
 
 Legend: ✅ Supported | ⚠️ Deprecated/Optional | ❌ Not available/Removed
 

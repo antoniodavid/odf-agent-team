@@ -531,7 +531,7 @@ import { registry } from "@web/core/registry";
 registry.category("actions").add("my_action", MyComponent);
 ```
 
-### v19 OWL 3.x Errors
+### v19 OWL 2.8.x Errors
 
 #### Error: `Invalid hook call`
 

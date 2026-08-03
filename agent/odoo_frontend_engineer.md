@@ -223,7 +223,7 @@ When you need a specific pattern, load the appropriate skill:
 | **OWL** | OWL 2.x (Odoo 16) | `/home/adruban/.config/opencode/skills/oca/03-patterns/frontend/odoo-owl-components-16.md` |
 | **OWL** | OWL 2.x (Odoo 17) | `/home/adruban/.config/opencode/skills/oca/03-patterns/frontend/odoo-owl-components-17.md` |
 | **OWL** | OWL 2.x (Odoo 18) | `/home/adruban/.config/opencode/skills/oca/03-patterns/frontend/odoo-owl-components-18.md` |
-| **OWL** | OWL 3.x (Odoo 19+) | `/home/adruban/.config/opencode/skills/oca/03-patterns/frontend/odoo-owl-components-19.md` |
+| **OWL** | OWL 2.8.x (Odoo 19, bundled 2.8.4) | `/home/adruban/.config/opencode/skills/oca/03-patterns/frontend/odoo-owl-components-19.md` |
 | **OWL** | OWL 15→16 migration | `/home/adruban/.config/opencode/skills/oca/03-patterns/frontend/odoo-owl-components-15-16.md` |
 | **OWL** | OWL 17→18 migration | `/home/adruban/.config/opencode/skills/oca/03-patterns/frontend/odoo-owl-components-17-18.md` |
 | **OWL** | OWL 18→19 migration | `/home/adruban/.config/opencode/skills/oca/03-patterns/frontend/odoo-owl-components-18-19.md` |
@@ -244,7 +244,7 @@ When you need a specific pattern, load the appropriate skill:
 | Odoo 16 | OWL 2.x | `/home/adruban/.config/opencode/skills/oca/03-patterns/frontend/odoo-owl-components-16.md` |
 | Odoo 17 | OWL 2.x | `/home/adruban/.config/opencode/skills/oca/03-patterns/frontend/odoo-owl-components-17.md` |
 | Odoo 18 | OWL 2.x | `/home/adruban/.config/opencode/skills/oca/03-patterns/frontend/odoo-owl-components-18.md` |
-| Odoo 19 | OWL 3.x | `/home/adruban/.config/opencode/skills/oca/03-patterns/frontend/odoo-owl-components-19.md` |
+| Odoo 19 | OWL 2.8.x (bundled 2.8.4) | `/home/adruban/.config/opencode/skills/oca/03-patterns/frontend/odoo-owl-components-19.md` |
 
 ## Complete Knowledge Areas
 

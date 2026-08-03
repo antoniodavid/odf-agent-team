@@ -14,7 +14,7 @@
 - **Python**: 3.12+ required
 - **Type Hints**: MANDATORY on all methods
 - **SQL Builder**: MANDATORY for all raw SQL
-- **OWL**: 3.x (new patterns)
+- **OWL**: 2.8.x (Odoo 19 bundles OWL 2.8.4, still the OWL 2.x line)
 - **View syntax**: Direct `invisible`/`readonly` with Python expressions
 
 ## MANDATORY Features in v19
@@ -24,7 +24,7 @@
 ║  v19 MANDATORY REQUIREMENTS:                                                 ║
 ║  • Type hints on ALL method parameters and return types                      ║
 ║  • SQL() builder for ALL raw SQL queries                                     ║
-║  • OWL 3.x patterns (OWL 2.x will not work)                                  ║
+║  • OWL 2.8.x patterns (Odoo 19 bundles OWL 2.8.4; OWL 2.x patterns DO work)  ║
 ║  • Python 3.12+ syntax                                                       ║
 ╚══════════════════════════════════════════════════════════════════════════════╝
 ```
@@ -353,7 +353,7 @@ class {ModelName}(models.Model):
 </odoo>
 ```
 
-## OWL 3.x Component (v19)
+## OWL 2.8.x Component (v19)
 
 ```javascript
 /** @odoo-module **/
@@ -439,7 +439,7 @@ export class {ComponentName} extends Component {
 registry.category("actions").add("{module_name}.{component_name}", {ComponentName});
 ```
 
-## OWL 3.x Template (v19)
+## OWL 2.8.x Template (v19)
 
 ```xml
 <?xml version="1.0" encoding="UTF-8"?>
@@ -538,7 +538,7 @@ When generating a v19 module:
 - [ ] Use `Command` class for x2many
 - [ ] Use direct `invisible`/`readonly` in views
 - [ ] Use `allowed_company_ids` in record rules
-- [ ] Use OWL 3.x patterns
+- [ ] Use OWL 2.8.x patterns (setup(), useState/useRef/useService)
 - [ ] Python 3.12+ compatible code
 
 ## AI Agent Instructions (v19)
@@ -550,8 +550,8 @@ When generating an Odoo 19.0 module:
 3. **USE** `from __future__ import annotations`
 4. **USE** `_check_company_auto = True`
 5. **USE** `@api.model_create_multi` for create
-6. **USE** OWL 3.x patterns
+6. **USE** OWL 2.8.x patterns
 7. **USE** Python 3.12+ syntax (match statements, etc.)
 8. **DO NOT** use raw SQL strings
-9. **DO NOT** use OWL 2.x patterns
+9. **DO NOT** use OWL 3.x patterns (they do not exist in Odoo; OWL 2.x patterns work in Odoo 19)
 10. **DO NOT** use methods without type hints

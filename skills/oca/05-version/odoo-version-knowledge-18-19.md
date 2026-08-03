@@ -15,7 +15,7 @@
 | Type Hints | **REQUIRED** for methods | High - Update all methods |
 | SQL Constraints | `models.Constraint()` class **REQUIRED** | High - All SQL constraints |
 | res.users | `groups_id` cannot be set in create() | High - User creation code |
-| OWL | OWL 3.x replaces 2.x | High - Component rewrite |
+| OWL | OWL 2.8.x replaces 2.x | High - Component rewrite |
 | Multi-Company | `_check_company_auto` required | High - All multi-company models |
 | Python | Python 3.12+ required | Medium - Check compatibility |
 
@@ -267,7 +267,7 @@ class MyModel(models.Model):
 | `int` | Count/ID methods |
 | `str` | String methods |
 
-## OWL 3.x Migration
+## OWL 2.8.x Migration
 
 ### OWL 2.x (v18)
 ```javascript
@@ -300,7 +300,7 @@ class MyComponent extends Component {
 }
 ```
 
-### OWL 3.x (v19)
+### OWL 2.8.x (v19)
 ```javascript
 /** @odoo-module **/
 
@@ -355,9 +355,9 @@ class MyComponent extends Component {
 }
 ```
 
-### OWL 3.x Key Changes
+### OWL 2.8.x Key Changes
 
-| OWL 2.x | OWL 3.x |
+| OWL 2.x | OWL 2.8.x |
 |---------|---------|
 | `static props = { field: Type }` | `static props = { field: { type: Type, required: bool } }` |
 | Props validation basic | Enhanced props validation with defaults |
@@ -426,7 +426,7 @@ def process_state(self) -> str:
 # SQL builder (required)
 https://raw.githubusercontent.com/odoo/odoo/master/odoo/tools/sql.py
 
-# OWL 3.x
+# OWL 2.8.x
 https://raw.githubusercontent.com/odoo/odoo/master/addons/web/static/src/core/
 
 # Type hints in core
@@ -439,7 +439,7 @@ https://raw.githubusercontent.com/odoo/odoo/master/odoo/models.py
 
 - [ ] **CRITICAL**: Migrate ALL raw SQL to `SQL()` builder
 - [ ] Add type hints to ALL public methods
-- [ ] Update OWL 2.x components to OWL 3.x
+- [ ] Update OWL 2.x components to OWL 2.8.x
 - [ ] Ensure `_check_company_auto = True` on all models
 - [ ] Add `check_company=True` to all relational fields
 - [ ] Verify Python 3.12+ compatibility

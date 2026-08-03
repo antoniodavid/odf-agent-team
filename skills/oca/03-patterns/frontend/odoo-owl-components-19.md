@@ -1,8 +1,8 @@
-# Odoo OWL Components - Version 19.0 (OWL 3.x)
+# Odoo OWL Components - Version 19.0 (OWL 2.8.x)
 
 ```
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║  ODOO 19.0 OWL 3.x COMPONENT PATTERNS                                        ║
+║  ODOO 19.0 OWL 2.8.x COMPONENT PATTERNS                                        ║
 ║  This file contains ONLY Odoo 19.0 OWL patterns.                             ║
 ║  DO NOT use these patterns for other versions.                               ║
 ║  Note: v19 is in development - patterns may change.                          ║
@@ -19,7 +19,7 @@
 
 ```
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║  KEY CHANGES in OWL 3.x:                                                     ║
+║  KEY CHANGES in OWL 2.8.x:                                                     ║
 ║  • Enhanced reactivity system                                                ║
 ║  • Improved props validation                                                 ║
 ║  • Better TypeScript support                                                 ║
@@ -28,7 +28,7 @@
 ╚══════════════════════════════════════════════════════════════════════════════╝
 ```
 
-## Basic Component Structure (OWL 3.x)
+## Basic Component Structure (OWL 2.8.x)
 
 ```javascript
 /** @odoo-module **/
@@ -227,7 +227,7 @@ export class MyComponent extends Component {
 registry.category("actions").add("my_module.my_component", MyComponent);
 ```
 
-## Template Structure (OWL 3.x)
+## Template Structure (OWL 2.8.x)
 
 ```xml
 <?xml version="1.0" encoding="UTF-8"?>
@@ -345,7 +345,7 @@ registry.category("actions").add("my_module.my_component", MyComponent);
 </templates>
 ```
 
-## Field Widget (OWL 3.x)
+## Field Widget (OWL 2.8.x)
 
 ```javascript
 /** @odoo-module **/
@@ -392,7 +392,7 @@ registry.category("fields").add("custom_widget", {
 });
 ```
 
-## v19 OWL 3.x Checklist
+## v19 OWL 2.8.x Checklist
 
 - [ ] Use `/** @odoo-module **/` directive
 - [ ] Import from `@odoo/owl`
@@ -412,5 +412,5 @@ When generating Odoo 19.0 OWL components:
 3. **ADD** JSDoc type annotations
 4. **DEFINE** comprehensive `static props`
 5. **HANDLE** cleanup in `onWillUnmount`
-6. **USE** OWL 3.x enhanced patterns
+6. **USE** OWL 2.8.x enhanced patterns
 7. **DO NOT** use OWL 2.x deprecated patterns

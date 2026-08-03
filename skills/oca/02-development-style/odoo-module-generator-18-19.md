@@ -15,7 +15,7 @@
 | Type hints | Recommended | **Mandatory** | Must add |
 | `SQL()` builder | Recommended | **Mandatory** | Must migrate |
 | Raw SQL strings | Deprecated | **Removed** | Must migrate |
-| OWL | 2.x | **3.x** | Must update |
+| OWL | 2.8.x | 2.8.x (19 bundles 2.8.4) | No OWL major upgrade |
 | Python 3.10 | Required | 3.12+ required | Upgrade Python |
 | `_check_company_auto` | Recommended | Standard | Already adopted |
 
@@ -168,21 +168,23 @@ report_query = SQL(
 )
 ```
 
-## OWL 3.x Migration
+## OWL: No Major Upgrade (18 → 19)
 
-### Major OWL Changes
+There is NO OWL major version change between 18 and 19. Both bundle OWL 2.8.x
+(Odoo 19 ships OWL 2.8.4). OWL 3.x does not exist in any Odoo release. The
+differences between 18 and 19 are Odoo-side (assets, services, HOOT), not OWL.
 
-| Feature | OWL 2.x (v18) | OWL 3.x (v19) |
-|---------|---------------|---------------|
-| Reactivity | `useState` | Enhanced reactivity |
-| Component class | `Component` | Updated patterns |
-| Lifecycle | Hooks-based | Refined hooks |
-| Templates | QWeb | Enhanced QWeb |
+| Feature | OWL 2.8.x (v18) | OWL 2.8.x (v19) |
+|---------|-----------------|-----------------|
+| Reactivity | `useState` / `useRef` in `setup()` | Same — `useState` / `useRef` in `setup()` |
+| Component class | `Component` | Same — `Component` |
+| Lifecycle | Hooks-based | Same — hooks-based |
+| Templates | QWeb | Same — QWeb |
 
 ### Component Structure Changes
 
 ```javascript
-// v19: OWL 3.x patterns
+// v19: OWL 2.8.x patterns (Odoo 19 bundles OWL 2.8.4)
 /** @odoo-module **/
 
 import { Component, useState, useRef, onMounted } from "@odoo/owl";
@@ -303,7 +305,7 @@ except* ValidationError as eg:
 - [ ] Review all `cr.execute()` calls
 
 ### OWL Components (JavaScript) - CRITICAL
-- [ ] Update to OWL 3.x patterns
+- [ ] Keep OWL 2.8.x patterns (no OWL major upgrade between 18 and 19)
 - [ ] Review all component lifecycle hooks
 - [ ] Update reactivity patterns
 - [ ] Test all UI components thoroughly
@@ -321,7 +323,7 @@ except* ValidationError as eg:
 ### Manifest
 - [ ] Update version from `18.0.x.x.x` to `19.0.x.x.x`
 - [ ] Verify all dependencies are v19 compatible
-- [ ] Update asset declarations for OWL 3.x
+- [ ] Verify asset declarations and template bundle ordering (OWL 2.8.x)
 
 ### Testing
 - [ ] Run all tests with Python 3.12+
@@ -347,7 +349,7 @@ SecurityError: Raw SQL strings are not allowed. Use SQL() builder.
 ```
 Error: Component lifecycle hook not found
 ```
-**Solution**: Update component to OWL 3.x patterns.
+**Solution**: Verify the component uses OWL 2.8.x patterns (Odoo 19 bundles OWL 2.8.4; there is no OWL 3.x in Odoo) — check `setup()` hooks and QWeb template directives.
 
 ### Error: Python version incompatibility
 ```

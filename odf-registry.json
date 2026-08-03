@@ -389,7 +389,7 @@
         "widget",
         "static/src"
       ],
-      "compact_rules": "- OWL version: 2.x for Odoo 16-18; 3.x for Odoo 19\n- Read target Odoo Community source before coding; Enterprise source only when applicable\n- Register lifecycle hooks (onWillStart, onMounted, onWillUpdateProps, onWillUnmount) inside setup()\n- Declare every child in static components; define child classes before static fields to avoid TDZ\n- Use services via useService() and register components in the correct registry\n- Include every OWL XML template in the correct asset bundle and order; test asset/template completeness\n- Methods called through orm.call require @api.model where applicable; test the RPC path\n- Odoo 18 HOOT tests use *.test.js and belong in web.assets_tests\n- Reuse native Odoo components, services, Bootstrap/Odoo utilities, o_* naming, and existing design tokens; avoid parallel design systems",
+      "compact_rules": "- OWL version: 2.x for Odoo 16-19 (bundled OWL 2.8.2 for 16-18, 2.8.4 for 19); OWL 3.x does not exist in any Odoo release\n- Read target Odoo Community source before coding; Enterprise source only when applicable\n- Register lifecycle hooks (onWillStart, onMounted, onWillUpdateProps, onWillUnmount) inside setup()\n- Declare every child in static components; define child classes before static fields to avoid TDZ\n- Use services via useService() and register components in the correct registry\n- Include every OWL XML template in the correct asset bundle and order; test asset/template completeness\n- Methods called through orm.call require @api.model where applicable; test the RPC path\n- Odoo 18 HOOT tests use *.test.js and belong in web.assets_tests\n- Reuse native Odoo components, services, Bootstrap/Odoo utilities, o_* naming, and existing design tokens; avoid parallel design systems",
       "path": "skills/oca/03-patterns/frontend/odoo-owl-components.md",
       "odoo_versions": [
         15,
@@ -399,8 +399,13 @@
         19
       ],
       "sdd_phase": "DESIGN",
-      "version": "1.1",
+      "version": "1.2",
       "changelog": [
+        {
+          "version": "1.2",
+          "date": "2026-08-03",
+          "change": "Corrected OWL 3.x claim for Odoo 19: Odoo 19 bundles OWL 2.8.4, still OWL 2.x line"
+        },
         {
           "version": "1.1",
           "date": "2026-08-01",
@@ -490,7 +495,7 @@
         "Odoo 17",
         "Odoo 18"
       ],
-      "compact_rules": "- v14: @api.multi deprecated, track_visibility exists\n- v15: @api.multi REMOVED, tracking=True, OWL 1.x\n- v16: Command class, attrs deprecated, OWL 2.x\n- v17: attrs REMOVED, @api.model_create_multi mandatory, direct invisible=expr\n- v18: _check_company_auto, check_company=True, type hints recommended, SQL() builder\n- v19: Full type annotations REQUIRED, SQL() builder REQUIRED, OWL 3.x",
+      "compact_rules": "- v14: @api.multi deprecated, track_visibility exists\n- v15: @api.multi REMOVED, tracking=True, OWL 1.x\n- v16: Command class, attrs deprecated, OWL 2.x\n- v17: attrs REMOVED, @api.model_create_multi mandatory, direct invisible=expr\n- v18: _check_company_auto, check_company=True, type hints recommended, SQL() builder\n- v19: Full type annotations REQUIRED, SQL() builder REQUIRED, OWL 2.8.x",
       "path": "skills/oca/05-version/odoo-version-knowledge.md",
       "odoo_versions": [
         14,

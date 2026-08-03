@@ -272,7 +272,7 @@ def _get_report_data(self) -> list[dict[str, Any]]:
     return self.env.cr.dictfetchall()
 ```
 
-## OWL 3.x Migration
+## OWL 2.8.x Migration
 
 ### Component Structure
 
@@ -289,7 +289,7 @@ export class MyComponent extends Component {
 }
 ```
 
-**v19 (OWL 3.x):**
+**v19 (OWL 2.8.x):**
 ```javascript
 import { Component, useState } from "@odoo/owl";
 
@@ -312,7 +312,7 @@ export class MyComponent extends Component {
 - [ ] **CRITICAL**: Convert ALL raw SQL to `SQL()` builder
 - [ ] Add `from __future__ import annotations` to all Python files
 - [ ] Update Python to 3.12+
-- [ ] Migrate OWL 2.x to OWL 3.x components
+- [ ] Migrate OWL 2.x to OWL 2.8.x components
 - [ ] Test all SQL queries work correctly
 - [ ] Verify type hints don't cause runtime errors
 
@@ -333,4 +333,4 @@ Check the `master` branch for v19 patterns:
 - `odoo/fields.py` - Type hint support
 - `odoo/tools/sql.py` - SQL builder enhancements
 - `odoo/models.py` - Model type annotations
-- `addons/web/static/src/` - OWL 3.x patterns
+- `addons/web/static/src/` - OWL 2.8.x patterns

@@ -12,7 +12,7 @@
 ## Version 19.0 Requirements
 
 - **Python**: 3.12+ required
-- **Key Features**: Full type annotations, mandatory SQL builder, OWL 3.x, enhanced security
+- **Key Features**: Full type annotations, mandatory SQL builder, OWL 2.8.x (bundled 2.8.4), enhanced security
 
 ## Security Groups (v19 Syntax)
 

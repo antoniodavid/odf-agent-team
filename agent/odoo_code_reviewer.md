@@ -195,7 +195,7 @@ Review each component category:
 ### Odoo 19
 - Error if no type hints
 - Error if raw SQL without SQL builder
-- Check OWL 3.x patterns
+- Check OWL 2.8.x patterns (Odoo 19 bundles OWL 2.8.4; OWL 3.x does not exist in Odoo)
 
 ## GitHub Verification
 

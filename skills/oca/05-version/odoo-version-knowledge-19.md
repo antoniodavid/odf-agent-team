@@ -3,7 +3,7 @@
 ```
 ╔══════════════════════════════════════════════════════════════════════════════╗
 ║  ODOO 19.0 KNOWLEDGE BASE                                                    ║
-║  Type hints mandatory, SQL() required, OWL 3.x                               ║
+║  Type hints mandatory, SQL() required, OWL 2.8.x                               ║
 ║  WARNING: v19 is in development - patterns may change                        ║
 ║  VERIFY: https://github.com/odoo/odoo/tree/master                            ║
 ╚══════════════════════════════════════════════════════════════════════════════╝
@@ -16,7 +16,7 @@
 | Release Date | October 2024 (Expected) |
 | Python | 3.11, 3.12 |
 | PostgreSQL | 14, 15, 16 |
-| Frontend | OWL 3.x |
+| Frontend | OWL 2.8.x |
 | Status | In Development |
 
 ## BREAKING Changes from v18
@@ -83,7 +83,7 @@ self.env.cr.execute(SQL(
 ))
 ```
 
-### OWL 3.x
+### OWL 2.8.x
 ```javascript
 /** @odoo-module **/
 
@@ -171,7 +171,7 @@ export class MyComponent extends Component {
 ## Key Features
 
 ### New in Odoo 19 (Expected)
-- OWL 3.x framework
+- OWL 2.8.x framework
 - Mandatory type hints
 - SQL() builder required
 - Enhanced performance
@@ -181,7 +181,7 @@ export class MyComponent extends Component {
 ### Technical Stack
 - Python 3.11+ (3.12 recommended)
 - PostgreSQL 14+
-- OWL 3.x framework
+- OWL 2.8.x framework
 - Full ES2022+ support
 
 ## Version-Specific Patterns
@@ -423,7 +423,7 @@ def _search_is_overdue(self, operator: str, value: bool) -> list:
     return ['|', ('date_deadline', '>=', today), ('date_deadline', '=', False)]
 ```
 
-## OWL 3.x Features
+## OWL 2.8.x Features
 
 ### Enhanced Reactivity
 ```javascript
@@ -435,7 +435,7 @@ setup() {
 }
 
 toggleSelect(id) {
-    // Direct mutation works in OWL 3.x
+    // Direct mutation works in OWL 2.8.x
     if (this.state.selectedIds.has(id)) {
         this.state.selectedIds.delete(id);
     } else {
@@ -501,7 +501,7 @@ self.env.cr.execute(SQL("SELECT id FROM my_model WHERE state = %s", 'draft'))
 2. **Use SQL() builder** - For all raw SQL
 3. **_check_company_auto = True** - On multi-company models
 4. **check_company=True** - On relational fields
-5. **OWL 3.x patterns** - Comprehensive JSDoc, cleanup
+5. **OWL 2.8.x patterns** - Comprehensive JSDoc, cleanup
 6. **from __future__ import annotations** - For forward refs
 
 ## Manifest Structure

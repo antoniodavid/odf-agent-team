@@ -139,7 +139,7 @@ If the version is not explicitly stated, look for these clues in existing code:
 ### v19 Key Patterns
 - Type hints mandatory
 - `SQL()` builder mandatory
-- OWL 3.x
+- OWL 2.8.x (Odoo 19 bundles OWL 2.8.4)
 - Python 3.12+
 
 ## Structured Output Format
