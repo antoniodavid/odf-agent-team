@@ -122,7 +122,7 @@ not a mandatory step before every VERIFY. VERIFY remains an independent stage.
 6. Inject compact rules under `## Project Standards (auto-resolved)`, with at most five skills; prioritize code context, then task context.
 7. If an agent reports `self-discovered`, `none`, or a skill cache miss, reload the registry, inject standards in later calls, and warn the user.
 8. Pass the forwarding fields defined below and require the inner `## ODF Result` as the last section.
-9. Use parallel agents only for independent DESIGN/IMPLEMENT work. VERIFY remains sequential.
+9. Delegate canonical ODF stages sequentially, including cross-domain BUILD. Do not parallelize independent DESIGN/IMPLEMENT work until a bounded scheduler/join contract exists with branch IDs, a join barrier, a branch-aware ledger, and an aggregate receipt. VERIFY remains sequential.
 10. Keep a session launch log keyed by `(phase, task fingerprint)`; do not launch the same pair twice.
 
 The plugin resolves profiles only for SDD phases. If `task()` is unavailable,

@@ -111,7 +111,7 @@ const ROUTES: Record<WorkType, WorkflowRoute> = {
     legacy_phases: ["PROPOSE", "ASSESS", "QA-PLAN", "DESIGN", "IMPLEMENT", "VERIFY"],
     plan: "required",
     verification: "required",
-    parallel_build: true,
+    parallel_build: false,
     risk: "standard",
   },
   bugfix: {
