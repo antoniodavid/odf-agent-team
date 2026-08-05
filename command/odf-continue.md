@@ -50,7 +50,7 @@ Reanuda el flujo ODF desde la última etapa completada del cambio activo más re
 11. **Delegar** la siguiente etapa mediante `odf_delegate`; usar el adaptador legacy solo para ejecutar o leer contratos históricos.
 12. **Mostrar la puerta de aprobación** después de la etapa cuando el modo de interacción la requiera.
 
-For BUILD (`IMPLEMENT`) and VERIFY starts, embed the exact persisted or explicitly selected `work_type` and transition input from `odf_workflow_advance` under `workflow_advance` in `odf_delegate`. The standalone tool is advisory; delegate-side validation is authoritative. Never substitute a default or infer from legacy state. The binding tool is OpenSpec-only; Engram-only callers must keep forwarding the explicit work type without claiming Engram persistence.
+For BUILD (`IMPLEMENT`) and VERIFY starts, embed the exact persisted or explicitly selected `work_type` and transition input from `odf_workflow_advance` under `workflow_advance` in `odf_delegate`, plus a fresh opaque `attempt_id`. Reusing an ID or relaunching a completed phase is blocked; after failure, retry only with a new explicit ID. The standalone tool is advisory; delegate-side validation is authoritative. Never substitute a default or infer from legacy state. The binding tool is OpenSpec-only; Engram-only callers must keep forwarding the explicit work type without claiming Engram persistence. Legacy calls that omit `workflow_advance` remain compatible.
 
 ## Contrato de enrutamiento
 

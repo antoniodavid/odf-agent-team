@@ -871,6 +871,28 @@ describe("createODFDelegate", () => {
     vi.restoreAllMocks()
   })
 
+  const workflowAdvance = (phase: "IMPLEMENT" | "VERIFY") => phase === "IMPLEMENT"
+    ? {
+        work_type: "feature" as const,
+        completed_stages: ["DECIDE" as const],
+        candidate_stage: "PLAN" as const,
+        phase_result_status: "ok" as const,
+        validation_status: "not-required" as const,
+        receipt_state: "none" as const,
+        resumable_state: true,
+        archived_state: false,
+      }
+    : {
+        work_type: "feature" as const,
+        completed_stages: ["DECIDE" as const, "PLAN" as const],
+        candidate_stage: "BUILD" as const,
+        phase_result_status: "ok" as const,
+        validation_status: "verified" as const,
+        receipt_state: "none" as const,
+        resumable_state: true,
+        archived_state: false,
+      }
+
   it("returns a delegated result envelope when task() is available without workflow input", async () => {
     const { createODFDelegate, clearMetricsBuffer, getMetricsBuffer } = await import("./odf-delegation.js")
     clearMetricsBuffer()
@@ -913,6 +935,7 @@ describe("createODFDelegate", () => {
       {
         phase: "IMPLEMENT",
         change: "gate-build",
+        attempt_id: "build-1",
         prompt: "Implement the planned change",
         context_files: [],
         workflow_advance: {
@@ -933,6 +956,180 @@ describe("createODFDelegate", () => {
     expect(taskApi).toHaveBeenCalledTimes(1)
   })
 
+  it("acquires the first attempt and appends a completed settlement", async () => {
+    const { createODFDelegate } = await import("./odf-delegation.js")
+    const taskApi = vi.fn().mockResolvedValue({ status: "ok", executive_summary: "implemented" })
+    const delegateTool = createODFDelegate(undefined, tempHome)
+
+    await delegateTool.execute({
+      phase: "IMPLEMENT",
+      change: "attempt-first",
+      attempt_id: "attempt-1",
+      prompt: "Do not store this prompt or its secret in the ledger",
+      context_files: [],
+      workflow_advance: workflowAdvance("IMPLEMENT"),
+    }, { sessionID: "s1", task: taskApi } as any)
+
+    const ledgerPath = path.join(tempHome, ".odf", "attempt-ledger-attempt-first.jsonl")
+    const records = (await fs.readFile(ledgerPath, "utf8")).trim().split("\n").map(line => JSON.parse(line))
+    expect(records.map(record => record.status)).toEqual(["running", "completed"])
+    expect(records[0]).toMatchObject({ attempt_id: "attempt-1", change: "attempt-first", phase: "IMPLEMENT", next_stage: "BUILD" })
+    expect(records[1].result_status).toBe("delegated")
+    expect(await fs.readFile(ledgerPath, "utf8")).not.toContain("secret")
+    expect(fsSync.existsSync(`${ledgerPath}.lock`)).toBe(false)
+    expect(taskApi).toHaveBeenCalledTimes(1)
+  })
+
+  it("blocks a duplicate attempt_id before task()", async () => {
+    const { createODFDelegate } = await import("./odf-delegation.js")
+    const taskApi = vi.fn().mockResolvedValue({ status: "ok" })
+    const delegateTool = createODFDelegate(undefined, tempHome)
+    const input = {
+      phase: "IMPLEMENT",
+      change: "attempt-duplicate",
+      attempt_id: "duplicate-1",
+      prompt: "Implement the change",
+      context_files: [],
+      workflow_advance: workflowAdvance("IMPLEMENT"),
+    }
+
+    expect(JSON.parse(await delegateTool.execute(input, { sessionID: "s1", task: taskApi } as any) as string).status).toBe("delegated")
+    const blocked = JSON.parse(await delegateTool.execute(input, { sessionID: "s1", task: taskApi } as any) as string)
+    expect(blocked).toMatchObject({ status: "blocked", reason: "attempt-id-reused" })
+    expect(taskApi).toHaveBeenCalledTimes(1)
+  })
+
+  it("blocks a new attempt after the phase is completed", async () => {
+    const { createODFDelegate } = await import("./odf-delegation.js")
+    const taskApi = vi.fn().mockResolvedValue({ status: "ok" })
+    const delegateTool = createODFDelegate(undefined, tempHome)
+    const base = { phase: "VERIFY", change: "attempt-complete", prompt: "Verify the change", context_files: [], workflow_advance: workflowAdvance("VERIFY") }
+
+    await delegateTool.execute({ ...base, attempt_id: "verify-1" }, { sessionID: "s1", task: taskApi } as any)
+    const blocked = JSON.parse(await delegateTool.execute({ ...base, attempt_id: "verify-2" }, { sessionID: "s1", task: taskApi } as any) as string)
+    expect(blocked).toMatchObject({ status: "blocked", reason: "attempt-phase-completed" })
+    expect(taskApi).toHaveBeenCalledTimes(1)
+  })
+
+  it("blocks a second attempt while the first is running", async () => {
+    const { createODFDelegate } = await import("./odf-delegation.js")
+    let resolveTask!: (value: unknown) => void
+    const taskApi = vi.fn().mockReturnValue(new Promise(resolve => { resolveTask = resolve }))
+    const delegateTool = createODFDelegate(undefined, tempHome)
+    const first = delegateTool.execute({
+      phase: "IMPLEMENT",
+      change: "attempt-running",
+      attempt_id: "running-1",
+      prompt: "Implement the change",
+      context_files: [],
+      workflow_advance: workflowAdvance("IMPLEMENT"),
+      timeout_ms: 5_000,
+    }, { sessionID: "s1", task: taskApi } as any)
+    await vi.waitFor(() => expect(taskApi).toHaveBeenCalledTimes(1))
+
+    const blocked = JSON.parse(await delegateTool.execute({
+      phase: "IMPLEMENT",
+      change: "attempt-running",
+      attempt_id: "running-2",
+      prompt: "Implement the change again",
+      context_files: [],
+      workflow_advance: workflowAdvance("IMPLEMENT"),
+    }, { sessionID: "s1", task: taskApi } as any) as string)
+    expect(blocked).toMatchObject({ status: "blocked", reason: "attempt-phase-running" })
+    expect(taskApi).toHaveBeenCalledTimes(1)
+    resolveTask({ status: "ok" })
+    await first
+  })
+
+  it("fails closed when another process holds the attempt ledger lock", async () => {
+    const { createODFDelegate } = await import("./odf-delegation.js")
+    const taskApi = vi.fn().mockResolvedValue({ status: "ok" })
+    const delegateTool = createODFDelegate(undefined, tempHome)
+    const ledgerPath = path.join(tempHome, ".odf", "attempt-ledger-lock-contention.jsonl")
+    const lockPath = `${ledgerPath}.lock`
+    await fs.mkdir(path.dirname(ledgerPath), { recursive: true })
+    await fs.writeFile(lockPath, "held\n")
+
+    const output = await delegateTool.execute({
+      phase: "IMPLEMENT",
+      change: "lock-contention",
+      attempt_id: "lock-1",
+      prompt: "Implement the change",
+      context_files: [],
+      workflow_advance: workflowAdvance("IMPLEMENT"),
+    }, { sessionID: "s1", task: taskApi } as any)
+
+    expect(JSON.parse(output as string)).toMatchObject({ status: "blocked", reason: "attempt-ledger-locked" })
+    expect(taskApi).not.toHaveBeenCalled()
+    expect(await fs.readFile(lockPath, "utf8")).toBe("held\n")
+  })
+
+  it("allows a new attempt only after the previous attempt failed", async () => {
+    const { createODFDelegate } = await import("./odf-delegation.js")
+    const taskApi = vi.fn()
+      .mockRejectedValueOnce(new Error("task service down"))
+      .mockResolvedValueOnce({ status: "ok" })
+    const delegateTool = createODFDelegate(undefined, tempHome)
+    const base = { phase: "IMPLEMENT", change: "attempt-failed", prompt: "Implement the change", context_files: [], workflow_advance: workflowAdvance("IMPLEMENT") }
+
+    const first = JSON.parse(await delegateTool.execute({ ...base, attempt_id: "failed-1" }, { sessionID: "s1", task: taskApi } as any) as string)
+    const second = JSON.parse(await delegateTool.execute({ ...base, attempt_id: "failed-2" }, { sessionID: "s1", task: taskApi } as any) as string)
+    const ledgerPath = path.join(tempHome, ".odf", "attempt-ledger-attempt-failed.jsonl")
+    const records = (await fs.readFile(ledgerPath, "utf8")).trim().split("\n").map(line => JSON.parse(line))
+    expect(first.status).toBe("error")
+    expect(second.status).toBe("delegated")
+    expect(records.map(record => record.status)).toEqual(["running", "failed", "running", "completed"])
+    expect(records[1].result_status).toBe("error")
+    expect(taskApi).toHaveBeenCalledTimes(2)
+  })
+
+  it.each([
+    ["bad attempt", "safe-change", "../attempt", "attempt-id-required"],
+    ["bad change", "../unsafe", "safe-attempt", "unsafe-change-name"],
+  ])("rejects %s tokens before creating the ledger", async (_label, change, attemptId, reason) => {
+    const { createODFDelegate } = await import("./odf-delegation.js")
+    const taskApi = vi.fn().mockResolvedValue({ status: "ok" })
+    const delegateTool = createODFDelegate(undefined, tempHome)
+    const output = await delegateTool.execute({
+      phase: "IMPLEMENT",
+      change,
+      attempt_id: attemptId,
+      prompt: "Implement the change",
+      context_files: [],
+      workflow_advance: workflowAdvance("IMPLEMENT"),
+    }, { sessionID: "s1", task: taskApi } as any)
+
+    expect(JSON.parse(output as string)).toMatchObject({ status: "blocked", reason })
+    expect(taskApi).not.toHaveBeenCalled()
+    expect(fsSync.existsSync(path.join(tempHome, ".odf"))).toBe(false)
+  })
+
+  it("requires attempt_id only for explicit gated workflow delegation", async () => {
+    const { createODFDelegate } = await import("./odf-delegation.js")
+    const taskApi = vi.fn().mockResolvedValue({ status: "ok" })
+    const delegateTool = createODFDelegate(undefined, tempHome)
+    const gatedOutput = await delegateTool.execute({
+      phase: "IMPLEMENT",
+      change: "explicit-attempt-required",
+      prompt: "Implement the explicitly gated call",
+      context_files: [],
+      workflow_advance: workflowAdvance("IMPLEMENT"),
+    }, { sessionID: "s1", task: taskApi } as any)
+    expect(JSON.parse(gatedOutput as string)).toMatchObject({ status: "blocked", reason: "attempt-id-required" })
+    expect(taskApi).not.toHaveBeenCalled()
+
+    const output = await delegateTool.execute({
+      phase: "IMPLEMENT",
+      change: "legacy-compatible",
+      prompt: "Implement the legacy call",
+      context_files: [],
+    }, { sessionID: "s1", task: taskApi } as any)
+
+    expect(JSON.parse(output as string).status).toBe("delegated")
+    expect(taskApi).toHaveBeenCalledTimes(1)
+    expect(fsSync.existsSync(path.join(tempHome, ".odf", "attempt-ledger-legacy-compatible.jsonl"))).toBe(false)
+  })
+
   it("allows VERIFY when BUILD advances to VERIFY", async () => {
     const { createODFDelegate, clearMetricsBuffer } = await import("./odf-delegation.js")
     clearMetricsBuffer()
@@ -943,6 +1140,7 @@ describe("createODFDelegate", () => {
       {
         phase: "VERIFY",
         change: "gate-verify",
+        attempt_id: "verify-1",
         prompt: "Verify the implementation",
         context_files: [],
         workflow_advance: {
@@ -973,6 +1171,7 @@ describe("createODFDelegate", () => {
       {
         phase: "VERIFY",
         change: "gate-verify-only",
+        attempt_id: "verify-only-1",
         prompt: "Verify the existing implementation",
         context_files: [],
         workflow_advance: {
@@ -1002,6 +1201,8 @@ describe("createODFDelegate", () => {
     const output = await delegateTool.execute(
       {
         phase: "IMPLEMENT",
+        change: "gate-order",
+        attempt_id: "order-1",
         prompt: "Implement the change",
         context_files: [],
         workflow_advance: {
@@ -1037,6 +1238,7 @@ describe("createODFDelegate", () => {
     const output = await delegateTool.execute(
       {
         phase: "VERIFY",
+        attempt_id: "mismatch-1",
         prompt: "Verify the implementation",
         context_files: [],
         workflow_advance: {
@@ -1071,6 +1273,7 @@ describe("createODFDelegate", () => {
     const output = await delegateTool.execute(
       {
         phase: "DESIGN",
+        attempt_id: "design-1",
         prompt: "Design the implementation",
         context_files: [],
         workflow_advance: {

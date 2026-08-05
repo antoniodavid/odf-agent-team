@@ -44,7 +44,7 @@ and `BUILD = IMPLEMENT`.
 10. **Run optional PLAN**, then BUILD and VERIFY according to the resolved route.
 11. If `--fast`, skip voluntary approval gates only where existing compatibility permits; never skip preflight, Policy Gate, validation evidence, VERIFY, or failure disposition.
 
-For BUILD (`IMPLEMENT`) and VERIFY starts, pass the persisted or explicitly resolved `work_type` and exact transition input as `workflow_advance` inside `odf_delegate`. `odf_workflow_advance` is read-only advisory; delegate-side validation is authoritative. `odf_workflow_bind` is OpenSpec-only. For Engram-only changes or when no OpenSpec state exists, do not claim that the route is persisted: keep forwarding the caller-resolved `work_type` on every gated delegation.
+For BUILD (`IMPLEMENT`) and VERIFY starts, pass the persisted or explicitly resolved `work_type` and exact transition input as `workflow_advance` inside `odf_delegate`, with a fresh opaque `attempt_id` for each launch. Reusing an ID or relaunching a completed phase is blocked; after failure, retry only with a new explicit ID. `odf_workflow_advance` is read-only advisory; delegate-side validation is authoritative. `odf_workflow_bind` is OpenSpec-only. For Engram-only changes or when no OpenSpec state exists, do not claim that the route is persisted: keep forwarding the caller-resolved `work_type` on every gated delegation. Legacy calls that omit `workflow_advance` remain compatible.
 
 Standard configuration may stop after DECIDE with optional verification. Small changes may
 use an inline plan before BUILD. Existing public phase commands and legacy phase IDs remain

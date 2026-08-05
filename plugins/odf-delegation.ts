@@ -867,6 +867,269 @@ type ODFDelegateWorkflowAdvance = Omit<WorkflowAdvanceInput, "route"> & {
   work_type: WorkType
 }
 
+const SAFE_TOKEN_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/
+const ATTEMPT_LEDGER_MAX_BYTES = 256 * 1024
+const ATTEMPT_LEDGER_MAX_LINES = 500
+const ATTEMPT_LEDGER_MAX_LINE_BYTES = 512
+const ATTEMPT_LEDGER_LOCK_SUFFIX = ".lock"
+
+type AttemptLedgerPhase = "IMPLEMENT" | "VERIFY"
+type AttemptLedgerStatus = "running" | "completed" | "failed"
+type AttemptLedgerResultStatus =
+  | "running"
+  | "delegated"
+  | "timeout"
+  | "cancelled"
+  | "empty-task-result"
+  | "error"
+  | "task-api-unavailable"
+type AttemptLedgerReason =
+  | "acquired"
+  | "task-completed"
+  | "task-timeout"
+  | "task-cancelled"
+  | "empty-task-result"
+  | "task-error"
+  | "task-api-unavailable"
+
+interface AttemptLedgerRecord {
+  attempt_id: string
+  change: string
+  phase: AttemptLedgerPhase
+  next_stage: "BUILD" | "VERIFY"
+  status: AttemptLedgerStatus
+  started_at: string
+  updated_at: string
+  settled_at: string | null
+  reason: AttemptLedgerReason
+  result_status: AttemptLedgerResultStatus
+}
+
+interface AcquiredAttempt {
+  ledgerPath: string
+  record: AttemptLedgerRecord
+}
+
+interface AttemptAcquisitionBlocked {
+  acquired: false
+  reason: string
+  message: string
+}
+
+interface AttemptAcquisitionAllowed {
+  acquired: true
+  handle: AcquiredAttempt
+}
+
+type AttemptAcquisitionResult = AttemptAcquisitionAllowed | AttemptAcquisitionBlocked
+
+function attemptLedgerPath(workspaceDir: string, change: string): string {
+  return path.join(workspaceDir, ".odf", `attempt-ledger-${change}.jsonl`)
+}
+
+function isSafeToken(value: unknown): value is string {
+  return typeof value === "string" && SAFE_TOKEN_PATTERN.test(value)
+}
+
+function isSafeTimestamp(value: unknown): value is string {
+  return typeof value === "string" && value.length <= 32 && !/[\r\n]/.test(value)
+}
+
+function isAttemptLedgerRecord(value: unknown): value is AttemptLedgerRecord {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false
+  const record = value as Partial<AttemptLedgerRecord>
+  return isSafeToken(record.attempt_id) &&
+    isSafeToken(record.change) &&
+    (record.phase === "IMPLEMENT" || record.phase === "VERIFY") &&
+    (record.next_stage === "BUILD" || record.next_stage === "VERIFY") &&
+    (record.status === "running" || record.status === "completed" || record.status === "failed") &&
+    isSafeTimestamp(record.started_at) &&
+    isSafeTimestamp(record.updated_at) &&
+    (record.settled_at === null || isSafeTimestamp(record.settled_at)) &&
+    (record.reason === "acquired" || record.reason === "task-completed" || record.reason === "task-timeout" ||
+      record.reason === "task-cancelled" || record.reason === "empty-task-result" || record.reason === "task-error" ||
+      record.reason === "task-api-unavailable") &&
+    (record.result_status === "running" || record.result_status === "delegated" || record.result_status === "timeout" ||
+      record.result_status === "cancelled" || record.result_status === "empty-task-result" || record.result_status === "error" ||
+      record.result_status === "task-api-unavailable")
+}
+
+function readAttemptLedger(ledgerPath: string): { records: AttemptLedgerRecord[]; error?: string } {
+  let stat: fsSync.Stats
+  try {
+    stat = fsSync.statSync(ledgerPath)
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") return { records: [] }
+    return { records: [], error: "attempt-ledger-read-failed" }
+  }
+
+  if (!stat.isFile() || stat.size > ATTEMPT_LEDGER_MAX_BYTES) {
+    return { records: [], error: "attempt-ledger-limit" }
+  }
+
+  let content: string
+  try {
+    content = fsSync.readFileSync(ledgerPath, "utf8")
+  } catch {
+    return { records: [], error: "attempt-ledger-read-failed" }
+  }
+
+  const lines = content.split(/\r?\n/)
+  if (lines.at(-1) === "") lines.pop()
+  if (lines.length > ATTEMPT_LEDGER_MAX_LINES) return { records: [], error: "attempt-ledger-limit" }
+
+  const records: AttemptLedgerRecord[] = []
+  for (const line of lines) {
+    if (Buffer.byteLength(line, "utf8") > ATTEMPT_LEDGER_MAX_LINE_BYTES) {
+      return { records: [], error: "attempt-ledger-limit" }
+    }
+    try {
+      const parsed: unknown = JSON.parse(line)
+      if (!isAttemptLedgerRecord(parsed)) return { records: [], error: "attempt-ledger-invalid" }
+      records.push(parsed)
+    } catch {
+      return { records: [], error: "attempt-ledger-invalid" }
+    }
+  }
+  return { records }
+}
+
+function appendAttemptLedgerRecord(ledgerPath: string, record: AttemptLedgerRecord): string | null {
+  const line = JSON.stringify(record)
+  const lineBytes = Buffer.byteLength(line, "utf8") + 1
+  if (lineBytes > ATTEMPT_LEDGER_MAX_LINE_BYTES) return "attempt-ledger-limit"
+
+  try {
+    fsSync.mkdirSync(path.dirname(ledgerPath), { recursive: true })
+    let currentBytes = 0
+    try {
+      currentBytes = fsSync.statSync(ledgerPath).size
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== "ENOENT") return "attempt-ledger-read-failed"
+    }
+    if (currentBytes + lineBytes > ATTEMPT_LEDGER_MAX_BYTES) return "attempt-ledger-limit"
+    if (currentBytes > 0) {
+      const existing = fsSync.readFileSync(ledgerPath, "utf8")
+      const existingLines = existing.split(/\r?\n/)
+      if (existingLines.at(-1) === "") existingLines.pop()
+      if (existingLines.length >= ATTEMPT_LEDGER_MAX_LINES) return "attempt-ledger-limit"
+    }
+
+    // appendFileSync opens with O_APPEND, keeping each bounded record append-only.
+    fsSync.appendFileSync(ledgerPath, `${line}\n`, { encoding: "utf8", flag: "a" })
+    return null
+  } catch {
+    return "attempt-ledger-write-failed"
+  }
+}
+
+type AttemptLedgerLockResult<T> =
+  | { locked: true; value: T }
+  | { locked: false; error: string }
+
+function withAttemptLedgerLock<T>(ledgerPath: string, operation: () => T): AttemptLedgerLockResult<T> {
+  const lockPath = `${ledgerPath}${ATTEMPT_LEDGER_LOCK_SUFFIX}`
+  let lockFd: number | null = null
+
+  try {
+    fsSync.mkdirSync(path.dirname(ledgerPath), { recursive: true })
+    try {
+      // O_EXCL makes acquisition atomic across processes; contention fails closed.
+      lockFd = fsSync.openSync(lockPath, "wx")
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException).code
+      return { locked: false, error: code === "EEXIST" ? "attempt-ledger-locked" : "attempt-ledger-lock-failed" }
+    }
+    return { locked: true, value: operation() }
+  } catch {
+    return { locked: false, error: "attempt-ledger-lock-failed" }
+  } finally {
+    if (lockFd !== null) {
+      try { fsSync.closeSync(lockFd) } catch { /* best-effort */ }
+      try {
+        fsSync.unlinkSync(lockPath)
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
+          console.warn(`[odf-delegation] Failed to clean up attempt ledger lock: ${lockPath}`)
+        }
+      }
+    }
+  }
+}
+
+function acquireAttempt(opts: {
+  workspaceDir: string
+  change: string
+  phase: AttemptLedgerPhase
+  nextStage: "BUILD" | "VERIFY"
+  attemptId: string
+}): AttemptAcquisitionResult {
+  const ledgerPath = attemptLedgerPath(opts.workspaceDir, opts.change)
+  const result = withAttemptLedgerLock<AttemptAcquisitionResult>(ledgerPath, (): AttemptAcquisitionResult => {
+    const ledger = readAttemptLedger(ledgerPath)
+    if (ledger.error) {
+      return { acquired: false, reason: ledger.error, message: "The attempt ledger could not be read safely." }
+    }
+    if (ledger.records.some(record => record.attempt_id === opts.attemptId)) {
+      return { acquired: false, reason: "attempt-id-reused", message: "The attempt_id was already used for this change." }
+    }
+
+    const latestPhaseRecord = ledger.records.filter(record => record.phase === opts.phase).at(-1)
+    if (latestPhaseRecord?.status === "running") {
+      return { acquired: false, reason: "attempt-phase-running", message: `A ${opts.phase} attempt is already running.` }
+    }
+    if (latestPhaseRecord?.status === "completed") {
+      return { acquired: false, reason: "attempt-phase-completed", message: `The ${opts.phase} phase is already completed.` }
+    }
+
+    const now = new Date().toISOString()
+    const record: AttemptLedgerRecord = {
+      attempt_id: opts.attemptId,
+      change: opts.change,
+      phase: opts.phase,
+      next_stage: opts.nextStage,
+      status: "running",
+      started_at: now,
+      updated_at: now,
+      settled_at: null,
+      reason: "acquired",
+      result_status: "running",
+    }
+    const appendError = appendAttemptLedgerRecord(ledgerPath, record)
+    if (appendError) {
+      return { acquired: false, reason: appendError, message: "The attempt could not be acquired safely." }
+    }
+    return { acquired: true, handle: { ledgerPath, record } }
+  })
+  if (!result.locked) {
+    return { acquired: false, reason: result.error, message: "The attempt could not be acquired safely." }
+  }
+  return result.value
+}
+
+function settleAttempt(
+  attempt: AcquiredAttempt,
+  status: Exclude<AttemptLedgerStatus, "running">,
+  resultStatus: Exclude<AttemptLedgerResultStatus, "running">,
+  reason: Exclude<AttemptLedgerReason, "acquired">,
+): void {
+  const now = new Date().toISOString()
+  const settled: AttemptLedgerRecord = {
+    ...attempt.record,
+    status,
+    updated_at: now,
+    settled_at: now,
+    reason,
+    result_status: resultStatus,
+  }
+  const result = withAttemptLedgerLock(attempt.ledgerPath, () => appendAttemptLedgerRecord(attempt.ledgerPath, settled))
+  if (!result.locked) {
+    console.warn(`[odf-delegation] Failed to settle attempt ledger: ${result.error}`)
+  } else if (result.value) {
+    console.warn(`[odf-delegation] Failed to settle attempt ledger: ${result.value}`)
+  }
+}
+
 // ==========================================
 // POLICY GATE (slice 1)
 // ==========================================
@@ -1495,6 +1758,10 @@ Use this instead of generic task() for ODF workflow delegation.`,
         .number()
         .optional()
         .describe("Task timeout in milliseconds (default: 120000)"),
+      attempt_id: tool.schema
+        .string()
+        .optional()
+        .describe("Fresh opaque attempt token for gated IMPLEMENT/VERIFY execution"),
       workflow_advance: tool.schema
         .object({
           work_type: tool.schema
@@ -1537,7 +1804,7 @@ Use this instead of generic task() for ODF workflow delegation.`,
         .optional()
         .describe("Optional machine-checked transition proof for canonical BUILD/VERIFY starts"),
     },
-    async execute(args: { phase: string; prompt: string; context_files?: string[]; profile?: string; change?: string; timeout_ms?: number; workflow_advance?: ODFDelegateWorkflowAdvance }, toolCtx: ToolContext): Promise<string> {
+    async execute(args: { phase: string; prompt: string; context_files?: string[]; profile?: string; change?: string; timeout_ms?: number; attempt_id?: string; workflow_advance?: ODFDelegateWorkflowAdvance }, toolCtx: ToolContext): Promise<string> {
       if (!toolCtx?.sessionID) {
         return "❌ odf_delegate requires sessionID"
       }
@@ -1547,40 +1814,42 @@ Use this instead of generic task() for ODF workflow delegation.`,
       }
 
       const startTime = Date.now()
+      const blockWorkflow = (reason: string, message: string, workflowResult: ReturnType<typeof advanceWorkflow>): string => {
+        recordMetrics({
+          timestamp: new Date().toISOString(),
+          session_id: toolCtx.sessionID,
+          phase: args.phase,
+          agent: "unresolved",
+          skills_injected: [],
+          skill_resolution: "none",
+          duration_ms: Date.now() - startTime,
+          token_estimate: estimateTokens(args.prompt),
+          status: "blocked",
+          task_api_source: "unavailable",
+          error: message,
+        })
+        return JSON.stringify({
+          status: "blocked",
+          reason,
+          phase: args.phase,
+          agent: null,
+          skills_injected: [],
+          profile: null,
+          policy_gate: null,
+          validation: null,
+          receipt: null,
+          task_api_source: "unavailable",
+          result: null,
+          workflow_advance: workflowResult,
+          message,
+        }, null, 2)
+      }
+
+      let workflowResult: ReturnType<typeof advanceWorkflow> | null = null
       if (args.workflow_advance) {
-        const blockWorkflow = (reason: string, message: string, workflowResult: ReturnType<typeof advanceWorkflow>): string => {
-          recordMetrics({
-            timestamp: new Date().toISOString(),
-            session_id: toolCtx.sessionID,
-            phase: args.phase,
-            agent: "unresolved",
-            skills_injected: [],
-            skill_resolution: "none",
-            duration_ms: Date.now() - startTime,
-            token_estimate: estimateTokens(args.prompt),
-            status: "blocked",
-            task_api_source: "unavailable",
-            error: message,
-          })
-          return JSON.stringify({
-            status: "blocked",
-            reason,
-            phase: args.phase,
-            agent: null,
-            skills_injected: [],
-            profile: null,
-            policy_gate: null,
-            validation: null,
-            receipt: null,
-            task_api_source: "unavailable",
-            result: null,
-            workflow_advance: workflowResult,
-            message,
-          }, null, 2)
-        }
 
         const { work_type, ...advanceInput } = args.workflow_advance
-        const workflowResult = advanceWorkflow({
+        workflowResult = advanceWorkflow({
           route: resolveWorkflowRoute(work_type),
           ...advanceInput,
         })
@@ -1643,6 +1912,24 @@ Use this instead of generic task() for ODF workflow delegation.`,
         }, null, 2)
       }
 
+      let acquiredAttempt: AcquiredAttempt | null = null
+      if (gatedPhase && args.workflow_advance) {
+        if (!isSafeToken(changeName)) {
+          return blockWorkflow(
+            "unsafe-change-name",
+            "The change name must be a safe token of 1-64 letters, numbers, hyphens, or underscores.",
+            workflowResult!,
+          )
+        }
+        if (!isSafeToken(args.attempt_id)) {
+          return blockWorkflow(
+            "attempt-id-required",
+            "Gated IMPLEMENT/VERIFY delegation requires a fresh safe attempt_id.",
+            workflowResult!,
+          )
+        }
+      }
+
       // Validate context_files against the repository root, not a nested cwd.
       for (const file of args.context_files || []) {
         if (typeof file !== "string" || file.split(/[\\/]/).includes("..")) {
@@ -1671,19 +1958,7 @@ Use this instead of generic task() for ODF workflow delegation.`,
         return `❌ ODF registry not found. Run /odf-init or check ${REGISTRY_PATH}`
       }
 
-      // Policy Gate (chokepoint): resolve + persist before any IMPLEMENT/VERIFY
-      // delegation. The gate documents the decision; the sub-agent applies it
-      // (never recomputes). Safety net — the orchestrator calls odf_policy_gate
-      // explicitly; this re-runs the same decision and injects it.
       let policyGate: PolicyGateDecision | null = null
-      if (gatedPhase) {
-        policyGate = computePolicyGate({
-          change: changeName!,
-          phase: args.phase as "IMPLEMENT" | "VERIFY",
-          workspaceDir: workspaceRoot,
-          registry,
-        })
-      }
 
       // Detect Odoo version from project
       const odooVersion = await detectOdooVersion(workspaceRoot)
@@ -1708,6 +1983,34 @@ Use this instead of generic task() for ODF workflow delegation.`,
       const profileBlock = profile ? formatProfileBlock(profile, args.phase) : ""
       console.log(`[odf-delegation] odf_delegate: phase=${args.phase} agent=${agentName} skills=${skills.length} version=${odooVersion || "auto"} profile=${profile?.name || "default"}`)
 
+      if (gatedPhase && args.workflow_advance) {
+        const expectedStage: "BUILD" | "VERIFY" = args.phase === "IMPLEMENT" ? "BUILD" : "VERIFY"
+        const acquisition = acquireAttempt({
+          workspaceDir: workspaceRoot,
+          change: changeName!,
+          phase: args.phase as AttemptLedgerPhase,
+          nextStage: expectedStage,
+          attemptId: args.attempt_id!,
+        })
+        if (!acquisition.acquired) {
+          return blockWorkflow(acquisition.reason, acquisition.message, workflowResult!)
+        }
+        acquiredAttempt = acquisition.handle
+      }
+
+      // Policy Gate (chokepoint): resolve + persist before any IMPLEMENT/VERIFY
+      // delegation. The gate documents the decision; the sub-agent applies it
+      // (never recomputes). Safety net — the orchestrator calls odf_policy_gate
+      // explicitly; this re-runs the same decision and injects it.
+      if (gatedPhase) {
+        policyGate = computePolicyGate({
+          change: changeName!,
+          phase: args.phase as "IMPLEMENT" | "VERIFY",
+          workspaceDir: workspaceRoot,
+          registry,
+        })
+      }
+
       // Inject compact rules, profile, and the Policy Gate decision
       const rules = formatCompactRules(skills)
       const hasInjection = rules || profileBlock
@@ -1729,6 +2032,7 @@ Use this instead of generic task() for ODF workflow delegation.`,
         try {
           const timeoutMs = args.timeout_ms ?? 120_000
           const taskResult = await invokeTask(taskApiInfo.taskApi, agentName, delegationPrompt, args.context_files, timeoutMs)
+          if (acquiredAttempt) settleAttempt(acquiredAttempt, "completed", "delegated", "task-completed")
           recordMetrics({
             timestamp: new Date().toISOString(),
             session_id: toolCtx.sessionID,
@@ -1774,6 +2078,23 @@ Use this instead of generic task() for ODF workflow delegation.`,
             : errorMessage.startsWith("empty-task-result")
               ? "empty-task-result"
               : undefined
+          if (acquiredAttempt) {
+            const ledgerResultStatus: Exclude<AttemptLedgerResultStatus, "running"> = isTimeout
+              ? "timeout"
+              : isCancelled
+                ? "cancelled"
+                : errorMessage.startsWith("empty-task-result")
+                  ? "empty-task-result"
+                  : "error"
+            const ledgerReason: Exclude<AttemptLedgerReason, "acquired"> = isTimeout
+              ? "task-timeout"
+              : isCancelled
+                ? "task-cancelled"
+                : errorMessage.startsWith("empty-task-result")
+                  ? "empty-task-result"
+                  : "task-error"
+            settleAttempt(acquiredAttempt, "failed", ledgerResultStatus, ledgerReason)
+          }
           recordMetrics({
             timestamp: new Date().toISOString(),
             session_id: toolCtx.sessionID,
@@ -1825,6 +2146,7 @@ Use this instead of generic task() for ODF workflow delegation.`,
       }
 
       const message = "Native task() API is unavailable. Restart OpenCode after loading the plugin, then retry the delegation."
+      if (acquiredAttempt) settleAttempt(acquiredAttempt, "failed", "task-api-unavailable", "task-api-unavailable")
       recordMetrics({
         timestamp: new Date().toISOString(),
         session_id: toolCtx.sessionID,
