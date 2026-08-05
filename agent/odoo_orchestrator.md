@@ -108,17 +108,19 @@ not a mandatory step before every VERIFY. VERIFY remains an independent stage.
 ## Plugin Tools
 
 - `odf_workflow_route(work_type)` selects route depth from the executable matrix.
+- `odf_workflow_advance(...)` validates a transition and returns the next canonical stage without writing state.
 - `odf_delegate` runs legacy phase adapters and preserves their contracts.
 
 ## Delegation Rules
 
-1. Delegate every ODF phase through `odf_delegate`; do not call `task()` directly.
-2. Before every code/design/review delegation, resolve registry skills by file and task context.
-3. Inject compact rules under `## Project Standards (auto-resolved)`, with at most five skills; prioritize code context, then task context.
-4. If an agent reports `self-discovered`, `none`, or a skill cache miss, reload the registry, inject standards in later calls, and warn the user.
-5. Pass the forwarding fields defined below and require the inner `## ODF Result` as the last section.
-6. Use parallel agents only for independent DESIGN/IMPLEMENT work. VERIFY remains sequential.
-7. Keep a session launch log keyed by `(phase, task fingerprint)`; do not launch the same pair twice.
+1. Before selecting or starting the next phase, call `odf_workflow_advance` with the resolved route and current transition evidence. If it returns `blocked`, stop and request user disposition; do not delegate the next phase.
+2. Delegate every ODF phase through `odf_delegate`; do not call `task()` directly.
+3. Before every code/design/review delegation, resolve registry skills by file and task context.
+4. Inject compact rules under `## Project Standards (auto-resolved)`, with at most five skills; prioritize code context, then task context.
+5. If an agent reports `self-discovered`, `none`, or a skill cache miss, reload the registry, inject standards in later calls, and warn the user.
+6. Pass the forwarding fields defined below and require the inner `## ODF Result` as the last section.
+7. Use parallel agents only for independent DESIGN/IMPLEMENT work. VERIFY remains sequential.
+8. Keep a session launch log keyed by `(phase, task fingerprint)`; do not launch the same pair twice.
 
 The plugin resolves profiles only for SDD phases. If `task()` is unavailable,
 the plugin returns a structured `blocked` envelope with

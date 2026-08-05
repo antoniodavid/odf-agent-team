@@ -28,6 +28,7 @@ import {
   loadEngramStatus,
   validateValidationEvidence,
   mergeReceipt,
+  createODFWorkflowAdvance,
   type PolicyGateDecision,
   type ODFRegistry,
   type ODFSkill,
@@ -108,6 +109,46 @@ const baseRegistry: ODFRegistry = {
     },
   ] as unknown as ODFAgent[],
 }
+
+describe("createODFWorkflowAdvance", () => {
+  it("registers a read-only tool that resolves and advances a route", async () => {
+    const output = await createODFWorkflowAdvance().execute({
+      work_type: "feature",
+      completed_stages: ["DECIDE"],
+      candidate_stage: "PLAN",
+      phase_result_status: "ok",
+      validation_status: "not-required",
+      receipt_state: "none",
+      resumable_state: true,
+      archived_state: false,
+    }, {} as any)
+
+    expect(JSON.parse(output as string)).toEqual({
+      status: "advanced",
+      completed_stages: ["DECIDE", "PLAN"],
+      next_stage: "BUILD",
+      reason: "Advanced to BUILD.",
+    })
+  })
+
+  it("returns a blocked result without invoking persistence for invalid transitions", async () => {
+    const output = await createODFWorkflowAdvance().execute({
+      work_type: "bugfix",
+      completed_stages: [],
+      candidate_stage: "BUILD",
+      phase_result_status: "ok",
+      validation_status: "missing",
+      receipt_state: "pending",
+      resumable_state: true,
+      archived_state: false,
+    }, {} as any)
+
+    expect(JSON.parse(output as string)).toMatchObject({
+      status: "blocked",
+      reason: "A receipt is pending user disposition.",
+    })
+  })
+})
 
 describe("resolvePath", () => {
   const registryDir = "/home/user/.config/opencode"

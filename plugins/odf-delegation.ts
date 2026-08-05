@@ -18,7 +18,17 @@ import * as nodeCrypto from "node:crypto"
 import { type Plugin, type ToolContext, tool } from "@opencode-ai/plugin"
 import { execFileSync, execSync } from "node:child_process"
 import type { createOpencodeClient } from "@opencode-ai/sdk"
-import { resolveWorkflowRoute, type WorkType, type WorkflowRoute } from "./odf-workflow.js"
+import {
+  advanceWorkflow,
+  resolveWorkflowRoute,
+  type CanonicalStage,
+  type WorkType,
+  type WorkflowAdvanceInput,
+  type WorkflowPhaseResultStatus,
+  type WorkflowValidationStatus,
+  type WorkflowReceiptState,
+  type WorkflowRoute,
+} from "./odf-workflow.js"
 import {
   deriveWorkflowStatus,
   normalizeArtifactKey,
@@ -2601,6 +2611,73 @@ function createODFWorkflowRoute(): ReturnType<typeof tool> {
   })
 }
 
+function createODFWorkflowAdvance(): ReturnType<typeof tool> {
+  return tool({
+    description: "Advance a canonical ODF workflow without writing state, receipts, artifacts, or files.",
+    args: {
+      work_type: tool.schema
+        .enum([
+          "question",
+          "investigation",
+          "standard-config",
+          "small-change",
+          "feature",
+          "cross-domain",
+          "bugfix",
+          "migration",
+          "security",
+          "verify-only",
+        ])
+        .describe("Type of work to route"),
+      completed_stages: tool.schema
+        .array(tool.schema.enum(["DECIDE", "PLAN", "BUILD", "VERIFY", "EXPLORE", "FIX"]))
+        .describe("Canonical stages already completed"),
+      candidate_stage: tool.schema
+        .enum(["DECIDE", "PLAN", "BUILD", "VERIFY", "EXPLORE", "FIX"])
+        .optional()
+        .describe("Canonical stage that just completed"),
+      phase_result_status: tool.schema
+        .enum(["ok", "warning", "blocked", "failed"])
+        .describe("Result-contract status for the completed phase"),
+      validation_status: tool.schema
+        .enum(["verified", "missing", "invalid", "not-required"])
+        .describe("Validation seal status"),
+      receipt_state: tool.schema
+        .enum(["none", "pending", "resolved"])
+        .describe("Current receipt state"),
+      resumable_state: tool.schema
+        .boolean()
+        .describe("Whether the workflow can resume"),
+      archived_state: tool.schema
+        .boolean()
+        .describe("Whether the workflow is archived"),
+    },
+    async execute(args: {
+      work_type: WorkType
+      completed_stages: CanonicalStage[]
+      candidate_stage?: CanonicalStage
+      phase_result_status: WorkflowPhaseResultStatus
+      validation_status: WorkflowValidationStatus
+      receipt_state: WorkflowReceiptState
+      resumable_state: boolean
+      archived_state: boolean
+    }): Promise<string> {
+      const route = resolveWorkflowRoute(args.work_type)
+      const input: WorkflowAdvanceInput = {
+        route,
+        completed_stages: args.completed_stages,
+        candidate_stage: args.candidate_stage || null,
+        phase_result_status: args.phase_result_status,
+        validation_status: args.validation_status,
+        receipt_state: args.receipt_state,
+        resumable_state: args.resumable_state,
+        archived_state: args.archived_state,
+      }
+      return JSON.stringify(advanceWorkflow(input), null, 2)
+    },
+  })
+}
+
 // ==========================================
 // SYSTEM PROMPT INJECTION
 // ==========================================
@@ -2620,6 +2697,7 @@ function createODFWorkflowRoute(): ReturnType<typeof tool> {
 
 - \`odf_delegate\`: phase delegation with skill injection and metrics
 - \`odf_workflow_route\`: read-only canonical route selection by work type
+- \`odf_workflow_advance\`: read-only canonical transition validation and next-stage calculation
 - \`odf_skill_inject\`, \`odf_skill_resolve\`, \`odf_registry_read\`: standards and routing inspection
 - \`odf_policy_gate\`, \`odf_receipt\`: policy and failure persistence
 - \`odf_status\`, \`odf_workflow_status\`, \`odf_profile_select\`, \`odf_notebooklm_lookup\`: state, canonical progress, profile, and research lookup
@@ -2710,12 +2788,13 @@ export const OdfDelegationPlugin: Plugin = async (ctx) => {
     console.log(`[odf-delegation] Health: ${healthChecks.join(", ")}`)
   }
 
-  console.log(`[odf-delegation] Plugin loaded. Tools: odf_delegate, odf_workflow_route, odf_skill_inject, odf_registry_read, odf_notebooklm_lookup, odf_profile_select, odf_skill_resolve, odf_community_tool_detect, odf_community_tool_install, odf_status, odf_workflow_status, odf_policy_gate, odf_receipt`)
+  console.log(`[odf-delegation] Plugin loaded. Tools: odf_delegate, odf_workflow_route, odf_workflow_advance, odf_skill_inject, odf_registry_read, odf_notebooklm_lookup, odf_profile_select, odf_skill_resolve, odf_community_tool_detect, odf_community_tool_install, odf_status, odf_workflow_status, odf_policy_gate, odf_receipt`)
 
   return {
     tool: {
       odf_delegate: createODFDelegate(client, directory),
       odf_workflow_route: createODFWorkflowRoute(),
+      odf_workflow_advance: createODFWorkflowAdvance(),
       odf_skill_inject: createODFSkillInject(),
       odf_skill_resolve: createODFSkillResolve(),
       odf_registry_read: createODFRegistryRead(),
@@ -2750,6 +2829,7 @@ export {
   findTaskApi,
   createODFDelegate,
   createODFWorkflowRoute,
+  createODFWorkflowAdvance,
   createODFWorkflowStatus,
   getProfileByPhase,
   recordMetrics,
