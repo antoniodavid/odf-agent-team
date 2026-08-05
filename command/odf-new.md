@@ -39,11 +39,12 @@ and `BUILD = IMPLEMENT`.
 5. **Ejecutar preflight gate**: si el preflight no está completo, preguntar los campos faltantes en español.
 6. **Persistir preflight** en `openspec/changes/{change}/state.yaml` antes de delegar.
 7. **Resolve the route** with `odf_workflow_route(work_type)` before selecting workflow depth.
-8. **Run DECIDE** through the compatible `PROPOSE` and `ASSESS` adapters.
-9. **Run optional PLAN**, then BUILD and VERIFY according to the resolved route.
-10. If `--fast`, skip voluntary approval gates only where existing compatibility permits; never skip preflight, Policy Gate, validation evidence, VERIFY, or failure disposition.
+8. **Bind the route** with `odf_workflow_bind(change_name, work_type)` before the first phase when the existing OpenSpec `state.yaml` is available. This writes only the explicit route binding; stop if the binding fails.
+9. **Run DECIDE** through the compatible `PROPOSE` and `ASSESS` adapters.
+10. **Run optional PLAN**, then BUILD and VERIFY according to the resolved route.
+11. If `--fast`, skip voluntary approval gates only where existing compatibility permits; never skip preflight, Policy Gate, validation evidence, VERIFY, or failure disposition.
 
-For BUILD (`IMPLEMENT`) and VERIFY starts, pass the resolved `work_type` and exact transition input as `workflow_advance` inside `odf_delegate`. `odf_workflow_advance` is read-only advisory; delegate-side validation is authoritative. `work_type` is caller-supplied, not persisted by the delegate, and legacy compatibility calls may omit this field.
+For BUILD (`IMPLEMENT`) and VERIFY starts, pass the persisted or explicitly resolved `work_type` and exact transition input as `workflow_advance` inside `odf_delegate`. `odf_workflow_advance` is read-only advisory; delegate-side validation is authoritative. `odf_workflow_bind` is OpenSpec-only. For Engram-only changes or when no OpenSpec state exists, do not claim that the route is persisted: keep forwarding the caller-resolved `work_type` on every gated delegation.
 
 Standard configuration may stop after DECIDE with optional verification. Small changes may
 use an inline plan before BUILD. Existing public phase commands and legacy phase IDs remain

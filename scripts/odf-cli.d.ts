@@ -12,6 +12,7 @@ export interface ParsedCommand {
   topic?: string;
   version?: number | null;
   module?: string | null;
+  work_type?: string;
 }
 
 export function tokenize(argv: string[]): TokenizeResult;

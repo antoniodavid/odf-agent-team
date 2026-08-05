@@ -8,7 +8,7 @@
  *
  * Supported commands:
  *   new <change-name> ["description"] [--fast]
- *   continue [change-name]
+ *   continue [change-name] [--work-type <type>]
  *   status [change-name]
  *   explore <topic> [--version N] [--module M]
  *
@@ -70,10 +70,17 @@ export function parseCommand(argv) {
     }
 
     case 'continue': {
-      return {
+      const parsed = {
         command: 'odf-continue',
         change: positionals[0] || null,
       };
+      if (flags['work-type'] !== undefined) {
+        if (typeof flags['work-type'] !== 'string' || !flags['work-type'].trim()) {
+          return { error: 'El valor de --work-type es obligatorio.' };
+        }
+        parsed.work_type = flags['work-type'];
+      }
+      return parsed;
     }
 
     case 'status': {
@@ -127,7 +134,8 @@ export function buildOrchestratorPrompt(parsed) {
     lines.push('', `Start change "${parsed.change}". Description: ${parsed.description || '(none)'}. Fast mode: ${parsed.fast}.`);
   } else if (parsed.command === 'odf-continue') {
     lines.push(`- **change**: ${parsed.change || '(latest active)'}`);
-    lines.push('', `Continue change ${parsed.change || 'latest active change'}.`);
+    if (parsed.work_type) lines.push(`- **work_type**: ${parsed.work_type}`);
+    lines.push('', `Continue change ${parsed.change || 'latest active change'}${parsed.work_type ? ` with explicit work type ${parsed.work_type}` : ''}.`);
   } else if (parsed.command === 'odf-status') {
     lines.push(`- **change**: ${parsed.change || '(all active)'}`);
     lines.push('', `Show status for ${parsed.change || 'all active changes'}.`);

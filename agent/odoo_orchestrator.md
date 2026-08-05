@@ -60,7 +60,7 @@ product/user disposition always stop the run.
 
 | Data | Source |
 |---|---|
-| Workflow and preflight | `openspec/changes/{change}/state.yaml`; mirror to Engram when configured |
+| Workflow and preflight | `openspec/changes/{change}/state.yaml`; mirror other configured state to Engram when applicable. The explicit route binding is OpenSpec-only. |
 | Phase artifacts | `odf/{change}/{artifact}` with the selected artifact store |
 | Runtime seals | `<worktree>/.odf/policy-gate-{change}.json`, `validation-evidence-{change}.json`, and `receipt-{change}.json` |
 | Shared conventions | `skills/_shared/persistence-contract.md`, `engram-convention.md`, `result-contract.md`, `skill-resolver.md`, `odoo-sources.md` |
@@ -108,19 +108,22 @@ not a mandatory step before every VERIFY. VERIFY remains an independent stage.
 ## Plugin Tools
 
 - `odf_workflow_route(work_type)` selects route depth from the executable matrix.
+- `odf_workflow_bind(change_name, work_type)` explicitly binds the route in an existing OpenSpec `state.yaml`; it is mutating, validated, and never persists to Engram.
 - `odf_workflow_advance(...)` is a read-only advisory transition check; for BUILD/VERIFY starts, embed its exact input under `workflow_advance` in `odf_delegate`. Delegate-side validation is authoritative and does not persist `work_type`.
 - `odf_delegate` runs legacy phase adapters and preserves their contracts.
 
 ## Delegation Rules
 
-1. Before BUILD (`IMPLEMENT`) or VERIFY starts, call `odf_workflow_advance` with the resolved `work_type` and current transition evidence, then embed that exact input under `workflow_advance` in `odf_delegate`. The standalone tool is advisory; delegate-side validation is authoritative. If it returns `blocked` or `complete`, stop and request user disposition; do not delegate the next phase. Legacy compatibility callers may omit this field for composite adapters.
-2. Delegate every ODF phase through `odf_delegate`; do not call `task()` directly.
-3. Before every code/design/review delegation, resolve registry skills by file and task context.
-4. Inject compact rules under `## Project Standards (auto-resolved)`, with at most five skills; prioritize code context, then task context.
-5. If an agent reports `self-discovered`, `none`, or a skill cache miss, reload the registry, inject standards in later calls, and warn the user.
-6. Pass the forwarding fields defined below and require the inner `## ODF Result` as the last section.
-7. Use parallel agents only for independent DESIGN/IMPLEMENT work. VERIFY remains sequential.
-8. Keep a session launch log keyed by `(phase, task fingerprint)`; do not launch the same pair twice.
+1. At `/odf-new` start, call `odf_workflow_route(work_type)` and then `odf_workflow_bind(change_name, work_type)` before the first phase when OpenSpec `state.yaml` exists. Stop on a binding failure. For Engram-only/no-OpenSpec state, the binding tool does not apply; keep forwarding the caller-resolved work type without claiming Engram persistence.
+2. On continuation, use only a valid persisted `work_type` from `odf_workflow_status`. Never infer it from legacy phase, artifacts, or solution strategy. If absent, require explicit `--work-type <type>` before route resolution and any BUILD/VERIFY gate; bind it when OpenSpec state exists, otherwise forward it without claiming persistence. Do not silently choose a default.
+3. Before BUILD (`IMPLEMENT`) or VERIFY starts, call `odf_workflow_advance` with that persisted or explicitly selected `work_type` and current transition evidence, then embed that exact input under `workflow_advance` in `odf_delegate`. The standalone tool is advisory; delegate-side validation is authoritative. If it returns `blocked` or `complete`, stop and request user disposition; do not delegate the next phase. Legacy compatibility callers may omit this field for composite adapters.
+4. Delegate every ODF phase through `odf_delegate`; do not call `task()` directly.
+5. Before every code/design/review delegation, resolve registry skills by file and task context.
+6. Inject compact rules under `## Project Standards (auto-resolved)`, with at most five skills; prioritize code context, then task context.
+7. If an agent reports `self-discovered`, `none`, or a skill cache miss, reload the registry, inject standards in later calls, and warn the user.
+8. Pass the forwarding fields defined below and require the inner `## ODF Result` as the last section.
+9. Use parallel agents only for independent DESIGN/IMPLEMENT work. VERIFY remains sequential.
+10. Keep a session launch log keyed by `(phase, task fingerprint)`; do not launch the same pair twice.
 
 The plugin resolves profiles only for SDD phases. If `task()` is unavailable,
 the plugin returns a structured `blocked` envelope with
@@ -180,7 +183,7 @@ Flow:
 
 1. `/odf-new` or `/odf-continue` loads `openspec/changes/{change}/state.yaml`.
 2. Ask for missing fields in Spanish, validate each answer, then show the complete summary for amendment.
-3. Persist preflight to state and mirror `odf/{change}/state` when `artifact_store` is `engram` or `hybrid`.
+3. Persist preflight to state and mirror `odf/{change}/state` when `artifact_store` is `engram` or `hybrid`; do not represent the explicit route binding as Engram-persisted.
 4. Treat `tdd_mode` as the declared default only. Effective TDD is the Policy
    Gate decision: any OFF source, or an unreadable local source, means OFF.
 

@@ -179,6 +179,21 @@ describe("workflow status adapter", () => {
     expect(status.pending_stage).toBe("BUILD")
   })
 
+  it("exposes valid route bindings and warns on invalid declarations", () => {
+    expect(deriveWorkflowStatus({
+      change: "json-route",
+      state: JSON.stringify({ work_type: "feature" }),
+    }).work_type).toBe("feature")
+    expect(deriveWorkflowStatus({
+      change: "yaml-route",
+      state: "work_type: bugfix\n",
+    }).work_type).toBe("bugfix")
+
+    const invalid = deriveWorkflowStatus({ change: "invalid-route", state: "work_type: not-a-route\n" })
+    expect(invalid.work_type).toBeNull()
+    expect(invalid.warnings.some((warning) => warning.includes("Invalid declared work_type"))).toBe(true)
+  })
+
   it("derives pending, resolved, and abandoned receipt states", () => {
     expect(deriveReceiptState()).toEqual({ state: "none", status: null, action: null, ref: null })
     expect(deriveReceiptState({ status: "blocked", ref: "verify" })).toEqual({

@@ -1,3 +1,5 @@
+import { WORK_TYPES, type WorkType } from "./odf-workflow.js"
+
 export type CanonicalStage = "DECIDE" | "PLAN" | "BUILD" | "VERIFY" | "ARCHIVED"
 export type WorkflowStage = "INIT" | CanonicalStage
 export type LegacyPhase = "PROPOSE" | "ASSESS" | "QA-PLAN" | "DESIGN" | "IMPLEMENT" | "VERIFY" | "ARCHIVED"
@@ -8,7 +10,7 @@ export type WorkflowArtifacts = Record<string, WorkflowArtifact | string | boole
 export interface WorkflowState {
   canonical_stage?: unknown; canonicalStage?: unknown; current_stage?: unknown; currentStage?: unknown; stage?: unknown
   phase?: unknown; status?: unknown; archived?: unknown; abandoned?: unknown; completed_canonical_stages?: unknown
-  completed_stages?: unknown; artifacts?: unknown; [key: string]: unknown
+  completed_stages?: unknown; work_type?: unknown; artifacts?: unknown; [key: string]: unknown
 }
 export interface WorkflowReceipt {
   status?: unknown; action?: unknown; ref?: unknown; receipt_ref?: unknown; frozen_diff_ref?: unknown; evidence?: unknown; [key: string]: unknown
@@ -24,7 +26,7 @@ export interface WorkflowStatus {
   change: string; canonical_stage: WorkflowStage; legacy_phase: LegacyPhase | null; completed_canonical_stages: CanonicalStage[]
   pending_stage: Exclude<CanonicalStage, "ARCHIVED"> | null
   artifact_refs: { DECIDE: string[]; PLAN: string[]; BUILD: string[]; VERIFY: string[] }
-  progress: ProgressState; receipt: ReceiptStatus; resumable: boolean
+  progress: ProgressState; receipt: ReceiptStatus; resumable: boolean; work_type: WorkType | null
   source: { state: "openspec" | "engram" | "inferred" | "none"; artifacts: string[] }; warnings: string[]
 }
 const STAGES: Array<Exclude<CanonicalStage, "ARCHIVED">> = ["DECIDE", "PLAN", "BUILD", "VERIFY"]
@@ -129,6 +131,7 @@ export function deriveReceiptState(receipt?: WorkflowReceipt | null): ReceiptSta
 }
 const STATE_SCALAR_KEYS = new Set([
   "canonical_stage", "canonicalStage", "current_stage", "currentStage", "stage", "phase", "status", "archived", "abandoned",
+  "work_type",
   "decide_completed", "decision_completed", "decide_done", "decision_done", "plan_completed", "plan_done",
   "build_completed", "build_done", "implement_completed", "implement_done", "implement_progress", "verify_completed", "verify_done",
   "completed_canonical_stages", "completed_stages",
@@ -237,6 +240,16 @@ function parseStateContent(content: string): ParsedWorkflowState {
 export function parseWorkflowState(content: string): ParsedWorkflowState {
   return parseStateContent(content)
 }
+
+function declaredWorkType(state: WorkflowState | null, warnings: string[]): WorkType | null {
+  if (!state || !Object.prototype.hasOwnProperty.call(state, "work_type")) return null
+  if (typeof state.work_type === "string" && WORK_TYPES.includes(state.work_type as WorkType)) {
+    return state.work_type as WorkType
+  }
+  warnings.push(`Invalid declared work_type: ${String(state.work_type)}.`)
+  return null
+}
+
 function stateRecord(state?: WorkflowState | string | null): ParsedWorkflowState {
   if (!state) return { state: null, warnings: [] }
   return typeof state === "string" ? parseStateContent(state) : { state: asRecord(state) as WorkflowState | null, warnings: [] }
@@ -402,6 +415,7 @@ export function deriveWorkflowStatus(input: WorkflowStatusInput): WorkflowStatus
   const parsedState = stateRecord(input.state ?? stateArtifact?.content)
   const signals = explicitStateSignals(parsedState.state)
   const warnings = [...(input.warnings || []), ...parsedState.warnings]
+  const workType = declaredWorkType(parsedState.state, warnings)
 
   for (const artifact of artifacts) {
     if (artifact.createdAt !== undefined && artifact.createdAt !== null &&
@@ -475,6 +489,7 @@ export function deriveWorkflowStatus(input: WorkflowStatusInput): WorkflowStatus
     progress,
     receipt,
     resumable: !archived && !signals.abandoned && receipt.state !== "pending" && receipt.action !== "abandon" && pendingStage !== null,
+    work_type: workType,
     source: { state: source, artifacts: declaredArtifacts || Object.values(artifactRefs).flat() },
     warnings: Array.from(new Set(warnings)),
   }

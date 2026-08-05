@@ -18,9 +18,11 @@ import * as nodeCrypto from "node:crypto"
 import { type Plugin, type ToolContext, tool } from "@opencode-ai/plugin"
 import { execFileSync, execSync } from "node:child_process"
 import type { createOpencodeClient } from "@opencode-ai/sdk"
+import { isMap, parseDocument } from "yaml"
 import {
   advanceWorkflow,
   resolveWorkflowRoute,
+  WORK_TYPES,
   type CanonicalStage,
   type WorkType,
   type WorkflowAdvanceInput,
@@ -2692,6 +2694,105 @@ Returns canonical stages and legacy compatibility fields. It never writes state 
   })
 }
 
+function isCanonicalWorkType(value: unknown): value is WorkType {
+  return typeof value === "string" && WORK_TYPES.includes(value as WorkType)
+}
+
+function createODFWorkflowBind(): ReturnType<typeof tool> {
+  return tool({
+    description: `Bind a canonical ODF work type in an existing OpenSpec state.yaml.
+
+This is the only mutating route-binding operation. It never creates state or persists to Engram.`,
+    args: {
+      change_name: tool.schema
+        .string()
+        .describe("Existing OpenSpec change name"),
+      work_type: tool.schema
+        .enum([
+          "question",
+          "investigation",
+          "standard-config",
+          "small-change",
+          "feature",
+          "cross-domain",
+          "bugfix",
+          "migration",
+          "security",
+          "verify-only",
+        ])
+        .describe("Canonical work type to persist"),
+      workspace_dir: tool.schema
+        .string()
+        .optional()
+        .describe("Project directory (defaults to cwd)"),
+    },
+    async execute(args: { change_name?: string; work_type?: unknown; workspace_dir?: string }): Promise<string> {
+      const blocked = (reason: string, message: string): string => JSON.stringify({ status: "blocked", reason, message }, null, 2)
+      const changeName = typeof args.change_name === "string" ? args.change_name.trim() : ""
+      if (!CHANGE_NAME_PATTERN.test(changeName)) {
+        return blocked("unsafe-change-path", "The change name is not a safe OpenSpec path segment.")
+      }
+      if (!isCanonicalWorkType(args.work_type)) {
+        return blocked("invalid-work-type", "The work_type is not a canonical ODF work type.")
+      }
+
+      const workspace = path.resolve(
+        typeof args.workspace_dir === "string" && args.workspace_dir.trim()
+          ? args.workspace_dir
+          : process.cwd(),
+      )
+      const statePath = path.resolve(workspace, "openspec", "changes", changeName, "state.yaml")
+      if (!isWithinRoot(statePath, workspace)) {
+        return blocked("unsafe-change-path", "The resolved state path is outside the workspace.")
+      }
+
+      let content: string
+      try {
+        const workspaceRoot = await fs.realpath(workspace)
+        const stateStat = await fs.stat(statePath)
+        if (!stateStat.isFile()) return blocked("state-not-found", "OpenSpec state.yaml is not a regular file.")
+        const realStatePath = await fs.realpath(statePath)
+        if (!isWithinRoot(realStatePath, workspaceRoot)) {
+          return blocked("unsafe-change-path", "The OpenSpec state path resolves outside the workspace.")
+        }
+        content = await fs.readFile(statePath, "utf8")
+      } catch (error) {
+        const code = (error as NodeJS.ErrnoException).code
+        return blocked(code === "ENOENT" ? "state-not-found" : "state-unreadable", "Existing OpenSpec state.yaml could not be read.")
+      }
+
+      let document: ReturnType<typeof parseDocument>
+      try {
+        document = parseDocument(content)
+      } catch {
+        return blocked("malformed-state", "OpenSpec state.yaml is malformed YAML.")
+      }
+      if (document.errors.length > 0 || !isMap(document.contents)) {
+        return blocked("malformed-state", "OpenSpec state.yaml must be a well-formed YAML object.")
+      }
+
+      document.set("work_type", args.work_type)
+      const preflight = document.get("preflight", true)
+      const preflightMirrored = isMap(preflight)
+      if (preflightMirrored) preflight.set("work_type", args.work_type)
+
+      try {
+        await fs.writeFile(statePath, document.toString(), "utf8")
+      } catch {
+        return blocked("state-write-failed", "OpenSpec state.yaml could not be updated.")
+      }
+
+      return JSON.stringify({
+        status: "bound",
+        change_name: changeName,
+        work_type: args.work_type,
+        state_path: statePath,
+        preflight_mirrored: preflightMirrored,
+      }, null, 2)
+    },
+  })
+}
+
 function createODFWorkflowRoute(): ReturnType<typeof tool> {
   return tool({
     description: "Resolve the canonical ODF route for a work type. Read-only: does not delegate, mutate state, or run shell commands.",
@@ -2806,6 +2907,7 @@ function createODFWorkflowAdvance(): ReturnType<typeof tool> {
 - \`odf_delegate\`: phase delegation with skill injection and metrics
 - \`odf_workflow_route\`: read-only canonical route selection by work type
 - \`odf_workflow_advance\`: read-only canonical transition validation and next-stage calculation
+- \`odf_workflow_bind\`: explicit OpenSpec-only route binding; never persists to Engram
 - \`odf_skill_inject\`, \`odf_skill_resolve\`, \`odf_registry_read\`: standards and routing inspection
 - \`odf_policy_gate\`, \`odf_receipt\`: policy and failure persistence
 - \`odf_status\`, \`odf_workflow_status\`, \`odf_profile_select\`, \`odf_notebooklm_lookup\`: state, canonical progress, profile, and research lookup
@@ -2896,13 +2998,14 @@ export const OdfDelegationPlugin: Plugin = async (ctx) => {
     console.log(`[odf-delegation] Health: ${healthChecks.join(", ")}`)
   }
 
-  console.log(`[odf-delegation] Plugin loaded. Tools: odf_delegate, odf_workflow_route, odf_workflow_advance, odf_skill_inject, odf_registry_read, odf_notebooklm_lookup, odf_profile_select, odf_skill_resolve, odf_community_tool_detect, odf_community_tool_install, odf_status, odf_workflow_status, odf_policy_gate, odf_receipt`)
+  console.log(`[odf-delegation] Plugin loaded. Tools: odf_delegate, odf_workflow_route, odf_workflow_advance, odf_workflow_bind, odf_skill_inject, odf_registry_read, odf_notebooklm_lookup, odf_profile_select, odf_skill_resolve, odf_community_tool_detect, odf_community_tool_install, odf_status, odf_workflow_status, odf_policy_gate, odf_receipt`)
 
   return {
     tool: {
       odf_delegate: createODFDelegate(client, directory),
       odf_workflow_route: createODFWorkflowRoute(),
       odf_workflow_advance: createODFWorkflowAdvance(),
+      odf_workflow_bind: createODFWorkflowBind(),
       odf_skill_inject: createODFSkillInject(),
       odf_skill_resolve: createODFSkillResolve(),
       odf_registry_read: createODFRegistryRead(),
@@ -2938,6 +3041,7 @@ export {
   createODFDelegate,
   createODFWorkflowRoute,
   createODFWorkflowAdvance,
+  createODFWorkflowBind,
   createODFWorkflowStatus,
   getProfileByPhase,
   recordMetrics,

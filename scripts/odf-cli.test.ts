@@ -49,6 +49,14 @@ describe("parseCommand", () => {
     expect(parsed.change).toBeNull()
   })
 
+  it("parses and forwards an explicit continuation work type", () => {
+    const parsed = parseCommand(["continue", "sale-discount-field", "--work-type", "feature"])
+    expect(parsed.command).toBe("odf-continue")
+    expect(parsed.change).toBe("sale-discount-field")
+    expect(parsed.work_type).toBe("feature")
+    expect(buildOrchestratorPrompt(parsed)).toContain("**work_type**: feature")
+  })
+
   it("parses status with specific change", () => {
     const parsed = parseCommand(["status", "sale-discount-field"])
     expect(parsed.command).toBe("odf-status")

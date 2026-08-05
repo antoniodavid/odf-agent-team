@@ -4,6 +4,7 @@ import * as fs from "node:fs/promises"
 import * as fsSync from "node:fs"
 import * as os from "node:os"
 import { execSync } from "node:child_process"
+import YAML from "yaml"
 
 // These pure functions do not depend on the registry file path, so they can be
 // imported normally. createODFDelegate is imported dynamically in its own tests
@@ -29,6 +30,7 @@ import {
   validateValidationEvidence,
   mergeReceipt,
   createODFWorkflowAdvance,
+  createODFWorkflowBind,
   type PolicyGateDecision,
   type ODFRegistry,
   type ODFSkill,
@@ -147,6 +149,70 @@ describe("createODFWorkflowAdvance", () => {
       status: "blocked",
       reason: "A receipt is pending user disposition.",
     })
+  })
+})
+
+describe("createODFWorkflowBind", () => {
+  it("writes only the explicit route fields and preserves existing state", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "odf-workflow-bind-"))
+    const changeDir = path.join(root, "openspec", "changes", "bound-change")
+    await fs.mkdir(changeDir, { recursive: true })
+    const before = [
+      "# keep this comment",
+      "canonical_stage: PLAN",
+      "preflight:",
+      "  solution_strategy: custom",
+      "artifacts:",
+      "  plan: done",
+      "",
+    ].join("\n")
+    const statePath = path.join(changeDir, "state.yaml")
+    await fs.writeFile(statePath, before, "utf8")
+
+    try {
+      const output = await createODFWorkflowBind().execute({
+        change_name: "bound-change",
+        work_type: "feature",
+        workspace_dir: root,
+      }, {} as any)
+      expect(JSON.parse(output as string)).toMatchObject({
+        status: "bound",
+        change_name: "bound-change",
+        work_type: "feature",
+        preflight_mirrored: true,
+      })
+
+      const after = YAML.parse(await fs.readFile(statePath, "utf8"))
+      const original = YAML.parse(before)
+      expect(after.work_type).toBe("feature")
+      expect(after.preflight.work_type).toBe("feature")
+      delete after.work_type
+      delete after.preflight.work_type
+      expect(after).toEqual(original)
+    } finally {
+      await fs.rm(root, { recursive: true, force: true })
+    }
+  })
+
+  it("blocks missing, malformed, unsafe, and invalid binding inputs", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "odf-workflow-bind-blocked-"))
+    const changeDir = path.join(root, "openspec", "changes", "broken-change")
+    await fs.mkdir(changeDir, { recursive: true })
+    await fs.writeFile(path.join(changeDir, "state.yaml"), "canonical_stage: [PLAN\n", "utf8")
+
+    try {
+      const bind = createODFWorkflowBind()
+      await expect(bind.execute({ change_name: "missing-change", work_type: "feature", workspace_dir: root }, {} as any))
+        .resolves.toMatch(/state-not-found/)
+      await expect(bind.execute({ change_name: "broken-change", work_type: "feature", workspace_dir: root }, {} as any))
+        .resolves.toMatch(/malformed-state/)
+      await expect(bind.execute({ change_name: "../outside", work_type: "feature", workspace_dir: root }, {} as any))
+        .resolves.toMatch(/unsafe-change-path/)
+      await expect(bind.execute({ change_name: "broken-change", work_type: "not-a-route", workspace_dir: root }, {} as any))
+        .resolves.toMatch(/invalid-work-type/)
+    } finally {
+      await fs.rm(root, { recursive: true, force: true })
+    }
   })
 })
 
