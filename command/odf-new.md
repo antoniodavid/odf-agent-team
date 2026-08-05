@@ -43,6 +43,8 @@ and `BUILD = IMPLEMENT`.
 9. **Run optional PLAN**, then BUILD and VERIFY according to the resolved route.
 10. If `--fast`, skip voluntary approval gates only where existing compatibility permits; never skip preflight, Policy Gate, validation evidence, VERIFY, or failure disposition.
 
+For BUILD (`IMPLEMENT`) and VERIFY starts, pass the resolved `work_type` and exact transition input as `workflow_advance` inside `odf_delegate`. `odf_workflow_advance` is read-only advisory; delegate-side validation is authoritative. `work_type` is caller-supplied, not persisted by the delegate, and legacy compatibility calls may omit this field.
+
 Standard configuration may stop after DECIDE with optional verification. Small changes may
 use an inline plan before BUILD. Existing public phase commands and legacy phase IDs remain
 available for compatibility; they have not disappeared.

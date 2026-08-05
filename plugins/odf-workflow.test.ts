@@ -196,6 +196,19 @@ describe("advanceWorkflow", () => {
     })
   })
 
+  it("allows verify-only to start at its route entry", () => {
+    expect(advanceWorkflow(input({
+      route: resolveWorkflowRoute("verify-only"),
+      completed_stages: [],
+      candidate_stage: null,
+    }))).toEqual({
+      status: "advanced",
+      completed_stages: [],
+      next_stage: "VERIFY",
+      reason: "Advanced to VERIFY.",
+    })
+  })
+
   const terminalBlockingCases: Array<[string, Partial<WorkflowAdvanceInput>, string]> = [
     ["pending receipt", { receipt_state: "pending" }, "A receipt is pending user disposition."],
     ["non-resumable state", { resumable_state: false }, "Workflow state is not resumable."],

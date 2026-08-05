@@ -861,6 +861,10 @@ async function invokeTask(
 
 const ALLOWED_PHASES = ["PROPOSE", "ASSESS", "QA-PLAN", "DESIGN", "IMPLEMENT", "VERIFY", "EXPLORE", "FIX"]
 
+type ODFDelegateWorkflowAdvance = Omit<WorkflowAdvanceInput, "route"> & {
+  work_type: WorkType
+}
+
 // ==========================================
 // POLICY GATE (slice 1)
 // ==========================================
@@ -1489,8 +1493,49 @@ Use this instead of generic task() for ODF workflow delegation.`,
         .number()
         .optional()
         .describe("Task timeout in milliseconds (default: 120000)"),
+      workflow_advance: tool.schema
+        .object({
+          work_type: tool.schema
+            .enum([
+              "question",
+              "investigation",
+              "standard-config",
+              "small-change",
+              "feature",
+              "cross-domain",
+              "bugfix",
+              "migration",
+              "security",
+              "verify-only",
+            ])
+            .describe("Resolved work type for the transition"),
+          completed_stages: tool.schema
+            .array(tool.schema.enum(["DECIDE", "PLAN", "BUILD", "VERIFY", "EXPLORE", "FIX"]))
+            .describe("Canonical stages already completed before candidate_stage"),
+          candidate_stage: tool.schema
+            .enum(["DECIDE", "PLAN", "BUILD", "VERIFY", "EXPLORE", "FIX"])
+            .nullable()
+            .describe("Canonical stage that just completed; null only for an initial transition"),
+          phase_result_status: tool.schema
+            .enum(["ok", "warning", "blocked", "failed"])
+            .describe("Result-contract status for the completed phase"),
+          validation_status: tool.schema
+            .enum(["verified", "missing", "invalid", "not-required"])
+            .describe("Validation seal status"),
+          receipt_state: tool.schema
+            .enum(["none", "pending", "resolved"])
+            .describe("Current receipt state"),
+          resumable_state: tool.schema
+            .boolean()
+            .describe("Whether the workflow can resume"),
+          archived_state: tool.schema
+            .boolean()
+            .describe("Whether the workflow is archived"),
+        })
+        .optional()
+        .describe("Optional machine-checked transition proof for canonical BUILD/VERIFY starts"),
     },
-    async execute(args: { phase: string; prompt: string; context_files?: string[]; profile?: string; change?: string; timeout_ms?: number }, toolCtx: ToolContext): Promise<string> {
+    async execute(args: { phase: string; prompt: string; context_files?: string[]; profile?: string; change?: string; timeout_ms?: number; workflow_advance?: ODFDelegateWorkflowAdvance }, toolCtx: ToolContext): Promise<string> {
       if (!toolCtx?.sessionID) {
         return "❌ odf_delegate requires sessionID"
       }
@@ -1500,6 +1545,69 @@ Use this instead of generic task() for ODF workflow delegation.`,
       }
 
       const startTime = Date.now()
+      if (args.workflow_advance) {
+        const blockWorkflow = (reason: string, message: string, workflowResult: ReturnType<typeof advanceWorkflow>): string => {
+          recordMetrics({
+            timestamp: new Date().toISOString(),
+            session_id: toolCtx.sessionID,
+            phase: args.phase,
+            agent: "unresolved",
+            skills_injected: [],
+            skill_resolution: "none",
+            duration_ms: Date.now() - startTime,
+            token_estimate: estimateTokens(args.prompt),
+            status: "blocked",
+            task_api_source: "unavailable",
+            error: message,
+          })
+          return JSON.stringify({
+            status: "blocked",
+            reason,
+            phase: args.phase,
+            agent: null,
+            skills_injected: [],
+            profile: null,
+            policy_gate: null,
+            validation: null,
+            receipt: null,
+            task_api_source: "unavailable",
+            result: null,
+            workflow_advance: workflowResult,
+            message,
+          }, null, 2)
+        }
+
+        const { work_type, ...advanceInput } = args.workflow_advance
+        const workflowResult = advanceWorkflow({
+          route: resolveWorkflowRoute(work_type),
+          ...advanceInput,
+        })
+        if (args.phase !== "IMPLEMENT" && args.phase !== "VERIFY") {
+          return blockWorkflow(
+            "workflow-gate-unsupported-phase",
+            `workflow_advance is supported only for IMPLEMENT and VERIFY starts; ${args.phase} is a composite legacy adapter. Omit workflow_advance for this call.`,
+            workflowResult,
+          )
+        }
+
+        if (workflowResult.status !== "advanced") {
+          return blockWorkflow(
+            workflowResult.status === "complete" ? "workflow-complete" : "workflow-advance-blocked",
+            workflowResult.reason,
+            workflowResult,
+          )
+        }
+
+        const expectedStage: CanonicalStage = args.phase === "IMPLEMENT" ? "BUILD" : "VERIFY"
+        if (workflowResult.next_stage !== expectedStage) {
+          return blockWorkflow(
+            "workflow-phase-mismatch",
+            `Workflow next_stage ${workflowResult.next_stage || "none"} does not match ${args.phase}; expected ${expectedStage}.`,
+            workflowResult,
+          )
+        }
+      }
+
       const workspaceRoot = resolveWorkspaceRoot(canonicalDirectory || process.cwd())
       const gatedPhase = args.phase === "IMPLEMENT" || args.phase === "VERIFY"
       const changeName = args.change?.trim() || extractChangeName(args.prompt)

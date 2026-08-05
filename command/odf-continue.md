@@ -46,6 +46,8 @@ Reanuda el flujo ODF desde la última etapa completada del cambio activo más re
 9. **Delegar** la siguiente etapa mediante `odf_delegate`; usar el adaptador legacy solo para ejecutar o leer contratos históricos.
 10. **Mostrar la puerta de aprobación** después de la etapa cuando el modo de interacción la requiera.
 
+For BUILD (`IMPLEMENT`) and VERIFY starts, embed the exact `work_type` and transition input from `odf_workflow_advance` under `workflow_advance` in `odf_delegate`. The standalone tool is advisory; delegate-side validation is authoritative. `work_type` is not persisted by the delegate, and legacy compatibility callers may omit the new field.
+
 ## Contrato de enrutamiento
 
 - Entrada: comando `/odf-continue` con nombre opcional.

@@ -108,12 +108,12 @@ not a mandatory step before every VERIFY. VERIFY remains an independent stage.
 ## Plugin Tools
 
 - `odf_workflow_route(work_type)` selects route depth from the executable matrix.
-- `odf_workflow_advance(...)` validates a transition and returns the next canonical stage without writing state.
+- `odf_workflow_advance(...)` is a read-only advisory transition check; for BUILD/VERIFY starts, embed its exact input under `workflow_advance` in `odf_delegate`. Delegate-side validation is authoritative and does not persist `work_type`.
 - `odf_delegate` runs legacy phase adapters and preserves their contracts.
 
 ## Delegation Rules
 
-1. Before selecting or starting the next phase, call `odf_workflow_advance` with the resolved route and current transition evidence. If it returns `blocked`, stop and request user disposition; do not delegate the next phase.
+1. Before BUILD (`IMPLEMENT`) or VERIFY starts, call `odf_workflow_advance` with the resolved `work_type` and current transition evidence, then embed that exact input under `workflow_advance` in `odf_delegate`. The standalone tool is advisory; delegate-side validation is authoritative. If it returns `blocked` or `complete`, stop and request user disposition; do not delegate the next phase. Legacy compatibility callers may omit this field for composite adapters.
 2. Delegate every ODF phase through `odf_delegate`; do not call `task()` directly.
 3. Before every code/design/review delegation, resolve registry skills by file and task context.
 4. Inject compact rules under `## Project Standards (auto-resolved)`, with at most five skills; prioritize code context, then task context.

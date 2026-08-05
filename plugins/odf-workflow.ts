@@ -222,6 +222,15 @@ export function advanceWorkflow(input: WorkflowAdvanceInput): WorkflowAdvanceRes
     }
   }
 
+  if (input.candidate_stage === null && normalizedCompleted.length === 0) {
+    return {
+      status: "advanced",
+      completed_stages: [],
+      next_stage: input.route.entry,
+      reason: `Advanced to ${input.route.entry}.`,
+    }
+  }
+
   if (input.candidate_stage === null) {
     return blocked("Candidate stage is not part of the selected route.", nextStage)
   }

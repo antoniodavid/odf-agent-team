@@ -805,7 +805,7 @@ describe("createODFDelegate", () => {
     vi.restoreAllMocks()
   })
 
-  it("returns a delegated result envelope when task() is available", async () => {
+  it("returns a delegated result envelope when task() is available without workflow input", async () => {
     const { createODFDelegate, clearMetricsBuffer, getMetricsBuffer } = await import("./odf-delegation.js")
     clearMetricsBuffer()
     const taskResult = { status: "ok", executive_summary: "assessed" }
@@ -827,6 +827,7 @@ describe("createODFDelegate", () => {
     expect(envelope.skills_injected.length).toBeGreaterThanOrEqual(0)
     expect(envelope.profile).toBeDefined()
     expect(envelope.profile?.model).toBe("opencode-go/deepseek-r1")
+    expect(envelope.workflow_advance).toBeUndefined()
 
     const metrics = getMetricsBuffer()
     expect(metrics.length).toBe(1)
@@ -834,6 +835,198 @@ describe("createODFDelegate", () => {
     expect(metrics[0].phase).toBe("ASSESS")
     expect(metrics[0].agent).toBe("odoo_functional_consultant")
     expect(metrics[0].task_api_source).toBe("toolCtx.task")
+  })
+
+  it("allows IMPLEMENT when PLAN advances to BUILD", async () => {
+    const { createODFDelegate, clearMetricsBuffer } = await import("./odf-delegation.js")
+    clearMetricsBuffer()
+    const taskApi = vi.fn().mockResolvedValue({ status: "ok", executive_summary: "implemented" })
+    const delegateTool = createODFDelegate(undefined, tempHome)
+
+    const output = await delegateTool.execute(
+      {
+        phase: "IMPLEMENT",
+        change: "gate-build",
+        prompt: "Implement the planned change",
+        context_files: [],
+        workflow_advance: {
+          work_type: "feature",
+          completed_stages: ["DECIDE"],
+          candidate_stage: "PLAN",
+          phase_result_status: "ok",
+          validation_status: "not-required",
+          receipt_state: "none",
+          resumable_state: true,
+          archived_state: false,
+        },
+      },
+      { sessionID: "s1", task: taskApi } as any,
+    )
+
+    expect(JSON.parse(output as string).status).toBe("delegated")
+    expect(taskApi).toHaveBeenCalledTimes(1)
+  })
+
+  it("allows VERIFY when BUILD advances to VERIFY", async () => {
+    const { createODFDelegate, clearMetricsBuffer } = await import("./odf-delegation.js")
+    clearMetricsBuffer()
+    const taskApi = vi.fn().mockResolvedValue({ status: "ok", executive_summary: "verified" })
+    const delegateTool = createODFDelegate(undefined, tempHome)
+
+    const output = await delegateTool.execute(
+      {
+        phase: "VERIFY",
+        change: "gate-verify",
+        prompt: "Verify the implementation",
+        context_files: [],
+        workflow_advance: {
+          work_type: "feature",
+          completed_stages: ["DECIDE", "PLAN"],
+          candidate_stage: "BUILD",
+          phase_result_status: "ok",
+          validation_status: "verified",
+          receipt_state: "none",
+          resumable_state: true,
+          archived_state: false,
+        },
+      },
+      { sessionID: "s1", task: taskApi } as any,
+    )
+
+    expect(JSON.parse(output as string).status).toBe("delegated")
+    expect(taskApi).toHaveBeenCalledTimes(1)
+  })
+
+  it("allows the initial VERIFY start for verify-only", async () => {
+    const { createODFDelegate, clearMetricsBuffer } = await import("./odf-delegation.js")
+    clearMetricsBuffer()
+    const taskApi = vi.fn().mockResolvedValue({ status: "ok", executive_summary: "verified" })
+    const delegateTool = createODFDelegate(undefined, tempHome)
+
+    const output = await delegateTool.execute(
+      {
+        phase: "VERIFY",
+        change: "gate-verify-only",
+        prompt: "Verify the existing implementation",
+        context_files: [],
+        workflow_advance: {
+          work_type: "verify-only",
+          completed_stages: [],
+          candidate_stage: null,
+          phase_result_status: "ok",
+          validation_status: "verified",
+          receipt_state: "none",
+          resumable_state: true,
+          archived_state: false,
+        },
+      },
+      { sessionID: "s1", task: taskApi } as any,
+    )
+
+    expect(JSON.parse(output as string).status).toBe("delegated")
+    expect(taskApi).toHaveBeenCalledTimes(1)
+  })
+
+  it("blocks an out-of-order workflow transition before task()", async () => {
+    const { createODFDelegate, clearMetricsBuffer, getMetricsBuffer } = await import("./odf-delegation.js")
+    clearMetricsBuffer()
+    const taskApi = vi.fn().mockResolvedValue({ status: "ok" })
+    const delegateTool = createODFDelegate(undefined, tempHome)
+
+    const output = await delegateTool.execute(
+      {
+        phase: "IMPLEMENT",
+        prompt: "Implement the change",
+        context_files: [],
+        workflow_advance: {
+          work_type: "feature",
+          completed_stages: ["DECIDE"],
+          candidate_stage: "BUILD",
+          phase_result_status: "ok",
+          validation_status: "verified",
+          receipt_state: "none",
+          resumable_state: true,
+          archived_state: false,
+        },
+      },
+      { sessionID: "s1", task: taskApi } as any,
+    )
+
+    const envelope = JSON.parse(output as string)
+    expect(envelope.status).toBe("blocked")
+    expect(envelope.reason).toBe("workflow-advance-blocked")
+    expect(envelope.workflow_advance.status).toBe("blocked")
+    expect(taskApi).not.toHaveBeenCalled()
+    expect(getMetricsBuffer()).toHaveLength(1)
+    expect(getMetricsBuffer()[0].status).toBe("blocked")
+    expect(fsSync.existsSync(path.join(tempHome, ".odf"))).toBe(false)
+  })
+
+  it("blocks when the validated next stage does not match the delegated phase", async () => {
+    const { createODFDelegate, clearMetricsBuffer, getMetricsBuffer } = await import("./odf-delegation.js")
+    clearMetricsBuffer()
+    const taskApi = vi.fn().mockResolvedValue({ status: "ok" })
+    const delegateTool = createODFDelegate(undefined, tempHome)
+
+    const output = await delegateTool.execute(
+      {
+        phase: "VERIFY",
+        prompt: "Verify the implementation",
+        context_files: [],
+        workflow_advance: {
+          work_type: "feature",
+          completed_stages: ["DECIDE"],
+          candidate_stage: "PLAN",
+          phase_result_status: "ok",
+          validation_status: "not-required",
+          receipt_state: "none",
+          resumable_state: true,
+          archived_state: false,
+        },
+      },
+      { sessionID: "s1", task: taskApi } as any,
+    )
+
+    const envelope = JSON.parse(output as string)
+    expect(envelope.status).toBe("blocked")
+    expect(envelope.reason).toBe("workflow-phase-mismatch")
+    expect(envelope.workflow_advance.next_stage).toBe("BUILD")
+    expect(envelope.message).toContain("expected VERIFY")
+    expect(taskApi).not.toHaveBeenCalled()
+    expect(getMetricsBuffer()[0].status).toBe("blocked")
+  })
+
+  it("blocks a supplied workflow gate for composite legacy adapters", async () => {
+    const { createODFDelegate, clearMetricsBuffer, getMetricsBuffer } = await import("./odf-delegation.js")
+    clearMetricsBuffer()
+    const taskApi = vi.fn().mockResolvedValue({ status: "ok" })
+    const delegateTool = createODFDelegate(undefined, tempHome)
+
+    const output = await delegateTool.execute(
+      {
+        phase: "DESIGN",
+        prompt: "Design the implementation",
+        context_files: [],
+        workflow_advance: {
+          work_type: "feature",
+          completed_stages: ["DECIDE"],
+          candidate_stage: "PLAN",
+          phase_result_status: "ok",
+          validation_status: "not-required",
+          receipt_state: "none",
+          resumable_state: true,
+          archived_state: false,
+        },
+      },
+      { sessionID: "s1", task: taskApi } as any,
+    )
+
+    const envelope = JSON.parse(output as string)
+    expect(envelope.status).toBe("blocked")
+    expect(envelope.reason).toBe("workflow-gate-unsupported-phase")
+    expect(envelope.message).toContain("DESIGN is a composite legacy adapter")
+    expect(taskApi).not.toHaveBeenCalled()
+    expect(getMetricsBuffer()[0].status).toBe("blocked")
   })
 
   it("delegates FIX through task() with the backend default agent", async () => {
