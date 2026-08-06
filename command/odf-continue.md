@@ -52,6 +52,8 @@ Reanuda el flujo ODF desde la última etapa completada del cambio activo más re
 
 For BUILD (`IMPLEMENT`) and VERIFY starts, embed the exact persisted or explicitly selected `work_type` and transition input from `odf_workflow_advance` under `workflow_advance` in `odf_delegate`, plus a fresh opaque `attempt_id`. Reusing an ID or relaunching a completed phase is blocked; after failure, retry only with a new explicit ID. The standalone tool is advisory; delegate-side validation is authoritative. Never substitute a default or infer from legacy state. The binding tool is OpenSpec-only; Engram-only callers must keep forwarding the explicit work type without claiming Engram persistence. Legacy calls that omit `workflow_advance` remain compatible.
 
+For a persisted `work_type: cross-domain` at BUILD, use `odf_parallel_delegate` instead of `odf_delegate`. Pass one shared `change`, `phase: IMPLEMENT`, and the exact shared `workflow_advance` proof that advances to `BUILD`. Supply 2-3 independent branches with unique safe `branch_id` and fresh safe `attempt_id` values plus non-overlapping `context_files`; concurrency is fixed at 3. Do not close BUILD unless the aggregate `join.status` is `complete`, every branch returned a successful delegated envelope, and every branch `validation.status` is `verified`. A blocked/failed branch or unverified validation blocks BUILD and writes one aggregate receipt. After the complete join, run VERIFY sequentially.
+
 ## Contrato de enrutamiento
 
 - Entrada: comando `/odf-continue` con nombre y `--work-type` opcionales.

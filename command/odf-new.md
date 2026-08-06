@@ -46,6 +46,8 @@ and `BUILD = IMPLEMENT`.
 
 For BUILD (`IMPLEMENT`) and VERIFY starts, pass the persisted or explicitly resolved `work_type` and exact transition input as `workflow_advance` inside `odf_delegate`, with a fresh opaque `attempt_id` for each launch. Reusing an ID or relaunching a completed phase is blocked; after failure, retry only with a new explicit ID. `odf_workflow_advance` is read-only advisory; delegate-side validation is authoritative. `odf_workflow_bind` is OpenSpec-only. For Engram-only changes or when no OpenSpec state exists, do not claim that the route is persisted: keep forwarding the caller-resolved `work_type` on every gated delegation. Legacy calls that omit `workflow_advance` remain compatible.
 
+For cross-domain BUILD, use `odf_parallel_delegate` instead of `odf_delegate`: pass one shared `change`, `work_type: cross-domain`, `phase: IMPLEMENT`, and the exact shared `workflow_advance` proof that advances to `BUILD`. Provide 2-3 independent branches, each with a unique safe `branch_id`, fresh safe `attempt_id`, prompt, and non-overlapping `context_files`; the scheduler has a fixed concurrency cap of 3. BUILD closes only after the aggregate `join.status: complete`, every branch returns a successful delegated envelope, and every branch has `validation.status: verified`. Any blocked/failed branch or unverified validation blocks BUILD and produces one aggregate receipt. VERIFY always runs sequentially after a complete join.
+
 Standard configuration may stop after DECIDE with optional verification. Small changes may
 use an inline plan before BUILD. Existing public phase commands and legacy phase IDs remain
 available for compatibility; they have not disappeared.

@@ -893,6 +893,50 @@ describe("createODFDelegate", () => {
         archived_state: false,
       }
 
+  const parallelWorkflowAdvance = () => ({
+    work_type: "cross-domain" as const,
+    completed_stages: ["DECIDE" as const],
+    candidate_stage: "PLAN" as const,
+    phase_result_status: "ok" as const,
+    validation_status: "not-required" as const,
+    receipt_state: "none" as const,
+    resumable_state: true,
+    archived_state: false,
+  })
+
+  const writeEvidenceFile = async (change: string, fileName: string) => {
+    await fs.mkdir(path.join(tempHome, ".odf"), { recursive: true })
+    await fs.writeFile(
+      path.join(tempHome, ".odf", fileName),
+      JSON.stringify({
+        change,
+        phase: "IMPLEMENT",
+        batch: 1,
+        risk_tier: "MEDIUM",
+        frozen_diff_ref: null,
+        resolved_at: new Date().toISOString(),
+        commands: [
+          { name: "git-diff-check", command: "git diff --check", exit_code: 0, output_tail: "" },
+          { name: "odoo-tests", command: "odoo-bin -d odf_test_db -i test_module --test-enable --stop-after-init", database: "odf_test_db", exit_code: 0, output_tail: "2 passed, 0 failed" },
+        ],
+      }),
+      "utf8",
+    )
+  }
+
+  const writeValidationEvidence = (change: string) =>
+    writeEvidenceFile(change, `validation-evidence-${change}.json`)
+
+  const writeParallelEvidence = (change: string, branchIds: string[]) =>
+    Promise.all(branchIds.map(branchId =>
+      writeEvidenceFile(change, `validation-evidence-${change}-${branchId}.json`)
+    ))
+
+  const parallelBranches = (suffix: string) => [
+    { branch_id: `backend-${suffix}`, attempt_id: `backend-attempt-${suffix}`, prompt: "Implement the backend branch", context_files: [`backend-${suffix}.py`] },
+    { branch_id: `frontend-${suffix}`, attempt_id: `frontend-attempt-${suffix}`, prompt: "Implement the frontend branch", context_files: [`frontend-${suffix}.js`] },
+  ]
+
   it("returns a delegated result envelope when task() is available without workflow input", async () => {
     const { createODFDelegate, clearMetricsBuffer, getMetricsBuffer } = await import("./odf-delegation.js")
     clearMetricsBuffer()
@@ -958,6 +1002,7 @@ describe("createODFDelegate", () => {
 
   it("acquires the first attempt and appends a completed settlement", async () => {
     const { createODFDelegate } = await import("./odf-delegation.js")
+    await writeValidationEvidence("attempt-first")
     const taskApi = vi.fn().mockResolvedValue({ status: "ok", executive_summary: "implemented" })
     const delegateTool = createODFDelegate(undefined, tempHome)
 
@@ -1073,6 +1118,7 @@ describe("createODFDelegate", () => {
     const base = { phase: "IMPLEMENT", change: "attempt-failed", prompt: "Implement the change", context_files: [], workflow_advance: workflowAdvance("IMPLEMENT") }
 
     const first = JSON.parse(await delegateTool.execute({ ...base, attempt_id: "failed-1" }, { sessionID: "s1", task: taskApi } as any) as string)
+    await writeValidationEvidence("attempt-failed")
     const second = JSON.parse(await delegateTool.execute({ ...base, attempt_id: "failed-2" }, { sessionID: "s1", task: taskApi } as any) as string)
     const ledgerPath = path.join(tempHome, ".odf", "attempt-ledger-attempt-failed.jsonl")
     const records = (await fs.readFile(ledgerPath, "utf8")).trim().split("\n").map(line => JSON.parse(line))
@@ -1080,6 +1126,25 @@ describe("createODFDelegate", () => {
     expect(second.status).toBe("delegated")
     expect(records.map(record => record.status)).toEqual(["running", "failed", "running", "completed"])
     expect(records[1].result_status).toBe("error")
+    expect(taskApi).toHaveBeenCalledTimes(2)
+  })
+
+  it("settles missing IMPLEMENT validation as failed and allows a fresh retry", async () => {
+    const { createODFDelegate } = await import("./odf-delegation.js")
+    const taskApi = vi.fn().mockResolvedValue({ status: "ok", executive_summary: "implemented" })
+    const delegateTool = createODFDelegate(undefined, tempHome)
+    const base = { phase: "IMPLEMENT", change: "validation-retry", prompt: "Implement the change", context_files: [], workflow_advance: workflowAdvance("IMPLEMENT") }
+
+    const first = JSON.parse(await delegateTool.execute({ ...base, attempt_id: "validation-retry-1" }, { sessionID: "s1", task: taskApi } as any) as string)
+    expect(first).toMatchObject({ status: "delegated", validation: { status: "missing" } })
+
+    const firstLedger = (await fs.readFile(path.join(tempHome, ".odf", "attempt-ledger-validation-retry.jsonl"), "utf8"))
+      .trim().split("\n").map(line => JSON.parse(line))
+    expect(firstLedger.at(-1)).toMatchObject({ status: "failed", reason: "validation-failed", result_status: "validation-failed" })
+
+    await writeValidationEvidence("validation-retry")
+    const second = JSON.parse(await delegateTool.execute({ ...base, attempt_id: "validation-retry-2" }, { sessionID: "s1", task: taskApi } as any) as string)
+    expect(second).toMatchObject({ status: "delegated", validation: { status: "verified" } })
     expect(taskApi).toHaveBeenCalledTimes(2)
   })
 
@@ -1128,6 +1193,39 @@ describe("createODFDelegate", () => {
     expect(JSON.parse(output as string).status).toBe("delegated")
     expect(taskApi).toHaveBeenCalledTimes(1)
     expect(fsSync.existsSync(path.join(tempHome, ".odf", "attempt-ledger-legacy-compatible.jsonl"))).toBe(false)
+  })
+
+  it("treats legacy ledger records without branch_id as the default branch", async () => {
+    const { createODFDelegate } = await import("./odf-delegation.js")
+    const ledgerPath = path.join(tempHome, ".odf", "attempt-ledger-legacy-record.jsonl")
+    const timestamp = new Date().toISOString()
+    await fs.mkdir(path.dirname(ledgerPath), { recursive: true })
+    await fs.writeFile(ledgerPath, `${JSON.stringify({
+      attempt_id: "legacy-attempt",
+      change: "legacy-record",
+      phase: "IMPLEMENT",
+      next_stage: "BUILD",
+      status: "completed",
+      started_at: timestamp,
+      updated_at: timestamp,
+      settled_at: timestamp,
+      reason: "task-completed",
+      result_status: "delegated",
+    })}\n`, "utf8")
+    const taskApi = vi.fn().mockResolvedValue({ status: "ok" })
+    const delegateTool = createODFDelegate(undefined, tempHome)
+
+    const output = await delegateTool.execute({
+      phase: "IMPLEMENT",
+      change: "legacy-record",
+      attempt_id: "new-attempt",
+      prompt: "Implement the change",
+      context_files: [],
+      workflow_advance: workflowAdvance("IMPLEMENT"),
+    }, { sessionID: "s1", task: taskApi } as any)
+
+    expect(JSON.parse(output as string)).toMatchObject({ status: "blocked", reason: "attempt-phase-completed" })
+    expect(taskApi).not.toHaveBeenCalled()
   })
 
   it("allows VERIFY when BUILD advances to VERIFY", async () => {
@@ -1650,6 +1748,247 @@ describe("createODFDelegate", () => {
     expect(envelope.phase).toBe("PROPOSE")
     expect(envelope.agent).toBe("odoo_functional_consultant")
     expect(getMetricsBuffer()[0].phase).toBe("PROPOSE")
+  })
+
+  it("runs two independent cross-domain BUILD branches and completes the join", async () => {
+    const { createODFParallelDelegate } = await import("./odf-delegation.js")
+    const branches = parallelBranches("success")
+    await writeParallelEvidence("parallel-success", branches.map(branch => branch.branch_id))
+    const taskApi = vi.fn().mockResolvedValue({ status: "ok", executive_summary: "branch implemented" })
+    const parallelTool = createODFParallelDelegate(undefined, tempHome)
+
+    const output = await parallelTool.execute({
+      work_type: "cross-domain",
+      phase: "IMPLEMENT",
+      change: "parallel-success",
+      workflow_advance: parallelWorkflowAdvance(),
+      branches,
+    }, { sessionID: "parallel-session", task: taskApi } as any)
+
+    const result = JSON.parse(output as string)
+    expect(result.status).toBe("parallel-delegated")
+    expect(result.join).toMatchObject({ status: "complete", expected: 2, completed: 2, failed: 0, validation_verified: true })
+    expect(result.branches.map((branch: any) => branch.branch_id)).toEqual(["backend-success", "frontend-success"])
+    expect(result.branches.every((branch: any) => branch.validation_verified)).toBe(true)
+    expect(result.branches.map((branch: any) => branch.validation_evidence_ref)).toEqual([
+      ".odf/validation-evidence-parallel-success-backend-success.json",
+      ".odf/validation-evidence-parallel-success-frontend-success.json",
+    ])
+    expect(result.join.evidence_refs).toEqual(result.branches.map((branch: any) => branch.validation_evidence_ref))
+    expect(taskApi).toHaveBeenCalledTimes(2)
+
+    const ledger = (await fs.readFile(path.join(tempHome, ".odf", "attempt-ledger-parallel-success.jsonl"), "utf8"))
+      .trim().split("\n").map(line => JSON.parse(line))
+    expect(ledger.filter((record: any) => record.status === "running")).toHaveLength(2)
+    expect(ledger.map((record: any) => record.branch_id)).toEqual(expect.arrayContaining(["backend-success", "frontend-success"]))
+  })
+
+  it("isolates parallel validation evidence by branch and records each ref", async () => {
+    const { createODFParallelDelegate } = await import("./odf-delegation.js")
+    const change = "parallel-evidence-isolation"
+    const branches = parallelBranches("evidence-isolation")
+    await writeParallelEvidence(change, [branches[0].branch_id])
+    await writeValidationEvidence(change)
+    const taskApi = vi.fn().mockResolvedValue({ status: "ok", executive_summary: "branch implemented" })
+    const parallelTool = createODFParallelDelegate(undefined, tempHome)
+
+    const result = JSON.parse(await parallelTool.execute({
+      work_type: "cross-domain",
+      phase: "IMPLEMENT",
+      change,
+      workflow_advance: parallelWorkflowAdvance(),
+      branches,
+    }, { sessionID: "parallel-session", task: taskApi } as any) as string)
+
+    const refs = branches.map(branch => `.odf/validation-evidence-${change}-${branch.branch_id}.json`)
+    expect(result).toMatchObject({
+      status: "blocked",
+      reason: "parallel-validation-incomplete",
+      join: { status: "blocked", completed: 2, failed: 0, validation_verified: false, evidence_refs: refs },
+    })
+    expect(result.branches.map((branch: any) => branch.validation_evidence_ref)).toEqual(refs)
+    expect(result.branches.map((branch: any) => branch.validation_verified)).toEqual([true, false])
+    const prompts = taskApi.mock.calls.map(call => call[0].prompt as string)
+    expect(prompts.some(prompt => prompt.includes(refs[0]))).toBe(true)
+    expect(prompts.some(prompt => prompt.includes(refs[1]))).toBe(true)
+
+    const receipt = JSON.parse(await fs.readFile(path.join(tempHome, ".odf", `receipt-${change}.json`), "utf8"))
+    expect(receipt.parallel.validation_evidence_refs).toEqual(refs)
+    expect(receipt.evidence.refs).toEqual(expect.arrayContaining(refs))
+  })
+
+  it("rejects more than the fixed three-branch limit before task()", async () => {
+    const { createODFParallelDelegate } = await import("./odf-delegation.js")
+    const taskApi = vi.fn().mockResolvedValue({ status: "ok" })
+    const parallelTool = createODFParallelDelegate(undefined, tempHome)
+    const branches = ["a", "b", "c", "d"].map(branch_id => ({
+      branch_id,
+      attempt_id: `${branch_id}-attempt`,
+      prompt: "Implement branch",
+      context_files: [`${branch_id}.py`],
+    }))
+
+    const result = JSON.parse(await parallelTool.execute({
+      work_type: "cross-domain",
+      phase: "IMPLEMENT",
+      change: "parallel-too-many",
+      workflow_advance: parallelWorkflowAdvance(),
+      branches,
+    }, { sessionID: "parallel-session", task: taskApi } as any) as string)
+
+    expect(result).toMatchObject({ status: "blocked", reason: "parallel-branch-count" })
+    expect(taskApi).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ["duplicate branch IDs", [{ branch_id: "same", attempt_id: "a1", prompt: "a" }, { branch_id: "same", attempt_id: "b1", prompt: "b" }], "duplicate-branch-id"],
+    ["duplicate attempt IDs", [{ branch_id: "a", attempt_id: "same-attempt", prompt: "a" }, { branch_id: "b", attempt_id: "same-attempt", prompt: "b" }], "duplicate-attempt-id"],
+    ["overlapping context paths", [{ branch_id: "a", attempt_id: "a1", prompt: "a", context_files: ["shared.py"] }, { branch_id: "b", attempt_id: "b1", prompt: "b", context_files: ["./shared.py"] }], "overlapping-context-paths"],
+  ])("rejects %s before any branch task starts", async (_label, branches, reason) => {
+    const { createODFParallelDelegate } = await import("./odf-delegation.js")
+    const taskApi = vi.fn().mockResolvedValue({ status: "ok" })
+    const parallelTool = createODFParallelDelegate(undefined, tempHome)
+
+    const result = JSON.parse(await parallelTool.execute({
+      work_type: "cross-domain",
+      phase: "IMPLEMENT",
+      change: "parallel-invalid-input",
+      workflow_advance: parallelWorkflowAdvance(),
+      branches,
+    }, { sessionID: "parallel-session", task: taskApi } as any) as string)
+
+    expect(result).toMatchObject({ status: "blocked", reason })
+    expect(taskApi).not.toHaveBeenCalled()
+  })
+
+  it("keeps distinct branch attempts running concurrently in the ledger", async () => {
+    const { createODFParallelDelegate } = await import("./odf-delegation.js")
+    const branches = parallelBranches("running")
+    await writeParallelEvidence("parallel-running", branches.map(branch => branch.branch_id))
+    let resolveFirst!: (value: unknown) => void
+    let resolveSecond!: (value: unknown) => void
+    const taskApi = vi.fn()
+      .mockReturnValueOnce(new Promise(resolve => { resolveFirst = resolve }))
+      .mockReturnValueOnce(new Promise(resolve => { resolveSecond = resolve }))
+    const parallelTool = createODFParallelDelegate(undefined, tempHome)
+    const run = parallelTool.execute({
+      work_type: "cross-domain",
+      phase: "IMPLEMENT",
+      change: "parallel-running",
+      workflow_advance: parallelWorkflowAdvance(),
+      branches,
+    }, { sessionID: "parallel-session", task: taskApi } as any)
+
+    await vi.waitFor(async () => {
+      expect(taskApi).toHaveBeenCalledTimes(2)
+      const ledger = (await fs.readFile(path.join(tempHome, ".odf", "attempt-ledger-parallel-running.jsonl"), "utf8"))
+        .trim().split("\n").map(line => JSON.parse(line))
+      expect(ledger.filter((record: any) => record.status === "running").map((record: any) => record.branch_id))
+        .toEqual(expect.arrayContaining(["backend-running", "frontend-running"]))
+    })
+    resolveFirst({ status: "ok" })
+    resolveSecond({ status: "ok" })
+    expect(JSON.parse(await run as string).join.status).toBe("complete")
+  })
+
+  it("blocks a completed branch without blocking a different branch ID", async () => {
+    const { createODFParallelDelegate } = await import("./odf-delegation.js")
+    const branches = parallelBranches("ledger-a")
+    await writeParallelEvidence("parallel-branch-ledger", branches.map(branch => branch.branch_id))
+    const taskApi = vi.fn().mockResolvedValue({ status: "ok" })
+    const parallelTool = createODFParallelDelegate(undefined, tempHome)
+    const first = await parallelTool.execute({
+      work_type: "cross-domain",
+      phase: "IMPLEMENT",
+      change: "parallel-branch-ledger",
+      workflow_advance: parallelWorkflowAdvance(),
+      branches,
+    }, { sessionID: "parallel-session", task: taskApi } as any)
+    expect(JSON.parse(first as string).status).toBe("parallel-delegated")
+
+    const sameBranch = JSON.parse(await parallelTool.execute({
+      work_type: "cross-domain",
+      phase: "IMPLEMENT",
+      change: "parallel-branch-ledger",
+      workflow_advance: parallelWorkflowAdvance(),
+      branches: [
+        { branch_id: "backend-ledger-a", attempt_id: "backend-attempt-new", prompt: "retry backend", context_files: ["new-backend.py"] },
+        { branch_id: "frontend-ledger-b", attempt_id: "frontend-attempt-b", prompt: "new frontend", context_files: ["new-frontend.js"] },
+      ],
+    }, { sessionID: "parallel-session", task: taskApi } as any) as string)
+    expect(sameBranch).toMatchObject({ status: "blocked", reason: "attempt-phase-completed" })
+    expect(taskApi).toHaveBeenCalledTimes(2)
+    expect(JSON.parse(await fs.readFile(path.join(tempHome, ".odf", "receipt-parallel-branch-ledger.json"), "utf8")).parallel.branch_ids)
+      .toEqual(expect.arrayContaining(["backend-ledger-a", "frontend-ledger-b"]))
+  })
+
+  it("returns one aggregate blocked result and receipt when a branch fails", async () => {
+    const { createODFParallelDelegate } = await import("./odf-delegation.js")
+    const branches = parallelBranches("failure")
+    await writeParallelEvidence("parallel-failure", branches.map(branch => branch.branch_id))
+    const taskApi = vi.fn().mockImplementation(({ prompt }: { prompt: string }) => {
+      if (prompt.includes("backend")) return Promise.reject(new Error("backend branch failed"))
+      return Promise.resolve({ status: "ok", executive_summary: "frontend done" })
+    })
+    const parallelTool = createODFParallelDelegate(undefined, tempHome)
+
+    const result = JSON.parse(await parallelTool.execute({
+      work_type: "cross-domain",
+      phase: "IMPLEMENT",
+      change: "parallel-failure",
+      workflow_advance: parallelWorkflowAdvance(),
+      branches,
+    }, { sessionID: "parallel-session", task: taskApi } as any) as string)
+
+    expect(result).toMatchObject({ status: "blocked", reason: "parallel-branch-failed", join: { status: "blocked", expected: 2, completed: 1, failed: 1 } })
+    const receiptPath = path.join(tempHome, ".odf", "receipt-parallel-failure.json")
+    const receipt = JSON.parse(await fs.readFile(receiptPath, "utf8"))
+    expect(receipt.status).toBe("blocked")
+    expect(receipt.parallel.branch_ids).toEqual(expect.arrayContaining(["backend-failure", "frontend-failure"]))
+    expect(receipt.parallel.attempt_ledger_refs).toContain(".odf/attempt-ledger-parallel-failure.jsonl")
+    expect(receipt.parallel.summaries["backend-failure"]).toContain("backend branch failed")
+  })
+
+  it("does not complete the join when branch validation is not verified", async () => {
+    const { createODFParallelDelegate } = await import("./odf-delegation.js")
+    const taskApi = vi.fn().mockResolvedValue({ status: "ok", executive_summary: "implemented without evidence" })
+    const parallelTool = createODFParallelDelegate(undefined, tempHome)
+
+    const result = JSON.parse(await parallelTool.execute({
+      work_type: "cross-domain",
+      phase: "IMPLEMENT",
+      change: "parallel-no-validation",
+      workflow_advance: parallelWorkflowAdvance(),
+      branches: parallelBranches("no-validation"),
+    }, { sessionID: "parallel-session", task: taskApi } as any) as string)
+
+    expect(result).toMatchObject({ status: "blocked", reason: "parallel-validation-incomplete", join: { status: "blocked", expected: 2, completed: 2, failed: 0, validation_verified: false } })
+    expect(result.branches.every((branch: any) => branch.status === "delegated")).toBe(true)
+  })
+
+  it("does not complete the join when the inner branch result fails", async () => {
+    const { createODFParallelDelegate } = await import("./odf-delegation.js")
+    const branches = parallelBranches("inner-failure")
+    await writeParallelEvidence("parallel-inner-failure", branches.map(branch => branch.branch_id))
+    const taskApi = vi.fn().mockResolvedValue({ status: "failed", message: "backend checks failed" })
+    const parallelTool = createODFParallelDelegate(undefined, tempHome)
+
+    const result = JSON.parse(await parallelTool.execute({
+      work_type: "cross-domain",
+      phase: "IMPLEMENT",
+      change: "parallel-inner-failure",
+      workflow_advance: parallelWorkflowAdvance(),
+      branches,
+    }, { sessionID: "parallel-session", task: taskApi } as any) as string)
+
+    expect(result).toMatchObject({
+      status: "blocked",
+      reason: "parallel-branch-failed",
+      join: { status: "blocked", completed: 0, failed: 2, validation_verified: false },
+    })
+    expect(result.branches.every((branch: any) => branch.status === "delegated" && !branch.successful)).toBe(true)
+    expect(JSON.parse(await fs.readFile(path.join(tempHome, ".odf", "receipt-parallel-inner-failure.json"), "utf8")).evidence.failing)
+      .toEqual(expect.arrayContaining(["backend-inner-failure", "frontend-inner-failure"]))
   })
 })
 

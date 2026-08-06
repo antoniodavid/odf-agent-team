@@ -111,6 +111,7 @@ not a mandatory step before every VERIFY. VERIFY remains an independent stage.
 - `odf_workflow_bind(change_name, work_type)` explicitly binds the route in an existing OpenSpec `state.yaml`; it is mutating, validated, and never persists to Engram.
 - `odf_workflow_advance(...)` is a read-only advisory transition check; for BUILD/VERIFY starts, embed its exact input under `workflow_advance` in `odf_delegate`. Delegate-side validation is authoritative and does not persist `work_type`.
 - `odf_delegate` runs legacy phase adapters and preserves their contracts.
+- `odf_parallel_delegate` is the only cross-domain BUILD scheduler: it accepts one shared `change`, the exact `workflow_advance` proof, and 2-3 independent branches with unique safe `branch_id` and `attempt_id` values plus non-overlapping `context_files`.
 
 ## Delegation Rules
 
@@ -122,7 +123,7 @@ not a mandatory step before every VERIFY. VERIFY remains an independent stage.
 6. Inject compact rules under `## Project Standards (auto-resolved)`, with at most five skills; prioritize code context, then task context.
 7. If an agent reports `self-discovered`, `none`, or a skill cache miss, reload the registry, inject standards in later calls, and warn the user.
 8. Pass the forwarding fields defined below and require the inner `## ODF Result` as the last section.
-9. Delegate canonical ODF stages sequentially, including cross-domain BUILD. Do not parallelize independent DESIGN/IMPLEMENT work until a bounded scheduler/join contract exists with branch IDs, a join barrier, a branch-aware ledger, and an aggregate receipt. VERIFY remains sequential.
+9. Use `odf_parallel_delegate` for cross-domain BUILD only. It requires `phase: IMPLEMENT`, `work_type: cross-domain`, one shared `change`, the exact `workflow_advance` proof advancing to `BUILD`, and 2-3 independent branches with unique safe branch IDs/attempt IDs and non-overlapping context paths. Require `join.status: complete`, every branch delegated successfully, and every branch `validation.status: verified` before BUILD closes. VERIFY is always sequential after the aggregate join. All other routes remain sequential through `odf_delegate`.
 10. Keep a session launch log keyed by `(phase, task fingerprint)`; do not launch the same pair twice.
 
 The plugin resolves profiles only for SDD phases. If `task()` is unavailable,
@@ -232,11 +233,12 @@ comes from `odf_workflow_route`; adapters must not create extra business stages.
 ### IMPLEMENT
 
 1. Call `odf_policy_gate(change, phase="IMPLEMENT")` before delegation. The returned decision is authoritative; never recompute it. Forward strict TDD only when `tdd.effective === "on"`.
-2. Delegate one bounded task batch at a time. On continuation, apply the prior-progress merge instruction; read existing `odf/{change}/implement-progress`, merge new progress, and never overwrite it.
-3. After each batch, read the plugin's `validation` seal. Close the batch only when `validation.status === "verified"`.
-4. If validation is `missing` or `invalid`, do not close the batch. Stop for correction before any corrective pass; after the single corrective pass rewrites the evidence artifact, re-check the seal and never auto-loop.
-5. In `interactive`, show progress and ask whether to continue. In `batch`, auto-continue only when the inner result is `ok`/`warning`, validation is verified, and no correction or disposition is pending. `--fast` still requires IMPLEMENT approval. If route, risk, or work type selects QA review or aggregation, produce that evidence inside BUILD or VERIFY; do not make it a universal pre-VERIFY step.
-6. Persist `odf/{change}/implement-progress`.
+2. For cross-domain BUILD, call `odf_parallel_delegate` with 2-3 non-overlapping branch descriptors. Each descriptor must include a unique safe `branch_id`, a fresh safe `attempt_id`, its prompt, and its context files. The tool atomically acquires a branch-aware attempt-ledger record for each branch and returns one aggregate join.
+3. For non-cross-domain BUILD, delegate one bounded task batch at a time. On continuation, apply the prior-progress merge instruction; read existing `odf/{change}/implement-progress`, merge new progress, and never overwrite it.
+4. After a sequential batch, read the plugin's `validation` seal. After cross-domain BUILD, read every branch outcome and the aggregate `join`; close BUILD only when `join.status === "complete"`, all branches returned successful delegated envelopes, and every branch `validation.status === "verified"`.
+5. If any validation is `missing` or `invalid`, or any branch fails, do not close BUILD. Use the single aggregate blocked result and receipt for disposition; never start VERIFY.
+6. In `interactive`, show progress and ask whether to continue. In `batch`, auto-continue only when the inner result is `ok`/`warning`, validation is verified, and no correction or disposition is pending. `--fast` still requires IMPLEMENT approval. If route, risk, or work type selects QA review or aggregation, produce that evidence inside BUILD or VERIFY; do not make it a universal pre-VERIFY step.
+7. Persist `odf/{change}/implement-progress`.
 
 ### VERIFY
 

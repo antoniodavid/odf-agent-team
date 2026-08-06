@@ -66,7 +66,7 @@ const expectedRoutes: Record<WorkType, ReturnType<typeof resolveWorkflowRoute>> 
     legacy_phases: ["PROPOSE", "ASSESS", "QA-PLAN", "DESIGN", "IMPLEMENT", "VERIFY"],
     plan: "required",
     verification: "required",
-    parallel_build: false,
+    parallel_build: true,
     risk: "standard",
   },
   bugfix: {
@@ -130,6 +130,7 @@ describe("resolveWorkflowRoute", () => {
     expect(resolveWorkflowRoute("small-change").plan).toBe("inline")
     expect(resolveWorkflowRoute("feature").stages).toContain("PLAN")
     expect(resolveWorkflowRoute("cross-domain").stages).toContain("PLAN")
+    expect(resolveWorkflowRoute("cross-domain").parallel_build).toBe(true)
     expect(resolveWorkflowRoute("migration").risk).toBe("high")
     expect(resolveWorkflowRoute("security").risk).toBe("high")
     expect(resolveWorkflowRoute("bugfix").entry).toBe("FIX")

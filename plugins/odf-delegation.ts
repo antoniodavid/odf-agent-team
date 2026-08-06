@@ -861,10 +861,63 @@ async function invokeTask(
   return { status: "delegated", result }
 }
 
+function validateContextFiles(workspaceRoot: string, contextFiles: string[]): { error: string | null; paths: string[] } {
+  const paths: string[] = []
+  for (const file of contextFiles) {
+    if (typeof file !== "string" || file.split(/[\\/]/).includes("..")) {
+      return { error: `❌ context_files entry "${file}" contains path traversal`, paths: [] }
+    }
+    const resolvedFile = path.resolve(workspaceRoot, file)
+    if (!isWithinRoot(resolvedFile, workspaceRoot)) {
+      return { error: `❌ context_files entry "${file}" escapes workspace root`, paths: [] }
+    }
+    let comparablePath = path.normalize(resolvedFile)
+    if (fsSync.existsSync(resolvedFile)) {
+      try {
+        if (!fsSync.statSync(resolvedFile).isFile()) {
+          return { error: `❌ context_files entry "${file}" is not a file`, paths: [] }
+        }
+        comparablePath = path.normalize(fsSync.realpathSync(resolvedFile))
+        if (!isWithinRoot(comparablePath, workspaceRoot)) {
+          return { error: `❌ context_files entry "${file}" escapes workspace root`, paths: [] }
+        }
+      } catch {
+        return { error: `❌ context_files entry "${file}" cannot be read`, paths: [] }
+      }
+    }
+    paths.push(comparablePath)
+  }
+  return { error: null, paths }
+}
+
 const ALLOWED_PHASES = ["PROPOSE", "ASSESS", "QA-PLAN", "DESIGN", "IMPLEMENT", "VERIFY", "EXPLORE", "FIX"]
+const PARALLEL_BUILD_CONCURRENCY = 3
 
 type ODFDelegateWorkflowAdvance = Omit<WorkflowAdvanceInput, "route"> & {
   work_type: WorkType
+}
+
+interface ODFDelegateArgs {
+  phase: string
+  prompt: string
+  context_files?: string[]
+  profile?: string
+  change?: string
+  timeout_ms?: number
+  attempt_id?: string
+  workflow_advance?: ODFDelegateWorkflowAdvance
+}
+
+interface DelegateExecutionOptions {
+  branch_id?: string
+  suppress_failure_receipt?: boolean
+  validation_evidence_path?: string
+  workflow_result?: ReturnType<typeof advanceWorkflow> | null
+  pre_acquired_attempt?: AcquiredAttempt | null
+}
+
+type InternalODFDelegateArgs = ODFDelegateArgs & {
+  __options?: DelegateExecutionOptions
 }
 
 const SAFE_TOKEN_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/
@@ -878,6 +931,7 @@ type AttemptLedgerStatus = "running" | "completed" | "failed"
 type AttemptLedgerResultStatus =
   | "running"
   | "delegated"
+  | "validation-failed"
   | "timeout"
   | "cancelled"
   | "empty-task-result"
@@ -886,6 +940,7 @@ type AttemptLedgerResultStatus =
 type AttemptLedgerReason =
   | "acquired"
   | "task-completed"
+  | "validation-failed"
   | "task-timeout"
   | "task-cancelled"
   | "empty-task-result"
@@ -894,6 +949,7 @@ type AttemptLedgerReason =
 
 interface AttemptLedgerRecord {
   attempt_id: string
+  branch_id?: string
   change: string
   phase: AttemptLedgerPhase
   next_stage: "BUILD" | "VERIFY"
@@ -939,6 +995,7 @@ function isAttemptLedgerRecord(value: unknown): value is AttemptLedgerRecord {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false
   const record = value as Partial<AttemptLedgerRecord>
   return isSafeToken(record.attempt_id) &&
+    (record.branch_id === undefined || isSafeToken(record.branch_id)) &&
     isSafeToken(record.change) &&
     (record.phase === "IMPLEMENT" || record.phase === "VERIFY") &&
     (record.next_stage === "BUILD" || record.next_stage === "VERIFY") &&
@@ -946,12 +1003,16 @@ function isAttemptLedgerRecord(value: unknown): value is AttemptLedgerRecord {
     isSafeTimestamp(record.started_at) &&
     isSafeTimestamp(record.updated_at) &&
     (record.settled_at === null || isSafeTimestamp(record.settled_at)) &&
-    (record.reason === "acquired" || record.reason === "task-completed" || record.reason === "task-timeout" ||
+    (record.reason === "acquired" || record.reason === "task-completed" || record.reason === "validation-failed" || record.reason === "task-timeout" ||
       record.reason === "task-cancelled" || record.reason === "empty-task-result" || record.reason === "task-error" ||
       record.reason === "task-api-unavailable") &&
-    (record.result_status === "running" || record.result_status === "delegated" || record.result_status === "timeout" ||
+    (record.result_status === "running" || record.result_status === "delegated" || record.result_status === "validation-failed" || record.result_status === "timeout" ||
       record.result_status === "cancelled" || record.result_status === "empty-task-result" || record.result_status === "error" ||
       record.result_status === "task-api-unavailable")
+}
+
+function attemptBranchId(record: AttemptLedgerRecord): string {
+  return record.branch_id || "default"
 }
 
 function readAttemptLedger(ledgerPath: string): { records: AttemptLedgerRecord[]; error?: string } {
@@ -1063,18 +1124,22 @@ function acquireAttempt(opts: {
   phase: AttemptLedgerPhase
   nextStage: "BUILD" | "VERIFY"
   attemptId: string
+  branchId?: string
 }): AttemptAcquisitionResult {
   const ledgerPath = attemptLedgerPath(opts.workspaceDir, opts.change)
+  const branchId = opts.branchId || "default"
   const result = withAttemptLedgerLock<AttemptAcquisitionResult>(ledgerPath, (): AttemptAcquisitionResult => {
     const ledger = readAttemptLedger(ledgerPath)
     if (ledger.error) {
       return { acquired: false, reason: ledger.error, message: "The attempt ledger could not be read safely." }
     }
-    if (ledger.records.some(record => record.attempt_id === opts.attemptId)) {
-      return { acquired: false, reason: "attempt-id-reused", message: "The attempt_id was already used for this change." }
+    if (ledger.records.some(record => attemptBranchId(record) === branchId && record.attempt_id === opts.attemptId)) {
+      return { acquired: false, reason: "attempt-id-reused", message: "The attempt_id was already used for this branch." }
     }
 
-    const latestPhaseRecord = ledger.records.filter(record => record.phase === opts.phase).at(-1)
+    const latestPhaseRecord = ledger.records
+      .filter(record => attemptBranchId(record) === branchId && record.phase === opts.phase)
+      .at(-1)
     if (latestPhaseRecord?.status === "running") {
       return { acquired: false, reason: "attempt-phase-running", message: `A ${opts.phase} attempt is already running.` }
     }
@@ -1085,6 +1150,7 @@ function acquireAttempt(opts: {
     const now = new Date().toISOString()
     const record: AttemptLedgerRecord = {
       attempt_id: opts.attemptId,
+      branch_id: branchId,
       change: opts.change,
       phase: opts.phase,
       next_stage: opts.nextStage,
@@ -1421,6 +1487,11 @@ export interface ValidationVerdict {
 
 const EVIDENCE_FRESHNESS_MS = 60 * 60 * 1000 // 60 min window
 
+function validationEvidenceRelativePath(change: string, branchId?: string): string {
+  const suffix = branchId ? `-${branchId}` : ""
+  return path.join(".odf", `validation-evidence-${change}${suffix}.json`)
+}
+
 /** Minimum evidence commands required per risk tier. */
 const EVIDENCE_MIN_COMMANDS: Record<"LOW" | "MEDIUM" | "HIGH", number> = {
   LOW: 1,
@@ -1456,10 +1527,18 @@ export function validateValidationEvidence(opts: {
   change: string
   tier: "LOW" | "MEDIUM" | "HIGH"
   frozenDiffRef: string | null
+  evidencePath?: string
   now?: Date
 }): ValidationVerdict {
   const now = opts.now || new Date()
-  const filePath = path.join(opts.workspaceDir, ".odf", `validation-evidence-${opts.change}.json`)
+  const evidencePath = opts.evidencePath || validationEvidenceRelativePath(opts.change)
+  if (path.isAbsolute(evidencePath) || evidencePath.split(/[\\/]/).includes("..")) {
+    return { status: "invalid", reason: "validation-evidence path is unsafe", commands_validated: 0 }
+  }
+  const filePath = path.resolve(opts.workspaceDir, evidencePath)
+  if (!isWithinRoot(filePath, path.resolve(opts.workspaceDir))) {
+    return { status: "invalid", reason: "validation-evidence path escapes workspace root", commands_validated: 0 }
+  }
 
   let raw: string
   try {
@@ -1546,6 +1625,12 @@ export interface ODFReceipt {
   review_gate: { attempts_used: number; budget_lines: number | null; verdict: "FAIL" | "PASS" | "PASS_WITH_WARNINGS" } | null
   frozen_diff_ref: string | null
   resolved_at: string
+  parallel?: {
+    branch_ids: string[]
+    summaries: Record<string, string>
+    attempt_ledger_refs: string[]
+    validation_evidence_refs: string[]
+  }
 }
 
 export function saveReceiptJson(workspaceDir: string, receipt: ODFReceipt): void {
@@ -1725,7 +1810,11 @@ frozen diff ref). The gate documents — the sub-agent applies, never recomputes
 // TOOL CREATORS
 // ==========================================
 
-function createODFDelegate(client?: OpencodeClient, canonicalDirectory?: string): ReturnType<typeof tool> {
+function createODFDelegate(
+  client?: OpencodeClient,
+  canonicalDirectory?: string,
+  defaultExecutionOptions: DelegateExecutionOptions = {},
+): ReturnType<typeof tool> {
   return tool({
     description: `Delegate an ODF task to the appropriate phase-specific agent.
 
@@ -1804,9 +1893,14 @@ Use this instead of generic task() for ODF workflow delegation.`,
         .optional()
         .describe("Optional machine-checked transition proof for canonical BUILD/VERIFY starts"),
     },
-    async execute(args: { phase: string; prompt: string; context_files?: string[]; profile?: string; change?: string; timeout_ms?: number; attempt_id?: string; workflow_advance?: ODFDelegateWorkflowAdvance }, toolCtx: ToolContext): Promise<string> {
+    async execute(args: InternalODFDelegateArgs, toolCtx: ToolContext): Promise<string> {
       if (!toolCtx?.sessionID) {
         return "❌ odf_delegate requires sessionID"
+      }
+
+      const executionOptions: DelegateExecutionOptions = {
+        ...defaultExecutionOptions,
+        ...(args.__options || {}),
       }
 
       if (!ALLOWED_PHASES.includes(args.phase)) {
@@ -1845,7 +1939,7 @@ Use this instead of generic task() for ODF workflow delegation.`,
         }, null, 2)
       }
 
-      let workflowResult: ReturnType<typeof advanceWorkflow> | null = null
+      let workflowResult: ReturnType<typeof advanceWorkflow> | null = executionOptions.workflow_result || null
       if (args.workflow_advance) {
 
         const { work_type, ...advanceInput } = args.workflow_advance
@@ -1912,8 +2006,8 @@ Use this instead of generic task() for ODF workflow delegation.`,
         }, null, 2)
       }
 
-      let acquiredAttempt: AcquiredAttempt | null = null
-      if (gatedPhase && args.workflow_advance) {
+      let acquiredAttempt: AcquiredAttempt | null = executionOptions.pre_acquired_attempt || null
+      if (gatedPhase && args.workflow_advance && !acquiredAttempt) {
         if (!isSafeToken(changeName)) {
           return blockWorkflow(
             "unsafe-change-name",
@@ -1930,28 +2024,8 @@ Use this instead of generic task() for ODF workflow delegation.`,
         }
       }
 
-      // Validate context_files against the repository root, not a nested cwd.
-      for (const file of args.context_files || []) {
-        if (typeof file !== "string" || file.split(/[\\/]/).includes("..")) {
-          return `❌ context_files entry "${file}" contains path traversal`
-        }
-        const resolvedFile = path.resolve(workspaceRoot, file)
-        if (!isWithinRoot(resolvedFile, workspaceRoot)) {
-          return `❌ context_files entry "${file}" escapes workspace root`
-        }
-        if (fsSync.existsSync(resolvedFile)) {
-          try {
-            if (!fsSync.statSync(resolvedFile).isFile()) {
-              return `❌ context_files entry "${file}" is not a file`
-            }
-            if (!isWithinRoot(fsSync.realpathSync(resolvedFile), workspaceRoot)) {
-              return `❌ context_files entry "${file}" escapes workspace root`
-            }
-          } catch {
-            return `❌ context_files entry "${file}" cannot be read`
-          }
-        }
-      }
+      const contextValidation = validateContextFiles(workspaceRoot, args.context_files || [])
+      if (contextValidation.error) return contextValidation.error
 
       const registry = await loadRegistry()
       if (!registry) {
@@ -1983,7 +2057,7 @@ Use this instead of generic task() for ODF workflow delegation.`,
       const profileBlock = profile ? formatProfileBlock(profile, args.phase) : ""
       console.log(`[odf-delegation] odf_delegate: phase=${args.phase} agent=${agentName} skills=${skills.length} version=${odooVersion || "auto"} profile=${profile?.name || "default"}`)
 
-      if (gatedPhase && args.workflow_advance) {
+      if (gatedPhase && args.workflow_advance && !acquiredAttempt) {
         const expectedStage: "BUILD" | "VERIFY" = args.phase === "IMPLEMENT" ? "BUILD" : "VERIFY"
         const acquisition = acquireAttempt({
           workspaceDir: workspaceRoot,
@@ -1991,6 +2065,7 @@ Use this instead of generic task() for ODF workflow delegation.`,
           phase: args.phase as AttemptLedgerPhase,
           nextStage: expectedStage,
           attemptId: args.attempt_id!,
+          branchId: executionOptions.branch_id,
         })
         if (!acquisition.acquired) {
           return blockWorkflow(acquisition.reason, acquisition.message, workflowResult!)
@@ -2032,7 +2107,30 @@ Use this instead of generic task() for ODF workflow delegation.`,
         try {
           const timeoutMs = args.timeout_ms ?? 120_000
           const taskResult = await invokeTask(taskApiInfo.taskApi, agentName, delegationPrompt, args.context_files, timeoutMs)
-          if (acquiredAttempt) settleAttempt(acquiredAttempt, "completed", "delegated", "task-completed")
+          // Stop-validation seal (slice 2): after an IMPLEMENT delegation, stamp
+          // the envelope with the deterministic evidence verdict. The sub-agent
+          // executes the commands and writes the configured evidence path (the
+          // legacy change path for sequential calls, branch-specific in parallel);
+          // this plugin only validates the artifact — prose never counts.
+          let validation: ValidationVerdict | null = null
+          if (args.phase === "IMPLEMENT" && policyGate) {
+            validation = validateValidationEvidence({
+              workspaceDir: workspaceRoot,
+              change: policyGate.change,
+              tier: policyGate.risk_tier,
+              frozenDiffRef: policyGate.frozen_diff_ref,
+              evidencePath: executionOptions.validation_evidence_path,
+            })
+          }
+          const validationFailed = args.phase === "IMPLEMENT" && policyGate !== null && validation?.status !== "verified"
+          if (acquiredAttempt) {
+            settleAttempt(
+              acquiredAttempt,
+              validationFailed ? "failed" : "completed",
+              validationFailed ? "validation-failed" : "delegated",
+              validationFailed ? "validation-failed" : "task-completed",
+            )
+          }
           recordMetrics({
             timestamp: new Date().toISOString(),
             session_id: toolCtx.sessionID,
@@ -2045,19 +2143,6 @@ Use this instead of generic task() for ODF workflow delegation.`,
             status: "ok",
             task_api_source: taskApiInfo.source,
           })
-          // Stop-validation seal (slice 2): after an IMPLEMENT delegation, stamp
-          // the envelope with the deterministic evidence verdict. The sub-agent
-          // executes the commands and writes validation-evidence-{change}.json;
-          // this plugin only validates the artifact — prose never counts.
-          let validation: ValidationVerdict | null = null
-          if (args.phase === "IMPLEMENT" && policyGate) {
-            validation = validateValidationEvidence({
-              workspaceDir: workspaceRoot,
-              change: policyGate.change,
-              tier: policyGate.risk_tier,
-              frozenDiffRef: policyGate.frozen_diff_ref,
-            })
-          }
           return JSON.stringify({
             status: "delegated",
             phase: args.phase,
@@ -2110,7 +2195,7 @@ Use this instead of generic task() for ODF workflow delegation.`,
           })
           // Receipt auto-seal (slice 4): persist a failure disposition so the
           // learning loop does not depend on orchestrator memory. Best-effort.
-          if (policyGate) {
+          if (policyGate && !executionOptions.suppress_failure_receipt) {
             const receipt: ODFReceipt = {
               change: policyGate.change,
               phase: args.phase as ODFReceipt["phase"],
@@ -2175,6 +2260,370 @@ Use this instead of generic task() for ODF workflow delegation.`,
         result: null,
         message,
       }, null, 2)
+    },
+  })
+}
+
+interface ParallelBranchDescriptor {
+  branch_id: string
+  attempt_id: string
+  prompt: string
+  context_files?: string[]
+  timeout_ms?: number
+}
+
+interface ParallelBranchOutcome {
+  branch_id: string
+  attempt_id: string
+  status: string
+  result_status: string | null
+  successful: boolean
+  validation: ValidationVerdict | null
+  validation_verified: boolean
+  validation_evidence_ref: string
+  summary: string
+  attempt_ledger_ref: string
+  policy_gate: PolicyGateDecision | null
+}
+
+const PARALLEL_SUCCESS_STATUSES = new Set([
+  "ok",
+  "warning",
+  "success",
+  "successful",
+  "verified",
+  "complete",
+  "completed",
+  "pass",
+  "passed",
+])
+
+function boundedSummary(value: unknown): string {
+  let summary = typeof value === "string" ? value : ""
+  if (!summary && value !== undefined && value !== null) {
+    try { summary = JSON.stringify(value) } catch { summary = String(value) }
+  }
+  summary = summary.replace(/\s+/g, " ").trim()
+  return summary.length > 200 ? `${summary.slice(0, 197)}...` : summary
+}
+
+function parseDelegateEnvelope(output: string): Record<string, unknown> {
+  try {
+    const parsed: unknown = JSON.parse(output)
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) return parsed as Record<string, unknown>
+  } catch {
+    // Keep the bounded fallback envelope below.
+  }
+  return { status: "error", message: boundedSummary(output) || "parallel branch returned no envelope" }
+}
+
+function makeParallelOutcome(
+  change: string,
+  descriptor: ParallelBranchDescriptor,
+  output: string,
+  attempt: AcquiredAttempt,
+  workspaceRoot: string,
+): ParallelBranchOutcome {
+  const envelope = parseDelegateEnvelope(output)
+  const validation = envelope.validation && typeof envelope.validation === "object" && !Array.isArray(envelope.validation)
+    ? envelope.validation as ValidationVerdict
+    : null
+  const result = envelope.result && typeof envelope.result === "object" ? envelope.result as Record<string, unknown> : null
+  const resultStatus = typeof result?.status === "string" ? result.status.toLowerCase() : null
+  const successful = envelope.status === "delegated" &&
+    (resultStatus === null || PARALLEL_SUCCESS_STATUSES.has(resultStatus))
+  const summary = boundedSummary(envelope.message) ||
+    boundedSummary(envelope.reason) ||
+    boundedSummary(result?.executive_summary) ||
+    boundedSummary(result?.message) ||
+    boundedSummary(envelope.status) ||
+    "parallel branch returned no summary"
+  return {
+    branch_id: descriptor.branch_id,
+    attempt_id: descriptor.attempt_id,
+    status: typeof envelope.status === "string" ? envelope.status : "error",
+    result_status: resultStatus,
+    successful,
+    validation,
+    validation_verified: validation?.status === "verified",
+    validation_evidence_ref: validationEvidenceRelativePath(change, descriptor.branch_id),
+    summary,
+    attempt_ledger_ref: path.relative(workspaceRoot, attempt.ledgerPath),
+    policy_gate: envelope.policy_gate && typeof envelope.policy_gate === "object"
+      ? envelope.policy_gate as PolicyGateDecision
+      : null,
+  }
+}
+
+function parallelReceipt(
+  workspaceRoot: string,
+  change: string,
+  outcomes: ParallelBranchOutcome[],
+): ODFReceipt {
+  const summaries = Object.fromEntries(outcomes.map(outcome => [outcome.branch_id, outcome.summary]))
+  const validationEvidenceRefs = Array.from(new Set(outcomes.map(outcome => outcome.validation_evidence_ref)))
+  const refs = Array.from(new Set([
+    path.join(".odf", `attempt-ledger-${change}.jsonl`),
+    ...validationEvidenceRefs,
+    ...outcomes.map(outcome => outcome.policy_gate ? path.join(".odf", `policy-gate-${change}.json`) : ""),
+  ].filter(Boolean)))
+  const validationFailed = outcomes.some(outcome => outcome.successful && !outcome.validation_verified)
+  const timedOut = outcomes.some(outcome => outcome.status === "timeout")
+  const summary = boundedSummary(
+    `Parallel BUILD blocked: ${outcomes.map(outcome => `${outcome.branch_id}: ${outcome.summary}`).join("; ")}`,
+  )
+  const firstPolicyGate = outcomes.find(outcome => outcome.policy_gate)?.policy_gate || null
+  return {
+    change,
+    phase: "IMPLEMENT",
+    status: "blocked",
+    cause: validationFailed ? "validation-failed" : timedOut ? "timeout" : "error",
+    evidence: {
+      summary,
+      frozen_diff_ref: firstPolicyGate?.frozen_diff_ref || gitHead(workspaceRoot),
+      failing: outcomes
+        .filter(outcome => !outcome.successful || !outcome.validation_verified)
+        .map(outcome => outcome.branch_id),
+      refs,
+    },
+    action: null,
+    review_gate: null,
+    frozen_diff_ref: firstPolicyGate?.frozen_diff_ref || gitHead(workspaceRoot),
+    resolved_at: new Date().toISOString(),
+    parallel: {
+      branch_ids: outcomes.map(outcome => outcome.branch_id),
+      summaries,
+      attempt_ledger_refs: Array.from(new Set(outcomes.map(outcome => outcome.attempt_ledger_ref))),
+      validation_evidence_refs: validationEvidenceRefs,
+    },
+  }
+}
+
+function createODFParallelDelegate(client?: OpencodeClient, canonicalDirectory?: string): ReturnType<typeof tool> {
+  return tool({
+    description: `Run a bounded cross-domain IMPLEMENT BUILD with 2-3 independent branches.
+
+The shared workflow_advance proof must advance cross-domain to BUILD. Branch context files
+must not overlap. VERIFY remains sequential after the aggregate join is complete.`,
+    args: {
+      work_type: tool.schema
+        .enum(["cross-domain"])
+        .describe("Only cross-domain work can use the parallel BUILD scheduler"),
+      phase: tool.schema
+        .enum(["IMPLEMENT"])
+        .describe("Only IMPLEMENT is parallelized; VERIFY remains sequential"),
+      change: tool.schema
+        .string()
+        .describe("Shared change name (kebab-case)"),
+      workflow_advance: tool.schema
+        .object({
+          work_type: tool.schema.enum(["cross-domain"]),
+          completed_stages: tool.schema.array(tool.schema.enum(["DECIDE", "PLAN", "BUILD", "VERIFY"])),
+          candidate_stage: tool.schema.enum(["DECIDE", "PLAN", "BUILD", "VERIFY"]).nullable(),
+          phase_result_status: tool.schema.enum(["ok", "warning", "blocked", "failed"]),
+          validation_status: tool.schema.enum(["verified", "missing", "invalid", "not-required"]),
+          receipt_state: tool.schema.enum(["none", "pending", "resolved"]),
+          resumable_state: tool.schema.boolean(),
+          archived_state: tool.schema.boolean(),
+        })
+        .describe("Exact shared transition proof; it must advance to BUILD"),
+      branches: tool.schema
+        .array(tool.schema.object({
+          branch_id: tool.schema.string().describe("Unique safe branch identifier"),
+          attempt_id: tool.schema.string().describe("Fresh safe attempt identifier"),
+          prompt: tool.schema.string().describe("Full branch prompt"),
+          context_files: tool.schema.array(tool.schema.string()).optional().describe("Non-overlapping branch context files"),
+          timeout_ms: tool.schema.number().optional().describe("Optional branch task timeout in milliseconds"),
+        }))
+        .describe("Two or three independent branch descriptors"),
+    },
+    async execute(args: {
+      work_type: "cross-domain"
+      phase: "IMPLEMENT"
+      change: string
+      workflow_advance: ODFDelegateWorkflowAdvance
+      branches: ParallelBranchDescriptor[]
+    }, toolCtx: ToolContext): Promise<string> {
+      const expected = Array.isArray(args.branches) ? args.branches.length : 0
+      const blocked = (reason: string, message: string, outcomes: ParallelBranchOutcome[] = [], receipt: ODFReceipt | null = null): string => {
+        const completed = outcomes.filter(outcome => outcome.successful).length
+        const failed = outcomes.length - completed
+        return JSON.stringify({
+          status: "blocked",
+          work_type: args.work_type,
+          phase: args.phase,
+          reason,
+          message,
+          branches: outcomes,
+          join: {
+           status: "blocked",
+            expected,
+            completed,
+            failed,
+            validation_verified: outcomes.length === expected && outcomes.every(outcome => outcome.successful && outcome.validation_verified),
+            evidence_refs: Array.from(new Set(outcomes.map(outcome => outcome.validation_evidence_ref))),
+          },
+          receipt: receipt ? { status: receipt.status, ref: path.join(".odf", `receipt-${args.change}.json`) } : null,
+        }, null, 2)
+      }
+
+      if (!toolCtx?.sessionID) return blocked("session-required", "odf_parallel_delegate requires sessionID")
+      if (args.work_type !== "cross-domain") return blocked("parallel-work-type-unsupported", "Only cross-domain work can use the parallel BUILD scheduler.")
+      if (args.phase !== "IMPLEMENT") return blocked("parallel-phase-unsupported", "Only IMPLEMENT can use the parallel BUILD scheduler; VERIFY remains sequential.")
+      if (!isSafeToken(args.change)) return blocked("unsafe-change-name", "The shared change name must be a safe token.")
+      if (!Array.isArray(args.branches) || args.branches.length < 2 || args.branches.length > PARALLEL_BUILD_CONCURRENCY) {
+        return blocked("parallel-branch-count", `The parallel BUILD scheduler requires 2-${PARALLEL_BUILD_CONCURRENCY} branches.`)
+      }
+      if (!args.workflow_advance || args.workflow_advance.work_type !== "cross-domain") {
+        return blocked("parallel-workflow-proof-mismatch", "The workflow_advance proof must use work_type cross-domain.")
+      }
+
+      const workflowResult = advanceWorkflow({
+        route: resolveWorkflowRoute("cross-domain"),
+        ...args.workflow_advance,
+      })
+      if (workflowResult.status !== "advanced") {
+        return blocked(
+          workflowResult.status === "complete" ? "workflow-complete" : "workflow-advance-blocked",
+          workflowResult.reason,
+        )
+      }
+      if (workflowResult.next_stage !== "BUILD") {
+        return blocked(
+          "workflow-phase-mismatch",
+          `Workflow next_stage ${workflowResult.next_stage || "none"} does not match IMPLEMENT; expected BUILD.`,
+        )
+      }
+
+      const workspaceRoot = resolveWorkspaceRoot(canonicalDirectory || process.cwd())
+      const seenBranches = new Set<string>()
+      const seenAttempts = new Set<string>()
+      const seenPaths = new Map<string, string>()
+      for (const branch of args.branches) {
+        if (!isSafeToken(branch.branch_id)) return blocked("unsafe-branch-id", "Every branch_id must be a safe token.")
+        if (seenBranches.has(branch.branch_id)) return blocked("duplicate-branch-id", `The branch_id "${branch.branch_id}" is duplicated.`)
+        seenBranches.add(branch.branch_id)
+        if (!isSafeToken(branch.attempt_id)) return blocked("unsafe-attempt-id", `Branch "${branch.branch_id}" requires a fresh safe attempt_id.`)
+        if (seenAttempts.has(branch.attempt_id)) return blocked("duplicate-attempt-id", `The attempt_id "${branch.attempt_id}" is duplicated.`)
+        seenAttempts.add(branch.attempt_id)
+        const contextValidation = validateContextFiles(workspaceRoot, branch.context_files || [])
+        if (contextValidation.error) return blocked("invalid-context-files", contextValidation.error)
+        for (const contextPath of contextValidation.paths) {
+          const owner = seenPaths.get(contextPath)
+          if (owner && owner !== branch.branch_id) {
+            return blocked("overlapping-context-paths", `Branches "${owner}" and "${branch.branch_id}" share context path "${contextPath}".`)
+          }
+          seenPaths.set(contextPath, branch.branch_id)
+        }
+      }
+
+      const registry = await loadRegistry()
+      if (!registry) return blocked("registry-unavailable", `ODF registry not found. Run /odf-init or check ${REGISTRY_PATH}`)
+
+      const acquired = new Map<string, AcquiredAttempt>()
+      for (const branch of args.branches) {
+        const acquisition = acquireAttempt({
+          workspaceDir: workspaceRoot,
+          change: args.change,
+          phase: "IMPLEMENT",
+          nextStage: "BUILD",
+          attemptId: branch.attempt_id,
+          branchId: branch.branch_id,
+        })
+        if (!acquisition.acquired) {
+          for (const handle of acquired.values()) settleAttempt(handle, "failed", "error", "task-error")
+          const ledgerRef = path.relative(workspaceRoot, attemptLedgerPath(workspaceRoot, args.change))
+          const outcomes: ParallelBranchOutcome[] = args.branches.map(branch => ({
+            branch_id: branch.branch_id,
+            attempt_id: branch.attempt_id,
+            status: "blocked",
+            result_status: null,
+            successful: false,
+            validation: null,
+            validation_verified: false,
+            validation_evidence_ref: validationEvidenceRelativePath(args.change, branch.branch_id),
+            summary: `${acquisition.reason}: ${acquisition.message}`,
+            attempt_ledger_ref: ledgerRef,
+            policy_gate: null,
+          }))
+          const receipt = parallelReceipt(workspaceRoot, args.change, outcomes)
+          mergeReceipt(workspaceRoot, receipt)
+          return blocked(acquisition.reason, acquisition.message, outcomes, receipt)
+        }
+        acquired.set(branch.branch_id, acquisition.handle)
+      }
+
+      const outcomes: ParallelBranchOutcome[] = new Array(args.branches.length)
+      let nextIndex = 0
+      const worker = async (): Promise<void> => {
+        while (true) {
+          const index = nextIndex++
+          if (index >= args.branches.length) return
+          const branch = args.branches[index]
+          const validationEvidenceRef = validationEvidenceRelativePath(args.change, branch.branch_id)
+          try {
+            const output = await createODFDelegate(client, canonicalDirectory, {
+              branch_id: branch.branch_id,
+              suppress_failure_receipt: true,
+              validation_evidence_path: validationEvidenceRef,
+              workflow_result: workflowResult,
+              pre_acquired_attempt: acquired.get(branch.branch_id),
+            }).execute({
+              phase: "IMPLEMENT",
+              prompt: `${branch.prompt}\n\nStop-validation evidence: write \`${validationEvidenceRef}\`.`,
+              context_files: branch.context_files,
+              change: args.change,
+              timeout_ms: branch.timeout_ms,
+              attempt_id: branch.attempt_id,
+              workflow_advance: args.workflow_advance,
+            }, toolCtx)
+            outcomes[index] = makeParallelOutcome(args.change, branch, output as string, acquired.get(branch.branch_id)!, workspaceRoot)
+          } catch (error) {
+            const message = error instanceof Error ? error.message : String(error)
+            settleAttempt(acquired.get(branch.branch_id)!, "failed", "error", "task-error")
+            outcomes[index] = makeParallelOutcome(
+              args.change,
+              branch,
+              JSON.stringify({ status: "error", message }),
+              acquired.get(branch.branch_id)!,
+              workspaceRoot,
+            )
+          }
+        }
+      }
+
+      await Promise.allSettled(Array.from({ length: Math.min(PARALLEL_BUILD_CONCURRENCY, args.branches.length) }, () => worker()))
+
+      const completed = outcomes.filter(outcome => outcome.successful).length
+      const failed = outcomes.length - completed
+      const validationVerified = outcomes.every(outcome => outcome.successful && outcome.validation_verified)
+      const joinComplete = completed === args.branches.length && failed === 0 && validationVerified
+      if (joinComplete) {
+        return JSON.stringify({
+          status: "parallel-delegated",
+          work_type: "cross-domain",
+          phase: "IMPLEMENT",
+          branches: outcomes,
+          join: {
+            status: "complete",
+            expected: args.branches.length,
+            completed,
+            failed,
+            validation_verified: true,
+            evidence_refs: Array.from(new Set(outcomes.map(outcome => outcome.validation_evidence_ref))),
+          },
+          receipt: null,
+        }, null, 2)
+      }
+
+      const receipt = parallelReceipt(workspaceRoot, args.change, outcomes)
+      mergeReceipt(workspaceRoot, receipt)
+      return blocked(
+        failed > 0 ? "parallel-branch-failed" : "parallel-validation-incomplete",
+        failed > 0 ? "At least one parallel BUILD branch failed." : "Every parallel BUILD branch must return verified validation before BUILD can close.",
+        outcomes,
+        receipt,
+      )
     },
   })
 }
@@ -3227,6 +3676,7 @@ function createODFWorkflowAdvance(): ReturnType<typeof tool> {
 ## Tools
 
 - \`odf_delegate\`: phase delegation with skill injection and metrics
+- \`odf_parallel_delegate\`: bounded cross-domain IMPLEMENT BUILD with branch-aware join
 - \`odf_workflow_route\`: read-only canonical route selection by work type
 - \`odf_workflow_advance\`: read-only canonical transition validation and next-stage calculation
 - \`odf_workflow_bind\`: explicit OpenSpec-only route binding; never persists to Engram
@@ -3320,11 +3770,12 @@ export const OdfDelegationPlugin: Plugin = async (ctx) => {
     console.log(`[odf-delegation] Health: ${healthChecks.join(", ")}`)
   }
 
-  console.log(`[odf-delegation] Plugin loaded. Tools: odf_delegate, odf_workflow_route, odf_workflow_advance, odf_workflow_bind, odf_skill_inject, odf_registry_read, odf_notebooklm_lookup, odf_profile_select, odf_skill_resolve, odf_community_tool_detect, odf_community_tool_install, odf_status, odf_workflow_status, odf_policy_gate, odf_receipt`)
+  console.log(`[odf-delegation] Plugin loaded. Tools: odf_delegate, odf_parallel_delegate, odf_workflow_route, odf_workflow_advance, odf_workflow_bind, odf_skill_inject, odf_registry_read, odf_notebooklm_lookup, odf_profile_select, odf_skill_resolve, odf_community_tool_detect, odf_community_tool_install, odf_status, odf_workflow_status, odf_policy_gate, odf_receipt`)
 
   return {
     tool: {
       odf_delegate: createODFDelegate(client, directory),
+      odf_parallel_delegate: createODFParallelDelegate(client, directory),
       odf_workflow_route: createODFWorkflowRoute(),
       odf_workflow_advance: createODFWorkflowAdvance(),
       odf_workflow_bind: createODFWorkflowBind(),
@@ -3361,6 +3812,7 @@ export {
   invokeTask,
   findTaskApi,
   createODFDelegate,
+  createODFParallelDelegate,
   createODFWorkflowRoute,
   createODFWorkflowAdvance,
   createODFWorkflowBind,
