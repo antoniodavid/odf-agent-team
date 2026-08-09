@@ -1,3 +1,5 @@
+
+
 # ODF Agent Team
 
 > Tu equipo de desarrollo Odoo con IA — skills, agentes y workflow OCA-compliant para OpenCode.
@@ -44,7 +46,7 @@ Variables de entorno útiles:
 | **Comandos nativos** | 4 | `/odf-new`, `/odf-continue`, `/odf-status`, `/odf-explore` registrados en el orchestrator |
 | **Plugin** | 1 | `odf-delegation.ts` — delegación real vía `task()`, inyección de skills, métricas y bloqueos seguros |
 | **Perfiles** | 2 | `default` (deepseek-r1 + kimi-k2.6), `cheap` (kimi-k2.6 todas las fases) |
-| **Tests** | 307 | 188 unit tests (Vitest) + 119 aserciones de escenarios YAML |
+| **Tests** | 210 | 92 unit tests (Vitest) + 118 aserciones de escenarios YAML |
 
 ## Uso Rápido
 
