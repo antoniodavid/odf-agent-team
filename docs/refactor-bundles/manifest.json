@@ -1,0 +1,31 @@
+{
+  "name": "odf-agent-team-work-units",
+  "generated_from": "refactored source (HEAD b3f03db -> roadmap state 3980968)",
+  "note": "Regenerated after OS cleanup deleted the original bundles. Original 01-10 / 07a / 07b bundles were a full roadmap split; only the seam slices could be rebuilt from the surviving source.",
+  "units": [
+    {
+      "file": "07a-proof-backed-lifecycle-core.patch",
+      "label": "07a",
+      "title": "Proof-backed transition lifecycle core",
+      "lines_added": 822,
+      "files": ["plugins/odf-delegation.ts", "plugins/odf-delegation.test.ts"],
+      "owns": ["commitWorkflowTransition", "resolveProofBackedLifecycle", "ProofBackedLifecycleInput", "withWorkflowLock", "inspectPersistedTransition", "readSelectedWorkflowState", "writeOpenSpecWorkflowState", "writeEngramWorkflowState", "workflowStateSignals", "selectedVerificationEvidence"]
+    },
+    {
+      "file": "07b-proof-backed-delegation-wiring.patch",
+      "label": "07b",
+      "title": "Delegation wiring through the lifecycle seam",
+      "lines_added": 364,
+      "files": ["plugins/odf-delegation.ts", "plugins/odf-delegation.test.ts"],
+      "owns": ["sequential call site ~2778-2812", "parallel resume aggregate ~3427-3448", "parallel join-complete aggregate ~3653-3678", "settleProofFailure wiring", "integration tests"]
+    }
+  ],
+  "excluded_from_seam_units": ["receipt helpers (readReceiptFile, readReceiptJson, persistWorkflowFailureReceipt)", "status/reporting code", "metrics", "parallel-join plugin", "workflow-status", "docs"],
+  "validation": {
+    "base_state": "fa08f7d (b3f03db + non-seam roadmap)",
+    "intermediate_state": "45b826e (core, no wiring)",
+    "final_state": "3980968 (full roadmap)",
+    "roundtrip": "git diff 3980968 <apply(07a;07b)@base> == empty"
+  },
+  "full_diff": "current-full.patch"
+}

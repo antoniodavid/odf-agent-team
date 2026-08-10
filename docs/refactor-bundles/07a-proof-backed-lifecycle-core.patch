@@ -1,0 +1,844 @@
+diff --git a/plugins/odf-delegation.test.ts b/plugins/odf-delegation.test.ts
+index aa6b2e5..5e22351 100644
+--- a/plugins/odf-delegation.test.ts
++++ b/plugins/odf-delegation.test.ts
+@@ -1827,6 +1827,197 @@ describe("createODFDelegate", () => {
+       completed_canonical_stages: ["DECIDE", "PLAN", "BUILD"],
+       preflight: { solution_strategy: "custom" },
+       unrelated: "keep-me",
++    })
++    expect(committed).toContain("# keep this comment")
++    expect((await fs.readdir(changeDir)).filter(name => name.includes(".tmp"))).toEqual([])
++
++    const second = await commitWorkflowTransition(input)
++    expect(second).toMatchObject({
++      status: "already-committed",
++      state_ref: `openspec/changes/${change}/state.yaml`,
++      canonical_stage: "BUILD",
++      completed_stages: ["DECIDE", "PLAN", "BUILD"],
++    })
++    expect(await fs.readFile(statePath, "utf8")).toBe(committed)
++  })
++
++  it("commits VERIFY as VERIFY only when selected-store evidence and the inner result pass", async () => {
++    const change = "direct-verify-commit"
++    const changeDir = path.join(tempHome, "openspec", "changes", change)
++    await fs.mkdir(changeDir, { recursive: true })
++    await fs.writeFile(path.join(changeDir, "state.yaml"), [
++      "work_type: feature",
++      "canonical_stage: VERIFY",
++      "completed_canonical_stages: [DECIDE, PLAN, BUILD]",
++      "resumable: true",
++      "",
++    ].join("\n"), "utf8")
++    await fs.writeFile(path.join(changeDir, "verify.yaml"), "status: passed\n", "utf8")
++    const proof = workflowAdvance("VERIFY")
++    const recomputed = advanceWorkflow({ route: resolveWorkflowRoute(proof.work_type), ...proof })
++
++    const result = await commitWorkflowTransition({
++      workspaceRoot: tempHome,
++      changeName: change,
++      artifactStore: "openspec",
++      proof,
++      expectedStage: "VERIFY",
++      callerResult: recomputed,
++      phaseResultStatus: "ok",
++      validationStatus: "verified",
++      validation: null,
++    })
++
++    expect(result).toMatchObject({
++      status: "committed",
++      state_ref: `openspec/changes/${change}/state.yaml`,
++      canonical_stage: "VERIFY",
++      completed_stages: ["DECIDE", "PLAN", "BUILD", "VERIFY"],
++      validation: { status: "verified" },
++    })
++    expect(YAML.parse(await fs.readFile(path.join(changeDir, "state.yaml"), "utf8"))).toMatchObject({
++      canonical_stage: "VERIFY",
++      completed_canonical_stages: ["DECIDE", "PLAN", "BUILD", "VERIFY"],
++    })
++  })
++
++  it("returns typed lifecycle outcomes without recording cross-boundary side effects", async () => {
++    const { clearMetricsBuffer, getMetricsBuffer } = await import("./odf-delegation.js")
++    clearMetricsBuffer()
++    const change = "lifecycle-seam"
++    await prepareWorkflowState(change, "IMPLEMENT")
++    const proof = workflowAdvance("IMPLEMENT")
++    const callerResult = advanceWorkflow({ route: resolveWorkflowRoute(proof.work_type), ...proof })
++    const input = {
++      workspaceRoot: tempHome,
++      changeName: change,
++      artifactStore: "openspec" as const,
++      proof,
++      expectedStage: "BUILD" as const,
++      callerResult,
++      innerResultStatus: "ok" as const,
++      validationStatus: "verified" as const,
++      validation: { status: "verified" as const, reason: "focused test evidence", commands_validated: 2 },
++    }
++
++    const committed = await resolveProofBackedLifecycle(input)
++    expect(committed).toMatchObject({
++      status: "committed",
++      reason: "committed",
++      state_ref: `openspec/changes/${change}/state.yaml`,
++    })
++    expect(committed).not.toHaveProperty("receipt")
++    expect(committed).not.toHaveProperty("result")
++    expect(committed).not.toHaveProperty("task_api_source")
++    expect(getMetricsBuffer()).toEqual([])
++    expect(fsSync.existsSync(path.join(tempHome, ".odf", `receipt-${change}.json`))).toBe(false)
++    expect(fsSync.existsSync(path.join(tempHome, ".odf", `attempt-ledger-${change}.jsonl`))).toBe(false)
++
++    const alreadyCommitted = await resolveProofBackedLifecycle(input)
++    expect(alreadyCommitted).toMatchObject({
++      status: "already-committed",
++      reason: "already-committed",
++      state_ref: `openspec/changes/${change}/state.yaml`,
++    })
++    expect(getMetricsBuffer()).toEqual([])
++  })
++
++  it("blocks invalid inner results and evidence without advancing state or owning receipts", async () => {
++    const { clearMetricsBuffer, getMetricsBuffer } = await import("./odf-delegation.js")
++    clearMetricsBuffer()
++    const innerChange = "lifecycle-invalid-inner"
++    const evidenceChange = "lifecycle-invalid-evidence"
++    await prepareWorkflowState(innerChange, "IMPLEMENT")
++    await prepareWorkflowState(evidenceChange, "IMPLEMENT")
++    const proof = workflowAdvance("IMPLEMENT")
++    const callerResult = advanceWorkflow({ route: resolveWorkflowRoute(proof.work_type), ...proof })
++    const base = {
++      workspaceRoot: tempHome,
++      artifactStore: "openspec" as const,
++      proof,
++      expectedStage: "BUILD" as const,
++      callerResult,
++      validationStatus: "verified" as const,
++    }
++    const beforeInner = await fs.readFile(path.join(tempHome, "openspec", "changes", innerChange, "state.yaml"), "utf8")
++    const beforeEvidence = await fs.readFile(path.join(tempHome, "openspec", "changes", evidenceChange, "state.yaml"), "utf8")
++
++    const invalidInner = await resolveProofBackedLifecycle({
++      ...base,
++      changeName: innerChange,
++      innerResultStatus: "failed",
++      validation: { status: "verified", reason: "not reached", commands_validated: 2 },
++    })
++    const invalidEvidence = await resolveProofBackedLifecycle({
++      ...base,
++      changeName: evidenceChange,
++      innerResultStatus: "ok",
++      validation: { status: "missing", reason: "evidence missing", commands_validated: 0 },
++    })
++
++    expect(invalidInner).toMatchObject({ status: "blocked", reason: "inner-result-status-invalid", state_ref: `openspec/changes/${innerChange}/state.yaml` })
++    expect(invalidEvidence).toMatchObject({ status: "blocked", reason: "workflow-evidence-invalid", state_ref: `openspec/changes/${evidenceChange}/state.yaml` })
++    expect(await fs.readFile(path.join(tempHome, "openspec", "changes", innerChange, "state.yaml"), "utf8")).toBe(beforeInner)
++    expect(await fs.readFile(path.join(tempHome, "openspec", "changes", evidenceChange, "state.yaml"), "utf8")).toBe(beforeEvidence)
++    expect(getMetricsBuffer()).toEqual([])
++    for (const change of [innerChange, evidenceChange]) {
++      expect(fsSync.existsSync(path.join(tempHome, ".odf", `receipt-${change}.json`))).toBe(false)
++      expect(fsSync.existsSync(path.join(tempHome, ".odf", `attempt-ledger-${change}.jsonl`))).toBe(false)
++    }
++  })
++
++  it("blocks a stale route-prefix mismatch without changing OpenSpec", async () => {
++    const change = "direct-stale-commit"
++    const changeDir = path.join(tempHome, "openspec", "changes", change)
++    await fs.mkdir(changeDir, { recursive: true })
++    const before = "work_type: feature\ncanonical_stage: BUILD\ncompleted_canonical_stages: [DECIDE]\nresumable: true\n"
++    const statePath = path.join(changeDir, "state.yaml")
++    await fs.writeFile(statePath, before, "utf8")
++    const proof = workflowAdvance("IMPLEMENT")
++    const recomputed = advanceWorkflow({ route: resolveWorkflowRoute(proof.work_type), ...proof })
++
++    const result = await commitWorkflowTransition({
++      workspaceRoot: tempHome,
++      changeName: change,
++      artifactStore: "openspec",
++      proof,
++      expectedStage: "BUILD",
++      callerResult: recomputed,
++      phaseResultStatus: "ok",
++      validationStatus: "verified",
++      validation: { status: "verified", reason: "focused test evidence", commands_validated: 2 },
++    })
++
++    expect(result).toMatchObject({
++      status: "blocked",
++      reason: "workflow-state-stale",
++      state_ref: `openspec/changes/${change}/state.yaml`,
++      canonical_stage: "BUILD",
++      completed_stages: ["DECIDE"],
++    })
++    expect(await fs.readFile(statePath, "utf8")).toBe(before)
++  })
++
++  it("fails closed when the selected Engram state save fails", async () => {
++    const change = "direct-engram-failure"
++    const fake = await configureFakeEngram()
++    const state = {
++      work_type: "feature",
++      canonical_stage: "BUILD",
++      completed_canonical_stages: ["DECIDE", "PLAN"],
++      resumable: true,
++    }
++    await fake.setObservations([{
++      topic_key: `odf/${change}/state`,
++      content: JSON.stringify(state),
++      created_at: new Date().toISOString(),
++    }])
++    fake.setFailure(true)
++
++    try {
++      const proof = workflowAdvance("IMPLEMENT")
++      const recomputed = advanceWorkflow({ route: resolveWorkflowRoute(proof.work_type), ...proof })
++      const result = await commitWorkflowTransition({
+         workspaceRoot: tempHome,
+         changeName: change,
+         artifactStore: "engram",
+diff --git a/plugins/odf-delegation.ts b/plugins/odf-delegation.ts
+index 99132e3..490093d 100644
+--- a/plugins/odf-delegation.ts
++++ b/plugins/odf-delegation.ts
+@@ -4345,6 +4345,637 @@ async function readSelectedWorkflowState(
+       change: changeName,
+       state: openSpec.state.content,
+       artifacts: openSpec.artifacts,
++      receipt: receiptRead.receipt,
++      source: { state: "openspec", artifacts: [openSpec.state.key, ...openSpec.artifacts.map(artifact => artifact.key)] },
++      warnings: openSpec.warnings,
++    })
++    return {
++      snapshot: { store, state: parsed.state, stateContent: openSpec.state.content, artifacts: openSpec.artifacts, status },
++      error: null,
++    }
++  }
++
++  const observations = await readEngramObservations(workspaceRoot)
++  if (!observations) return { snapshot: null, error: "engram-state-unavailable" }
++  const stateKey = `odf/${changeName}/state`
++  const stateObservation = observations.filter(observation => observation.topic_key === stateKey).at(-1)
++  if (!stateObservation) return { snapshot: null, error: "workflow-state-not-found" }
++  const parsed = parseStateDocument(stateObservation.content)
++  if (!parsed) return { snapshot: null, error: "workflow-state-malformed" }
++  const artifacts = selectedWorkflowArtifacts(changeName, observations)
++  const status = deriveWorkflowStatus({
++    change: changeName,
++    state: stateObservation.content,
++    artifacts,
++    receipt: receiptRead.receipt,
++    source: { state: "engram", artifacts: [stateKey, ...artifacts.map(artifact => artifact.key)] },
++  })
++  return {
++    snapshot: { store, state: parsed.state, stateContent: stateObservation.content, artifacts, status },
++    error: null,
++  }
++}
++
++function explicitCompletedStages(state: Record<string, unknown>, route: WorkflowRoute): CanonicalStage[] | null {
++  const raw = state.completed_canonical_stages ?? state.completed_stages
++  if (!Array.isArray(raw)) return null
++  const values = raw.filter((value): value is string => typeof value === "string").map(value => value.toUpperCase())
++  if (values.length !== raw.length || values.some(value => !route.stages.includes(value as CanonicalStage))) return null
++  return route.stages.filter(stage => values.includes(stage))
++}
++
++function persistedCompletedStages(snapshot: SelectedWorkflowSnapshot, route: WorkflowRoute): CanonicalStage[] {
++  return explicitCompletedStages(snapshot.state, route) || route.stages.filter(stage => snapshot.status.completed_canonical_stages.includes(stage))
++}
++
++function sameStages(left: CanonicalStage[], right: CanonicalStage[]): boolean {
++  return left.length === right.length && left.every((stage, index) => stage === right[index])
++}
++
++function sameWorkflowAdvanceResult(
++  left: ReturnType<typeof advanceWorkflow> | null | undefined,
++  right: ReturnType<typeof advanceWorkflow>,
++): boolean {
++  return Boolean(left) && left!.status === right.status &&
++    sameStages(left!.completed_stages, right.completed_stages) &&
++    left!.next_stage === right.next_stage && left!.reason === right.reason
++}
++
++function workflowStateSignals(snapshot: SelectedWorkflowSnapshot): {
++  archived: boolean
++  resumable: boolean
++  receiptState: WorkflowReceiptState
++} {
++  const archived = snapshot.status.canonical_stage === "ARCHIVED" || snapshot.state.archived === true ||
++    String(snapshot.state.canonical_stage || "").toUpperCase() === "ARCHIVED"
++  const abandoned = snapshot.state.abandoned === true || String(snapshot.state.status || "").toLowerCase() === "abandoned"
++  const receiptAction = snapshot.status.receipt.action
++  const orchestratorDisposition = receiptAction !== null && receiptAction !== "retry"
++  return {
++    archived,
++    resumable: !archived && !abandoned && !orchestratorDisposition && snapshot.state.resumable !== false && snapshot.status.receipt.state !== "pending",
++    receiptState: snapshot.status.receipt.state,
++  }
++}
++
++function canonicalizeWorkflowAdvance(
++  snapshot: SelectedWorkflowSnapshot,
++  proof: ODFDelegateWorkflowAdvance,
++  expectedStage: "BUILD" | "VERIFY",
++): { proof: ODFDelegateWorkflowAdvance } | { reason: string; message: string } {
++  const receiptAction = snapshot.status.receipt.action
++  if (snapshot.status.receipt.state === "pending") {
++    return { reason: "workflow-receipt-pending", message: "A receipt is pending user disposition." }
++  }
++  if (receiptAction && receiptAction !== "retry") {
++    return {
++      reason: "workflow-receipt-action-unhandled",
++      message: `The committed receipt action ${receiptAction} requires orchestrator handling before continuation.`,
++    }
++  }
++
++  const route = resolveWorkflowRoute(proof.work_type)
++  const persistedWorkType = snapshot.status.work_type || snapshot.state.work_type
++  if (persistedWorkType && persistedWorkType !== proof.work_type) {
++    return {
++      reason: "workflow-work-type-mismatch",
++      message: `Persisted work_type ${persistedWorkType} does not match ${proof.work_type}.`,
++    }
++  }
++  const signals = workflowStateSignals(snapshot)
++  const expectedIndex = route.stages.indexOf(expectedStage)
++  const candidateIndex = proof.candidate_stage === null ? -1 : route.stages.indexOf(proof.candidate_stage)
++  const persisted = persistedCompletedStages(snapshot, route)
++  return {
++    proof: {
++      ...proof,
++      completed_stages: candidateIndex >= 0
++        ? route.stages.slice(0, candidateIndex).filter(stage => persisted.includes(stage))
++        : expectedIndex < 0 ? persisted : route.stages.slice(0, expectedIndex).filter(stage => persisted.includes(stage)),
++      receipt_state: signals.receiptState,
++      resumable_state: signals.resumable,
++      archived_state: signals.archived,
++    },
++  }
++}
++
++function inspectPersistedTransition(opts: {
++  snapshot: SelectedWorkflowSnapshot
++  proof: ODFDelegateWorkflowAdvance
++  expectedStage: "BUILD" | "VERIFY"
++  callerResult: ReturnType<typeof advanceWorkflow>
++}): TransitionInspection {
++  const route = resolveWorkflowRoute(opts.proof.work_type)
++  const signals = workflowStateSignals(opts.snapshot)
++  const completed = persistedCompletedStages(opts.snapshot, route)
++  const workType = opts.snapshot.status.work_type || opts.snapshot.state.work_type
++  const fail = (reason: string, message: string): TransitionInspection => ({
++    ok: false,
++    alreadyCommitted: false,
++    reason,
++    message,
++    snapshot: opts.snapshot,
++    route,
++    completed,
++  })
++
++  const locallyRecomputedProof = advanceWorkflow({
++    route,
++    completed_stages: opts.proof.completed_stages,
++    candidate_stage: opts.proof.candidate_stage,
++    phase_result_status: opts.proof.phase_result_status,
++    validation_status: opts.proof.validation_status,
++    receipt_state: opts.proof.receipt_state,
++    resumable_state: opts.proof.resumable_state,
++    archived_state: opts.proof.archived_state,
++  })
++  if (!sameWorkflowAdvanceResult(opts.callerResult, locallyRecomputedProof)) {
++    return fail("workflow-proof-mismatch", "The supplied workflow proof is not the local advanceWorkflow result.")
++  }
++
++  if (workType !== opts.proof.work_type) {
++    return fail(
++      "workflow-work-type-mismatch",
++      `Persisted work_type ${workType || "none"} does not match ${opts.proof.work_type}.`,
++    )
++  }
++  if (signals.archived) return fail("workflow-archived", "Archived workflow state cannot enter BUILD or VERIFY.")
++  if (signals.receiptState === "pending") return fail("workflow-receipt-pending", "A receipt is pending user disposition.")
++  if (opts.snapshot.status.receipt.action && opts.snapshot.status.receipt.action !== "retry") {
++    return fail("workflow-receipt-action-unhandled", "The committed receipt action requires orchestrator handling before continuation.")
++  }
++  if (!signals.resumable) return fail("workflow-not-resumable", "Persisted workflow state is not resumable.")
++
++  const expectedIndex = route.stages.indexOf(opts.expectedStage)
++  const expectedPrefix = expectedIndex < 0 ? [] : route.stages.slice(0, expectedIndex)
++  const desiredAlreadyCommitted = expectedIndex >= 0 && completed.includes(opts.expectedStage) &&
++    sameStages(completed, route.stages.slice(0, route.stages.indexOf(opts.expectedStage) + 1)) &&
++    (opts.snapshot.status.canonical_stage === opts.expectedStage ||
++      opts.snapshot.status.canonical_stage === "VERIFY" && opts.expectedStage === "BUILD")
++  if (desiredAlreadyCommitted) {
++    return {
++      ok: true,
++      alreadyCommitted: true,
++      reason: "already-committed",
++      message: `Workflow state already includes ${opts.expectedStage}.`,
++      snapshot: opts.snapshot,
++      route,
++      completed,
++    }
++  }
++  if (expectedIndex < 0) return fail("workflow-phase-mismatch", `${opts.expectedStage} is not part of the selected route.`)
++  if (!sameStages(completed, expectedPrefix)) {
++    return fail("workflow-state-stale", "Persisted completed stages do not match the requested route prefix.")
++  }
++  if (!sameStages(opts.callerResult.completed_stages, expectedPrefix)) {
++    return fail("workflow-proof-stale", "The recomputed workflow proof does not identify the persisted route prefix.")
++  }
++  const pendingStage = route.stages.find(stage => !completed.includes(stage)) || null
++  if (pendingStage !== opts.expectedStage) {
++    return fail(
++      "workflow-pending-stage-mismatch",
++      `Persisted pending stage ${pendingStage || "none"} does not match ${opts.expectedStage}.`,
++    )
++  }
++  const currentStage = opts.snapshot.status.canonical_stage
++  const previousStage = expectedPrefix.at(-1) || null
++  if (currentStage !== opts.expectedStage && currentStage !== previousStage) {
++    return fail("workflow-state-stale", `Persisted canonical_stage ${currentStage} is not compatible with ${opts.expectedStage}.`)
++  }
++  if (opts.callerResult.status !== "advanced" || opts.callerResult.next_stage !== opts.expectedStage) {
++    return fail("workflow-advance-blocked", opts.callerResult.reason)
++  }
++  return { ok: true, alreadyCommitted: false, reason: "ready", message: "Persisted workflow transition is ready.", snapshot: opts.snapshot, route, completed }
++}
++
++function selectedVerificationEvidence(snapshot: SelectedWorkflowSnapshot): ValidationVerdict {
++  const evidence = snapshot.artifacts.filter(artifact => {
++    const type = normalizeArtifactKey(artifact.key).type
++    return type === "verify" || type === "verify-report"
++  })
++  const valid = evidence.some(artifact => {
++    const status = contentStatus(artifact.content)
++    return status !== null && WORKFLOW_EVIDENCE_STATUSES.has(status)
++  })
++  return valid
++    ? { status: "verified", reason: "selected-store verification evidence verified", commands_validated: 1 }
++    : { status: "missing", reason: "selected-store verification evidence is missing or unsuccessful", commands_validated: 0 }
++}
++
++function workflowLockPath(workspaceRoot: string, changeName: string): string {
++  return path.join(workspaceRoot, ".odf", `workflow-${changeName}${WORKFLOW_LOCK_SUFFIX}`)
++}
++
++function workflowStateReference(store: ArtifactStore, changeName: string): string {
++  return store === "openspec"
++    ? `openspec/changes/${changeName}/state.yaml`
++    : `odf/${changeName}/state`
++}
++
++async function withWorkflowLock<T>(
++  workspaceRoot: string,
++  changeName: string,
++  operation: () => Promise<T>,
++): Promise<{ locked: true; value: T } | { locked: false; error: string }> {
++  const lockPath = workflowLockPath(workspaceRoot, changeName)
++  let lockFd: number | null = null
++  try {
++    fsSync.mkdirSync(path.dirname(lockPath), { recursive: true })
++    try {
++      lockFd = fsSync.openSync(lockPath, "wx")
++    } catch (error) {
++      const code = (error as NodeJS.ErrnoException).code
++      return { locked: false, error: code === "EEXIST" ? "workflow-state-locked" : "workflow-lock-failed" }
++    }
++    return { locked: true, value: await operation() }
++  } catch {
++    return { locked: false, error: "workflow-lock-failed" }
++  } finally {
++    if (lockFd !== null) {
++      try { fsSync.closeSync(lockFd) } catch { /* best-effort */ }
++      try { fsSync.unlinkSync(lockPath) } catch (error) {
++        if ((error as NodeJS.ErrnoException).code !== "ENOENT") console.warn(`[odf-delegation] Failed to clean up workflow lock: ${lockPath}`)
++      }
++    }
++  }
++}
++
++function writeOpenSpecWorkflowState(
++  workspaceRoot: string,
++  changeName: string,
++  stateContent: string,
++  workType: WorkType,
++  canonicalStage: "BUILD" | "VERIFY",
++  completedStages: CanonicalStage[],
++): string | null {
++  const statePath = path.resolve(workspaceRoot, "openspec", "changes", changeName, "state.yaml")
++  if (!isWithinRoot(statePath, path.resolve(workspaceRoot))) return "unsafe-state-path"
++  const parsed = parseStateDocument(stateContent)
++  if (!parsed) return "malformed-state"
++  parsed.document.set("work_type", workType)
++  parsed.document.set("canonical_stage", canonicalStage)
++  parsed.document.set("completed_canonical_stages", completedStages)
++  const tempPath = `${statePath}.${process.pid}.${nodeCrypto.randomUUID()}.tmp`
++  try {
++    const root = fsSync.realpathSync(path.resolve(workspaceRoot))
++    const realStatePath = fsSync.realpathSync(statePath)
++    if (!isWithinRoot(realStatePath, root)) return "unsafe-state-path"
++    const serialized = parsed.document.toString()
++    fsSync.writeFileSync(tempPath, serialized, { encoding: "utf8", flag: "wx" })
++    fsSync.renameSync(tempPath, statePath)
++    return null
++  } catch {
++    try { fsSync.unlinkSync(tempPath) } catch { /* best-effort */ }
++    return "state-write-failed"
++  }
++}
++
++function writeEngramWorkflowState(
++  workspaceRoot: string,
++  changeName: string,
++  stateContent: string,
++  workType: WorkType,
++  canonicalStage: "BUILD" | "VERIFY",
++  completedStages: CanonicalStage[],
++): string | null {
++  const parsed = parseStateDocument(stateContent)
++  if (!parsed) return "malformed-state"
++  parsed.document.set("work_type", workType)
++  parsed.document.set("canonical_stage", canonicalStage)
++  parsed.document.set("completed_canonical_stages", completedStages)
++  const topicKey = `odf/${changeName}/state`
++  const project = workspaceProjectName(resolveWorkspaceRoot(workspaceRoot))
++  const content = JSON.stringify(parsed.document.toJSON())
++  try {
++    execFileSync("engram", [
++      "save", topicKey, content,
++      "--type", "architecture",
++      "--project", project,
++      "--scope", "project",
++      "--topic", topicKey,
++    ], {
++      cwd: workspaceRoot,
++      encoding: "utf8",
++      stdio: ["ignore", "pipe", "pipe"],
++      timeout: 15_000,
++      maxBuffer: 64 * 1024,
++    })
++    return null
++  } catch (error) {
++    const code = (error as NodeJS.ErrnoException).code
++    return code === "ENOENT" ? "engram-cli-unavailable" : code === "ETIMEDOUT" ? "engram-save-timeout" : "engram-save-failed"
++  }
++}
++
++export async function commitWorkflowTransition(opts: {
++  workspaceRoot: string
++  changeName: string
++  artifactStore: ArtifactStore
++  proof: ODFDelegateWorkflowAdvance
++  expectedStage: "BUILD" | "VERIFY"
++  callerResult: ReturnType<typeof advanceWorkflow>
++  phaseResultStatus: WorkflowPhaseResultStatus
++  validationStatus: WorkflowValidationStatus
++  validation: ValidationVerdict | null
++  parallel?: boolean
++}): Promise<WorkflowCommitResult> {
++  const stateRef = workflowStateReference(opts.artifactStore, opts.changeName)
++  const makeResult = (
++    status: WorkflowCommitResult["status"],
++    reason: string,
++    message: string,
++    snapshot: SelectedWorkflowSnapshot | null,
++    completedStages: CanonicalStage[],
++    validation: ValidationVerdict | null,
++    workflowResult: ReturnType<typeof advanceWorkflow> | null,
++    canonicalStage: WorkflowStage | null = snapshot?.status.canonical_stage || null,
++  ): WorkflowCommitResult => ({
++    status,
++    reason,
++    message,
++    store: opts.artifactStore,
++    state_ref: stateRef,
++    canonical_stage: canonicalStage,
++    completed_stages: completedStages,
++    validation,
++    workflow_result: workflowResult,
++  })
++
++  if (opts.expectedStage !== "BUILD" && opts.expectedStage !== "VERIFY") {
++    return makeResult(
++      "blocked",
++      "workflow-stage-unsupported",
++      "Workflow commits may only target BUILD or VERIFY.",
++      null,
++      [],
++      opts.validation,
++      null,
++    )
++  }
++
++  const locked = await withWorkflowLock(opts.workspaceRoot, opts.changeName, async () => {
++    const read = await readSelectedWorkflowState(opts.workspaceRoot, opts.changeName, opts.artifactStore)
++    if (!read.snapshot) {
++      return makeResult(
++        "blocked",
++        read.error || "workflow-state-unavailable",
++        "The selected workflow state could not be read safely.",
++        null,
++        [],
++        opts.validation,
++        null,
++      )
++    }
++    const inspection = inspectPersistedTransition({
++      snapshot: read.snapshot,
++      proof: opts.proof,
++      expectedStage: opts.expectedStage,
++      callerResult: opts.callerResult,
++    })
++    if (!inspection.ok || inspection.alreadyCommitted) {
++      return makeResult(
++        inspection.alreadyCommitted ? "already-committed" : "blocked",
++        inspection.reason,
++        inspection.message,
++        read.snapshot,
++        inspection.completed,
++        opts.validation,
++        null,
++      )
++    }
++
++    if (opts.phaseResultStatus !== "ok" && opts.phaseResultStatus !== "warning") {
++      return makeResult(
++        "blocked",
++        "workflow-result-invalid",
++        "The actual phase result must have status ok or warning before workflow state can advance.",
++        read.snapshot,
++        inspection.completed,
++        opts.validation,
++        null,
++      )
++    }
++
++    let validation = opts.validation
++    if (opts.expectedStage === "VERIFY") validation = selectedVerificationEvidence(read.snapshot)
++    if (validation?.status !== "verified") {
++      return makeResult(
++        "blocked",
++        "workflow-evidence-invalid",
++        validation?.reason || "Valid transition evidence is required.",
++        read.snapshot,
++        inspection.completed,
++        validation,
++        null,
++      )
++    }
++
++    const postResult = advanceWorkflow({
++      route: inspection.route,
++      completed_stages: inspection.completed,
++      candidate_stage: opts.expectedStage,
++      phase_result_status: opts.phaseResultStatus,
++      validation_status: opts.validationStatus,
++      receipt_state: read.snapshot.status.receipt.state,
++      resumable_state: workflowStateSignals(read.snapshot).resumable,
++      archived_state: workflowStateSignals(read.snapshot).archived,
++    })
++    if (postResult.status !== "advanced" && postResult.status !== "complete") {
++      return makeResult(
++        "blocked",
++        "workflow-advance-blocked",
++        postResult.reason,
++        read.snapshot,
++        inspection.completed,
++        validation,
++        postResult,
++      )
++    }
++
++    const writeError = opts.artifactStore === "openspec"
++      ? writeOpenSpecWorkflowState(opts.workspaceRoot, opts.changeName, read.snapshot.stateContent, opts.proof.work_type, opts.expectedStage, postResult.completed_stages)
++      : writeEngramWorkflowState(opts.workspaceRoot, opts.changeName, read.snapshot.stateContent, opts.proof.work_type, opts.expectedStage, postResult.completed_stages)
++    if (writeError) {
++      return makeResult(
++        "blocked",
++        writeError,
++        "The selected workflow state could not be committed.",
++        read.snapshot,
++        inspection.completed,
++        validation,
++        postResult,
++      )
++    }
++    return makeResult(
++      "committed",
++      "committed",
++      `Committed ${opts.expectedStage} workflow state to ${opts.artifactStore}.`,
++      read.snapshot,
++      postResult.completed_stages,
++      validation,
++      postResult,
++      opts.expectedStage,
++    )
++  })
++  if (!locked.locked) {
++    return makeResult(
++      "blocked",
++      locked.error,
++      "The selected workflow state could not be locked safely.",
++      null,
++      [],
++      opts.validation,
++      null,
++    )
++  }
++  return locked.value
++}
++
++export interface ProofBackedLifecycleInput {
++  workspaceRoot: string
++  changeName: string
++  artifactStore: ArtifactStore
++  proof: ODFDelegateWorkflowAdvance
++  expectedStage: "BUILD" | "VERIFY"
++  callerResult: ReturnType<typeof advanceWorkflow>
++  innerResultStatus: WorkflowPhaseResultStatus | null
++  validationStatus: WorkflowValidationStatus
++  validation: ValidationVerdict | null
++  parallel?: boolean
++}
++
++/**
++ * Orchestrate only the proof-backed lifecycle boundary. Callers retain
++ * ownership of receipts, attempts, metrics, and public response envelopes.
++ */
++export async function resolveProofBackedLifecycle(opts: ProofBackedLifecycleInput): Promise<WorkflowCommitResult> {
++  const stateRef = workflowStateReference(opts.artifactStore, opts.changeName)
++  const blocked = (reason: string, message: string): WorkflowCommitResult => ({
++    status: "blocked",
++    reason,
++    message,
++    store: opts.artifactStore,
++    state_ref: stateRef,
++    canonical_stage: null,
++    completed_stages: [],
++    validation: opts.validation,
++    workflow_result: opts.callerResult,
++  })
++
++  if (opts.innerResultStatus !== "ok" && opts.innerResultStatus !== "warning") {
++    return blocked(
++      opts.innerResultStatus === "blocked" ? "inner-result-status-blocked" : "inner-result-status-invalid",
++      opts.innerResultStatus === "blocked"
++        ? "The inner phase result is blocked."
++        : opts.innerResultStatus === "failed"
++          ? "The inner phase result failed."
++          : "The inner phase result is missing or has an invalid status.",
++    )
++  }
++
++  if (opts.expectedStage === "BUILD" && opts.validation?.status !== "verified") {
++    return blocked(
++      "workflow-evidence-invalid",
++      opts.validation?.reason || "IMPLEMENT evidence is not verified.",
++    )
++  }
++
++  return commitWorkflowTransition({
++    workspaceRoot: opts.workspaceRoot,
++    changeName: opts.changeName,
++    artifactStore: opts.artifactStore,
++    proof: opts.proof,
++    expectedStage: opts.expectedStage,
++    callerResult: opts.callerResult,
++    phaseResultStatus: opts.innerResultStatus,
++    validationStatus: opts.validationStatus,
++    validation: opts.validation,
++    parallel: opts.parallel,
++  })
++}
++
++function persistWorkflowFailureReceipt(
++  workspaceRoot: string,
++  changeName: string,
++  phase: ODFReceipt["phase"],
++  summary: string,
++  policyGate: PolicyGateDecision | null,
++  refs: string[] = [],
++  status: ODFReceipt["status"] = "blocked",
++  cause: ODFReceipt["cause"] = "validation-failed",
++): ODFReceipt {
++  const frozenDiffRef = policyGate?.frozen_diff_ref || gitHead(workspaceRoot)
++  return mergeReceipt(workspaceRoot, {
++    change: changeName,
++    phase,
++    status,
++    cause,
++    evidence: {
++      summary,
++      frozen_diff_ref: frozenDiffRef,
++      failing: [summary],
++      refs: Array.from(new Set([
++        ...refs,
++        ...(policyGate ? [path.join(".odf", `policy-gate-${changeName}.json`)] : []),
++      ])),
++    },
++    action: null,
++    review_gate: null,
++    frozen_diff_ref: frozenDiffRef,
++    resolved_at: new Date().toISOString(),
++  })
++}
++
++function buildEngramStatus(
++  workspaceRoot: string,
++  snapshot: EngramSnapshot,
++  warnings: string[] = []
++): ODFChangeStatus {
++  const { change: bestChange, artifacts } = snapshot
++
++  const status = {
++    change: bestChange,
++    phase: "init",
++    artifacts: {},
++    applyProgress: { completed: 0, total: 0 },
++    lastUpdated: null,
++  } as ODFChangeStatus
++
++  // Map artifact types to state
++  const artifactStates: Record<string, string> = {}
++  for (const [type, data] of artifacts) {
++    artifactStates[type] = "done"
++    if (data.created && Number.isFinite(Date.parse(data.created)) && (!status.lastUpdated || data.created > status.lastUpdated)) {
++      status.lastUpdated = data.created
++    }
++  }
++  status.artifacts = artifactStates
++
++  const workflowArtifacts = Array.from(artifacts.entries()).map(([type, data]) => ({
++    key: `odf/${bestChange}/${type}`,
++    content: data.content,
++    created_at: data.created,
++  }))
++  status.workflowStatus = deriveWorkflowStatus({
++    change: bestChange,
++    artifacts: workflowArtifacts,
++    receipt: readReceiptJson(workspaceRoot, bestChange),
++    source: { state: "engram", artifacts: workflowArtifacts.map((artifact) => artifact.key) },
++    warnings,
++  })
++  status.phase = status.workflowStatus.legacy_phase?.toLowerCase() || "init"
++  status.applyProgress = {
++    completed: status.workflowStatus.progress.completed,
++    total: status.workflowStatus.progress.total,
++  }
++
++  return status
++}
++
++export async function loadEngramStatus(workspaceRoot: string, changeName?: string): Promise<ODFChangeStatus | null> {
++  const observations = await readEngramObservations(workspaceRoot)
++  const snapshot = observations ? selectEngramSnapshot(observations, changeName) : null
++  return snapshot ? buildEngramStatus(workspaceRoot, snapshot) : null
+ }
+ 
+ function contentStatus(content: string): string | null {

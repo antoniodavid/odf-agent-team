@@ -1,0 +1,404 @@
+diff --git a/plugins/odf-delegation.test.ts b/plugins/odf-delegation.test.ts
+index 5e22351..8ad5274 100644
+--- a/plugins/odf-delegation.test.ts
++++ b/plugins/odf-delegation.test.ts
+@@ -2767,6 +2767,132 @@ describe("createODFDelegate", () => {
+   it("keeps distinct branch attempts running concurrently in the ledger", async () => {
+     const { createODFParallelDelegate } = await import("./odf-delegation.js")
+     const branches = parallelBranches("running")
++    await prepareWorkflowState("parallel-running", "IMPLEMENT", "cross-domain")
++    await writeParallelEvidence("parallel-running", branches.map(branch => branch.branch_id))
++    let resolveFirst!: (value: unknown) => void
++    let resolveSecond!: (value: unknown) => void
++    const taskApi = vi.fn()
++      .mockReturnValueOnce(new Promise(resolve => { resolveFirst = resolve }))
++      .mockReturnValueOnce(new Promise(resolve => { resolveSecond = resolve }))
++    const parallelTool = createODFParallelDelegate(undefined, tempHome)
++    const run = parallelTool.execute({
++      work_type: "cross-domain",
++      phase: "IMPLEMENT",
++      change: "parallel-running",
++      artifact_store: "openspec",
++      workflow_advance: parallelWorkflowAdvance(),
++      branches,
++    }, { sessionID: "parallel-session", task: taskApi } as any)
++
++    await vi.waitFor(async () => {
++      expect(taskApi).toHaveBeenCalledTimes(2)
++      const ledger = (await fs.readFile(path.join(tempHome, ".odf", "attempt-ledger-parallel-running.jsonl"), "utf8"))
++        .trim().split("\n").map(line => JSON.parse(line))
++      expect(ledger.filter((record: any) => record.status === "running").map((record: any) => record.branch_id))
++        .toEqual(expect.arrayContaining(["backend-running", "frontend-running"]))
++    })
++    resolveFirst({ status: "ok" })
++    resolveSecond({ status: "ok" })
++    expect(JSON.parse(await run as string).join.status).toBe("complete")
++  })
++
++  it("persists running branches before task() and blocks restart-style resume", async () => {
++    const { createODFParallelDelegate } = await import("./odf-delegation.js")
++    const change = "parallel-running-persisted"
++    const branches = parallelBranches("running-persisted")
++    await prepareWorkflowState(change, "IMPLEMENT", "cross-domain")
++    await writeParallelEvidence(change, branches.map(branch => branch.branch_id))
++    let resolveFirst!: (value: unknown) => void
++    let resolveSecond!: (value: unknown) => void
++    const taskApi = vi.fn()
++      .mockReturnValueOnce(new Promise(resolve => { resolveFirst = resolve }))
++      .mockReturnValueOnce(new Promise(resolve => { resolveSecond = resolve }))
++    const parallelTool = createODFParallelDelegate(undefined, tempHome)
++    const run = parallelTool.execute({
++      work_type: "cross-domain",
++      phase: "IMPLEMENT",
++      change,
++      artifact_store: "openspec",
++      workflow_advance: parallelWorkflowAdvance(),
++      branches,
++    }, { sessionID: "running-session", task: taskApi } as any)
++
++    await vi.waitFor(async () => {
++      expect(taskApi).toHaveBeenCalledTimes(2)
++      const persisted = JSON.parse(await fs.readFile(path.join(tempHome, ".odf", `parallel-join-${change}.json`), "utf8"))
++      expect(persisted.join).toMatchObject({ status: "running", expected: 2, completed: 0, failed: 0, running: 2 })
++      expect(persisted.branches.map((branch: any) => branch.status)).toEqual(["running", "running"])
++    })
++
++    const resumed = JSON.parse(await createODFParallelDelegate(undefined, tempHome).execute({
++      work_type: "cross-domain",
++      phase: "IMPLEMENT",
++      change,
++      artifact_store: "openspec",
++      workflow_advance: parallelWorkflowAdvance(),
++      resume_from_join: true,
++    }, { sessionID: "fresh-process-session", task: taskApi } as any) as string)
++    expect(resumed).toMatchObject({
++      status: "blocked",
++      reason: "parallel-join-running",
++      join: { status: "running", expected: 2, completed: 0, failed: 0, running: 2 },
++    })
++    expect(taskApi).toHaveBeenCalledTimes(2)
++
++    resolveFirst({ status: "ok" })
++    await vi.waitFor(async () => {
++      const persisted = JSON.parse(await fs.readFile(path.join(tempHome, ".odf", `parallel-join-${change}.json`), "utf8"))
++      expect(persisted.join).toMatchObject({ status: "running", expected: 2, completed: 1, failed: 0, running: 1 })
++      expect(persisted.branches.filter((branch: any) => branch.status === "complete")).toHaveLength(1)
++      expect(persisted.branches.filter((branch: any) => branch.status === "running")).toHaveLength(1)
++    })
++    resolveSecond({ status: "ok" })
++    expect(JSON.parse(await run as string).join).toMatchObject({ status: "complete", running: 0 })
++  })
++
++  it("settles acquired attempts when running-join persistence fails before task()", async () => {
++    const { createODFParallelDelegate } = await import("./odf-delegation.js")
++    const change = "parallel-running-persist-failure"
++    const branches = parallelBranches("running-persist-failure")
++    await prepareWorkflowState(change, "IMPLEMENT", "cross-domain")
++    await fs.mkdir(path.join(tempHome, ".odf", `parallel-join-${change}.json`), { recursive: true })
++    const taskApi = vi.fn().mockResolvedValue({ status: "ok" })
++
++    const result = JSON.parse(await createODFParallelDelegate(undefined, tempHome).execute({
++      work_type: "cross-domain",
++      phase: "IMPLEMENT",
++      change,
++      artifact_store: "openspec",
++      workflow_advance: parallelWorkflowAdvance(),
++      branches,
++    }, { sessionID: "persist-failure-session", task: taskApi } as any) as string)
++
++    expect(result).toMatchObject({
++      status: "blocked",
++      reason: "parallel-join-persist-failed",
++      join: { status: "blocked", completed: 0, failed: 2, running: 0 },
++    })
++    expect(taskApi).not.toHaveBeenCalled()
++    const ledger = (await fs.readFile(path.join(tempHome, ".odf", `attempt-ledger-${change}.jsonl`), "utf8"))
++      .trim().split("\n").map(line => JSON.parse(line))
++    expect(ledger.filter((record: any) => record.status === "running")).toHaveLength(2)
++    expect(ledger.filter((record: any) => record.status === "failed")).toHaveLength(2)
++  })
++
++  it("blocks a completed branch without blocking a different branch ID", async () => {
++    const { createODFParallelDelegate } = await import("./odf-delegation.js")
++    const branches = parallelBranches("ledger-a")
++    await prepareWorkflowState("parallel-branch-ledger", "IMPLEMENT", "cross-domain")
++    await writeParallelEvidence("parallel-branch-ledger", branches.map(branch => branch.branch_id))
++    const taskApi = vi.fn().mockResolvedValue({ status: "ok" })
++    const parallelTool = createODFParallelDelegate(undefined, tempHome)
++    const first = await parallelTool.execute({
++      work_type: "cross-domain",
++      phase: "IMPLEMENT",
++      change: "parallel-branch-ledger",
++      artifact_store: "openspec",
++      workflow_advance: parallelWorkflowAdvance(),
++      branches,
+     }, { sessionID: "parallel-session", task: taskApi } as any)
+     expect(JSON.parse(first as string).status).toBe("parallel-delegated")
+ 
+@@ -3446,3 +3572,158 @@ describe("createODFReceipt tool", () => {
+     expect(receipt.cause).toBe("validation-failed")
+     expect(receipt.review_gate?.verdict).toBe("FAIL")
+ 
++    const saved = JSON.parse(
++      await fs.readFile(path.join(workspace, ".odf", "receipt-my-change.json"), "utf8")
++    )
++    expect(saved.evidence.failing).toContain("odoo-tests")
++    expect(saved.action).toBeNull()
++  })
++})
++
++describe("odf_health", () => {
++  const originalHome = process.env.HOME
++  const originalConfigDir = process.env.ODF_CONFIG_DIR
++  let tempHome: string
++  let configDir: string
++  let pluginPath: string
++  let commandPath: string
++
++  const registry = {
++    version: 1,
++    last_updated: "2026-08-07T00:00:00Z",
++    skills: [{ name: "health-skill", path: "skills/health/SKILL.md" }],
++    agents: [{ name: "health-agent", path: "agent/health-agent.md" }],
++    profiles: [{ phase: "ASSESS", model: "test", temperature: 0.2, description: "test" }],
++  }
++
++  const noEngramIo = () => ({
++    readFile: (filePath: string) => fs.readFile(filePath, "utf8"),
++    stat: (filePath: string) => fs.stat(filePath),
++    access: (filePath: string) => fs.access(filePath),
++    locateExecutable: () => {
++      const error = Object.assign(new Error("engram not found"), { code: "ENOENT" })
++      throw error
++    },
++    readVersion: () => "",
++  })
++
++  const runHealth = async (toolCtx: Record<string, unknown>, io = noEngramIo()) => {
++    const output = await createODFHealth(undefined, io).execute({}, toolCtx as any)
++    return JSON.parse(output as string)
++  }
++
++  beforeEach(async () => {
++    tempHome = await fs.mkdtemp(path.join(os.tmpdir(), "odf-health-"))
++    process.env.HOME = tempHome
++    configDir = path.join(tempHome, ".config", "opencode")
++    process.env.ODF_CONFIG_DIR = configDir
++    pluginPath = path.join(configDir, "plugins", "odf-delegation.ts")
++    commandPath = path.join(configDir, "command", "odf-health.md")
++    await fs.mkdir(path.join(configDir, "skills", "health"), { recursive: true })
++    await fs.mkdir(path.join(configDir, "agent"), { recursive: true })
++    await fs.mkdir(path.dirname(pluginPath), { recursive: true })
++    await fs.mkdir(path.dirname(commandPath), { recursive: true })
++    await fs.writeFile(path.join(configDir, "odf-registry.json"), JSON.stringify(registry), "utf8")
++    await fs.writeFile(path.join(configDir, "skills", "health", "SKILL.md"), "health", "utf8")
++    await fs.writeFile(path.join(configDir, "agent", "health-agent.md"), "agent", "utf8")
++    await fs.writeFile(pluginPath, "plugin", "utf8")
++    await fs.writeFile(commandPath, "command", "utf8")
++  })
++
++  afterEach(async () => {
++    process.env.HOME = originalHome
++    if (originalConfigDir === undefined) delete process.env.ODF_CONFIG_DIR
++    else process.env.ODF_CONFIG_DIR = originalConfigDir
++    await fs.rm(tempHome, { recursive: true, force: true })
++  })
++
++  it("returns a warning for a valid installation without probing task()", async () => {
++    const taskApi = vi.fn()
++    const result = await runHealth({ task: taskApi })
++
++    expect(result).toMatchObject({
++      schema_version: 1,
++      status: "warning",
++      config_dir: configDir,
++      registry: {
++        status: "valid",
++        path: path.join(configDir, "odf-registry.json"),
++        skills: { registered: 1, readable: 1, missing: [] },
++        agents: { registered: 1, readable: 1, missing: [] },
++        profiles: 1,
++      },
++      plugin: { file_status: "readable", loaded: true },
++      command: { command: "/odf-health", path: commandPath, status: "readable" },
++      task_api: { source: "toolCtx.task", function_present: true, usability: "unverified", probe: "not-run" },
++      engram: { cli: "unavailable", export_probe: "not-run" },
++    })
++    expect(result.plugin.registered_tools).toContain("odf_health")
++    expect(result.warnings).toEqual(expect.arrayContaining(["task-api-unverified: task usability was not probed because probing executes a task", "engram-cli-unavailable"]))
++    expect(taskApi).not.toHaveBeenCalled()
++    expect(Number.isNaN(Date.parse(result.checked_at))).toBe(false)
++  })
++
++  it("fails for a malformed registry", async () => {
++    await fs.writeFile(path.join(configDir, "odf-registry.json"), "{not-json", "utf8")
++    const taskApi = vi.fn()
++    const result = await runHealth({ task: taskApi })
++
++    expect(result.status).toBe("failed")
++    expect(result.registry.status).toBe("malformed")
++    expect(result.warnings).toContain("registry-malformed: odf-registry.json is not valid JSON")
++    expect(taskApi).not.toHaveBeenCalled()
++  })
++
++  it("fails when required installed files are missing", async () => {
++    await fs.rm(path.join(configDir, "skills", "health", "SKILL.md"))
++    await fs.rm(commandPath)
++    const result = await runHealth({ task: vi.fn() })
++
++    expect(result.status).toBe("failed")
++    expect(result.registry.skills).toMatchObject({ registered: 1, readable: 0, missing: ["health-skill"] })
++    expect(result.plugin.file_status).toBe("readable")
++    expect(result.command.status).toBe("missing")
++  })
++
++  it("blocks permission errors without probing task()", async () => {
++    const permissionError = Object.assign(new Error("permission denied"), { code: "EACCES" })
++    const baseIo = noEngramIo()
++    const permissionIo = {
++      ...baseIo,
++      access: (filePath: string) => filePath === pluginPath ? Promise.reject(permissionError) : fs.access(filePath),
++    }
++    const taskApi = vi.fn()
++    const result = await runHealth({ task: taskApi }, permissionIo)
++
++    expect(result.status).toBe("blocked")
++    expect(result.plugin.file_status).toBe("permission-denied")
++    expect(result.warnings).toContain(`plugin-file-permission-denied: ${pluginPath}`)
++    expect(taskApi).not.toHaveBeenCalled()
++  })
++
++  it("blocks when the task API is absent", async () => {
++    const result = await runHealth({})
++
++    expect(result.status).toBe("blocked")
++    expect(result.task_api).toEqual({ source: "unavailable", function_present: false, usability: "unavailable", probe: "not-run" })
++    expect(result.warnings).toContain("task-api-unavailable")
++  })
++
++  it("blocks a bounded Engram metadata timeout without exporting observations", async () => {
++    const baseIo = noEngramIo()
++    const timeoutIo = {
++      ...baseIo,
++      locateExecutable: () => {
++        const error = Object.assign(new Error("timed out"), { code: "ETIMEDOUT" })
++        throw error
++      },
++    }
++    const taskApi = vi.fn()
++    const result = await runHealth({ task: taskApi }, timeoutIo)
++
++    expect(result.status).toBe("blocked")
++    expect(result.engram).toEqual({ cli: "unavailable", export_probe: "not-run" })
++    expect(result.warnings).toContain("runtime-timeout: Engram CLI discovery timed out")
++    expect(taskApi).not.toHaveBeenCalled()
++  })
++})
+diff --git a/plugins/odf-delegation.ts b/plugins/odf-delegation.ts
+index 490093d..8f164e3 100644
+--- a/plugins/odf-delegation.ts
++++ b/plugins/odf-delegation.ts
+@@ -2775,6 +2775,41 @@ Use this instead of generic task() for ODF workflow delegation.`,
+               innerDisposition.message,
+               policyGate,
+               [],
++              innerDisposition.failureReceiptStatus,
++              "error",
++            )
++          }
++          if (proofBacked && !executionOptions.suppress_workflow_commit) {
++            const lifecycle = await resolveProofBackedLifecycle({
++              workspaceRoot,
++              changeName: changeName!,
++              artifactStore: args.artifact_store!,
++              proof: effectiveWorkflowAdvance!,
++              expectedStage: args.phase === "IMPLEMENT" ? "BUILD" : "VERIFY",
++              callerResult: workflowResult!,
++              innerResultStatus: actualResultStatus,
++              validationStatus: "verified",
++              validation,
++            })
++            const preCommitFailure = !innerDisposition.accepted ||
++              args.phase === "IMPLEMENT" && validation?.status !== "verified"
++            if (lifecycle.status === "blocked") {
++              if (!preCommitFailure) workflowCommit = lifecycle
++              return settleProofFailure(
++                !innerDisposition.accepted ? innerDisposition.message : lifecycle.message,
++                lifecycle.reason,
++                !innerDisposition.accepted ? innerDisposition : undefined,
++              )
++            }
++            workflowCommit = lifecycle
++            validation = lifecycle.validation
++          }
++          if (acquiredAttempt && !executionOptions.suppress_attempt_settlement) {
++            settleAttempt(acquiredAttempt, "completed", "delegated", "task-completed")
++          }
++          recordMetrics({
++            timestamp: new Date().toISOString(),
++            session_id: toolCtx.sessionID,
+             phase: args.phase,
+             agent: agentName,
+             skills_injected: skills.map(s => s.name),
+@@ -3389,6 +3424,28 @@ must not overlap. VERIFY remains sequential after the aggregate join is complete
+         }, null, 2)
+       }
+ 
++      if (args.resume_from_join && runnableDescriptors.length === 0 && savedJoin) {
++        const aggregateStatus = savedJoin.branches.some(branch => branch.outcome.result_status === "warning") ? "warning" : "ok"
++        const workflowCommit = await resolveProofBackedLifecycle({
++          workspaceRoot,
++          changeName: args.change,
++          artifactStore: args.artifact_store,
++          proof: effectiveWorkflowAdvance,
++          expectedStage: "BUILD",
++          callerResult: workflowResult,
++          innerResultStatus: aggregateStatus,
++          validationStatus: "verified",
++          validation: { status: "verified", reason: "parallel join validation verified", commands_validated: savedJoin.join.expected },
++          parallel: true,
++        })
++        if (workflowCommit.status === "blocked") {
++          const receipt = parallelReceipt(workspaceRoot, args.change, savedJoin.branches.map(savedParallelOutcome))
++          const mergedReceipt = mergeReceipt(workspaceRoot, receipt)
++          return blocked(workflowCommit.reason, workflowCommit.message, savedJoin.branches.map(savedParallelOutcome), mergedReceipt)
++        }
++        recordParallelJoinMetrics(toolCtx.sessionID, startTime, savedJoin.join.status, expected, savedJoin.branches.map(savedParallelOutcome))
++        return JSON.stringify({
++          status: "parallel-delegated",
+           work_type: "cross-domain",
+           phase: "IMPLEMENT",
+           resumed: true,
+@@ -3593,6 +3650,32 @@ must not overlap. VERIFY remains sequential after the aggregate join is complete
+           for (const handle of acquired.values()) settleAttempt(handle, "failed", "error", "task-error")
+           return blocked("parallel-join-persist-failed", savedArtifact.error, outcomes)
+         }
++        persistedJoinRef = savedArtifact.ref
++        const aggregateStatus = outcomes.some(outcome => outcome.result_status === "warning") ? "warning" : "ok"
++         const workflowCommit = await resolveProofBackedLifecycle({
++           workspaceRoot,
++           changeName: args.change,
++           artifactStore: args.artifact_store,
++           proof: effectiveWorkflowAdvance,
++           expectedStage: "BUILD",
++           callerResult: workflowResult,
++           innerResultStatus: aggregateStatus,
++           validationStatus: "verified",
++           validation: { status: "verified", reason: "parallel join validation verified", commands_validated: expected },
++           parallel: true,
++         })
++        if (workflowCommit.status === "blocked") {
++          for (const handle of acquired.values()) settleAttempt(handle, "failed", "validation-failed", "validation-failed")
++          const receipt = parallelReceipt(workspaceRoot, args.change, outcomes)
++          const mergedReceipt = mergeReceipt(workspaceRoot, receipt)
++          const blockedJoin = { ...join, status: "blocked" as const, validation_verified: false }
++          saveParallelJoin(workspaceRoot, args.change, descriptors, outcomes, blockedJoin, path.join(".odf", `receipt-${args.change}.json`))
++          return blocked(workflowCommit.reason, workflowCommit.message, outcomes, mergedReceipt)
++        }
++        for (const handle of acquired.values()) settleAttempt(handle, "completed", "delegated", "task-completed")
++        recordParallelJoinMetrics(toolCtx.sessionID, startTime, "complete", expected, outcomes)
++        return JSON.stringify({
++          status: "parallel-delegated",
+           work_type: "cross-domain",
+           phase: "IMPLEMENT",
+           resumed: Boolean(args.resume_from_join),
