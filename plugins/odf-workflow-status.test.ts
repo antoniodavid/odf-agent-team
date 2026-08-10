@@ -16,7 +16,7 @@ async function configureEngramExport(observations: Array<Record<string, unknown>
   const cli = path.join(bin, "engram")
   const previousPath = process.env.PATH
   const previousExport = process.env.ODF_TEST_ENGRAM_EXPORT
-  await fs.writeFile(cli, "#!/bin/sh\nprintf '%s' \"$ODF_TEST_ENGRAM_EXPORT\" > \"$5\"\n", "utf8")
+  await fs.writeFile(cli, "#!/bin/sh\nprintf '%s' \"$ODF_TEST_ENGRAM_EXPORT\" > \"$2\"\n", "utf8")
   await fs.chmod(cli, 0o755)
   process.env.PATH = `${bin}${path.delimiter}${previousPath || ""}`
   process.env.ODF_TEST_ENGRAM_EXPORT = JSON.stringify(observations)
@@ -39,6 +39,65 @@ async function writeOpenSpec(
   await fs.writeFile(path.join(directory, "state.yaml"), state, "utf8")
   for (const [name, content] of Object.entries(artifacts)) {
     await fs.writeFile(path.join(directory, name), content, "utf8")
+  }
+}
+
+function parallelJoin(change: string, status: "complete" | "blocked" = "complete"): Record<string, unknown> {
+  const branches = ["backend", "frontend"].map((branch, index) => ({
+    branch_id: branch,
+    attempt_id: `${branch}-attempt`,
+    descriptor: { prompt: `Implement ${branch}`, context_files: [`${branch}.py`] },
+    outcome: {
+      status: "delegated",
+      result_status: "ok",
+      successful: status === "complete" || index === 0,
+      validation: { status: status === "complete" || index === 0 ? "verified" : "missing", reason: "test", commands_validated: status === "complete" || index === 0 ? 2 : 0 },
+      validation_verified: status === "complete" || index === 0,
+      validation_evidence_ref: `.odf/validation-evidence-${change}-${branch}.json`,
+      attempt_ledger_ref: `.odf/attempt-ledger-${change}.jsonl`,
+      summary: `${branch} result`,
+    },
+  }))
+  return {
+    schema_version: 1,
+    change,
+    work_type: "cross-domain",
+    phase: "IMPLEMENT",
+    timestamp: "2026-08-06T12:00:00.000Z",
+    join: {
+      status,
+      expected: 2,
+      completed: status === "complete" ? 2 : 1,
+      failed: status === "complete" ? 0 : 1,
+      validation_verified: status === "complete",
+    },
+    branches,
+    evidence_refs: branches.map(branch => branch.outcome.validation_evidence_ref),
+    attempt_ledger_refs: [`.odf/attempt-ledger-${change}.jsonl`],
+    receipt_ref: status === "complete" ? null : `.odf/receipt-${change}.json`,
+  }
+}
+
+function runningParallelJoin(change: string): Record<string, unknown> {
+  const artifact = parallelJoin(change, "blocked")
+  const branches = (artifact.branches as Array<Record<string, any>>).map(branch => ({
+    ...branch,
+    status: "running",
+    outcome: {
+      ...branch.outcome,
+      status: "running",
+      result_status: "running",
+      successful: false,
+      validation: null,
+      validation_verified: false,
+      summary: `${branch.branch_id} is running`,
+    },
+  }))
+  return {
+    ...artifact,
+    join: { status: "running", expected: 2, completed: 0, failed: 0, running: 2, validation_verified: false },
+    branches,
+    receipt_ref: null,
   }
 }
 
@@ -194,6 +253,100 @@ describe("workflow status adapter", () => {
     expect(invalid.warnings.some((warning) => warning.includes("Invalid declared work_type"))).toBe(true)
   })
 
+  it("derives completion and pending stages from the declared route", () => {
+    const standardPending = deriveWorkflowStatus({
+      change: "standard-pending",
+      state: { work_type: "standard-config" },
+    })
+    expect(standardPending).toMatchObject({
+      canonical_stage: "DECIDE",
+      completed_canonical_stages: [],
+      pending_stage: "DECIDE",
+      resumable: true,
+      work_type: "standard-config",
+    })
+
+    const standardComplete = deriveWorkflowStatus({
+      change: "standard-complete",
+      state: { work_type: "standard-config" },
+      artifacts: {
+        decision: { status: "passed" },
+        plan: { status: "passed" },
+      },
+    })
+    expect(standardComplete).toMatchObject({
+      canonical_stage: "DECIDE",
+      completed_canonical_stages: ["DECIDE"],
+      pending_stage: null,
+      resumable: false,
+    })
+
+    const verifyPending = deriveWorkflowStatus({
+      change: "verify-pending",
+      state: { work_type: "verify-only" },
+    })
+    expect(verifyPending).toMatchObject({
+      canonical_stage: "VERIFY",
+      completed_canonical_stages: [],
+      pending_stage: "VERIFY",
+      work_type: "verify-only",
+    })
+
+    const verifyComplete = deriveWorkflowStatus({
+      change: "verify-complete",
+      state: { work_type: "verify-only" },
+      artifacts: { verify: { status: "passed" } },
+    })
+    expect(verifyComplete).toMatchObject({
+      canonical_stage: "VERIFY",
+      completed_canonical_stages: ["VERIFY"],
+      pending_stage: null,
+      resumable: false,
+    })
+  })
+
+  it("supports non-default EXPLORE and FIX routes without changing legacy defaults", () => {
+    const explore = deriveWorkflowStatus({
+      change: "explore-route",
+      state: { work_type: "question" },
+      artifacts: { explore: { status: "passed" } },
+    })
+    expect(explore).toMatchObject({
+      canonical_stage: "EXPLORE",
+      completed_canonical_stages: ["EXPLORE"],
+      pending_stage: null,
+      legacy_phase: "EXPLORE",
+      work_type: "question",
+    })
+    expect(explore.artifact_refs.EXPLORE).toEqual(["explore"])
+
+    const fix = deriveWorkflowStatus({
+      change: "fix-route",
+      state: { work_type: "bugfix" },
+      artifacts: {
+        fix: { status: "passed" },
+        build: { status: "pending" },
+      },
+    })
+    expect(fix).toMatchObject({
+      canonical_stage: "BUILD",
+      completed_canonical_stages: ["FIX"],
+      pending_stage: "BUILD",
+      work_type: "bugfix",
+    })
+
+    const legacyDefault = deriveWorkflowStatus({
+      change: "legacy-default",
+      state: { phase: "IMPLEMENT" },
+    })
+    expect(legacyDefault).toMatchObject({
+      canonical_stage: "VERIFY",
+      completed_canonical_stages: ["DECIDE", "PLAN", "BUILD"],
+      pending_stage: "VERIFY",
+      work_type: null,
+    })
+  })
+
   it("derives pending, resolved, and abandoned receipt states", () => {
     expect(deriveReceiptState()).toEqual({ state: "none", status: null, action: null, ref: null })
     expect(deriveReceiptState({ status: "blocked", ref: "verify" })).toEqual({
@@ -204,6 +357,9 @@ describe("workflow status adapter", () => {
     })
     expect(deriveReceiptState({ status: "failed", action: { committed: "retry" } })).toMatchObject({ state: "resolved", action: "retry" })
     expect(deriveReceiptState({ status: "failed", action: { committed: "abandon" } })).toMatchObject({ state: "resolved", action: "abandon" })
+    expect(deriveReceiptState({ status: "ok", action: { committed: "unknown" } })).toMatchObject({ state: "pending", action: null })
+    expect(deriveReceiptState({ status: "mystery" })).toMatchObject({ state: "pending", action: null })
+    expect(deriveReceiptState({ status: "failed", action: {} })).toMatchObject({ state: "pending", action: null })
 
     const pending = deriveWorkflowStatus({ change: "receipt", artifacts: { propose: "proposal" }, receipt: { status: "failed" } })
     expect(pending.resumable).toBe(false)
@@ -367,7 +523,7 @@ describe("odf_workflow_status tool", () => {
       { topic_key: "odf/tool-change/design", content: "design", created_at: "2026-07-31T11:01:30Z" },
       { topic_key: "odf/tool-change/implement-progress", content: "- [x] one\n- [ ] two", created_at: "2026-07-31T11:02:00Z" },
     ]
-    await fs.writeFile(cli, "#!/bin/sh\nprintf '%s' \"$ODF_TEST_ENGRAM_EXPORT\" > \"$5\"\n", "utf8")
+    await fs.writeFile(cli, "#!/bin/sh\nprintf '%s' \"$ODF_TEST_ENGRAM_EXPORT\" > \"$2\"\n", "utf8")
     await fs.chmod(cli, 0o755)
     process.env.PATH = `${bin}${path.delimiter}${previousPath || ""}`
     process.env.ODF_TEST_ENGRAM_EXPORT = JSON.stringify(observations)
@@ -390,6 +546,109 @@ describe("odf_workflow_status tool", () => {
       else process.env.ODF_TEST_ENGRAM_EXPORT = previousExport
       await fs.rm(root, { recursive: true, force: true })
       await fs.rm(bin, { recursive: true, force: true })
+    }
+  })
+
+  it("exposes a valid branch-aware join as supplemental runtime evidence", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "odf-parallel-status-"))
+    const cleanup = await configureEngramExport([])
+    await writeOpenSpec(root, "parallel-status", "canonical_stage: PLAN\ndecide_completed: true\nplan_completed: false\n", {
+      "plan.yaml": "status: pending\n",
+    })
+    await fs.mkdir(path.join(root, ".odf"), { recursive: true })
+    await fs.writeFile(path.join(root, ".odf", "parallel-join-parallel-status.json"), JSON.stringify(parallelJoin("parallel-status")), "utf8")
+
+    try {
+      const output = await createODFWorkflowStatus().execute({ change_name: "parallel-status", workspace_dir: root }, {} as any)
+      const result = JSON.parse(output as string)
+      expect(result.source.state).toBe("openspec")
+      expect(result.pending_stage).toBe("PLAN")
+      expect(result.parallel_join).toMatchObject({
+        change: "parallel-status",
+        work_type: "cross-domain",
+        join: { status: "complete", expected: 2, completed: 2, failed: 0, running: 0 },
+      })
+      expect(result.parallel_join.branches.map((branch: any) => branch.status)).toEqual(["complete", "complete"])
+    } finally {
+      await cleanup()
+      await fs.rm(root, { recursive: true, force: true })
+    }
+  })
+
+  it("exposes a persisted running join after a fresh status read", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "odf-parallel-status-running-"))
+    const cleanup = await configureEngramExport([])
+    await writeOpenSpec(root, "parallel-status-running", "canonical_stage: PLAN\ndecide_completed: true\nplan_completed: false\n", {
+      "plan.yaml": "status: pending\n",
+    })
+    const joinPath = path.join(root, ".odf", "parallel-join-parallel-status-running.json")
+    await fs.mkdir(path.dirname(joinPath), { recursive: true })
+    await fs.writeFile(joinPath, JSON.stringify(runningParallelJoin("parallel-status-running")), "utf8")
+
+    try {
+      const first = JSON.parse(await createODFWorkflowStatus().execute({ change_name: "parallel-status-running", workspace_dir: root }, {} as any) as string)
+      const fresh = JSON.parse(await createODFWorkflowStatus().execute({ change_name: "parallel-status-running", workspace_dir: root }, {} as any) as string)
+      for (const result of [first, fresh]) {
+        expect(result.parallel_join).toMatchObject({
+          join: { status: "running", expected: 2, completed: 0, failed: 0, running: 2 },
+          evidence_refs: expect.arrayContaining([expect.stringContaining("parallel-status-running")]),
+        })
+        expect(result.parallel_join.branches.map((branch: any) => branch.status)).toEqual(["running", "running"])
+        expect(result.parallel_join.branches.every((branch: any) => branch.outcome.status === "running")).toBe(true)
+      }
+    } finally {
+      await cleanup()
+      await fs.rm(root, { recursive: true, force: true })
+    }
+  })
+
+  it("derives running metadata for legacy blocked schema-v1 joins", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "odf-parallel-status-blocked-"))
+    const cleanup = await configureEngramExport([])
+    await writeOpenSpec(root, "parallel-status-blocked", "canonical_stage: PLAN\ndecide_completed: true\nplan_completed: false\n", {
+      "plan.yaml": "status: pending\n",
+    })
+    const joinPath = path.join(root, ".odf", "parallel-join-parallel-status-blocked.json")
+    await fs.mkdir(path.dirname(joinPath), { recursive: true })
+    await fs.writeFile(joinPath, JSON.stringify(parallelJoin("parallel-status-blocked", "blocked")), "utf8")
+
+    try {
+      const result = JSON.parse(await createODFWorkflowStatus().execute({ change_name: "parallel-status-blocked", workspace_dir: root }, {} as any) as string)
+      expect(result.parallel_join).toMatchObject({ join: { status: "blocked", completed: 1, failed: 1, running: 0 } })
+      expect(result.parallel_join.branches.map((branch: any) => branch.status)).toEqual(["complete", "failed"])
+    } finally {
+      await cleanup()
+      await fs.rm(root, { recursive: true, force: true })
+    }
+  })
+
+  it("warns and hides malformed, mismatched, and oversized join artifacts", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "odf-parallel-status-invalid-"))
+    const cleanup = await configureEngramExport([])
+    await writeOpenSpec(root, "parallel-invalid", "canonical_stage: PLAN\ndecide_completed: true\nplan_completed: false\n", {
+      "plan.yaml": "status: pending\n",
+    })
+    const joinPath = path.join(root, ".odf", "parallel-join-parallel-invalid.json")
+    await fs.mkdir(path.dirname(joinPath), { recursive: true })
+
+    try {
+      await fs.writeFile(joinPath, "{", "utf8")
+      const malformed = JSON.parse(await createODFWorkflowStatus().execute({ change_name: "parallel-invalid", workspace_dir: root }, {} as any) as string)
+      expect(malformed.parallel_join).toBeUndefined()
+      expect(malformed.warnings.some((warning: string) => warning.includes("Malformed parallel join"))).toBe(true)
+
+      await fs.writeFile(joinPath, JSON.stringify({ ...parallelJoin("other-change"), change: "other-change" }), "utf8")
+      const mismatched = JSON.parse(await createODFWorkflowStatus().execute({ change_name: "parallel-invalid", workspace_dir: root }, {} as any) as string)
+      expect(mismatched.parallel_join).toBeUndefined()
+      expect(mismatched.warnings.some((warning: string) => warning.includes("change does not match"))).toBe(true)
+
+      await fs.writeFile(joinPath, "x".repeat(256 * 1024 + 1), "utf8")
+      const oversized = JSON.parse(await createODFWorkflowStatus().execute({ change_name: "parallel-invalid", workspace_dir: root }, {} as any) as string)
+      expect(oversized.parallel_join).toBeUndefined()
+      expect(oversized.warnings.some((warning: string) => warning.includes("oversized"))).toBe(true)
+    } finally {
+      await cleanup()
+      await fs.rm(root, { recursive: true, force: true })
     }
   })
 })

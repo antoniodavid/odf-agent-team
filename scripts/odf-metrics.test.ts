@@ -87,4 +87,26 @@ describe("buildDashboard + render", () => {
     expect(out).toContain("Total delegations: 1")
     expect(out).toContain("Avg duration: 1s")
   })
+
+  it("aggregates bounded work, branch, and join fields while reading legacy records", () => {
+    const d = buildDashboard([
+      { agent: "backend", duration_ms: 1000, token_estimate: 100, skill_resolution: "injected", skills_injected: [], status: "ok", work_type: "cross-domain", branch_id: "backend" },
+      { agent: "frontend", duration_ms: 3000, token_estimate: 200, skill_resolution: "injected", skills_injected: [], status: "ok", work_type: "cross-domain", branch_id: "frontend" },
+      { agent: "scheduler", duration_ms: 0, token_estimate: 0, skill_resolution: "none", skills_injected: [], status: "blocked", work_type: "cross-domain", join_status: "running", join_expected: 2, join_completed: 0, join_failed: 0, join_running: 2, validation_ratio: 0 },
+      { agent: "scheduler", duration_ms: 0, token_estimate: 0, skill_resolution: "none", skills_injected: [], status: "ok", work_type: "cross-domain", join_status: "complete", join_expected: 2, join_completed: 2, join_failed: 0, join_running: 0, validation_ratio: 1 },
+      { agent: "legacy", duration_ms: 500, token_estimate: 10, skill_resolution: "injected", skills_injected: ["skill"], status: "ok" },
+    ], 1)
+
+    expect(d.total).toBe(3)
+    expect(d.workTypeRows).toHaveLength(1)
+    expect(d.workTypeRows[0]).toContain("cross-domain")
+    expect(d.branchRows).toHaveLength(2)
+    expect(d.branchRows[0]).toContain("backend")
+    expect(d.branchRows[0]).toContain("1s")
+    expect(d.joinRows).toHaveLength(2)
+    expect(d.joinRows.join("\n")).toContain("running")
+    expect(d.joinRows.join("\n")).toContain("complete")
+    expect(d.validationRatio).toBe(0.5)
+    expect(renderDashboard(d)).toContain("Scheduler Joins")
+  })
 })

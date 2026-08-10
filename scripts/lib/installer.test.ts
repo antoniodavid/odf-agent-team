@@ -60,6 +60,7 @@ describe("install.sh", { timeout: 30000 }, () => {
       expect(fs.existsSync(path.join(configDir, "plugins", "odf-delegation.ts"))).toBe(true)
       expect(fs.existsSync(path.join(configDir, "scripts", "odf-test-runner.js"))).toBe(true)
       expect(fs.existsSync(path.join(configDir, "command", "odf-new.md"))).toBe(true)
+      expect(fs.existsSync(path.join(configDir, "command", "odf-health.md"))).toBe(true)
     } finally {
       cleanup(tempHome)
     }

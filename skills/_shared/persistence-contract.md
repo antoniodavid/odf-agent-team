@@ -3,25 +3,29 @@
 ## Artifact Store Modes
 
 ODF supports `openspec`, `engram`, and `hybrid` artifact stores selected during
-preflight. The current state-machine helpers use OpenSpec `state.yaml` files;
-phase artifacts are persisted to Engram using deterministic topic keys, and
-hybrid mode keeps both representations when the orchestrator supports it.
+preflight. For lifecycle state commits, the explicit `artifact_store` binding
+selects exactly one authoritative store: `openspec` or `engram`. Hybrid state
+commits are not supported and must never dual-write or fall back.
 
 ## Rules
 
 1. Follow the selected artifact store; do not assume Engram-only or OpenSpec-only persistence.
 2. Engram artifacts use `mem_save` with deterministic naming (see `engram-convention.md`).
 3. Recovery after compaction uses `mem_search` then `mem_get_observation` (2-step protocol)
-4. If the selected store is unavailable, return results inline and WARN the user.
+4. If the selected store is unavailable, return results inline and WARN the user; a proof-backed lifecycle transition must also fail closed without advancing state.
 
 ## State Persistence (Orchestrator)
 
-The orchestrator persists DAG state after each phase transition to enable recovery after context compaction. In the current runtime, the state-machine helpers write OpenSpec state; Engram status resolution reads `odf/{change}/...` observations.
+The orchestrator persists canonical workflow state after each proof-backed BUILD
+or VERIFY transition to enable recovery after context compaction. The selected
+store is re-read before commit and remains the only source of truth for that
+transition.
 
 | Action | How |
 |--------|-----|
-| Save state | `mem_save(topic_key: "odf/{change-name}/state")` |
-| Recover state | `mem_search("odf/{change-name}/state")` then `mem_get_observation(id)` |
+| Save OpenSpec state | Atomically replace `openspec/changes/{change-name}/state.yaml` using a sibling temporary file and rename |
+| Save Engram state | One deterministic `odf/{change-name}/state` observation via the safe export/save path |
+| Recover state | Read only the explicitly selected OpenSpec file or Engram observation; never fall back to the other store |
 
 ## Detail Level
 

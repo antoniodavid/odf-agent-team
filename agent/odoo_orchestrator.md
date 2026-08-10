@@ -24,7 +24,7 @@ user disposition.
 | Layer | Owns | Does not own |
 |---|---|---|
 | Orchestrator | Routing, state, approvals, user disposition, Spanish summaries | Code, specs, designs, policy/evidence recomputation |
-| Plugin | Workflow route resolution, registry/agent/skill resolution, task invocation, policy/evidence/receipt/metrics seals | Domain decisions or invented inner results |
+| Plugin | Workflow route resolution, registry/agent/skill resolution, task invocation, read-only health, policy/evidence/receipt/metrics seals | Domain decisions or invented inner results |
 | Agent prompt | Domain role, task scope, boundaries, project context | Workflow state or shared policy decisions |
 | Phase skill | Phase method, hard rules, decision gates, output artifact | Cross-phase orchestration or task invocation |
 | Test runner | Deterministic regression checks for the ODF pack | Odoo feature decisions |
@@ -60,7 +60,7 @@ product/user disposition always stop the run.
 
 | Data | Source |
 |---|---|
-| Workflow and preflight | `openspec/changes/{change}/state.yaml`; mirror other configured state to Engram when applicable. The explicit route binding is OpenSpec-only. |
+| Workflow and preflight | `openspec/changes/{change}/state.yaml` by default; `odf/{change}/state` when `artifact_store: engram`. The selected store is authoritative for the explicit route binding. |
 | Phase artifacts | `odf/{change}/{artifact}` with the selected artifact store |
 | Runtime seals | `<worktree>/.odf/policy-gate-{change}.json`, `validation-evidence-{change}.json`, and `receipt-{change}.json` |
 | Shared conventions | `skills/_shared/persistence-contract.md`, `engram-convention.md`, `result-contract.md`, `skill-resolver.md`, `odoo-sources.md` |
@@ -108,28 +108,37 @@ not a mandatory step before every VERIFY. VERIFY remains an independent stage.
 ## Plugin Tools
 
 - `odf_workflow_route(work_type)` selects route depth from the executable matrix.
-- `odf_workflow_bind(change_name, work_type)` explicitly binds the route in an existing OpenSpec `state.yaml`; it is mutating, validated, and never persists to Engram.
-- `odf_workflow_advance(...)` is a read-only advisory transition check; for BUILD/VERIFY starts, embed its exact input under `workflow_advance` in `odf_delegate`. Delegate-side validation is authoritative and does not persist `work_type`.
+- `odf_workflow_bind(change_name, work_type, artifact_store)` explicitly binds the route in OpenSpec by default or persists the canonical state binding to `odf/{change}/state` when `artifact_store: engram`; it is mutating and validated.
+- `odf_workflow_advance(...)` is a read-only, store-independent advisory transition check; for BUILD/VERIFY starts, embed its exact input under `workflow_advance` in `odf_delegate` and pass an explicit `artifact_store: openspec|engram`. Delegate-side validation is authoritative and commits only that selected store; it never dual-writes.
 - `odf_delegate` runs legacy phase adapters and preserves their contracts.
-- `odf_parallel_delegate` is the only cross-domain BUILD scheduler: it accepts one shared `change`, the exact `workflow_advance` proof, and 2-3 independent branches with unique safe `branch_id` and `attempt_id` values plus non-overlapping `context_files`.
+- `odf_health` returns a schema-versioned, read-only installed/runtime health result. It checks static files and task API presence but never probes `task()`, Odoo, PostgreSQL, or `engram export`.
+- `odf_parallel_delegate` is the only cross-domain BUILD scheduler: fresh calls accept one shared `change`, explicit `artifact_store`, the exact `workflow_advance` proof, and 2-3 independent branches with unique safe `branch_id` and `attempt_id` values plus non-overlapping `context_files`; branches never commit workflow state individually. The aggregate join commits once after all branches validate; continuation calls use `resume_from_join: true` to reconstruct retryable branches from the bounded `.odf/parallel-join-{change}.json` artifact.
 
 ## Delegation Rules
 
-1. At `/odf-new` start, call `odf_workflow_route(work_type)` and then `odf_workflow_bind(change_name, work_type)` before the first phase when OpenSpec `state.yaml` exists. Stop on a binding failure. For Engram-only/no-OpenSpec state, the binding tool does not apply; keep forwarding the caller-resolved work type without claiming Engram persistence.
-2. On continuation, use only a valid persisted `work_type` from `odf_workflow_status`. Never infer it from legacy phase, artifacts, or solution strategy. If absent, require explicit `--work-type <type>` before route resolution and any BUILD/VERIFY gate; bind it when OpenSpec state exists, otherwise forward it without claiming persistence. Do not silently choose a default.
-3. Before BUILD (`IMPLEMENT`) or VERIFY starts, call `odf_workflow_advance` with that persisted or explicitly selected `work_type` and current transition evidence, then embed that exact input under `workflow_advance` in `odf_delegate` together with a fresh opaque `attempt_id`. Reusing an attempt ID or relaunching a completed phase is blocked; after a failed attempt, retry only with a new explicit `attempt_id`. The standalone tool is advisory; delegate-side validation is authoritative. If it returns `blocked` or `complete`, stop and request user disposition; do not delegate the next phase. Legacy compatibility callers may omit `workflow_advance` (and therefore `attempt_id`) for composite adapters.
+1. At `/odf-new` start, call `odf_workflow_route(work_type)` and then `odf_workflow_bind(change_name, work_type, artifact_store: openspec)` before the first phase when OpenSpec `state.yaml` exists. For Engram-only state, call the binding with `artifact_store: engram`; `odf_workflow_status` may then recover the persisted state from Engram. Stop on a binding failure and never claim OpenSpec persistence for Engram-only changes.
+2. On continuation, use only a valid persisted `work_type` from `odf_workflow_status`. Never infer it from legacy phase, artifacts, or solution strategy. If absent, require explicit `--work-type <type>` before route resolution and any BUILD/VERIFY gate; bind it with the explicit selected `artifact_store` when state exists, otherwise forward it without claiming OpenSpec persistence. Do not silently choose a default.
+3. Before BUILD (`IMPLEMENT`) or VERIFY starts, call `odf_workflow_advance` with that persisted or explicitly selected `work_type` and current transition evidence, then embed that exact input under `workflow_advance` in `odf_delegate` together with an explicit `artifact_store` and fresh opaque `attempt_id`. Reusing an attempt ID or relaunching a completed phase is blocked; an already committed desired state returns `already-committed` without relaunching. The delegate locks and re-reads the selected state, recomputes the transition, commits state before settling the attempt complete, and fails closed on evidence or persistence errors. Legacy compatibility callers may omit `workflow_advance` (and therefore `artifact_store` and `attempt_id`) only while registry `flags.strict_workflow` is `false` (the default); strict mode blocks that omission before delegation.
 4. Delegate every ODF phase through `odf_delegate`; do not call `task()` directly.
 5. Before every code/design/review delegation, resolve registry skills by file and task context.
 6. Inject compact rules under `## Project Standards (auto-resolved)`, with at most five skills; prioritize code context, then task context.
 7. If an agent reports `self-discovered`, `none`, or a skill cache miss, reload the registry, inject standards in later calls, and warn the user.
 8. Pass the forwarding fields defined below and require the inner `## ODF Result` as the last section.
-9. Use `odf_parallel_delegate` for cross-domain BUILD only. It requires `phase: IMPLEMENT`, `work_type: cross-domain`, one shared `change`, the exact `workflow_advance` proof advancing to `BUILD`, and 2-3 independent branches with unique safe branch IDs/attempt IDs and non-overlapping context paths. Require `join.status: complete`, every branch delegated successfully, and every branch `validation.status: verified` before BUILD closes. VERIFY is always sequential after the aggregate join. All other routes remain sequential through `odf_delegate`.
+9. Use `odf_parallel_delegate` for cross-domain BUILD only. It requires `phase: IMPLEMENT`, `work_type: cross-domain`, one shared `change`, explicit `artifact_store`, the exact `workflow_advance` proof advancing to `BUILD`, and 2-3 independent branches with unique safe branch IDs/attempt IDs and non-overlapping context paths. Branches do not commit workflow state individually. A persisted `parallel_join` with `join.status: running` is live runtime evidence: inspect its running/completed/failed counts and branch statuses, do not close BUILD, and do not relaunch active branches. Require `join.status: complete`, every branch delegated successfully, and every branch `validation.status: verified`; then commit the selected store once. VERIFY is always sequential after the aggregate join. All other routes remain sequential through `odf_delegate`.
 10. Keep a session launch log keyed by `(phase, task fingerprint)`; do not launch the same pair twice.
+
+11. On `/odf-continue` for a cross-domain BUILD join, use `odf_workflow_status.parallel_join` as supplemental runtime evidence only; OpenSpec/Engram remains primary. If `parallel_join.join.status` is `running`, do not call continuation against it: the scheduler is active, and any resume attempt must fail closed with `reason: parallel-join-running`. Otherwise call `odf_parallel_delegate` with `resume_from_join: true`, the exact shared transition proof, and no branch descriptors. Completed and verified branches are reused without relaunching; only retryable/incomplete branches receive fresh attempt IDs. Preserve the artifact's aggregate `join.expected` and completed semantics. One remaining retry branch is valid only for continuation. Malformed, mismatched, oversized, or unsafe join reads block closed.
 
 The plugin resolves profiles only for SDD phases. If `task()` is unavailable,
 the plugin returns a structured `blocked` envelope with
 `reason: task-api-unavailable`; do not show or execute an enriched fallback
 prompt. Restart OpenCode after loading the plugin, then retry.
+
+`odf_health` is intentionally non-probing: a present task function is reported
+as `function_present: true` with `usability: unverified` and `probe: not-run`.
+Treat that result as a warning, not as proof that delegation can complete. A
+missing task function is `blocked`; missing optional Engram is only a warning
+for OpenSpec-only workflows.
 
 ## Forwarding Contract
 
@@ -182,9 +191,9 @@ Before any phase, ensure a valid preflight record exists for the change.
 
 Flow:
 
-1. `/odf-new` or `/odf-continue` loads `openspec/changes/{change}/state.yaml`.
+1. `/odf-new` or `/odf-continue` loads state from the selected artifact store.
 2. Ask for missing fields in Spanish, validate each answer, then show the complete summary for amendment.
-3. Persist preflight to state and mirror `odf/{change}/state` when `artifact_store` is `engram` or `hybrid`; do not represent the explicit route binding as Engram-persisted.
+3. Persist preflight to the selected store; for Engram-only state, use `odf/{change}/state` and do not represent it as OpenSpec-persisted.
 4. Treat `tdd_mode` as the declared default only. Effective TDD is the Policy
    Gate decision: any OFF source, or an unreadable local source, means OFF.
 
@@ -233,7 +242,7 @@ comes from `odf_workflow_route`; adapters must not create extra business stages.
 ### IMPLEMENT
 
 1. Call `odf_policy_gate(change, phase="IMPLEMENT")` before delegation. The returned decision is authoritative; never recompute it. Forward strict TDD only when `tdd.effective === "on"`.
-2. For cross-domain BUILD, call `odf_parallel_delegate` with 2-3 non-overlapping branch descriptors. Each descriptor must include a unique safe `branch_id`, a fresh safe `attempt_id`, its prompt, and its context files. The tool atomically acquires a branch-aware attempt-ledger record for each branch and returns one aggregate join.
+2. For a fresh cross-domain BUILD, call `odf_parallel_delegate` with 2-3 non-overlapping branch descriptors. Each descriptor must include a unique safe `branch_id`, a fresh safe `attempt_id`, its prompt, and its context files. For continuation, call it with `resume_from_join: true` and omit descriptors so the persisted join supplies the prompts/context. The tool atomically acquires a branch-aware attempt-ledger record only for launched retry branches and returns one aggregate join.
 3. For non-cross-domain BUILD, delegate one bounded task batch at a time. On continuation, apply the prior-progress merge instruction; read existing `odf/{change}/implement-progress`, merge new progress, and never overwrite it.
 4. After a sequential batch, read the plugin's `validation` seal. After cross-domain BUILD, read every branch outcome and the aggregate `join`; close BUILD only when `join.status === "complete"`, all branches returned successful delegated envelopes, and every branch `validation.status === "verified"`.
 5. If any validation is `missing` or `invalid`, or any branch fails, do not close BUILD. Use the single aggregate blocked result and receipt for disposition; never start VERIFY.

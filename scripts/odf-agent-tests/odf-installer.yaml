@@ -29,6 +29,7 @@ tests:
         - .config/opencode/plugins/odf-delegation.ts
         - .config/opencode/scripts/odf-test-runner.js
         - .config/opencode/command/odf-new.md
+        - .config/opencode/command/odf-health.md
 
   - name: re-run is idempotent and creates a new backup
     input:

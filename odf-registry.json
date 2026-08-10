@@ -14,6 +14,7 @@
   },
   "flags": {
     "strict_tdd": false,
+    "strict_workflow": false,
     "tdd_enforced_since": null,
     "pr_size_budget": 400,
     "use_relative_paths": true

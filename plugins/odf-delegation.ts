@@ -4,6 +4,7 @@
  *
  * Extends OpenCode with ODF-specific delegation tools:
  * - odf_delegate: Delegate to phase-specific agents with skill injection
+ * - odf_health: Read-only installed/runtime health inspection
  * - odf_skill_inject: Read registry and inject compact rules
  * - odf_registry_read: Query the ODF skill registry
  *
@@ -39,6 +40,12 @@ import {
   type WorkflowStage,
   type WorkflowStatus,
 } from "./odf-workflow-status.js"
+import {
+  parallelJoinArtifactRef,
+  readParallelJoinArtifact,
+  writeParallelJoinArtifact,
+  type ParallelJoinArtifact,
+} from "./odf-parallel-join.js"
 
 export type OpencodeClient = ReturnType<typeof createOpencodeClient>
 
@@ -83,6 +90,19 @@ function resolveWorkspaceRoot(cwd = process.cwd()): string {
     // Fall back for non-Git workspaces.
   }
   return path.normalize(path.resolve(cwd))
+}
+
+function workspaceProjectName(workspaceRoot: string): string {
+  try {
+    const gitRoot = execFileSync("git", ["rev-parse", "--show-toplevel"], {
+      cwd: workspaceRoot,
+      encoding: "utf8",
+    }).trim()
+    if (gitRoot) return path.basename(path.normalize(gitRoot))
+  } catch {
+    // Fall back for non-Git workspaces.
+  }
+  return path.basename(path.normalize(workspaceRoot))
 }
 
 // ==========================================
@@ -188,6 +208,26 @@ interface ODFRegistry {
   flags?: Record<string, boolean | string | number>
 }
 
+const ODF_REGISTERED_TOOLS = [
+  "odf_delegate",
+  "odf_parallel_delegate",
+  "odf_workflow_route",
+  "odf_workflow_advance",
+  "odf_workflow_bind",
+  "odf_skill_inject",
+  "odf_registry_read",
+  "odf_notebooklm_lookup",
+  "odf_profile_select",
+  "odf_skill_resolve",
+  "odf_community_tool_detect",
+  "odf_community_tool_install",
+  "odf_status",
+  "odf_workflow_status",
+  "odf_policy_gate",
+  "odf_receipt",
+  "odf_health",
+] as const
+
 /**
  * Resolve a registry path safely.
  *
@@ -260,6 +300,281 @@ async function loadRegistry(): Promise<ODFRegistry | null> {
     }
     console.warn(`[odf-delegation] Registry at ${REGISTRY_PATH} is unreadable or corrupt: ${err}`)
     return null
+  }
+}
+
+// ==========================================
+// READ-ONLY HEALTH
+// ==========================================
+
+type HealthStatus = "ok" | "warning" | "blocked" | "failed"
+type HealthFileStatus = "readable" | "missing" | "permission-denied" | "unreadable"
+
+interface HealthIo {
+  readFile: (filePath: string) => Promise<string>
+  stat: (filePath: string) => Promise<{ isFile: () => boolean }>
+  access: (filePath: string) => Promise<void>
+  locateExecutable: (command: string) => string
+  readVersion: (command: string) => string
+}
+
+const defaultHealthIo: HealthIo = {
+  readFile: (filePath) => fs.readFile(filePath, "utf8"),
+  stat: (filePath) => fs.stat(filePath),
+  access: (filePath) => fs.access(filePath, fsSync.constants.R_OK),
+  locateExecutable: (command) => {
+    const which = process.platform === "win32" ? "where" : "which"
+    return execFileSync(which, [command], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+      timeout: 1_000,
+    }).trim().split(/\r?\n/)[0] || ""
+  },
+  readVersion: (command) => execFileSync(command, ["--version"], {
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "ignore"],
+    timeout: 1_000,
+  }).trim().split(/\r?\n/)[0] || "",
+}
+
+interface HealthFileCheck {
+  status: HealthFileStatus
+  permissionDenied: boolean
+}
+
+function healthErrorCode(error: unknown): string | undefined {
+  return error && typeof error === "object" && "code" in error
+    ? String((error as NodeJS.ErrnoException).code)
+    : undefined
+}
+
+function healthFileFailure(code: string | undefined): HealthFileCheck {
+  if (code === "ENOENT" || code === "ENOTDIR") return { status: "missing", permissionDenied: false }
+  if (code === "EACCES" || code === "EPERM") return { status: "permission-denied", permissionDenied: true }
+  return { status: "unreadable", permissionDenied: false }
+}
+
+async function checkHealthFile(filePath: string, io: HealthIo): Promise<HealthFileCheck> {
+  if (!filePath) return { status: "missing", permissionDenied: false }
+  try {
+    const stat = await io.stat(filePath)
+    if (!stat.isFile()) return { status: "unreadable", permissionDenied: false }
+    await io.access(filePath)
+    return { status: "readable", permissionDenied: false }
+  } catch (error) {
+    return healthFileFailure(healthErrorCode(error))
+  }
+}
+
+interface RegistryHealth {
+  status: "valid" | HealthFileStatus | "malformed"
+  path: string
+  skills: { registered: number; readable: number; missing: string[] }
+  agents: { registered: number; readable: number; missing: string[] }
+  profiles: number
+}
+
+interface HealthInspection {
+  registry: RegistryHealth
+  warnings: string[]
+  permissionDenied: boolean
+}
+
+function emptyRegistryHealth(registryPath: string, status: RegistryHealth["status"]): RegistryHealth {
+  return {
+    status,
+    path: registryPath,
+    skills: { registered: 0, readable: 0, missing: [] },
+    agents: { registered: 0, readable: 0, missing: [] },
+    profiles: 0,
+  }
+}
+
+function isHealthEntry(value: unknown): value is { name: string; path: string } {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value) &&
+    typeof (value as { name?: unknown }).name === "string" &&
+    typeof (value as { path?: unknown }).path === "string"
+}
+
+async function inspectRegistryHealth(registryPath: string, io: HealthIo): Promise<HealthInspection> {
+  let raw: string
+  try {
+    raw = await io.readFile(registryPath)
+  } catch (error) {
+    const failure = healthFileFailure(healthErrorCode(error))
+    return {
+      registry: emptyRegistryHealth(registryPath, failure.status),
+      warnings: [`registry-${failure.status}: ${registryPath}`],
+      permissionDenied: failure.permissionDenied,
+    }
+  }
+
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(raw)
+  } catch {
+    return {
+      registry: emptyRegistryHealth(registryPath, "malformed"),
+      warnings: ["registry-malformed: odf-registry.json is not valid JSON"],
+      permissionDenied: false,
+    }
+  }
+
+  const value = parsed as Partial<ODFRegistry> | null
+  if (!value || typeof value !== "object" || Array.isArray(value) ||
+    !Array.isArray(value.skills) || !Array.isArray(value.agents) ||
+    value.skills.some(skill => !isHealthEntry(skill)) ||
+    value.agents.some(agent => !isHealthEntry(agent)) ||
+    (value.profiles !== undefined && !Array.isArray(value.profiles))) {
+    return {
+      registry: emptyRegistryHealth(registryPath, "malformed"),
+      warnings: ["registry-malformed: skills and agents must be registered arrays"],
+      permissionDenied: false,
+    }
+  }
+
+  const registryDir = path.dirname(registryPath)
+  const checkEntries = async (entries: Array<{ name: string; path: string }>) => {
+    const checks = await Promise.all(entries.map(entry => {
+      const resolved = resolvePath(registryDir, entry.path)
+      return checkHealthFile(resolved, io).then(check => ({ entry, check }))
+    }))
+    return {
+      registered: entries.length,
+      readable: checks.filter(({ check }) => check.status === "readable").length,
+      missing: checks.filter(({ check }) => check.status !== "readable").map(({ entry }) => entry.name),
+      permissionDenied: checks.some(({ check }) => check.permissionDenied),
+    }
+  }
+
+  const [skills, agents] = await Promise.all([
+    checkEntries(value.skills),
+    checkEntries(value.agents),
+  ])
+  const warnings = [
+    ...skills.missing.map(name => `registry-skill-missing: ${name}`),
+    ...agents.missing.map(name => `registry-agent-missing: ${name}`),
+  ]
+  return {
+    registry: {
+      status: "valid",
+      path: registryPath,
+      skills: { registered: skills.registered, readable: skills.readable, missing: skills.missing },
+      agents: { registered: agents.registered, readable: agents.readable, missing: agents.missing },
+      profiles: Array.isArray(value.profiles) ? value.profiles.length : 0,
+    },
+    warnings,
+    permissionDenied: skills.permissionDenied || agents.permissionDenied,
+  }
+}
+
+interface EngramHealth {
+  cli: "available" | "unavailable" | "not-checked"
+  path?: string
+  version?: string
+  export_probe: "not-run"
+}
+
+interface EngramInspection {
+  engram: EngramHealth
+  warnings: string[]
+  blocked: boolean
+}
+
+function inspectEngramHealth(io: HealthIo): EngramInspection {
+  const unavailable = (warning: string, blocked = false): EngramInspection => ({
+    engram: { cli: "unavailable", export_probe: "not-run" },
+    warnings: [warning],
+    blocked,
+  })
+  let cliPath: string
+  try {
+    cliPath = io.locateExecutable("engram")
+  } catch (error) {
+    const code = healthErrorCode(error)
+    if (code === "ETIMEDOUT") return unavailable("runtime-timeout: Engram CLI discovery timed out", true)
+    if (code === "EACCES" || code === "EPERM") return unavailable("permission-denied: Engram CLI discovery", true)
+    return unavailable("engram-cli-unavailable")
+  }
+  if (!cliPath) return unavailable("engram-cli-unavailable")
+
+  const engram: EngramHealth = { cli: "available", path: cliPath, export_probe: "not-run" }
+  try {
+    const version = io.readVersion(cliPath)
+    if (version) engram.version = version
+  } catch (error) {
+    const code = healthErrorCode(error)
+    if (code === "ETIMEDOUT") return { engram, warnings: ["runtime-timeout: Engram version discovery timed out"], blocked: true }
+    if (code === "EACCES" || code === "EPERM") return { engram, warnings: ["permission-denied: Engram version discovery"], blocked: true }
+    // Version output is optional; a working executable is still available.
+  }
+  return { engram, warnings: [], blocked: false }
+}
+
+async function inspectODFHealth(toolCtx: ToolContext, client: OpencodeClient | undefined, io: HealthIo): Promise<{
+  schema_version: 1
+  status: HealthStatus
+  checked_at: string
+  config_dir: string
+  registry: RegistryHealth
+  plugin: { file_status: HealthFileStatus; loaded: true; registered_tools: readonly string[] }
+  command: { command: string; path: string; status: HealthFileStatus }
+  task_api: { source: DelegationMetrics["task_api_source"]; function_present: boolean; usability: "unverified" | "unavailable"; probe: "not-run" }
+  engram: EngramHealth
+  warnings: string[]
+}> {
+  const configDir = getOdfConfigDir()
+  const registryPath = path.join(configDir, "odf-registry.json")
+  const pluginPath = path.join(configDir, "plugins", "odf-delegation.ts")
+  const commandPath = path.join(configDir, "command", "odf-health.md")
+  const [registryInspection, pluginFile, commandFile] = await Promise.all([
+    inspectRegistryHealth(registryPath, io),
+    checkHealthFile(pluginPath, io),
+    checkHealthFile(commandPath, io),
+  ])
+  const taskApi = findTaskApi(toolCtx, client)
+  const taskApiHealth = {
+    source: taskApi?.source || "unavailable" as const,
+    function_present: Boolean(taskApi),
+    usability: taskApi ? "unverified" as const : "unavailable" as const,
+    probe: "not-run" as const,
+  }
+  const taskWarning = taskApi
+    ? "task-api-unverified: task usability was not probed because probing executes a task"
+    : "task-api-unavailable"
+  const engramInspection = inspectEngramHealth(io)
+  const warnings = [
+    ...registryInspection.warnings,
+    ...(pluginFile.status !== "readable" ? [`plugin-file-${pluginFile.status}: ${pluginPath}`] : []),
+    ...(commandFile.status !== "readable" ? [`command-file-${commandFile.status}: ${commandPath}`] : []),
+    taskWarning,
+    ...engramInspection.warnings,
+  ]
+  const staticFailure = registryInspection.registry.status !== "valid" ||
+    registryInspection.registry.skills.missing.length > 0 ||
+    registryInspection.registry.agents.missing.length > 0 ||
+    pluginFile.status !== "readable" || commandFile.status !== "readable"
+  const permissionBlocked = registryInspection.permissionDenied ||
+    pluginFile.permissionDenied || commandFile.permissionDenied || engramInspection.blocked
+  const status: HealthStatus = permissionBlocked
+    ? "blocked"
+    : staticFailure
+      ? "failed"
+      : !taskApi
+        ? "blocked"
+        : "warning"
+
+  return {
+    schema_version: 1,
+    status,
+    checked_at: new Date().toISOString(),
+    config_dir: configDir,
+    registry: registryInspection.registry,
+    plugin: { file_status: pluginFile.status, loaded: true, registered_tools: ODF_REGISTERED_TOOLS },
+    command: { command: "/odf-health", path: commandPath, status: commandFile.status },
+    task_api: taskApiHealth,
+    engram: engramInspection.engram,
+    warnings: Array.from(new Set(warnings)),
   }
 }
 
@@ -434,6 +749,14 @@ interface DelegationMetrics {
   token_estimate: number
   status: "ok" | "blocked" | "error" | "timeout"
   task_api_source: "ctx.task" | "toolCtx.task" | "sdk" | "unavailable"
+  work_type?: WorkType
+  branch_id?: string
+  join_status?: "running" | "complete" | "blocked"
+  join_expected?: number
+  join_completed?: number
+  join_failed?: number
+  join_running?: number
+  validation_ratio?: number
   error?: string
 }
 
@@ -467,6 +790,31 @@ function sanitizeError(error?: string): string | undefined {
   if (!error) return undefined
   const safe = error.replace(/\r?\n/g, " ").replace(/"/g, "'").trim()
   return safe.length > 200 ? safe.slice(0, 200) + "..." : safe
+}
+
+const METRIC_SAFE_TOKEN_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/
+const METRIC_MAX_JOIN_COUNT = 3
+
+function sanitizeMetricToken(value: unknown): string | undefined {
+  return typeof value === "string" && METRIC_SAFE_TOKEN_PATTERN.test(value) ? value : undefined
+}
+
+function sanitizeMetricWorkType(value: unknown): WorkType | undefined {
+  return typeof value === "string" && WORK_TYPES.includes(value as WorkType) ? value as WorkType : undefined
+}
+
+function sanitizeMetricJoinStatus(value: unknown): DelegationMetrics["join_status"] {
+  return value === "running" || value === "complete" || value === "blocked" ? value : undefined
+}
+
+function sanitizeMetricJoinCount(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isInteger(value) && value >= 0 && value <= METRIC_MAX_JOIN_COUNT
+    ? value
+    : undefined
+}
+
+function sanitizeMetricValidationRatio(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= 1 ? value : undefined
 }
 
 /**
@@ -508,11 +856,31 @@ function startMetricsFlusher(): void {
 }
 
 function recordMetrics(metric: DelegationMetricInput): void {
-  const { session_id, ...rest } = metric
+  const {
+    session_id,
+    work_type,
+    branch_id,
+    join_status,
+    join_expected,
+    join_completed,
+    join_failed,
+    join_running,
+    validation_ratio,
+    error,
+    ...rest
+  } = metric
   const sanitized: DelegationMetrics = {
     ...rest,
     session_hash: hashSession(session_id),
-    error: sanitizeError(metric.error),
+    ...(sanitizeMetricWorkType(work_type) ? { work_type: sanitizeMetricWorkType(work_type) } : {}),
+    ...(sanitizeMetricToken(branch_id) ? { branch_id: sanitizeMetricToken(branch_id) } : {}),
+    ...(sanitizeMetricJoinStatus(join_status) ? { join_status: sanitizeMetricJoinStatus(join_status) } : {}),
+    ...(sanitizeMetricJoinCount(join_expected) !== undefined ? { join_expected: sanitizeMetricJoinCount(join_expected) } : {}),
+    ...(sanitizeMetricJoinCount(join_completed) !== undefined ? { join_completed: sanitizeMetricJoinCount(join_completed) } : {}),
+    ...(sanitizeMetricJoinCount(join_failed) !== undefined ? { join_failed: sanitizeMetricJoinCount(join_failed) } : {}),
+    ...(sanitizeMetricJoinCount(join_running) !== undefined ? { join_running: sanitizeMetricJoinCount(join_running) } : {}),
+    ...(sanitizeMetricValidationRatio(validation_ratio) !== undefined ? { validation_ratio: sanitizeMetricValidationRatio(validation_ratio) } : {}),
+    error: sanitizeError(error),
   }
   metricsBuffer.push(sanitized)
   if (metricsBuffer.length >= getMetricsBufferCap()) {
@@ -833,6 +1201,61 @@ function isCancellationMessage(message: string): boolean {
   return /\b(cancelled|canceled|aborted)\b/i.test(message)
 }
 
+function innerPhaseResultStatus(result: unknown): WorkflowPhaseResultStatus | null {
+  if (!result || typeof result !== "object" || Array.isArray(result)) return null
+  const status = (result as { status?: unknown }).status
+  return status === "ok" || status === "warning" || status === "blocked" || status === "failed" ? status : null
+}
+
+interface InnerResultDisposition {
+  resultStatus: WorkflowPhaseResultStatus | null
+  metricStatus: DelegationMetrics["status"]
+  accepted: boolean
+  failureReceiptStatus: ODFReceipt["status"]
+  failureReason: "task-error" | null
+  failureResultStatus: Exclude<AttemptLedgerResultStatus, "running"> | null
+  message: string
+}
+
+function innerResultDisposition(result: unknown): InnerResultDisposition {
+  const resultStatus = innerPhaseResultStatus(result)
+  if (resultStatus === "ok" || resultStatus === "warning") {
+    return {
+      resultStatus,
+      metricStatus: "ok",
+      accepted: true,
+      failureReceiptStatus: "failed",
+      failureReason: null,
+      failureResultStatus: null,
+      message: "The inner phase result completed successfully.",
+    }
+  }
+
+  if (resultStatus === "blocked") {
+    return {
+      resultStatus,
+      metricStatus: "blocked",
+      accepted: false,
+      failureReceiptStatus: "blocked",
+      failureReason: "task-error",
+      failureResultStatus: "error",
+      message: "The inner phase result is blocked.",
+    }
+  }
+
+  return {
+    resultStatus,
+    metricStatus: "error",
+    accepted: false,
+    failureReceiptStatus: "failed",
+    failureReason: "task-error",
+    failureResultStatus: "error",
+    message: resultStatus === "failed"
+      ? "The inner phase result failed."
+      : "The inner phase result is missing or has an invalid status.",
+  }
+}
+
 function findTaskApi(toolCtx: ToolContext, client?: OpencodeClient): { taskApi: TaskApi; source: DelegationMetrics["task_api_source"] } | null {
   if (typeof (toolCtx as any).task === "function") {
     return { taskApi: (toolCtx as any).task as TaskApi, source: "toolCtx.task" }
@@ -897,6 +1320,8 @@ type ODFDelegateWorkflowAdvance = Omit<WorkflowAdvanceInput, "route"> & {
   work_type: WorkType
 }
 
+type ArtifactStore = "openspec" | "engram"
+
 interface ODFDelegateArgs {
   phase: string
   prompt: string
@@ -905,6 +1330,7 @@ interface ODFDelegateArgs {
   change?: string
   timeout_ms?: number
   attempt_id?: string
+  artifact_store?: ArtifactStore
   workflow_advance?: ODFDelegateWorkflowAdvance
 }
 
@@ -914,6 +1340,8 @@ interface DelegateExecutionOptions {
   validation_evidence_path?: string
   workflow_result?: ReturnType<typeof advanceWorkflow> | null
   pre_acquired_attempt?: AcquiredAttempt | null
+  suppress_workflow_commit?: boolean
+  suppress_attempt_settlement?: boolean
 }
 
 type InternalODFDelegateArgs = ODFDelegateArgs & {
@@ -1851,6 +2279,10 @@ Use this instead of generic task() for ODF workflow delegation.`,
         .string()
         .optional()
         .describe("Fresh opaque attempt token for gated IMPLEMENT/VERIFY execution"),
+      artifact_store: tool.schema
+        .enum(["openspec", "engram"])
+        .optional()
+        .describe("Authoritative workflow store; required when workflow_advance proof is supplied"),
       workflow_advance: tool.schema
         .object({
           work_type: tool.schema
@@ -1902,13 +2334,17 @@ Use this instead of generic task() for ODF workflow delegation.`,
         ...defaultExecutionOptions,
         ...(args.__options || {}),
       }
+      const metricContext = {
+        work_type: args.workflow_advance?.work_type,
+        branch_id: executionOptions.branch_id,
+      }
 
       if (!ALLOWED_PHASES.includes(args.phase)) {
         return `❌ Invalid phase "${args.phase}". Allowed: ${ALLOWED_PHASES.join(", ")}`
       }
 
       const startTime = Date.now()
-      const blockWorkflow = (reason: string, message: string, workflowResult: ReturnType<typeof advanceWorkflow>): string => {
+      const blockWorkflow = (reason: string, message: string, workflowResult: ReturnType<typeof advanceWorkflow> | null): string => {
         recordMetrics({
           timestamp: new Date().toISOString(),
           session_id: toolCtx.sessionID,
@@ -1918,9 +2354,10 @@ Use this instead of generic task() for ODF workflow delegation.`,
           skill_resolution: "none",
           duration_ms: Date.now() - startTime,
           token_estimate: estimateTokens(args.prompt),
-          status: "blocked",
-          task_api_source: "unavailable",
-          error: message,
+           status: "blocked",
+           task_api_source: "unavailable",
+           ...metricContext,
+           error: message,
         })
         return JSON.stringify({
           status: "blocked",
@@ -1939,10 +2376,112 @@ Use this instead of generic task() for ODF workflow delegation.`,
         }, null, 2)
       }
 
-      let workflowResult: ReturnType<typeof advanceWorkflow> | null = executionOptions.workflow_result || null
-      if (args.workflow_advance) {
+      const gatedPhase = args.phase === "IMPLEMENT" || args.phase === "VERIFY"
+      let registry: ODFRegistry | null = null
+      if (gatedPhase && !args.workflow_advance) {
+        registry = await loadRegistry()
+        if (registry?.flags?.strict_workflow === true) {
+          return blockWorkflow(
+            "strict-workflow-proof-required",
+            "Strict workflow mode requires workflow_advance for IMPLEMENT/VERIFY; legacy omissions are allowed only when flags.strict_workflow is false.",
+            null,
+          )
+        }
+      }
 
-        const { work_type, ...advanceInput } = args.workflow_advance
+      const workspaceRoot = resolveWorkspaceRoot(canonicalDirectory || process.cwd())
+      const changeName = args.change?.trim() || extractChangeName(args.prompt)
+
+      let acquiredAttempt: AcquiredAttempt | null = executionOptions.pre_acquired_attempt || null
+      let workflowResult: ReturnType<typeof advanceWorkflow> | null = executionOptions.workflow_result || null
+      let effectiveWorkflowAdvance: ODFDelegateWorkflowAdvance | null = null
+      if (args.workflow_advance) {
+        if (args.artifact_store === undefined) {
+          return blockWorkflow(
+            "artifact-store-required",
+            "Proof-backed IMPLEMENT/VERIFY delegation requires an explicit artifact_store: openspec or engram.",
+            null,
+          )
+        }
+        const expectedStage: "BUILD" | "VERIFY" = args.phase === "IMPLEMENT" ? "BUILD" : "VERIFY"
+        const { work_type: callerWorkType, ...callerAdvanceInput } = args.workflow_advance
+        const callerResult = advanceWorkflow({
+          route: resolveWorkflowRoute(callerWorkType),
+          ...callerAdvanceInput,
+          // Caller state is only a structural preflight. Persisted state and receipt are authoritative below.
+          receipt_state: "resolved",
+          resumable_state: true,
+          archived_state: false,
+        })
+        workflowResult = callerResult
+        if (args.phase !== "IMPLEMENT" && args.phase !== "VERIFY") {
+          return blockWorkflow(
+            "workflow-gate-unsupported-phase",
+            `workflow_advance is supported only for IMPLEMENT and VERIFY starts; ${args.phase} is a composite legacy adapter. Omit workflow_advance for this call.`,
+            callerResult,
+          )
+        }
+        if (callerResult.status !== "advanced") {
+          return blockWorkflow("workflow-advance-blocked", callerResult.reason, callerResult)
+        }
+        if (callerResult.next_stage !== expectedStage) {
+          return blockWorkflow(
+            "workflow-phase-mismatch",
+            `Workflow next_stage ${callerResult.next_stage || "none"} does not match ${args.phase}; expected ${expectedStage}.`,
+            callerResult,
+          )
+        }
+        if (gatedPhase && !changeName) {
+          const message = `Missing change name for ${args.phase}: provide args.change or include "Change name: <name>" in the prompt.`
+          recordMetrics({
+            timestamp: new Date().toISOString(),
+            session_id: toolCtx.sessionID,
+            phase: args.phase,
+            agent: "unresolved",
+            skills_injected: [],
+            skill_resolution: "none",
+            duration_ms: Date.now() - startTime,
+            token_estimate: estimateTokens(args.prompt),
+            status: "error",
+            task_api_source: "unavailable",
+            ...metricContext,
+            error: message,
+          })
+          return JSON.stringify({
+            status: "error",
+            phase: args.phase,
+            agent: null,
+            skills_injected: [],
+            profile: null,
+            policy_gate: null,
+            validation: null,
+            receipt: null,
+            task_api_source: "unavailable",
+            result: null,
+            message,
+          }, null, 2)
+        }
+        if (gatedPhase && !acquiredAttempt && (!isSafeToken(changeName) || !isSafeToken(args.attempt_id))) {
+          return blockWorkflow(
+            !isSafeToken(changeName) ? "unsafe-change-name" : "attempt-id-required",
+            !isSafeToken(changeName)
+              ? "The change name must be a safe token of 1-64 letters, numbers, hyphens, or underscores."
+              : "Gated IMPLEMENT/VERIFY delegation requires a fresh safe attempt_id.",
+            callerResult,
+          )
+        }
+        const selected = await readSelectedWorkflowState(workspaceRoot, changeName!, args.artifact_store)
+        if (!selected.snapshot) {
+          return blockWorkflow(
+            selected.error || "workflow-state-unavailable",
+            "The selected workflow state could not be read before delegation.",
+            callerResult,
+          )
+        }
+        const canonical = canonicalizeWorkflowAdvance(selected.snapshot, args.workflow_advance, expectedStage)
+        if ("reason" in canonical) return blockWorkflow(canonical.reason, canonical.message, null)
+        effectiveWorkflowAdvance = canonical.proof
+        const { work_type, ...advanceInput } = effectiveWorkflowAdvance
         workflowResult = advanceWorkflow({
           route: resolveWorkflowRoute(work_type),
           ...advanceInput,
@@ -1963,7 +2502,6 @@ Use this instead of generic task() for ODF workflow delegation.`,
           )
         }
 
-        const expectedStage: CanonicalStage = args.phase === "IMPLEMENT" ? "BUILD" : "VERIFY"
         if (workflowResult.next_stage !== expectedStage) {
           return blockWorkflow(
             "workflow-phase-mismatch",
@@ -1972,10 +2510,6 @@ Use this instead of generic task() for ODF workflow delegation.`,
           )
         }
       }
-
-      const workspaceRoot = resolveWorkspaceRoot(canonicalDirectory || process.cwd())
-      const gatedPhase = args.phase === "IMPLEMENT" || args.phase === "VERIFY"
-      const changeName = args.change?.trim() || extractChangeName(args.prompt)
       if (gatedPhase && !changeName) {
         const message = `Missing change name for ${args.phase}: provide args.change or include "Change name: <name>" in the prompt.`
         recordMetrics({
@@ -1989,6 +2523,7 @@ Use this instead of generic task() for ODF workflow delegation.`,
           token_estimate: estimateTokens(args.prompt),
           status: "error",
           task_api_source: "unavailable",
+          ...metricContext,
           error: message,
         })
         return JSON.stringify({
@@ -2006,7 +2541,6 @@ Use this instead of generic task() for ODF workflow delegation.`,
         }, null, 2)
       }
 
-      let acquiredAttempt: AcquiredAttempt | null = executionOptions.pre_acquired_attempt || null
       if (gatedPhase && args.workflow_advance && !acquiredAttempt) {
         if (!isSafeToken(changeName)) {
           return blockWorkflow(
@@ -2024,10 +2558,64 @@ Use this instead of generic task() for ODF workflow delegation.`,
         }
       }
 
+      let transitionStart: TransitionInspection | null = null
+      if (gatedPhase && effectiveWorkflowAdvance && workflowResult) {
+        const expectedStage: "BUILD" | "VERIFY" = args.phase === "IMPLEMENT" ? "BUILD" : "VERIFY"
+        const selected = await readSelectedWorkflowState(workspaceRoot, changeName!, args.artifact_store!)
+        if (!selected.snapshot) {
+          return blockWorkflow(
+            selected.error || "workflow-state-unavailable",
+            "The selected workflow state could not be read before delegation.",
+            workflowResult,
+          )
+        }
+        transitionStart = inspectPersistedTransition({
+          snapshot: selected.snapshot,
+          proof: effectiveWorkflowAdvance,
+          expectedStage,
+          callerResult: workflowResult,
+        })
+        if (!transitionStart.ok) return blockWorkflow(transitionStart.reason, transitionStart.message, workflowResult)
+        if (transitionStart.alreadyCommitted) {
+          recordMetrics({
+            timestamp: new Date().toISOString(),
+            session_id: toolCtx.sessionID,
+            phase: args.phase,
+            agent: "unresolved",
+            skills_injected: [],
+            skill_resolution: "none",
+            duration_ms: Date.now() - startTime,
+            token_estimate: estimateTokens(args.prompt),
+            status: "ok",
+            task_api_source: "unavailable",
+            ...metricContext,
+          })
+          return JSON.stringify({
+            status: "delegated",
+            phase: args.phase,
+            agent: null,
+            skills_injected: [],
+            profile: null,
+            policy_gate: null,
+            validation: null,
+            receipt: null,
+            task_api_source: "unavailable",
+            result: null,
+            workflow_advance: workflowResult,
+            workflow_commit: {
+              status: "already-committed",
+              reason: "already-committed",
+              store: args.artifact_store,
+              message: transitionStart.message,
+            },
+          }, null, 2)
+        }
+      }
+
       const contextValidation = validateContextFiles(workspaceRoot, args.context_files || [])
       if (contextValidation.error) return contextValidation.error
 
-      const registry = await loadRegistry()
+      if (!registry) registry = await loadRegistry()
       if (!registry) {
         return `❌ ODF registry not found. Run /odf-init or check ${REGISTRY_PATH}`
       }
@@ -2122,14 +2710,102 @@ Use this instead of generic task() for ODF workflow delegation.`,
               evidencePath: executionOptions.validation_evidence_path,
             })
           }
-          const validationFailed = args.phase === "IMPLEMENT" && policyGate !== null && validation?.status !== "verified"
-          if (acquiredAttempt) {
-            settleAttempt(
-              acquiredAttempt,
-              validationFailed ? "failed" : "completed",
-              validationFailed ? "validation-failed" : "delegated",
-              validationFailed ? "validation-failed" : "task-completed",
+          const proofBacked = gatedPhase && args.workflow_advance !== undefined
+          const innerDisposition = innerResultDisposition(taskResult.result)
+          const actualResultStatus = innerDisposition.resultStatus
+          let workflowCommit: WorkflowCommitResult | null = null
+          const settleProofFailure = (summary: string, reason: string, disposition?: InnerResultDisposition): string => {
+            if (acquiredAttempt && !executionOptions.suppress_attempt_settlement) {
+              settleAttempt(
+                acquiredAttempt,
+                "failed",
+                disposition?.failureResultStatus || "validation-failed",
+                disposition?.failureReason || "validation-failed",
+              )
+            }
+            const receipt = proofBacked && !executionOptions.suppress_failure_receipt
+              ? persistWorkflowFailureReceipt(
+                workspaceRoot,
+                changeName!,
+                args.phase as ODFReceipt["phase"],
+                summary,
+                policyGate,
+                validation ? [validationEvidenceRelativePath(changeName!, executionOptions.branch_id)] : [],
+                disposition?.failureReceiptStatus || "blocked",
+                disposition ? "error" : "validation-failed",
+              )
+              : null
+            recordMetrics({
+              timestamp: new Date().toISOString(),
+              session_id: toolCtx.sessionID,
+              phase: args.phase,
+              agent: agentName,
+              skills_injected: skills.map(s => s.name),
+              skill_resolution: skills.length > 0 ? "injected" : "none",
+              duration_ms: Date.now() - startTime,
+              token_estimate: estimateTokens(delegationPrompt),
+              status: disposition?.metricStatus || "blocked",
+              task_api_source: taskApiInfo.source,
+              ...metricContext,
+              error: reason,
+            })
+            return JSON.stringify({
+              status: "blocked",
+              reason,
+              phase: args.phase,
+              agent: agentName,
+              skills_injected: skills.map(s => s.name),
+              profile: profilePayload,
+              policy_gate: policyGate,
+              validation,
+              receipt,
+              task_api_source: taskApiInfo.source,
+              result: taskResult.result,
+              workflow_advance: workflowResult,
+              workflow_commit: workflowCommit,
+              message: summary,
+            }, null, 2)
+          }
+
+          if (!innerDisposition.accepted && !proofBacked && policyGate && !executionOptions.suppress_failure_receipt) {
+            persistWorkflowFailureReceipt(
+              workspaceRoot,
+              changeName!,
+              args.phase as ODFReceipt["phase"],
+              innerDisposition.message,
+              policyGate,
+              [],
+              innerDisposition.failureReceiptStatus,
+              "error",
             )
+          }
+          if (proofBacked && !executionOptions.suppress_workflow_commit) {
+            const lifecycle = await resolveProofBackedLifecycle({
+              workspaceRoot,
+              changeName: changeName!,
+              artifactStore: args.artifact_store!,
+              proof: effectiveWorkflowAdvance!,
+              expectedStage: args.phase === "IMPLEMENT" ? "BUILD" : "VERIFY",
+              callerResult: workflowResult!,
+              innerResultStatus: actualResultStatus,
+              validationStatus: "verified",
+              validation,
+            })
+            const preCommitFailure = !innerDisposition.accepted ||
+              args.phase === "IMPLEMENT" && validation?.status !== "verified"
+            if (lifecycle.status === "blocked") {
+              if (!preCommitFailure) workflowCommit = lifecycle
+              return settleProofFailure(
+                !innerDisposition.accepted ? innerDisposition.message : lifecycle.message,
+                lifecycle.reason,
+                !innerDisposition.accepted ? innerDisposition : undefined,
+              )
+            }
+            workflowCommit = lifecycle
+            validation = lifecycle.validation
+          }
+          if (acquiredAttempt && !executionOptions.suppress_attempt_settlement) {
+            settleAttempt(acquiredAttempt, "completed", "delegated", "task-completed")
           }
           recordMetrics({
             timestamp: new Date().toISOString(),
@@ -2138,22 +2814,29 @@ Use this instead of generic task() for ODF workflow delegation.`,
             agent: agentName,
             skills_injected: skills.map(s => s.name),
             skill_resolution: skills.length > 0 ? "injected" : "none",
-            duration_ms: Date.now() - startTime,
-            token_estimate: estimateTokens(delegationPrompt),
-            status: "ok",
-            task_api_source: taskApiInfo.source,
-          })
+             duration_ms: Date.now() - startTime,
+             token_estimate: estimateTokens(delegationPrompt),
+              status: innerDisposition.metricStatus,
+             task_api_source: taskApiInfo.source,
+             ...metricContext,
+           })
           return JSON.stringify({
             status: "delegated",
             phase: args.phase,
             agent: agentName,
             skills_injected: skills.map(s => s.name),
             profile: profilePayload,
-            policy_gate: policyGate,
-            validation,
-            task_api_source: taskApiInfo.source,
-            result: taskResult.result,
-          }, null, 2)
+             policy_gate: policyGate,
+             validation,
+             task_api_source: taskApiInfo.source,
+             result: taskResult.result,
+             ...(workflowResult ? { workflow_advance: workflowResult } : {}),
+             ...(proofBacked ? {
+               workflow_commit: workflowCommit || (executionOptions.suppress_workflow_commit
+                 ? { status: "deferred", reason: "parallel-aggregate-commit" }
+                 : null),
+             } : {}),
+           }, null, 2)
         } catch (err) {
           const errorMessage = err instanceof Error ? err.message : String(err)
           const isTimeout = errorMessage.includes("timed out")
@@ -2163,7 +2846,7 @@ Use this instead of generic task() for ODF workflow delegation.`,
             : errorMessage.startsWith("empty-task-result")
               ? "empty-task-result"
               : undefined
-          if (acquiredAttempt) {
+          if (acquiredAttempt && !executionOptions.suppress_attempt_settlement) {
             const ledgerResultStatus: Exclude<AttemptLedgerResultStatus, "running"> = isTimeout
               ? "timeout"
               : isCancelled
@@ -2189,9 +2872,10 @@ Use this instead of generic task() for ODF workflow delegation.`,
             skill_resolution: skills.length > 0 ? "injected" : "none",
             duration_ms: Date.now() - startTime,
             token_estimate: estimateTokens(delegationPrompt),
-            status: isTimeout ? "timeout" : isCancelled ? "blocked" : "error",
-            task_api_source: taskApiInfo.source,
-            error: errorMessage,
+             status: isTimeout ? "timeout" : isCancelled ? "blocked" : "error",
+             task_api_source: taskApiInfo.source,
+             ...metricContext,
+             error: errorMessage,
           })
           // Receipt auto-seal (slice 4): persist a failure disposition so the
           // learning loop does not depend on orchestrator memory. Best-effort.
@@ -2231,7 +2915,9 @@ Use this instead of generic task() for ODF workflow delegation.`,
       }
 
       const message = "Native task() API is unavailable. Restart OpenCode after loading the plugin, then retry the delegation."
-      if (acquiredAttempt) settleAttempt(acquiredAttempt, "failed", "task-api-unavailable", "task-api-unavailable")
+      if (acquiredAttempt && !executionOptions.suppress_attempt_settlement) {
+        settleAttempt(acquiredAttempt, "failed", "task-api-unavailable", "task-api-unavailable")
+      }
       recordMetrics({
         timestamp: new Date().toISOString(),
         session_id: toolCtx.sessionID,
@@ -2241,9 +2927,10 @@ Use this instead of generic task() for ODF workflow delegation.`,
         skill_resolution: skills.length > 0 ? "injected" : "none",
         duration_ms: Date.now() - startTime,
         token_estimate: estimateTokens(delegationPrompt),
-        status: "blocked",
-        task_api_source: "unavailable",
-        error: "task-api-unavailable",
+         status: "blocked",
+         task_api_source: "unavailable",
+         ...metricContext,
+         error: "task-api-unavailable",
       })
 
       return JSON.stringify({
@@ -2286,16 +2973,88 @@ interface ParallelBranchOutcome {
   policy_gate: PolicyGateDecision | null
 }
 
+function savedParallelOutcome(branch: ParallelJoinArtifact["branches"][number]): ParallelBranchOutcome {
+  return {
+    branch_id: branch.branch_id,
+    attempt_id: branch.attempt_id,
+    status: branch.outcome.status,
+    result_status: branch.outcome.result_status,
+    successful: branch.outcome.successful,
+    validation: branch.outcome.validation,
+    validation_verified: branch.outcome.validation_verified,
+    validation_evidence_ref: branch.outcome.validation_evidence_ref,
+    summary: branch.outcome.summary,
+    attempt_ledger_ref: branch.outcome.attempt_ledger_ref,
+    policy_gate: null,
+  }
+}
+
+function freshParallelAttemptId(): string {
+  return `retry-${nodeCrypto.randomUUID().replace(/-/g, "")}`
+}
+
+function buildParallelJoinArtifact(
+  change: string,
+  descriptors: ParallelBranchDescriptor[],
+  outcomes: ParallelBranchOutcome[],
+  join: ParallelJoinArtifact["join"],
+  receiptRef: string | null,
+): ParallelJoinArtifact {
+  return {
+    schema_version: 1,
+    change,
+    work_type: "cross-domain",
+    phase: "IMPLEMENT",
+    timestamp: new Date().toISOString(),
+    join,
+    branches: descriptors.map((descriptor, index) => {
+      const outcome = outcomes[index]
+      return {
+        branch_id: descriptor.branch_id,
+        attempt_id: descriptor.attempt_id,
+        descriptor: {
+          prompt: descriptor.prompt,
+          context_files: descriptor.context_files || [],
+          ...(descriptor.timeout_ms === undefined ? {} : { timeout_ms: descriptor.timeout_ms }),
+        },
+        outcome: {
+          status: outcome.status,
+          result_status: outcome.result_status,
+          successful: outcome.successful,
+          validation: outcome.validation,
+          validation_verified: outcome.validation_verified,
+          validation_evidence_ref: outcome.validation_evidence_ref,
+          attempt_ledger_ref: outcome.attempt_ledger_ref,
+          summary: outcome.summary,
+        },
+        status: outcome.successful ? "complete" : outcome.status === "running" ? "running" : "failed",
+      }
+    }),
+    evidence_refs: Array.from(new Set(outcomes.map(outcome => outcome.validation_evidence_ref))),
+    attempt_ledger_refs: Array.from(new Set(outcomes.map(outcome => outcome.attempt_ledger_ref))),
+    receipt_ref: receiptRef,
+  }
+}
+
+function saveParallelJoin(
+  workspaceRoot: string,
+  change: string,
+  descriptors: ParallelBranchDescriptor[],
+  outcomes: ParallelBranchOutcome[],
+  join: ParallelJoinArtifact["join"],
+  receiptRef: string | null,
+): { ref: string; error: string | null } {
+  const ref = parallelJoinArtifactRef(change)
+  const error = writeParallelJoinArtifact(
+    workspaceRoot,
+    buildParallelJoinArtifact(change, descriptors, outcomes, join, receiptRef),
+  )
+  return { ref, error }
+}
+
 const PARALLEL_SUCCESS_STATUSES = new Set([
   "ok",
   "warning",
-  "success",
-  "successful",
-  "verified",
-  "complete",
-  "completed",
-  "pass",
-  "passed",
 ])
 
 function boundedSummary(value: unknown): string {
@@ -2331,7 +3090,7 @@ function makeParallelOutcome(
   const result = envelope.result && typeof envelope.result === "object" ? envelope.result as Record<string, unknown> : null
   const resultStatus = typeof result?.status === "string" ? result.status.toLowerCase() : null
   const successful = envelope.status === "delegated" &&
-    (resultStatus === null || PARALLEL_SUCCESS_STATUSES.has(resultStatus))
+    resultStatus !== null && PARALLEL_SUCCESS_STATUSES.has(resultStatus)
   const summary = boundedSummary(envelope.message) ||
     boundedSummary(envelope.reason) ||
     boundedSummary(result?.executive_summary) ||
@@ -2353,6 +3112,39 @@ function makeParallelOutcome(
       ? envelope.policy_gate as PolicyGateDecision
       : null,
   }
+}
+
+function recordParallelJoinMetrics(
+  sessionId: string | undefined,
+  startTime: number,
+  status: ParallelJoinArtifact["join"]["status"],
+  expected: number,
+  outcomes: ParallelBranchOutcome[],
+): void {
+  if (!sessionId || expected < 2 || expected > PARALLEL_BUILD_CONCURRENCY) return
+  const completed = Math.min(expected, outcomes.filter(outcome => outcome.successful).length)
+  const running = Math.min(expected - completed, outcomes.filter(outcome => outcome.status === "running").length)
+  const failed = Math.min(expected - completed - running, Math.max(0, expected - completed - running))
+  const validated = Math.min(expected, outcomes.filter(outcome => outcome.successful && outcome.validation_verified).length)
+  recordMetrics({
+    timestamp: new Date().toISOString(),
+    session_id: sessionId,
+    phase: "IMPLEMENT",
+    agent: "scheduler",
+    skills_injected: [],
+    skill_resolution: "none",
+    duration_ms: Math.max(0, Date.now() - startTime),
+    token_estimate: 0,
+    status: status === "complete" ? "ok" : "blocked",
+    task_api_source: "unavailable",
+    work_type: "cross-domain",
+    join_status: status,
+    join_expected: expected,
+    join_completed: completed,
+    join_failed: failed,
+    join_running: running,
+    validation_ratio: validated / expected,
+  })
 }
 
 function parallelReceipt(
@@ -2415,6 +3207,9 @@ must not overlap. VERIFY remains sequential after the aggregate join is complete
       change: tool.schema
         .string()
         .describe("Shared change name (kebab-case)"),
+      artifact_store: tool.schema
+        .enum(["openspec", "engram"])
+        .describe("Authoritative workflow store for the aggregate transition"),
       workflow_advance: tool.schema
         .object({
           work_type: tool.schema.enum(["cross-domain"]),
@@ -2435,19 +3230,36 @@ must not overlap. VERIFY remains sequential after the aggregate join is complete
           context_files: tool.schema.array(tool.schema.string()).optional().describe("Non-overlapping branch context files"),
           timeout_ms: tool.schema.number().optional().describe("Optional branch task timeout in milliseconds"),
         }))
-        .describe("Two or three independent branch descriptors"),
+        .optional()
+        .describe("Two or three independent branch descriptors; omitted when resuming from a persisted join"),
+      resume_from_join: tool.schema
+        .boolean()
+        .optional()
+        .describe("Reconstruct retryable branches from .odf/parallel-join-{change}.json without conversation context"),
     },
     async execute(args: {
       work_type: "cross-domain"
       phase: "IMPLEMENT"
       change: string
+      artifact_store: ArtifactStore
       workflow_advance: ODFDelegateWorkflowAdvance
-      branches: ParallelBranchDescriptor[]
+      branches?: ParallelBranchDescriptor[]
+      resume_from_join?: boolean
     }, toolCtx: ToolContext): Promise<string> {
-      const expected = Array.isArray(args.branches) ? args.branches.length : 0
-      const blocked = (reason: string, message: string, outcomes: ParallelBranchOutcome[] = [], receipt: ODFReceipt | null = null): string => {
+      const startTime = Date.now()
+      let expected = Array.isArray(args.branches) ? args.branches.length : 0
+      let persistedJoinRef: string | null = null
+      const blocked = (
+        reason: string,
+        message: string,
+        outcomes: ParallelBranchOutcome[] = [],
+        receipt: ODFReceipt | null = null,
+        joinStatus: "blocked" | "running" = "blocked",
+      ): string => {
+        recordParallelJoinMetrics(toolCtx?.sessionID, startTime, joinStatus, expected, outcomes)
         const completed = outcomes.filter(outcome => outcome.successful).length
-        const failed = outcomes.length - completed
+        const running = outcomes.filter(outcome => outcome.status === "running").length
+        const failed = Math.max(0, expected - completed - running)
         return JSON.stringify({
           status: "blocked",
           work_type: args.work_type,
@@ -2456,14 +3268,17 @@ must not overlap. VERIFY remains sequential after the aggregate join is complete
           message,
           branches: outcomes,
           join: {
-           status: "blocked",
+            status: joinStatus,
             expected,
             completed,
             failed,
+            running,
             validation_verified: outcomes.length === expected && outcomes.every(outcome => outcome.successful && outcome.validation_verified),
             evidence_refs: Array.from(new Set(outcomes.map(outcome => outcome.validation_evidence_ref))),
+            artifact_ref: persistedJoinRef,
           },
-          receipt: receipt ? { status: receipt.status, ref: path.join(".odf", `receipt-${args.change}.json`) } : null,
+          receipt,
+          parallel_join_ref: persistedJoinRef,
         }, null, 2)
       }
 
@@ -2471,16 +3286,60 @@ must not overlap. VERIFY remains sequential after the aggregate join is complete
       if (args.work_type !== "cross-domain") return blocked("parallel-work-type-unsupported", "Only cross-domain work can use the parallel BUILD scheduler.")
       if (args.phase !== "IMPLEMENT") return blocked("parallel-phase-unsupported", "Only IMPLEMENT can use the parallel BUILD scheduler; VERIFY remains sequential.")
       if (!isSafeToken(args.change)) return blocked("unsafe-change-name", "The shared change name must be a safe token.")
-      if (!Array.isArray(args.branches) || args.branches.length < 2 || args.branches.length > PARALLEL_BUILD_CONCURRENCY) {
-        return blocked("parallel-branch-count", `The parallel BUILD scheduler requires 2-${PARALLEL_BUILD_CONCURRENCY} branches.`)
+      if (args.artifact_store !== "openspec" && args.artifact_store !== "engram") {
+        return blocked("artifact-store-required", "Parallel proof-backed BUILD requires an explicit artifact_store: openspec or engram.")
       }
+
+      const workspaceRoot = resolveWorkspaceRoot(canonicalDirectory || process.cwd())
       if (!args.workflow_advance || args.workflow_advance.work_type !== "cross-domain") {
         return blocked("parallel-workflow-proof-mismatch", "The workflow_advance proof must use work_type cross-domain.")
       }
-
+      const { work_type: callerWorkType, ...callerAdvanceInput } = args.workflow_advance
+      const callerResult = advanceWorkflow({
+        route: resolveWorkflowRoute(callerWorkType),
+        ...callerAdvanceInput,
+        // Caller state is only a structural preflight. Persisted state and receipt are authoritative below.
+        receipt_state: "resolved",
+        resumable_state: true,
+        archived_state: false,
+      })
+      if (callerResult.status !== "advanced") return blocked("workflow-advance-blocked", callerResult.reason)
+      if (callerResult.next_stage !== "BUILD") {
+        return blocked(
+          "workflow-phase-mismatch",
+          `Workflow next_stage ${callerResult.next_stage || "none"} does not match IMPLEMENT; expected BUILD.`,
+        )
+      }
+      if (!args.resume_from_join && (!Array.isArray(args.branches) || args.branches.length < 2 || args.branches.length > PARALLEL_BUILD_CONCURRENCY)) {
+        return blocked("parallel-branch-count", `The parallel BUILD scheduler requires 2-${PARALLEL_BUILD_CONCURRENCY} branches.`)
+      }
+      if (args.resume_from_join) {
+        if (Array.isArray(args.branches) && args.branches.length > 0) {
+          return blocked("parallel-resume-input-mismatch", "Continuation reconstructs branch descriptors from the persisted join; omit branches.")
+        }
+        const loaded = readParallelJoinArtifact(workspaceRoot, args.change)
+        if (loaded.warning) return blocked("parallel-join-invalid", loaded.warning)
+        if (!loaded.artifact) return blocked("parallel-join-not-found", "No persisted parallel join exists for this change.")
+        if (loaded.artifact.join.status === "running") {
+          expected = loaded.artifact.join.expected
+          return blocked(
+            "parallel-join-running",
+            "The persisted parallel join is still running; active branches will not be relaunched.",
+            loaded.artifact.branches.map(savedParallelOutcome),
+            null,
+            "running",
+          )
+        }
+      }
+      const selected = await readSelectedWorkflowState(workspaceRoot, args.change, args.artifact_store)
+      if (!selected.snapshot) return blocked(selected.error || "workflow-state-unavailable", "The selected workflow state could not be read before launching parallel BUILD.")
+      const canonical = canonicalizeWorkflowAdvance(selected.snapshot, args.workflow_advance, "BUILD")
+      if ("reason" in canonical) return blocked(canonical.reason, canonical.message)
+      const effectiveWorkflowAdvance = canonical.proof
+      const { work_type, ...advanceInput } = effectiveWorkflowAdvance
       const workflowResult = advanceWorkflow({
-        route: resolveWorkflowRoute("cross-domain"),
-        ...args.workflow_advance,
+        route: resolveWorkflowRoute(work_type),
+        ...advanceInput,
       })
       if (workflowResult.status !== "advanced") {
         return blocked(
@@ -2494,12 +3353,114 @@ must not overlap. VERIFY remains sequential after the aggregate join is complete
           `Workflow next_stage ${workflowResult.next_stage || "none"} does not match IMPLEMENT; expected BUILD.`,
         )
       }
+      const transitionStart = inspectPersistedTransition({
+        snapshot: selected.snapshot,
+        proof: effectiveWorkflowAdvance,
+        expectedStage: "BUILD",
+        callerResult: workflowResult,
+      })
+      if (!transitionStart.ok) return blocked(transitionStart.reason, transitionStart.message)
 
-      const workspaceRoot = resolveWorkspaceRoot(canonicalDirectory || process.cwd())
+      let savedJoin: ParallelJoinArtifact | null = null
+      let descriptors: ParallelBranchDescriptor[] = Array.isArray(args.branches) ? args.branches : []
+      let runnableDescriptors = descriptors
+      if (args.resume_from_join) {
+        if (Array.isArray(args.branches) && args.branches.length > 0) {
+          return blocked("parallel-resume-input-mismatch", "Continuation reconstructs branch descriptors from the persisted join; omit branches.")
+        }
+        const loaded = readParallelJoinArtifact(workspaceRoot, args.change)
+        if (loaded.warning) return blocked("parallel-join-invalid", loaded.warning)
+        if (!loaded.artifact) return blocked("parallel-join-not-found", "No persisted parallel join exists for this change.")
+        savedJoin = loaded.artifact
+        expected = savedJoin.join.expected
+        persistedJoinRef = parallelJoinArtifactRef(args.change)
+        if (savedJoin.join.status === "running") {
+          return blocked(
+            "parallel-join-running",
+            "The persisted parallel join is still running; active branches will not be relaunched.",
+            savedJoin.branches.map(savedParallelOutcome),
+            null,
+            "running",
+          )
+        }
+        if (savedJoin.join.status === "blocked" && selected.snapshot.status.receipt.action !== "retry") {
+          return blocked(
+            "workflow-retry-disposition-required",
+            "A committed retry receipt is required before retrying a blocked parallel join.",
+            savedJoin.branches.map(savedParallelOutcome),
+          )
+        }
+        const retryable = savedJoin.branches.filter(branch => !(branch.outcome.successful && branch.outcome.validation_verified))
+        descriptors = savedJoin.branches.map(branch => {
+          const completed = branch.outcome.successful && branch.outcome.validation_verified
+          return {
+            branch_id: branch.branch_id,
+            attempt_id: completed ? branch.attempt_id : freshParallelAttemptId(),
+            prompt: branch.descriptor.prompt,
+            context_files: [...branch.descriptor.context_files],
+            ...(branch.descriptor.timeout_ms === undefined ? {} : { timeout_ms: branch.descriptor.timeout_ms }),
+          }
+        })
+        runnableDescriptors = descriptors.filter(descriptor => retryable.some(branch => branch.branch_id === descriptor.branch_id))
+      }
+
+      if (!args.resume_from_join && (!Array.isArray(args.branches) || args.branches.length < 2 || args.branches.length > PARALLEL_BUILD_CONCURRENCY)) {
+        return blocked("parallel-branch-count", `The parallel BUILD scheduler requires 2-${PARALLEL_BUILD_CONCURRENCY} branches.`)
+      }
+      if (args.resume_from_join && (runnableDescriptors.length > PARALLEL_BUILD_CONCURRENCY || runnableDescriptors.length === 0 && savedJoin?.join.status !== "complete")) {
+        return blocked("parallel-join-invalid", "The persisted parallel join has an invalid continuation branch set.")
+      }
+      if (transitionStart.alreadyCommitted && !args.resume_from_join) {
+        return JSON.stringify({
+          status: "parallel-delegated",
+          work_type: args.work_type,
+          phase: args.phase,
+          resumed: false,
+          branches: [],
+          join: { status: "complete", expected, completed: expected, failed: 0, running: 0, validation_verified: true, artifact_ref: null },
+          receipt: null,
+          workflow_commit: { status: "already-committed", reason: "already-committed", store: args.artifact_store },
+          parallel_join_ref: null,
+        }, null, 2)
+      }
+
+      if (args.resume_from_join && runnableDescriptors.length === 0 && savedJoin) {
+        const aggregateStatus = savedJoin.branches.some(branch => branch.outcome.result_status === "warning") ? "warning" : "ok"
+        const workflowCommit = await resolveProofBackedLifecycle({
+          workspaceRoot,
+          changeName: args.change,
+          artifactStore: args.artifact_store,
+          proof: effectiveWorkflowAdvance,
+          expectedStage: "BUILD",
+          callerResult: workflowResult,
+          innerResultStatus: aggregateStatus,
+          validationStatus: "verified",
+          validation: { status: "verified", reason: "parallel join validation verified", commands_validated: savedJoin.join.expected },
+          parallel: true,
+        })
+        if (workflowCommit.status === "blocked") {
+          const receipt = parallelReceipt(workspaceRoot, args.change, savedJoin.branches.map(savedParallelOutcome))
+          const mergedReceipt = mergeReceipt(workspaceRoot, receipt)
+          return blocked(workflowCommit.reason, workflowCommit.message, savedJoin.branches.map(savedParallelOutcome), mergedReceipt)
+        }
+        recordParallelJoinMetrics(toolCtx.sessionID, startTime, savedJoin.join.status, expected, savedJoin.branches.map(savedParallelOutcome))
+        return JSON.stringify({
+          status: "parallel-delegated",
+          work_type: "cross-domain",
+          phase: "IMPLEMENT",
+          resumed: true,
+          branches: savedJoin.branches.map(savedParallelOutcome),
+          join: { ...savedJoin.join, artifact_ref: persistedJoinRef },
+          receipt: null,
+          workflow_commit: workflowCommit,
+          parallel_join_ref: persistedJoinRef,
+        }, null, 2)
+      }
+
       const seenBranches = new Set<string>()
       const seenAttempts = new Set<string>()
       const seenPaths = new Map<string, string>()
-      for (const branch of args.branches) {
+      for (const branch of runnableDescriptors) {
         if (!isSafeToken(branch.branch_id)) return blocked("unsafe-branch-id", "Every branch_id must be a safe token.")
         if (seenBranches.has(branch.branch_id)) return blocked("duplicate-branch-id", `The branch_id "${branch.branch_id}" is duplicated.`)
         seenBranches.add(branch.branch_id)
@@ -2521,7 +3482,7 @@ must not overlap. VERIFY remains sequential after the aggregate join is complete
       if (!registry) return blocked("registry-unavailable", `ODF registry not found. Run /odf-init or check ${REGISTRY_PATH}`)
 
       const acquired = new Map<string, AcquiredAttempt>()
-      for (const branch of args.branches) {
+      for (const branch of runnableDescriptors) {
         const acquisition = acquireAttempt({
           workspaceDir: workspaceRoot,
           change: args.change,
@@ -2533,38 +3494,113 @@ must not overlap. VERIFY remains sequential after the aggregate join is complete
         if (!acquisition.acquired) {
           for (const handle of acquired.values()) settleAttempt(handle, "failed", "error", "task-error")
           const ledgerRef = path.relative(workspaceRoot, attemptLedgerPath(workspaceRoot, args.change))
-          const outcomes: ParallelBranchOutcome[] = args.branches.map(branch => ({
-            branch_id: branch.branch_id,
-            attempt_id: branch.attempt_id,
-            status: "blocked",
-            result_status: null,
-            successful: false,
-            validation: null,
-            validation_verified: false,
-            validation_evidence_ref: validationEvidenceRelativePath(args.change, branch.branch_id),
-            summary: `${acquisition.reason}: ${acquisition.message}`,
-            attempt_ledger_ref: ledgerRef,
-            policy_gate: null,
-          }))
+          const outcomes: ParallelBranchOutcome[] = descriptors.map((descriptor, index) => {
+            const saved = savedJoin?.branches[index]
+            if (saved && saved.outcome.successful && saved.outcome.validation_verified) return savedParallelOutcome(saved)
+            return {
+              branch_id: descriptor.branch_id,
+              attempt_id: descriptor.attempt_id,
+              status: "blocked",
+              result_status: null,
+              successful: false,
+              validation: null,
+              validation_verified: false,
+              validation_evidence_ref: validationEvidenceRelativePath(args.change, descriptor.branch_id),
+              summary: `${acquisition.reason}: ${acquisition.message}`,
+              attempt_ledger_ref: ledgerRef,
+              policy_gate: null,
+            }
+           })
           const receipt = parallelReceipt(workspaceRoot, args.change, outcomes)
-          mergeReceipt(workspaceRoot, receipt)
-          return blocked(acquisition.reason, acquisition.message, outcomes, receipt)
+          const mergedReceipt = mergeReceipt(workspaceRoot, receipt)
+          const join = {
+            status: "blocked" as const,
+            expected,
+            completed: outcomes.filter(outcome => outcome.successful).length,
+            failed: expected - outcomes.filter(outcome => outcome.successful).length,
+            running: 0,
+            validation_verified: outcomes.every(outcome => outcome.successful && outcome.validation_verified),
+          }
+          const savedArtifact = saveParallelJoin(
+            workspaceRoot,
+            args.change,
+            descriptors,
+            outcomes,
+            join,
+            path.join(".odf", `receipt-${args.change}.json`),
+          )
+           if (savedArtifact.error) return blocked("parallel-join-persist-failed", savedArtifact.error, outcomes, mergedReceipt)
+           persistedJoinRef = savedArtifact.ref
+           return blocked(acquisition.reason, acquisition.message, outcomes, mergedReceipt)
         }
         acquired.set(branch.branch_id, acquisition.handle)
       }
 
-      const outcomes: ParallelBranchOutcome[] = new Array(args.branches.length)
+      const outcomes: ParallelBranchOutcome[] = descriptors.map((descriptor, index) => {
+        const saved = savedJoin?.branches[index]
+        if (saved && saved.outcome.successful && saved.outcome.validation_verified) return savedParallelOutcome(saved)
+        const running = runnableDescriptors.some(runnable => runnable.branch_id === descriptor.branch_id)
+        return {
+          branch_id: descriptor.branch_id,
+          attempt_id: descriptor.attempt_id,
+          status: running ? "running" : "blocked",
+          result_status: running ? "running" : null,
+          successful: false,
+          validation: null,
+          validation_verified: false,
+          validation_evidence_ref: validationEvidenceRelativePath(args.change, descriptor.branch_id),
+          summary: running ? "parallel branch is running" : "parallel branch has not completed",
+          attempt_ledger_ref: path.relative(workspaceRoot, attemptLedgerPath(workspaceRoot, args.change)),
+          policy_gate: null,
+        }
+      })
+
+      const runningJoin = {
+        status: "running" as const,
+        expected,
+        completed: outcomes.filter(outcome => outcome.successful).length,
+        failed: outcomes.filter(outcome => !outcome.successful && outcome.status !== "running").length,
+        running: outcomes.filter(outcome => outcome.status === "running").length,
+        validation_verified: false,
+      }
+      const runningArtifact = saveParallelJoin(workspaceRoot, args.change, descriptors, outcomes, runningJoin, null)
+      if (runningArtifact.error) {
+        for (const handle of acquired.values()) settleAttempt(handle, "failed", "error", "task-error")
+        const settledOutcomes = outcomes.map(outcome => outcome.status === "running"
+          ? { ...outcome, status: "blocked", result_status: null, summary: "parallel join persistence failed before launch" }
+          : outcome)
+        return blocked("parallel-join-persist-failed", runningArtifact.error, settledOutcomes)
+      }
+      persistedJoinRef = runningArtifact.ref
+      recordParallelJoinMetrics(toolCtx.sessionID, startTime, "running", expected, outcomes)
+
+      const persistRunningProgress = (): void => {
+        const running = outcomes.filter(outcome => outcome.status === "running").length
+        if (running === 0) return
+        saveParallelJoin(workspaceRoot, args.change, descriptors, outcomes, {
+          status: "running",
+          expected,
+          completed: outcomes.filter(outcome => outcome.successful).length,
+          failed: outcomes.filter(outcome => !outcome.successful && outcome.status !== "running").length,
+          running,
+          validation_verified: false,
+        }, null)
+      }
+
       let nextIndex = 0
       const worker = async (): Promise<void> => {
         while (true) {
           const index = nextIndex++
-          if (index >= args.branches.length) return
-          const branch = args.branches[index]
+          if (index >= runnableDescriptors.length) return
+          const branch = runnableDescriptors[index]
+          const outcomeIndex = descriptors.findIndex(descriptor => descriptor.branch_id === branch.branch_id)
           const validationEvidenceRef = validationEvidenceRelativePath(args.change, branch.branch_id)
           try {
             const output = await createODFDelegate(client, canonicalDirectory, {
               branch_id: branch.branch_id,
               suppress_failure_receipt: true,
+              suppress_workflow_commit: true,
+              suppress_attempt_settlement: true,
               validation_evidence_path: validationEvidenceRef,
               workflow_result: workflowResult,
               pre_acquired_attempt: acquired.get(branch.branch_id),
@@ -2573,56 +3609,108 @@ must not overlap. VERIFY remains sequential after the aggregate join is complete
               prompt: `${branch.prompt}\n\nStop-validation evidence: write \`${validationEvidenceRef}\`.`,
               context_files: branch.context_files,
               change: args.change,
+              artifact_store: args.artifact_store,
               timeout_ms: branch.timeout_ms,
               attempt_id: branch.attempt_id,
               workflow_advance: args.workflow_advance,
             }, toolCtx)
-            outcomes[index] = makeParallelOutcome(args.change, branch, output as string, acquired.get(branch.branch_id)!, workspaceRoot)
+            outcomes[outcomeIndex] = makeParallelOutcome(args.change, branch, output as string, acquired.get(branch.branch_id)!, workspaceRoot)
+            persistRunningProgress()
           } catch (error) {
             const message = error instanceof Error ? error.message : String(error)
-            settleAttempt(acquired.get(branch.branch_id)!, "failed", "error", "task-error")
-            outcomes[index] = makeParallelOutcome(
+            outcomes[outcomeIndex] = makeParallelOutcome(
               args.change,
               branch,
               JSON.stringify({ status: "error", message }),
               acquired.get(branch.branch_id)!,
               workspaceRoot,
             )
+            persistRunningProgress()
           }
         }
       }
 
-      await Promise.allSettled(Array.from({ length: Math.min(PARALLEL_BUILD_CONCURRENCY, args.branches.length) }, () => worker()))
+      await Promise.allSettled(Array.from({ length: Math.min(PARALLEL_BUILD_CONCURRENCY, runnableDescriptors.length) }, () => worker()))
 
       const completed = outcomes.filter(outcome => outcome.successful).length
-      const failed = outcomes.length - completed
+      const failed = expected - completed
       const validationVerified = outcomes.every(outcome => outcome.successful && outcome.validation_verified)
-      const joinComplete = completed === args.branches.length && failed === 0 && validationVerified
+      const joinComplete = completed === expected && failed === 0 && validationVerified
+      const join = {
+        status: joinComplete ? "complete" as const : "blocked" as const,
+        expected,
+        completed,
+        failed,
+        running: 0,
+        validation_verified: validationVerified,
+      }
       if (joinComplete) {
+        const savedArtifact = saveParallelJoin(workspaceRoot, args.change, descriptors, outcomes, join, null)
+        if (savedArtifact.error) {
+          for (const handle of acquired.values()) settleAttempt(handle, "failed", "error", "task-error")
+          return blocked("parallel-join-persist-failed", savedArtifact.error, outcomes)
+        }
+        persistedJoinRef = savedArtifact.ref
+        const aggregateStatus = outcomes.some(outcome => outcome.result_status === "warning") ? "warning" : "ok"
+         const workflowCommit = await resolveProofBackedLifecycle({
+           workspaceRoot,
+           changeName: args.change,
+           artifactStore: args.artifact_store,
+           proof: effectiveWorkflowAdvance,
+           expectedStage: "BUILD",
+           callerResult: workflowResult,
+           innerResultStatus: aggregateStatus,
+           validationStatus: "verified",
+           validation: { status: "verified", reason: "parallel join validation verified", commands_validated: expected },
+           parallel: true,
+         })
+        if (workflowCommit.status === "blocked") {
+          for (const handle of acquired.values()) settleAttempt(handle, "failed", "validation-failed", "validation-failed")
+          const receipt = parallelReceipt(workspaceRoot, args.change, outcomes)
+          const mergedReceipt = mergeReceipt(workspaceRoot, receipt)
+          const blockedJoin = { ...join, status: "blocked" as const, validation_verified: false }
+          saveParallelJoin(workspaceRoot, args.change, descriptors, outcomes, blockedJoin, path.join(".odf", `receipt-${args.change}.json`))
+          return blocked(workflowCommit.reason, workflowCommit.message, outcomes, mergedReceipt)
+        }
+        for (const handle of acquired.values()) settleAttempt(handle, "completed", "delegated", "task-completed")
+        recordParallelJoinMetrics(toolCtx.sessionID, startTime, "complete", expected, outcomes)
         return JSON.stringify({
           status: "parallel-delegated",
           work_type: "cross-domain",
           phase: "IMPLEMENT",
+          resumed: Boolean(args.resume_from_join),
           branches: outcomes,
           join: {
-            status: "complete",
-            expected: args.branches.length,
+            ...join,
             completed,
             failed,
-            validation_verified: true,
             evidence_refs: Array.from(new Set(outcomes.map(outcome => outcome.validation_evidence_ref))),
-          },
-          receipt: null,
+            artifact_ref: persistedJoinRef,
+           },
+           receipt: null,
+           workflow_commit: workflowCommit,
+           parallel_join_ref: persistedJoinRef,
         }, null, 2)
       }
 
+      for (const handle of acquired.values()) settleAttempt(handle, "failed", "validation-failed", "validation-failed")
       const receipt = parallelReceipt(workspaceRoot, args.change, outcomes)
-      mergeReceipt(workspaceRoot, receipt)
+      const mergedReceipt = mergeReceipt(workspaceRoot, receipt)
+      const savedArtifact = saveParallelJoin(
+        workspaceRoot,
+        args.change,
+        descriptors,
+        outcomes,
+        join,
+        path.join(".odf", `receipt-${args.change}.json`),
+      )
+       if (savedArtifact.error) return blocked("parallel-join-persist-failed", savedArtifact.error, outcomes, mergedReceipt)
+      persistedJoinRef = savedArtifact.ref
       return blocked(
         failed > 0 ? "parallel-branch-failed" : "parallel-validation-incomplete",
         failed > 0 ? "At least one parallel BUILD branch failed." : "Every parallel BUILD branch must return verified validation before BUILD can close.",
         outcomes,
-        receipt,
+        mergedReceipt,
       )
     },
   })
@@ -2880,6 +3968,20 @@ function createODFRegistryRead(): ReturnType<typeof tool> {
       }
 
       return results.join("\n")
+    },
+  })
+}
+
+function createODFHealth(client?: OpencodeClient, io: HealthIo = defaultHealthIo): ReturnType<typeof tool> {
+  return tool({
+    description: `Read-only installed/runtime ODF health check.
+
+Checks the installed registry, plugin, command, task API presence, and optional
+Engram CLI metadata. It never calls task(), Odoo, PostgreSQL, or engram export;
+task usability remains unverified because probing it would execute work.`,
+    args: {},
+    async execute(_args: Record<string, never>, toolCtx: ToolContext): Promise<string> {
+      return JSON.stringify(await inspectODFHealth(toolCtx, client, io), null, 2)
     },
   })
 }
@@ -3155,20 +4257,11 @@ interface EngramObservation {
 }
 
 async function readEngramObservations(workspaceRoot: string): Promise<EngramObservation[] | null> {
-  let project: string
-  try {
-    project = path.basename(
-      execFileSync("git", ["rev-parse", "--show-toplevel"], { cwd: workspaceRoot, encoding: "utf8" }).trim()
-    )
-  } catch {
-    project = path.basename(workspaceRoot)
-  }
-
   // ponytail: unique tmpdir (not a Date.now() filename) so parallel workers never race the same path
   const tmpDir = fsSync.mkdtempSync(path.join(os.tmpdir(), "odf-status-"))
   const tmpFile = path.join(tmpDir, "export.json")
   try {
-    execFileSync("engram", ["export", "--project", project, "--output", tmpFile], {
+    execFileSync("engram", ["export", tmpFile], {
       encoding: "utf8",
       stdio: ["ignore", "pipe", "ignore"],
       timeout: 15_000,
@@ -3228,14 +4321,692 @@ function selectEngramSnapshot(observations: EngramObservation[], changeName?: st
   return artifacts ? { change: bestChange, artifacts } : null
 }
 
-function readReceiptJson(workspaceRoot: string, changeName: string): WorkflowReceipt | null {
+interface ReceiptFileRead {
+  receipt: WorkflowReceipt | null
+  malformed: boolean
+}
+
+function readReceiptFile(workspaceRoot: string, changeName: string): ReceiptFileRead {
+  const receiptPath = path.join(workspaceRoot, ".odf", `receipt-${changeName}.json`)
   try {
-    return JSON.parse(
-      fsSync.readFileSync(path.join(workspaceRoot, ".odf", `receipt-${changeName}.json`), "utf8")
-    ) as WorkflowReceipt
+    const parsed: unknown = JSON.parse(fsSync.readFileSync(receiptPath, "utf8"))
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return { receipt: null, malformed: true }
+    return { receipt: parsed as WorkflowReceipt, malformed: false }
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === "ENOENT"
+      ? { receipt: null, malformed: false }
+      : { receipt: null, malformed: true }
+  }
+}
+
+function readReceiptJson(workspaceRoot: string, changeName: string): WorkflowReceipt | null {
+  const read = readReceiptFile(workspaceRoot, changeName)
+  return read.malformed ? { status: "pending" } : read.receipt
+}
+
+interface SelectedWorkflowSnapshot {
+  store: ArtifactStore
+  state: Record<string, unknown>
+  stateContent: string
+  artifacts: StatusArtifact[]
+  status: WorkflowStatus
+}
+
+interface SelectedWorkflowRead {
+  snapshot: SelectedWorkflowSnapshot | null
+  error: string | null
+}
+
+interface TransitionInspection {
+  ok: boolean
+  alreadyCommitted: boolean
+  reason: string
+  message: string
+  snapshot: SelectedWorkflowSnapshot
+  route: WorkflowRoute
+  completed: CanonicalStage[]
+}
+
+export interface WorkflowCommitResult {
+  status: "committed" | "already-committed" | "blocked"
+  reason: string
+  message: string
+  store: ArtifactStore
+  state_ref: string
+  canonical_stage: WorkflowStage | null
+  completed_stages: CanonicalStage[]
+  validation: ValidationVerdict | null
+  workflow_result: ReturnType<typeof advanceWorkflow> | null
+}
+
+const WORKFLOW_LOCK_SUFFIX = ".workflow.lock"
+const WORKFLOW_EVIDENCE_STATUSES = new Set([
+  "ok", "warning", "pass", "passed", "success", "successful", "verified", "complete", "completed",
+])
+
+function parseStateDocument(content: string): { state: Record<string, unknown>; document: ReturnType<typeof parseDocument> } | null {
+  try {
+    const document = parseDocument(content)
+    if (document.errors.length > 0 || !isMap(document.contents)) return null
+    const value = document.toJSON()
+    if (!value || typeof value !== "object" || Array.isArray(value)) return null
+    return { state: value as Record<string, unknown>, document }
   } catch {
     return null
   }
+}
+
+function selectedWorkflowArtifacts(changeName: string, observations: EngramObservation[]): StatusArtifact[] {
+  const prefix = `odf/${changeName}/`
+  const latest = new Map<string, EngramObservation>()
+  for (const observation of observations) {
+    if (!observation.topic_key?.startsWith(prefix) || observation.topic_key === `${prefix}state`) continue
+    latest.set(observation.topic_key, observation)
+  }
+  return Array.from(latest.entries()).map(([key, observation]) => ({
+    key,
+    content: observation.content,
+    created: observation.created_at || null,
+    source: "engram",
+  }))
+}
+
+async function readSelectedWorkflowState(
+  workspaceRoot: string,
+  changeName: string,
+  store: ArtifactStore,
+): Promise<SelectedWorkflowRead> {
+  const receiptRead = readReceiptFile(workspaceRoot, changeName)
+  if (receiptRead.malformed) return { snapshot: null, error: "workflow-receipt-malformed" }
+
+  if (store === "openspec") {
+    const openSpec = await loadOpenSpecStatus(workspaceRoot, changeName)
+    if (!openSpec?.state) return { snapshot: null, error: "workflow-state-not-found" }
+    const parsed = parseStateDocument(openSpec.state.content)
+    if (!parsed) return { snapshot: null, error: "workflow-state-malformed" }
+    const status = deriveWorkflowStatus({
+      change: changeName,
+      state: openSpec.state.content,
+      artifacts: openSpec.artifacts,
+      receipt: receiptRead.receipt,
+      source: { state: "openspec", artifacts: [openSpec.state.key, ...openSpec.artifacts.map(artifact => artifact.key)] },
+      warnings: openSpec.warnings,
+    })
+    return {
+      snapshot: { store, state: parsed.state, stateContent: openSpec.state.content, artifacts: openSpec.artifacts, status },
+      error: null,
+    }
+  }
+
+  const observations = await readEngramObservations(workspaceRoot)
+  if (!observations) return { snapshot: null, error: "engram-state-unavailable" }
+  const stateKey = `odf/${changeName}/state`
+  const stateObservation = observations.filter(observation => observation.topic_key === stateKey).at(-1)
+  if (!stateObservation) return { snapshot: null, error: "workflow-state-not-found" }
+  const parsed = parseStateDocument(stateObservation.content)
+  if (!parsed) return { snapshot: null, error: "workflow-state-malformed" }
+  const artifacts = selectedWorkflowArtifacts(changeName, observations)
+  const status = deriveWorkflowStatus({
+    change: changeName,
+    state: stateObservation.content,
+    artifacts,
+    receipt: receiptRead.receipt,
+    source: { state: "engram", artifacts: [stateKey, ...artifacts.map(artifact => artifact.key)] },
+  })
+  return {
+    snapshot: { store, state: parsed.state, stateContent: stateObservation.content, artifacts, status },
+    error: null,
+  }
+}
+
+function explicitCompletedStages(state: Record<string, unknown>, route: WorkflowRoute): CanonicalStage[] | null {
+  const raw = state.completed_canonical_stages ?? state.completed_stages
+  if (!Array.isArray(raw)) return null
+  const values = raw.filter((value): value is string => typeof value === "string").map(value => value.toUpperCase())
+  if (values.length !== raw.length || values.some(value => !route.stages.includes(value as CanonicalStage))) return null
+  return route.stages.filter(stage => values.includes(stage))
+}
+
+function persistedCompletedStages(snapshot: SelectedWorkflowSnapshot, route: WorkflowRoute): CanonicalStage[] {
+  return explicitCompletedStages(snapshot.state, route) || route.stages.filter(stage => snapshot.status.completed_canonical_stages.includes(stage))
+}
+
+function sameStages(left: CanonicalStage[], right: CanonicalStage[]): boolean {
+  return left.length === right.length && left.every((stage, index) => stage === right[index])
+}
+
+function sameWorkflowAdvanceResult(
+  left: ReturnType<typeof advanceWorkflow> | null | undefined,
+  right: ReturnType<typeof advanceWorkflow>,
+): boolean {
+  return Boolean(left) && left!.status === right.status &&
+    sameStages(left!.completed_stages, right.completed_stages) &&
+    left!.next_stage === right.next_stage && left!.reason === right.reason
+}
+
+function workflowStateSignals(snapshot: SelectedWorkflowSnapshot): {
+  archived: boolean
+  resumable: boolean
+  receiptState: WorkflowReceiptState
+} {
+  const archived = snapshot.status.canonical_stage === "ARCHIVED" || snapshot.state.archived === true ||
+    String(snapshot.state.canonical_stage || "").toUpperCase() === "ARCHIVED"
+  const abandoned = snapshot.state.abandoned === true || String(snapshot.state.status || "").toLowerCase() === "abandoned"
+  const receiptAction = snapshot.status.receipt.action
+  const orchestratorDisposition = receiptAction !== null && receiptAction !== "retry"
+  return {
+    archived,
+    resumable: !archived && !abandoned && !orchestratorDisposition && snapshot.state.resumable !== false && snapshot.status.receipt.state !== "pending",
+    receiptState: snapshot.status.receipt.state,
+  }
+}
+
+function canonicalizeWorkflowAdvance(
+  snapshot: SelectedWorkflowSnapshot,
+  proof: ODFDelegateWorkflowAdvance,
+  expectedStage: "BUILD" | "VERIFY",
+): { proof: ODFDelegateWorkflowAdvance } | { reason: string; message: string } {
+  const receiptAction = snapshot.status.receipt.action
+  if (snapshot.status.receipt.state === "pending") {
+    return { reason: "workflow-receipt-pending", message: "A receipt is pending user disposition." }
+  }
+  if (receiptAction && receiptAction !== "retry") {
+    return {
+      reason: "workflow-receipt-action-unhandled",
+      message: `The committed receipt action ${receiptAction} requires orchestrator handling before continuation.`,
+    }
+  }
+
+  const route = resolveWorkflowRoute(proof.work_type)
+  const persistedWorkType = snapshot.status.work_type || snapshot.state.work_type
+  if (persistedWorkType && persistedWorkType !== proof.work_type) {
+    return {
+      reason: "workflow-work-type-mismatch",
+      message: `Persisted work_type ${persistedWorkType} does not match ${proof.work_type}.`,
+    }
+  }
+  const signals = workflowStateSignals(snapshot)
+  const expectedIndex = route.stages.indexOf(expectedStage)
+  const candidateIndex = proof.candidate_stage === null ? -1 : route.stages.indexOf(proof.candidate_stage)
+  const persisted = persistedCompletedStages(snapshot, route)
+  return {
+    proof: {
+      ...proof,
+      completed_stages: candidateIndex >= 0
+        ? route.stages.slice(0, candidateIndex).filter(stage => persisted.includes(stage))
+        : expectedIndex < 0 ? persisted : route.stages.slice(0, expectedIndex).filter(stage => persisted.includes(stage)),
+      receipt_state: signals.receiptState,
+      resumable_state: signals.resumable,
+      archived_state: signals.archived,
+    },
+  }
+}
+
+function inspectPersistedTransition(opts: {
+  snapshot: SelectedWorkflowSnapshot
+  proof: ODFDelegateWorkflowAdvance
+  expectedStage: "BUILD" | "VERIFY"
+  callerResult: ReturnType<typeof advanceWorkflow>
+}): TransitionInspection {
+  const route = resolveWorkflowRoute(opts.proof.work_type)
+  const signals = workflowStateSignals(opts.snapshot)
+  const completed = persistedCompletedStages(opts.snapshot, route)
+  const workType = opts.snapshot.status.work_type || opts.snapshot.state.work_type
+  const fail = (reason: string, message: string): TransitionInspection => ({
+    ok: false,
+    alreadyCommitted: false,
+    reason,
+    message,
+    snapshot: opts.snapshot,
+    route,
+    completed,
+  })
+
+  const locallyRecomputedProof = advanceWorkflow({
+    route,
+    completed_stages: opts.proof.completed_stages,
+    candidate_stage: opts.proof.candidate_stage,
+    phase_result_status: opts.proof.phase_result_status,
+    validation_status: opts.proof.validation_status,
+    receipt_state: opts.proof.receipt_state,
+    resumable_state: opts.proof.resumable_state,
+    archived_state: opts.proof.archived_state,
+  })
+  if (!sameWorkflowAdvanceResult(opts.callerResult, locallyRecomputedProof)) {
+    return fail("workflow-proof-mismatch", "The supplied workflow proof is not the local advanceWorkflow result.")
+  }
+
+  if (workType !== opts.proof.work_type) {
+    return fail(
+      "workflow-work-type-mismatch",
+      `Persisted work_type ${workType || "none"} does not match ${opts.proof.work_type}.`,
+    )
+  }
+  if (signals.archived) return fail("workflow-archived", "Archived workflow state cannot enter BUILD or VERIFY.")
+  if (signals.receiptState === "pending") return fail("workflow-receipt-pending", "A receipt is pending user disposition.")
+  if (opts.snapshot.status.receipt.action && opts.snapshot.status.receipt.action !== "retry") {
+    return fail("workflow-receipt-action-unhandled", "The committed receipt action requires orchestrator handling before continuation.")
+  }
+  if (!signals.resumable) return fail("workflow-not-resumable", "Persisted workflow state is not resumable.")
+
+  const expectedIndex = route.stages.indexOf(opts.expectedStage)
+  const expectedPrefix = expectedIndex < 0 ? [] : route.stages.slice(0, expectedIndex)
+  const desiredAlreadyCommitted = expectedIndex >= 0 && completed.includes(opts.expectedStage) &&
+    sameStages(completed, route.stages.slice(0, route.stages.indexOf(opts.expectedStage) + 1)) &&
+    (opts.snapshot.status.canonical_stage === opts.expectedStage ||
+      opts.snapshot.status.canonical_stage === "VERIFY" && opts.expectedStage === "BUILD")
+  if (desiredAlreadyCommitted) {
+    return {
+      ok: true,
+      alreadyCommitted: true,
+      reason: "already-committed",
+      message: `Workflow state already includes ${opts.expectedStage}.`,
+      snapshot: opts.snapshot,
+      route,
+      completed,
+    }
+  }
+  if (expectedIndex < 0) return fail("workflow-phase-mismatch", `${opts.expectedStage} is not part of the selected route.`)
+  if (!sameStages(completed, expectedPrefix)) {
+    return fail("workflow-state-stale", "Persisted completed stages do not match the requested route prefix.")
+  }
+  if (!sameStages(opts.callerResult.completed_stages, expectedPrefix)) {
+    return fail("workflow-proof-stale", "The recomputed workflow proof does not identify the persisted route prefix.")
+  }
+  const pendingStage = route.stages.find(stage => !completed.includes(stage)) || null
+  if (pendingStage !== opts.expectedStage) {
+    return fail(
+      "workflow-pending-stage-mismatch",
+      `Persisted pending stage ${pendingStage || "none"} does not match ${opts.expectedStage}.`,
+    )
+  }
+  const currentStage = opts.snapshot.status.canonical_stage
+  const previousStage = expectedPrefix.at(-1) || null
+  if (currentStage !== opts.expectedStage && currentStage !== previousStage) {
+    return fail("workflow-state-stale", `Persisted canonical_stage ${currentStage} is not compatible with ${opts.expectedStage}.`)
+  }
+  if (opts.callerResult.status !== "advanced" || opts.callerResult.next_stage !== opts.expectedStage) {
+    return fail("workflow-advance-blocked", opts.callerResult.reason)
+  }
+  return { ok: true, alreadyCommitted: false, reason: "ready", message: "Persisted workflow transition is ready.", snapshot: opts.snapshot, route, completed }
+}
+
+function selectedVerificationEvidence(snapshot: SelectedWorkflowSnapshot): ValidationVerdict {
+  const evidence = snapshot.artifacts.filter(artifact => {
+    const type = normalizeArtifactKey(artifact.key).type
+    return type === "verify" || type === "verify-report"
+  })
+  const valid = evidence.some(artifact => {
+    const status = contentStatus(artifact.content)
+    return status !== null && WORKFLOW_EVIDENCE_STATUSES.has(status)
+  })
+  return valid
+    ? { status: "verified", reason: "selected-store verification evidence verified", commands_validated: 1 }
+    : { status: "missing", reason: "selected-store verification evidence is missing or unsuccessful", commands_validated: 0 }
+}
+
+function workflowLockPath(workspaceRoot: string, changeName: string): string {
+  return path.join(workspaceRoot, ".odf", `workflow-${changeName}${WORKFLOW_LOCK_SUFFIX}`)
+}
+
+function workflowStateReference(store: ArtifactStore, changeName: string): string {
+  return store === "openspec"
+    ? `openspec/changes/${changeName}/state.yaml`
+    : `odf/${changeName}/state`
+}
+
+async function withWorkflowLock<T>(
+  workspaceRoot: string,
+  changeName: string,
+  operation: () => Promise<T>,
+): Promise<{ locked: true; value: T } | { locked: false; error: string }> {
+  const lockPath = workflowLockPath(workspaceRoot, changeName)
+  let lockFd: number | null = null
+  try {
+    fsSync.mkdirSync(path.dirname(lockPath), { recursive: true })
+    try {
+      lockFd = fsSync.openSync(lockPath, "wx")
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code
+      return { locked: false, error: code === "EEXIST" ? "workflow-state-locked" : "workflow-lock-failed" }
+    }
+    return { locked: true, value: await operation() }
+  } catch {
+    return { locked: false, error: "workflow-lock-failed" }
+  } finally {
+    if (lockFd !== null) {
+      try { fsSync.closeSync(lockFd) } catch { /* best-effort */ }
+      try { fsSync.unlinkSync(lockPath) } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") console.warn(`[odf-delegation] Failed to clean up workflow lock: ${lockPath}`)
+      }
+    }
+  }
+}
+
+function writeOpenSpecWorkflowState(
+  workspaceRoot: string,
+  changeName: string,
+  stateContent: string,
+  workType: WorkType,
+  canonicalStage: "BUILD" | "VERIFY",
+  completedStages: CanonicalStage[],
+): string | null {
+  const statePath = path.resolve(workspaceRoot, "openspec", "changes", changeName, "state.yaml")
+  if (!isWithinRoot(statePath, path.resolve(workspaceRoot))) return "unsafe-state-path"
+  const parsed = parseStateDocument(stateContent)
+  if (!parsed) return "malformed-state"
+  parsed.document.set("work_type", workType)
+  parsed.document.set("canonical_stage", canonicalStage)
+  parsed.document.set("completed_canonical_stages", completedStages)
+  const tempPath = `${statePath}.${process.pid}.${nodeCrypto.randomUUID()}.tmp`
+  try {
+    const root = fsSync.realpathSync(path.resolve(workspaceRoot))
+    const realStatePath = fsSync.realpathSync(statePath)
+    if (!isWithinRoot(realStatePath, root)) return "unsafe-state-path"
+    const serialized = parsed.document.toString()
+    fsSync.writeFileSync(tempPath, serialized, { encoding: "utf8", flag: "wx" })
+    fsSync.renameSync(tempPath, statePath)
+    return null
+  } catch {
+    try { fsSync.unlinkSync(tempPath) } catch { /* best-effort */ }
+    return "state-write-failed"
+  }
+}
+
+function writeEngramWorkflowState(
+  workspaceRoot: string,
+  changeName: string,
+  stateContent: string,
+  workType: WorkType,
+  canonicalStage: "BUILD" | "VERIFY",
+  completedStages: CanonicalStage[],
+): string | null {
+  const parsed = parseStateDocument(stateContent)
+  if (!parsed) return "malformed-state"
+  parsed.document.set("work_type", workType)
+  parsed.document.set("canonical_stage", canonicalStage)
+  parsed.document.set("completed_canonical_stages", completedStages)
+  const topicKey = `odf/${changeName}/state`
+  const project = workspaceProjectName(resolveWorkspaceRoot(workspaceRoot))
+  const content = JSON.stringify(parsed.document.toJSON())
+  try {
+    execFileSync("engram", [
+      "save", topicKey, content,
+      "--type", "architecture",
+      "--project", project,
+      "--scope", "project",
+      "--topic", topicKey,
+    ], {
+      cwd: workspaceRoot,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+      timeout: 15_000,
+      maxBuffer: 64 * 1024,
+    })
+    return null
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code
+    return code === "ENOENT" ? "engram-cli-unavailable" : code === "ETIMEDOUT" ? "engram-save-timeout" : "engram-save-failed"
+  }
+}
+
+export async function commitWorkflowTransition(opts: {
+  workspaceRoot: string
+  changeName: string
+  artifactStore: ArtifactStore
+  proof: ODFDelegateWorkflowAdvance
+  expectedStage: "BUILD" | "VERIFY"
+  callerResult: ReturnType<typeof advanceWorkflow>
+  phaseResultStatus: WorkflowPhaseResultStatus
+  validationStatus: WorkflowValidationStatus
+  validation: ValidationVerdict | null
+  parallel?: boolean
+}): Promise<WorkflowCommitResult> {
+  const stateRef = workflowStateReference(opts.artifactStore, opts.changeName)
+  const makeResult = (
+    status: WorkflowCommitResult["status"],
+    reason: string,
+    message: string,
+    snapshot: SelectedWorkflowSnapshot | null,
+    completedStages: CanonicalStage[],
+    validation: ValidationVerdict | null,
+    workflowResult: ReturnType<typeof advanceWorkflow> | null,
+    canonicalStage: WorkflowStage | null = snapshot?.status.canonical_stage || null,
+  ): WorkflowCommitResult => ({
+    status,
+    reason,
+    message,
+    store: opts.artifactStore,
+    state_ref: stateRef,
+    canonical_stage: canonicalStage,
+    completed_stages: completedStages,
+    validation,
+    workflow_result: workflowResult,
+  })
+
+  if (opts.expectedStage !== "BUILD" && opts.expectedStage !== "VERIFY") {
+    return makeResult(
+      "blocked",
+      "workflow-stage-unsupported",
+      "Workflow commits may only target BUILD or VERIFY.",
+      null,
+      [],
+      opts.validation,
+      null,
+    )
+  }
+
+  const locked = await withWorkflowLock(opts.workspaceRoot, opts.changeName, async () => {
+    const read = await readSelectedWorkflowState(opts.workspaceRoot, opts.changeName, opts.artifactStore)
+    if (!read.snapshot) {
+      return makeResult(
+        "blocked",
+        read.error || "workflow-state-unavailable",
+        "The selected workflow state could not be read safely.",
+        null,
+        [],
+        opts.validation,
+        null,
+      )
+    }
+    const inspection = inspectPersistedTransition({
+      snapshot: read.snapshot,
+      proof: opts.proof,
+      expectedStage: opts.expectedStage,
+      callerResult: opts.callerResult,
+    })
+    if (!inspection.ok || inspection.alreadyCommitted) {
+      return makeResult(
+        inspection.alreadyCommitted ? "already-committed" : "blocked",
+        inspection.reason,
+        inspection.message,
+        read.snapshot,
+        inspection.completed,
+        opts.validation,
+        null,
+      )
+    }
+
+    if (opts.phaseResultStatus !== "ok" && opts.phaseResultStatus !== "warning") {
+      return makeResult(
+        "blocked",
+        "workflow-result-invalid",
+        "The actual phase result must have status ok or warning before workflow state can advance.",
+        read.snapshot,
+        inspection.completed,
+        opts.validation,
+        null,
+      )
+    }
+
+    let validation = opts.validation
+    if (opts.expectedStage === "VERIFY") validation = selectedVerificationEvidence(read.snapshot)
+    if (validation?.status !== "verified") {
+      return makeResult(
+        "blocked",
+        "workflow-evidence-invalid",
+        validation?.reason || "Valid transition evidence is required.",
+        read.snapshot,
+        inspection.completed,
+        validation,
+        null,
+      )
+    }
+
+    const postResult = advanceWorkflow({
+      route: inspection.route,
+      completed_stages: inspection.completed,
+      candidate_stage: opts.expectedStage,
+      phase_result_status: opts.phaseResultStatus,
+      validation_status: opts.validationStatus,
+      receipt_state: read.snapshot.status.receipt.state,
+      resumable_state: workflowStateSignals(read.snapshot).resumable,
+      archived_state: workflowStateSignals(read.snapshot).archived,
+    })
+    if (postResult.status !== "advanced" && postResult.status !== "complete") {
+      return makeResult(
+        "blocked",
+        "workflow-advance-blocked",
+        postResult.reason,
+        read.snapshot,
+        inspection.completed,
+        validation,
+        postResult,
+      )
+    }
+
+    const writeError = opts.artifactStore === "openspec"
+      ? writeOpenSpecWorkflowState(opts.workspaceRoot, opts.changeName, read.snapshot.stateContent, opts.proof.work_type, opts.expectedStage, postResult.completed_stages)
+      : writeEngramWorkflowState(opts.workspaceRoot, opts.changeName, read.snapshot.stateContent, opts.proof.work_type, opts.expectedStage, postResult.completed_stages)
+    if (writeError) {
+      return makeResult(
+        "blocked",
+        writeError,
+        "The selected workflow state could not be committed.",
+        read.snapshot,
+        inspection.completed,
+        validation,
+        postResult,
+      )
+    }
+    return makeResult(
+      "committed",
+      "committed",
+      `Committed ${opts.expectedStage} workflow state to ${opts.artifactStore}.`,
+      read.snapshot,
+      postResult.completed_stages,
+      validation,
+      postResult,
+      opts.expectedStage,
+    )
+  })
+  if (!locked.locked) {
+    return makeResult(
+      "blocked",
+      locked.error,
+      "The selected workflow state could not be locked safely.",
+      null,
+      [],
+      opts.validation,
+      null,
+    )
+  }
+  return locked.value
+}
+
+export interface ProofBackedLifecycleInput {
+  workspaceRoot: string
+  changeName: string
+  artifactStore: ArtifactStore
+  proof: ODFDelegateWorkflowAdvance
+  expectedStage: "BUILD" | "VERIFY"
+  callerResult: ReturnType<typeof advanceWorkflow>
+  innerResultStatus: WorkflowPhaseResultStatus | null
+  validationStatus: WorkflowValidationStatus
+  validation: ValidationVerdict | null
+  parallel?: boolean
+}
+
+/**
+ * Orchestrate only the proof-backed lifecycle boundary. Callers retain
+ * ownership of receipts, attempts, metrics, and public response envelopes.
+ */
+export async function resolveProofBackedLifecycle(opts: ProofBackedLifecycleInput): Promise<WorkflowCommitResult> {
+  const stateRef = workflowStateReference(opts.artifactStore, opts.changeName)
+  const blocked = (reason: string, message: string): WorkflowCommitResult => ({
+    status: "blocked",
+    reason,
+    message,
+    store: opts.artifactStore,
+    state_ref: stateRef,
+    canonical_stage: null,
+    completed_stages: [],
+    validation: opts.validation,
+    workflow_result: opts.callerResult,
+  })
+
+  if (opts.innerResultStatus !== "ok" && opts.innerResultStatus !== "warning") {
+    return blocked(
+      opts.innerResultStatus === "blocked" ? "inner-result-status-blocked" : "inner-result-status-invalid",
+      opts.innerResultStatus === "blocked"
+        ? "The inner phase result is blocked."
+        : opts.innerResultStatus === "failed"
+          ? "The inner phase result failed."
+          : "The inner phase result is missing or has an invalid status.",
+    )
+  }
+
+  if (opts.expectedStage === "BUILD" && opts.validation?.status !== "verified") {
+    return blocked(
+      "workflow-evidence-invalid",
+      opts.validation?.reason || "IMPLEMENT evidence is not verified.",
+    )
+  }
+
+  return commitWorkflowTransition({
+    workspaceRoot: opts.workspaceRoot,
+    changeName: opts.changeName,
+    artifactStore: opts.artifactStore,
+    proof: opts.proof,
+    expectedStage: opts.expectedStage,
+    callerResult: opts.callerResult,
+    phaseResultStatus: opts.innerResultStatus,
+    validationStatus: opts.validationStatus,
+    validation: opts.validation,
+    parallel: opts.parallel,
+  })
+}
+
+function persistWorkflowFailureReceipt(
+  workspaceRoot: string,
+  changeName: string,
+  phase: ODFReceipt["phase"],
+  summary: string,
+  policyGate: PolicyGateDecision | null,
+  refs: string[] = [],
+  status: ODFReceipt["status"] = "blocked",
+  cause: ODFReceipt["cause"] = "validation-failed",
+): ODFReceipt {
+  const frozenDiffRef = policyGate?.frozen_diff_ref || gitHead(workspaceRoot)
+  return mergeReceipt(workspaceRoot, {
+    change: changeName,
+    phase,
+    status,
+    cause,
+    evidence: {
+      summary,
+      frozen_diff_ref: frozenDiffRef,
+      failing: [summary],
+      refs: Array.from(new Set([
+        ...refs,
+        ...(policyGate ? [path.join(".odf", `policy-gate-${changeName}.json`)] : []),
+      ])),
+    },
+    action: null,
+    review_gate: null,
+    frozen_diff_ref: frozenDiffRef,
+    resolved_at: new Date().toISOString(),
+  })
 }
 
 function buildEngramStatus(
@@ -3390,6 +5161,16 @@ function buildMergedStatus(
   }
 }
 
+function attachParallelJoinStatus(status: ODFChangeStatus, workspaceRoot: string): ODFChangeStatus {
+  const loaded = readParallelJoinArtifact(workspaceRoot, status.change)
+  if (loaded.warning) {
+    status.workflowStatus.warnings = Array.from(new Set([...status.workflowStatus.warnings, loaded.warning]))
+  } else if (loaded.artifact) {
+    status.workflowStatus.parallel_join = loaded.artifact
+  }
+  return status
+}
+
 async function loadCombinedWorkflowStatus(workspaceRoot: string, changeName?: string): Promise<ODFChangeStatus | null> {
   const requestedChange = changeName?.trim() || undefined
   const observations = await readEngramObservations(workspaceRoot)
@@ -3399,9 +5180,9 @@ async function loadCombinedWorkflowStatus(workspaceRoot: string, changeName?: st
   const targetChange = requestedChange || engram?.change
   const openSpec = targetChange ? await loadOpenSpecStatus(workspaceRoot, targetChange) : null
   if (!openSpec?.state) {
-    return engram ? buildEngramStatus(workspaceRoot, engram, openSpec?.warnings || []) : null
+    return engram ? attachParallelJoinStatus(buildEngramStatus(workspaceRoot, engram, openSpec?.warnings || []), workspaceRoot) : null
   }
-  return buildMergedStatus(workspaceRoot, openSpec, engram)
+  return attachParallelJoinStatus(buildMergedStatus(workspaceRoot, openSpec, engram), workspaceRoot)
 }
 
 function createODFStatus(): ReturnType<typeof tool> {
@@ -3471,13 +5252,14 @@ function isCanonicalWorkType(value: unknown): value is WorkType {
 
 function createODFWorkflowBind(): ReturnType<typeof tool> {
   return tool({
-    description: `Bind a canonical ODF work type in an existing OpenSpec state.yaml.
+    description: `Bind a canonical ODF work type in the selected artifact store.
 
-This is the only mutating route-binding operation. It never creates state or persists to Engram.`,
+OpenSpec is the default and requires an existing state.yaml. Engram mode persists
+only the canonical state binding through the Engram CLI.`,
     args: {
       change_name: tool.schema
         .string()
-        .describe("Existing OpenSpec change name"),
+        .describe("Safe ODF change name"),
       work_type: tool.schema
         .enum([
           "question",
@@ -3496,8 +5278,17 @@ This is the only mutating route-binding operation. It never creates state or per
         .string()
         .optional()
         .describe("Project directory (defaults to cwd)"),
+      artifact_store: tool.schema
+        .enum(["openspec", "engram"])
+        .optional()
+        .describe("Artifact store for the binding (defaults to openspec)"),
     },
-    async execute(args: { change_name?: string; work_type?: unknown; workspace_dir?: string }): Promise<string> {
+    async execute(args: {
+      change_name?: string
+      work_type?: unknown
+      workspace_dir?: string
+      artifact_store?: "openspec" | "engram"
+    }): Promise<string> {
       const blocked = (reason: string, message: string): string => JSON.stringify({ status: "blocked", reason, message }, null, 2)
       const changeName = typeof args.change_name === "string" ? args.change_name.trim() : ""
       if (!CHANGE_NAME_PATTERN.test(changeName)) {
@@ -3506,12 +5297,59 @@ This is the only mutating route-binding operation. It never creates state or per
       if (!isCanonicalWorkType(args.work_type)) {
         return blocked("invalid-work-type", "The work_type is not a canonical ODF work type.")
       }
+      if (args.artifact_store !== undefined && args.artifact_store !== "openspec" && args.artifact_store !== "engram") {
+        return blocked("invalid-artifact-store", "The artifact_store must be openspec or engram.")
+      }
 
       const workspace = path.resolve(
         typeof args.workspace_dir === "string" && args.workspace_dir.trim()
           ? args.workspace_dir
           : process.cwd(),
       )
+      const artifactStore = args.artifact_store || "openspec"
+      if (artifactStore === "engram") {
+        const workspaceRoot = resolveWorkspaceRoot(workspace)
+        const project = workspaceProjectName(workspaceRoot)
+        const topicKey = `odf/${changeName}/state`
+        const content = JSON.stringify({ work_type: args.work_type })
+        try {
+          execFileSync("engram", [
+            "save",
+            topicKey,
+            content,
+            "--type",
+            "architecture",
+            "--project",
+            project,
+            "--scope",
+            "project",
+            "--topic",
+            topicKey,
+          ], {
+            cwd: workspaceRoot,
+            encoding: "utf8",
+            stdio: ["ignore", "pipe", "pipe"],
+            timeout: 15_000,
+            maxBuffer: 64 * 1024,
+          })
+        } catch (error) {
+          const code = (error as NodeJS.ErrnoException).code
+          const reason = code === "ENOENT"
+            ? "engram-cli-unavailable"
+            : code === "ETIMEDOUT"
+              ? "engram-save-timeout"
+              : "engram-save-failed"
+          return blocked(reason, "The Engram state binding could not be persisted.")
+        }
+        return JSON.stringify({
+          status: "bound",
+          change_name: changeName,
+          work_type: args.work_type,
+          artifact_store: "engram",
+          topic_key: topicKey,
+          project,
+        }, null, 2)
+      }
       const statePath = path.resolve(workspace, "openspec", "changes", changeName, "state.yaml")
       if (!isWithinRoot(statePath, workspace)) {
         return blocked("unsafe-change-path", "The resolved state path is outside the workspace.")
@@ -3679,10 +5517,13 @@ function createODFWorkflowAdvance(): ReturnType<typeof tool> {
 - \`odf_parallel_delegate\`: bounded cross-domain IMPLEMENT BUILD with branch-aware join
 - \`odf_workflow_route\`: read-only canonical route selection by work type
 - \`odf_workflow_advance\`: read-only canonical transition validation and next-stage calculation
-- \`odf_workflow_bind\`: explicit OpenSpec-only route binding; never persists to Engram
+- \`odf_workflow_bind\`: explicit route binding; OpenSpec by default or Engram with \`artifact_store: engram\`
+- Proof-backed BUILD/VERIFY delegation requires an explicit \`artifact_store\`; the selected store is the single workflow-state authority.
+- Workflow state commits happen after successful inner results and evidence; ARCHIVED remains an explicit archive transition.
 - \`odf_skill_inject\`, \`odf_skill_resolve\`, \`odf_registry_read\`: standards and routing inspection
 - \`odf_policy_gate\`, \`odf_receipt\`: policy and failure persistence
 - \`odf_status\`, \`odf_workflow_status\`, \`odf_profile_select\`, \`odf_notebooklm_lookup\`: state, canonical progress, profile, and research lookup
+- \`odf_health\`: read-only installed/runtime health; it does not probe task usability or execute task/Odoo/PostgreSQL/Engram export
 - \`odf_community_tool_detect\`, \`odf_community_tool_install\`: optional community tooling
 
 ## Non-negotiable invariants
@@ -3693,6 +5534,7 @@ function createODFWorkflowAdvance(): ReturnType<typeof tool> {
 - VERIFY uses evidence-based risk tier, frozen ref, and one correction budget; an inconclusive frozen-byte inspection does not consume the attempt and there is no auto-loop.
 - On VERIFY FAIL, persist the receipt before the single user disposition question; \`/odf-continue\` re-discovers pending receipts.
 - Metrics remain bounded, session-hashed, and canonical JSONL data for the metrics command. Content signals may escalate risk to HIGH, never downgrade it.
+- Cross-domain joins persist to bounded \`.odf/parallel-join-{change}.json\`; continuation uses \`resume_from_join: true\`, reuses completed branches, and retries only incomplete branches with fresh attempt IDs.
 - The outer plugin envelope and inner agent \`## ODF Result\` are separate; preserve the agent result and inspect both layers.
 </odf-system>`
 
@@ -3770,7 +5612,7 @@ export const OdfDelegationPlugin: Plugin = async (ctx) => {
     console.log(`[odf-delegation] Health: ${healthChecks.join(", ")}`)
   }
 
-  console.log(`[odf-delegation] Plugin loaded. Tools: odf_delegate, odf_parallel_delegate, odf_workflow_route, odf_workflow_advance, odf_workflow_bind, odf_skill_inject, odf_registry_read, odf_notebooklm_lookup, odf_profile_select, odf_skill_resolve, odf_community_tool_detect, odf_community_tool_install, odf_status, odf_workflow_status, odf_policy_gate, odf_receipt`)
+  console.log(`[odf-delegation] Plugin loaded. Tools: ${ODF_REGISTERED_TOOLS.join(", ")}`)
 
   return {
     tool: {
@@ -3790,6 +5632,7 @@ export const OdfDelegationPlugin: Plugin = async (ctx) => {
       odf_workflow_status: createODFWorkflowStatus(),
       odf_policy_gate: createODFPolicyGate(),
       odf_receipt: createODFReceipt(),
+      odf_health: createODFHealth(client),
     },
 
     // Inject ODF system rules into system prompt
@@ -3817,6 +5660,7 @@ export {
   createODFWorkflowAdvance,
   createODFWorkflowBind,
   createODFWorkflowStatus,
+  createODFHealth,
   getProfileByPhase,
   recordMetrics,
   ALLOWED_PHASES,

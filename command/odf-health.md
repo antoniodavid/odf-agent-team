@@ -6,59 +6,42 @@ description: "Check ODF agent system health. Usage: /odf-health [--quick|--full]
 
 **Parse command:** `/odf-health [--quick|--full]`
 
-Examples:
-- `/odf-health` — Quick check (<5s)
-- `/odf-health --full` — Full verification (~30s)
+`/odf-health` is a read-only installation check. The quick path calls the
+runtime-registered `odf_health` tool and returns its JSON result.
 
-## What This Does
+## Quick (Default)
 
-Verifies that the ODF agent system is intact: registry valid, all skills/agents resolvable on disk, plugins loadable, test runner passing.
+Call `odf_health` with no arguments and report the returned `schema_version: 1`
+result without rewriting it. It checks:
 
-## Orchestrator Instructions
+- The configured registry JSON and every registered skill/agent file.
+- The installed plugin and `/odf-health` command file.
+- Task API presence only. It does not call `task()`; usability is therefore
+  `unverified` and the overall status is normally `warning`.
+- Engram executable path/version when safely discoverable. `export_probe` must
+  remain `not-run`; Engram is optional for OpenSpec-only workflows.
 
-### --quick (default)
+Never use this check to execute Odoo, PostgreSQL, a sub-agent task, or
+`engram export`.
 
-```
-1. Read ~/.config/opencode/odf-registry.json → validate JSON
-2. Count skills + agents + profiles
-3. Check first 3 skills exist on disk (spot check)
-4. Check first 3 agents exist on disk (spot check)
-5. Check plugin file exists: ~/.config/opencode/plugins/odf-delegation.ts
+Status semantics:
 
-Report:
+- `failed`: malformed/missing registry or required installed files.
+- `blocked`: permission denied, runtime timeout, or unavailable task API.
+- `warning`: static installation is valid but task usability remains
+  unverified, or optional Engram is unavailable.
+- `ok`: all required checks pass and no unverified runtime dependency remains.
 
-ODF: Health Report (quick)
+## Full (Static Validation)
 
-  Registry:     ✅ valid JSON ({N} skills, {N} agents, {N} profiles)
-  Skills disk:  ✅ spot check passed ({N} sampled)
-  Agents disk:  ✅ spot check passed ({N} sampled)
-  Plugin:       ✅ odf-delegation.ts ({N} lines)
+Run the quick `odf_health` check first, then perform the non-runtime validation
+below. Do not replace static evidence with a runtime smoke test:
 
-  Overall: ✅ HEALTHY
-```
+1. Validate every registered skill and agent path, including unregistered files
+   under `skills/` and `agent/`.
+2. Run the deterministic test runner: `node scripts/odf-test-runner.js`.
+3. Run focused plugin tests, `npm run typecheck`, and `git diff --check` as
+   appropriate for the change.
+4. Inspect backups and metrics only as filesystem metadata; do not mutate them.
 
-### --full
-
-```
-1. Run all quick checks
-2. For EVERY skill in registry: verify SKILL.md exists on disk
-3. For EVERY agent in registry: verify .md exists on disk
-4. Check for unregistered skills in skills/ directory
-5. Check for unregistered agents in agent/ directory
-6. Run test runner: node scripts/odf-test-runner.js
-7. Check backup directory exists
-
-Report:
-
-ODF: Health Report (full)
-
-  Registry:     ✅ valid JSON ({N} skills, {N} agents, {N} profiles)
-  Skills disk:  ✅ {N}/{N} found | ❌ {N} missing | ⚠️ {N} unregistered
-  Agents disk:  ✅ {N}/{N} found | ❌ {N} missing | ⚠️ {N} unregistered
-  Plugin:       ✅ odf-delegation.ts ({N} lines)
-  Tests:        ✅ {N}/{N} passing
-  Backups:      ✅ {N} available (latest: {date})
-  Metrics:      ✅ {N} days of data
-
-  Overall: {HEALTHY | WARNINGS | UNHEALTHY}
-```
+Report the `odf_health` result separately from test-runner evidence.
