@@ -18,6 +18,8 @@ import {
   invokeTask,
   findTaskApi,
   getProfileByPhase,
+  gitHead,
+  getMetricsBufferCap,
   recordMetrics,
   getMetricsBuffer,
   clearMetricsBuffer,
@@ -736,6 +738,33 @@ describe("recordMetrics", () => {
     const files = fsSync.readdirSync(metricsDir)
     const content = fsSync.readFileSync(path.join(metricsDir, files[0]), "utf8")
     expect(content).not.toContain("super-secret-session")
+  })
+
+  it("drops a failed flush without growing the bounded buffer", () => {
+    const configFile = path.join(tempHome, "not-a-directory")
+    fsSync.writeFileSync(configFile, "file")
+    process.env.ODF_CONFIG_DIR = configFile
+    process.env.ODF_METRICS_BUFFER_CAP = "1"
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => {})
+    recordMetrics(makeMetric())
+    expect(getMetricsBuffer()).toEqual([])
+    expect(warning).toHaveBeenCalledWith(expect.stringContaining("Metrics flush failed"))
+    warning.mockRestore()
+  })
+
+  it("falls back to the default cap for malformed or non-positive values", () => {
+    process.env.ODF_METRICS_BUFFER_CAP = "not-a-number"
+    expect(getMetricsBufferCap()).toBe(1000)
+    process.env.ODF_METRICS_BUFFER_CAP = "0"
+    expect(getMetricsBufferCap()).toBe(1000)
+  })
+})
+
+describe("gitHead", () => {
+  it("returns null quietly for a non-Git workspace", async () => {
+    const workspace = await fs.mkdtemp(path.join(os.tmpdir(), "odf-no-git-"))
+    expect(gitHead(workspace)).toBeNull()
+    await fs.rm(workspace, { recursive: true, force: true })
   })
 })
 

@@ -121,6 +121,12 @@ const MANAGED_SCRIPT_PATHS = [
   'scripts/odf-install-tui.mjs',
   'scripts/odf-registry-validate.js',
   'scripts/odf-registry-sync.sh',
+  'scripts/odf-metrics.js',
+  'scripts/odf-evaluation.js',
+  'scripts/odf-evaluation.d.ts',
+  'scripts/odf-engram-maintenance.js',
+  'scripts/odf-engram-maintenance.d.ts',
+  'scripts/fixtures',
   'scripts/lib',
   'scripts/odf-agent-tests',
 ];

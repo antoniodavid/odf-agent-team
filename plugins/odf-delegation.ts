@@ -84,6 +84,7 @@ function resolveWorkspaceRoot(cwd = process.cwd()): string {
     const root = execFileSync("git", ["rev-parse", "--show-toplevel"], {
       cwd,
       encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
     }).trim()
     if (root) return path.normalize(root)
   } catch {
@@ -97,6 +98,7 @@ function workspaceProjectName(workspaceRoot: string): string {
     const gitRoot = execFileSync("git", ["rev-parse", "--show-toplevel"], {
       cwd: workspaceRoot,
       encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
     }).trim()
     if (gitRoot) return path.basename(path.normalize(gitRoot))
   } catch {
@@ -1720,9 +1722,13 @@ export function classifyRiskTierWithContent(changedPaths: string[], workspaceDir
   return byName
 }
 
-function gitHead(workspaceDir: string): string | null {
+export function gitHead(workspaceDir: string): string | null {
   try {
-    return execSync("git rev-parse HEAD", { cwd: workspaceDir, encoding: "utf8" }).trim() || null
+    return execSync("git rev-parse HEAD", {
+      cwd: workspaceDir,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim() || null
   } catch {
     return null
   }
@@ -5662,6 +5668,8 @@ export {
   createODFWorkflowStatus,
   createODFHealth,
   getProfileByPhase,
+  flushMetricsSync,
+  getMetricsBufferCap,
   recordMetrics,
   ALLOWED_PHASES,
   createODFPolicyGate,

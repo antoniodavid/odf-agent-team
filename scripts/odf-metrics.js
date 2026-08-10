@@ -15,7 +15,7 @@ import * as fs from "node:fs"
 import * as path from "node:path"
 import * as os from "node:os"
 
-function resolveMetricsDir() {
+export function resolveMetricsDir() {
   const configDir = process.env.ODF_CONFIG_DIR
     ? path.resolve(process.env.ODF_CONFIG_DIR)
     : path.join(os.homedir(), ".config", "opencode")

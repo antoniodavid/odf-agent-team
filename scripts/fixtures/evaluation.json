@@ -1,0 +1,7 @@
+[
+  {
+    "name": "successful-delegation",
+    "record": { "status": "ok", "agent": "backend" },
+    "expect": { "status": "ok", "agent": "backend" }
+  }
+]
