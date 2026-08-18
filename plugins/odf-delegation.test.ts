@@ -37,12 +37,24 @@ import {
   mergeReceipt,
   createODFWorkflowAdvance,
   createODFWorkflowBind,
+  createODFEntryTriage,
+  ODF_REGISTERED_TOOLS,
   type PolicyGateDecision,
   type ODFRegistry,
   type ODFSkill,
   type ODFAgent,
 } from "./odf-delegation.js"
 import { advanceWorkflow, resolveWorkflowRoute } from "./odf-workflow.js"
+import { buildCandidateManifest, computeCandidateDigest } from "./candidate-manifest.js"
+
+// T6: these describes exercise post-gate gated-phase internals that predate the
+// strict_workflow default; they run under the sanctioned legacy opt-out flag.
+const writeRegistryFlags = async (home: string, flags: Record<string, boolean>): Promise<void> => {
+  const registryPath = path.join(home, ".config", "opencode", "odf-registry.json")
+  const registry = JSON.parse(await fs.readFile(registryPath, "utf8"))
+  registry.flags = { ...registry.flags, ...flags }
+  await fs.writeFile(registryPath, JSON.stringify(registry, null, 2), "utf8")
+}
 
 const baseRegistry: ODFRegistry = {
   version: 1,
@@ -382,6 +394,34 @@ describe("createODFWorkflowBind", () => {
       await fake.cleanup()
       await fs.rm(root, { recursive: true, force: true })
     }
+  })
+})
+
+describe("createODFEntryTriage", () => {
+  it("registers odf_entry_triage in the plugin tool list", () => {
+    expect(ODF_REGISTERED_TOOLS).toContain("odf_entry_triage")
+  })
+
+  it("returns classification JSON with level, work_type, reason, and needs_question", async () => {
+    const output = await createODFEntryTriage().execute({
+      description: "Add a computed discount field to sale.order.",
+      module: "sale",
+      domain: "sales",
+      expected_files: 2,
+      expectations_clear: true,
+    }, {} as any)
+    const result = JSON.parse(output as string)
+    expect(result.level).toBe("micro")
+    expect(result.work_type).toBe("small-change")
+    expect(result.reason).toBeTruthy()
+    expect(result.needs_question).toBe(false)
+  })
+
+  it("flags needs_question for ambiguous entries", async () => {
+    const output = await createODFEntryTriage().execute({ description: "Add a field." }, {} as any)
+    const result = JSON.parse(output as string)
+    expect(result.needs_question).toBe(true)
+    expect(result.question).toBeTruthy()
   })
 })
 
@@ -758,6 +798,95 @@ describe("recordMetrics", () => {
     process.env.ODF_METRICS_BUFFER_CAP = "0"
     expect(getMetricsBufferCap()).toBe(1000)
   })
+
+  it("telemetry-schema-versioned: emits schema_version, trace/span ids and serializes optional fields", () => {
+    recordMetrics(makeMetric({
+      event: "run" as const,
+      trace_id: "trace-abc",
+      span_id: "span-run-1",
+      task: "Assess a new sales feature for partners",
+      tool: "odf_delegate",
+      retry_count: 2,
+    }))
+    const m = getMetricsBuffer()[0]
+    expect(m.event).toBe("run")
+    expect(m.schema_version).toBe(1)
+    expect(m.trace_id).toBe("trace-abc")
+    expect(m.span_id).toBe("span-run-1")
+    expect(m.task).toBe("Assess a new sales feature for partners")
+    expect(m.tool).toBe("odf_delegate")
+    expect(m.retry_count).toBe(2)
+    expect(m.parent_span_id).toBeUndefined()
+    expect(m.tokens).toMatchObject({ input: null, output: null, estimated: 50 })
+  })
+
+  it("telemetry-parent-child-correlate: a span carries its run's span_id as parent and shares trace_id", () => {
+    recordMetrics(makeMetric({ event: "run" as const, trace_id: "t1", span_id: "s-root" }))
+    recordMetrics(makeMetric({ event: "span" as const, trace_id: "t1", span_id: "s-tool", parent_span_id: "s-root" }))
+    const [run, span] = getMetricsBuffer()
+    expect(run.event).toBe("run")
+    expect(span.event).toBe("span")
+    expect(span.trace_id).toBe(run.trace_id)
+    expect(span.parent_span_id).toBe(run.span_id)
+    expect(span.span_id).toBe("s-tool")
+    expect(run.parent_span_id).toBeUndefined()
+  })
+
+  it("telemetry-tokens-honest: null input/output and flagged estimated when host hides tokens; real counts when exposed", () => {
+    // Host exposes nothing → input/output null, estimated flagged.
+    recordMetrics(makeMetric({}))
+    expect(getMetricsBuffer()[0].tokens).toMatchObject({ input: null, output: null, estimated: 50 })
+
+    // Host exposes real counts → used verbatim, still flagged estimated.
+    recordMetrics(makeMetric({ tokens: { input: 120, output: 45 } }))
+    expect(getMetricsBuffer()[1].tokens).toMatchObject({ input: 120, output: 45 })
+  })
+
+  it("telemetry-no-secrets: prompt paths, absolute user paths and env values never appear in JSONL", () => {
+    process.env.ODF_METRICS_BUFFER_CAP = "1"
+    recordMetrics(makeMetric({
+      task: "handle /home/usuario/project and SECRET=topsecret123 details",
+      error: "failed reading /home/usuario/secret SECRET=topsecret123",
+      session_id: "super-secret-session",
+    }))
+    const metricsDir = path.join(tempHome, ".config", "opencode", "metrics")
+    const files = fsSync.readdirSync(metricsDir)
+    const content = fsSync.readFileSync(path.join(metricsDir, files[0]), "utf8")
+    expect(content).not.toContain("/home/usuario")
+    expect(content).not.toContain("topsecret123")
+    expect(content).not.toContain("super-secret-session")
+  })
+
+  it("telemetry-buffer-bounded: cap and flush stay bounded with the new fields present", () => {
+    process.env.ODF_METRICS_BUFFER_CAP = "2"
+    recordMetrics(makeMetric({ event: "run" as const }))
+    recordMetrics(makeMetric({ event: "span" as const }))
+    expect(getMetricsBuffer().length).toBe(0)
+    const metricsDir = path.join(tempHome, ".config", "opencode", "metrics")
+    const files = fsSync.readdirSync(metricsDir)
+    const lines = fsSync.readFileSync(path.join(metricsDir, files[0]), "utf8").trim().split("\n")
+    expect(lines.length).toBe(2)
+    for (const line of lines) {
+      const parsed = JSON.parse(line)
+      expect(parsed.schema_version).toBe(1)
+      expect(parsed.trace_id).toBeTruthy()
+      expect(parsed.span_id).toBeTruthy()
+    }
+  })
+
+  it("telemetry-model-available-flag: model unavailable is represented explicitly, not dropped", () => {
+    recordMetrics(makeMetric({}))
+    expect(getMetricsBuffer()[0].model).toBeNull()
+    expect(getMetricsBuffer()[0].provider).toBeNull()
+    expect(getMetricsBuffer()[0].model_version).toBeNull()
+    expect(getMetricsBuffer()[0].model_available).toBe(false)
+
+    recordMetrics(makeMetric({ model: "opencode-go/deepseek-r1", provider: "opencode", model_version: "1.0" }))
+    expect(getMetricsBuffer()[1].model).toBe("opencode-go/deepseek-r1")
+    expect(getMetricsBuffer()[1].provider).toBe("opencode")
+    expect(getMetricsBuffer()[1].model_version).toBe("1.0")
+    expect(getMetricsBuffer()[1].model_available).toBe(true)
+  })
 })
 
 describe("gitHead", () => {
@@ -1018,17 +1147,42 @@ describe("computePolicyGate", () => {
     expect(d.correction_budget_lines).toBe(200)
   })
 
-  it("reuses a frozen decision for the same ref instead of re-freezing", () => {
+  it("reuses a frozen decision only when the candidate digest matches", () => {
     const repo = path.join(tmp, "repo-idem")
     initGitRepo(repo)
     commitFile(repo, "a.py", 10)
     appendLines(repo, "a.py", 100)
     const first = computePolicyGate({ change: "idem", phase: "VERIFY", workspaceDir: repo, registry: registryWithTdd(false) })
+    expect(first.candidate_digest).toBeTruthy()
+
+    const reused = computePolicyGate({ change: "idem", phase: "VERIFY", workspaceDir: repo, registry: registryWithTdd(false) })
+    expect(reused.frozen_diff_ref).toBe(first.frozen_diff_ref)
+    expect(reused.candidate_digest).toBe(first.candidate_digest)
+    expect(reused.changed_lines).toBe(100)
+    expect(reused.correction_budget_lines).toBe(50)
+
     appendLines(repo, "a.py", 200)
-    const second = computePolicyGate({ change: "idem", phase: "VERIFY", workspaceDir: repo, registry: registryWithTdd(false) })
-    expect(second.frozen_diff_ref).toBe(first.frozen_diff_ref)
-    expect(second.changed_lines).toBe(100)
-    expect(second.correction_budget_lines).toBe(50)
+    const recomputed = computePolicyGate({ change: "idem", phase: "VERIFY", workspaceDir: repo, registry: registryWithTdd(false) })
+    expect(recomputed.candidate_digest).not.toBe(first.candidate_digest)
+    expect(recomputed.changed_lines).toBe(300)
+  })
+
+  it("mutation-after-gate: mutating a file invalidates the frozen VERIFY gate decision", () => {
+    const repo = path.join(tmp, "repo-mutation-gate")
+    initGitRepo(repo)
+    commitFile(repo, "a.py", 10)
+    appendLines(repo, "a.py", 100)
+    const first = computePolicyGate({ change: "mutation-gate", phase: "VERIFY", workspaceDir: repo, registry: registryWithTdd(false) })
+    expect(first.candidate_digest).toBeTruthy()
+
+    const reused = computePolicyGate({ change: "mutation-gate", phase: "VERIFY", workspaceDir: repo, registry: registryWithTdd(false) })
+    expect(reused.candidate_digest).toBe(first.candidate_digest)
+
+    appendLines(repo, "a.py", 1)
+    const recomputed = computePolicyGate({ change: "mutation-gate", phase: "VERIFY", workspaceDir: repo, registry: registryWithTdd(false) })
+    expect(recomputed.candidate_digest).not.toBe(first.candidate_digest)
+    expect(recomputed.resolved_at).not.toBe(first.resolved_at)
+    expect(recomputed.changed_lines).toBe(first.changed_lines! + 1)
   })
 
   it("classifies the risk tier from changed paths for VERIFY", () => {
@@ -1047,12 +1201,14 @@ describe("computePolicyGate", () => {
     expect(low.risk_tier).toBe("LOW")
   })
 
-  it("fails open for VERIFY when git is unavailable", () => {
+  it("fail-closed: blocks VERIFY without git instead of failing open to LOW", () => {
     const d = computePolicyGate({ change: "no-git", phase: "VERIFY", workspaceDir: tmp, registry: registryWithTdd(true) })
     expect(d.frozen_diff_ref).toBeNull()
     expect(d.changed_lines).toBeNull()
-    expect(d.risk_tier).toBe("LOW")
-    expect(d.gate).toBe("allow")
+    expect(d.candidate_digest).toBeNull()
+    expect(d.gate).toBe("block")
+    expect(d.reason).toContain("verification-unavailable")
+    expect(d.risk_tier).toBe("MEDIUM")
   })
 })
 
@@ -1068,6 +1224,8 @@ describe("savePolicyGateJson", () => {
         tdd: { global: false, local_readable: true, local_off: false, effective: "off" },
         risk_tier: "MEDIUM",
         frozen_diff_ref: null,
+        candidate_digest: null,
+        base_head: null,
         changed_lines: null,
         correction_budget_lines: null,
         changed_paths: [],
@@ -1194,6 +1352,34 @@ describe("createODFDelegate", () => {
       "",
     ].join("\n"), "utf8")
     if (phase === "VERIFY") await fs.writeFile(path.join(changeDir, "verify.yaml"), "status: passed\n", "utf8")
+  }
+
+  // T3: a runnable VERIFY delegation needs a git workspace plus a persisted
+  // policy gate and a valid validation-evidence receipt (status-only evidence
+  // no longer advances the workflow).
+  const verifyEvidenceFor = async (change: string, workType = "feature") => {
+    initGitRepo(tempHome)
+    commitFile(tempHome, "README.md", 1)
+    await prepareWorkflowState(change, "VERIFY", workType)
+    const head = gitHead(tempHome)!
+    const digest = computeCandidateDigest(buildCandidateManifest(tempHome))
+    await fs.mkdir(path.join(tempHome, ".odf"), { recursive: true })
+    await fs.writeFile(path.join(tempHome, ".odf", `policy-gate-${change}.json`), JSON.stringify({
+      change, phase: "VERIFY", gate: "allow", reason: "test gate",
+      tdd: { global: false, local_readable: true, local_off: false, effective: "off" },
+      risk_tier: "MEDIUM", frozen_diff_ref: head, candidate_digest: digest, base_head: head,
+      changed_lines: 1, correction_budget_lines: 1, changed_paths: ["README.md"],
+      resolved_at: new Date().toISOString(),
+    }))
+    await fs.writeFile(path.join(tempHome, ".odf", `validation-evidence-${change}.json`), JSON.stringify({
+      change, phase: "VERIFY", batch: 1, risk_tier: "MEDIUM", frozen_diff_ref: head,
+      candidate_digest: digest, executor: "odoo_qa_engineer", test_identity: "test_module test suite",
+      resolved_at: new Date().toISOString(),
+      commands: [
+        { name: "odoo-tests", command: "odoo-bin -d odf_test_db -i test_module --test-enable --stop-after-init", database: "odf_test_db", exit_code: 0, output_tail: "12 passed, 0 failed" },
+        { name: "git-diff-check", command: "git diff --check", database: "odf_test_db", exit_code: 0, output_tail: "no whitespace errors" },
+      ],
+    }))
   }
 
   const setRegistryFlags = async (flags: Record<string, boolean>) => {
@@ -1335,6 +1521,40 @@ describe("createODFDelegate", () => {
     expect(JSON.parse(output as string).status).toBe("delegated")
     expect(taskApi).toHaveBeenCalledTimes(1)
     expect(getMetricsBuffer()[0]).toMatchObject({ status: "error" })
+  })
+
+  it("blocks a destructive prompt pre-tool and never delegates (T11)", async () => {
+    const { createODFDelegate, clearMetricsBuffer, getMetricsBuffer } = await import("./odf-delegation.js")
+    clearMetricsBuffer()
+    const taskApi = vi.fn().mockResolvedValue({ status: "ok" })
+    const output = await createODFDelegate(undefined, tempHome).execute({
+      phase: "DESIGN",
+      prompt: "Run DROP DATABASE mydb; and start over",
+      context_files: [],
+    }, { sessionID: "t11-destructive", task: taskApi } as any)
+
+    const envelope = JSON.parse(output as string)
+    expect(envelope.status).toBe("blocked")
+    expect(envelope.reason).toBe("pre-tool-safety")
+    expect(envelope.classes).toContain("destructive")
+    expect(String(envelope.safe_continuation || "").length).toBeGreaterThan(0)
+    expect(taskApi).not.toHaveBeenCalled()
+    expect(getMetricsBuffer().at(-1)).toMatchObject({ status: "blocked" })
+  })
+
+  it("still delegates a benign prompt (T11 no false positive)", async () => {
+    const { createODFDelegate, clearMetricsBuffer } = await import("./odf-delegation.js")
+    clearMetricsBuffer()
+    const taskApi = vi.fn().mockResolvedValue({ status: "ok" })
+    const output = await createODFDelegate(undefined, tempHome).execute({
+      phase: "DESIGN",
+      prompt: "Design a new res.partner extension with a computed field",
+      context_files: [],
+    }, { sessionID: "t11-benign", task: taskApi } as any)
+
+    const envelope = JSON.parse(output as string)
+    expect(envelope.status).toBe("delegated")
+    expect(taskApi).toHaveBeenCalledTimes(1)
   })
 
   it("uses a persisted pending receipt instead of caller receipt_state none", async () => {
@@ -1481,7 +1701,7 @@ describe("createODFDelegate", () => {
   it("blocks a new attempt after the phase is completed", async () => {
     const { createODFDelegate } = await import("./odf-delegation.js")
     const taskApi = vi.fn().mockResolvedValue({ status: "ok" })
-    await prepareWorkflowState("attempt-complete", "VERIFY")
+    await verifyEvidenceFor("attempt-complete")
     const delegateTool = createODFDelegate(undefined, tempHome)
     const base = { phase: "VERIFY", change: "attempt-complete", artifact_store: "openspec" as const, prompt: "Verify the change", context_files: [], workflow_advance: workflowAdvance("VERIFY") }
 
@@ -1618,7 +1838,7 @@ describe("createODFDelegate", () => {
     expect(fsSync.existsSync(path.join(tempHome, ".odf"))).toBe(false)
   })
 
-  it("keeps legacy omission compatible while requiring attempt_id for explicit workflow delegation", async () => {
+  it("requires attempt_id for explicit workflow delegation and reports strict_workflow default true", async () => {
     const { createODFDelegate } = await import("./odf-delegation.js")
     const taskApi = vi.fn().mockResolvedValue({ status: "ok" })
     const delegateTool = createODFDelegate(undefined, tempHome)
@@ -1634,18 +1854,7 @@ describe("createODFDelegate", () => {
     expect(taskApi).not.toHaveBeenCalled()
 
     const installedRegistry = JSON.parse(await fs.readFile(path.join(tempHome, ".config", "opencode", "odf-registry.json"), "utf8"))
-    expect(installedRegistry.flags.strict_workflow).toBe(false)
-
-    const output = await delegateTool.execute({
-      phase: "IMPLEMENT",
-      change: "legacy-compatible",
-      prompt: "Implement the legacy call",
-      context_files: [],
-    }, { sessionID: "s1", task: taskApi } as any)
-
-    expect(JSON.parse(output as string).status).toBe("delegated")
-    expect(taskApi).toHaveBeenCalledTimes(1)
-    expect(fsSync.existsSync(path.join(tempHome, ".odf", "attempt-ledger-legacy-compatible.jsonl"))).toBe(false)
+    expect(installedRegistry.flags.strict_workflow).toBe(true)
   })
 
   it.each(["IMPLEMENT", "VERIFY"] as const)("strict mode blocks %s without proof before task, ledger, or policy gate", async phase => {
@@ -1678,14 +1887,79 @@ describe("createODFDelegate", () => {
     expect(fsSync.existsSync(path.join(tempHome, ".odf", `policy-gate-${change}.json`))).toBe(false)
   })
 
-  it.each(["IMPLEMENT", "VERIFY"] as const)("strict mode delegates valid %s with an attempt ledger", async phase => {
+  it("strict-default-blocks-legacy-omission: default registry blocks IMPLEMENT/VERIFY without proof before task()", async () => {
+    const { createODFDelegate } = await import("./odf-delegation.js")
+    const taskApi = vi.fn().mockResolvedValue({ status: "ok" })
+    const delegateTool = createODFDelegate(undefined, tempHome)
+    for (const phase of ["IMPLEMENT", "VERIFY"] as const) {
+      const change = `strict-default-${phase.toLowerCase()}`
+      const output = await delegateTool.execute({
+        phase,
+        change,
+        prompt: `Run ${phase} without proof`,
+        context_files: [],
+      }, { sessionID: "s1", task: taskApi } as any)
+      const envelope = JSON.parse(output as string)
+      expect(envelope).toMatchObject({
+        status: "blocked",
+        reason: "strict-workflow-proof-required",
+        message: "Strict workflow mode requires workflow_advance for IMPLEMENT/VERIFY; legacy omissions are allowed only when flags.strict_workflow is false.",
+        workflow_advance: null,
+        policy_gate: null,
+        receipt: null,
+      })
+      expect(taskApi).not.toHaveBeenCalled()
+      expect(fsSync.existsSync(path.join(tempHome, ".odf", `attempt-ledger-${change}.jsonl`))).toBe(false)
+    }
+  })
+
+  it("strict-opt-out-allows-legacy: strict_workflow false preserves the legacy omission self-service exit", async () => {
+    await setRegistryFlags({ strict_workflow: false })
+    const { createODFDelegate } = await import("./odf-delegation.js")
+    const taskApi = vi.fn().mockResolvedValue({ status: "ok" })
+    const delegateTool = createODFDelegate(undefined, tempHome)
+    const output = await delegateTool.execute({
+      phase: "IMPLEMENT",
+      change: "strict-opt-out",
+      prompt: "Implement the legacy call under opt-out",
+      context_files: [],
+    }, { sessionID: "s1", task: taskApi } as any)
+    expect(JSON.parse(output as string).status).toBe("delegated")
+    expect(taskApi).toHaveBeenCalledTimes(1)
+    expect(fsSync.existsSync(path.join(tempHome, ".odf", "attempt-ledger-strict-opt-out.jsonl"))).toBe(false)
+  })
+
+  it("strict-parallel-delegate-blocks-without-shared-proof: parallel BUILD blocks without the shared workflow_advance proof", async () => {
+    const { createODFParallelDelegate } = await import("./odf-delegation.js")
+    const taskApi = vi.fn().mockResolvedValue({ status: "ok" })
+    const parallelTool = createODFParallelDelegate(undefined, tempHome)
+    const output = await parallelTool.execute({
+      work_type: "cross-domain",
+      phase: "IMPLEMENT",
+      change: "parallel-strict-missing-proof",
+      artifact_store: "openspec",
+      branches: parallelBranches("strict"),
+    }, { sessionID: "s1", task: taskApi } as any)
+    const envelope = JSON.parse(output as string)
+    expect(envelope).toMatchObject({
+      status: "blocked",
+      reason: "parallel-workflow-proof-mismatch",
+    })
+    expect(taskApi).not.toHaveBeenCalled()
+  })
+
+  it.each(["IMPLEMENT", "VERIFY"] as const)("strict-happy-path: strict mode delegates valid %s with workflow_advance, artifact_store, and attempt_id", async phase => {
     await setRegistryFlags({ strict_workflow: true })
     const { createODFDelegate } = await import("./odf-delegation.js")
     const taskApi = vi.fn().mockResolvedValue({ status: "ok", executive_summary: "completed" })
     const delegateTool = createODFDelegate(undefined, tempHome)
     const change = `strict-valid-${phase.toLowerCase()}`
-    if (phase === "IMPLEMENT") await writeValidationEvidence(change)
-    await prepareWorkflowState(change, phase)
+    if (phase === "IMPLEMENT") {
+      await writeValidationEvidence(change)
+      await prepareWorkflowState(change, phase)
+    } else {
+      await verifyEvidenceFor(change)
+    }
 
     const output = await delegateTool.execute({
       phase,
@@ -1703,6 +1977,28 @@ describe("createODFDelegate", () => {
     const records = (await fs.readFile(ledgerPath, "utf8")).trim().split("\n").map(line => JSON.parse(line))
     expect(records.map(record => record.status)).toEqual(["running", "completed"])
     expect(records[0]).toMatchObject({ phase, change, attempt_id: `strict-${phase.toLowerCase()}-1` })
+  })
+
+  it("verify-fail-closed-without-git: blocks VERIFY delegation when no git repo exists", async () => {
+    const { createODFDelegate } = await import("./odf-delegation.js")
+    const taskApi = vi.fn().mockResolvedValue({ status: "ok" })
+    await prepareWorkflowState("verify-no-git", "VERIFY")
+    const delegateTool = createODFDelegate(undefined, tempHome)
+    const output = await delegateTool.execute({
+      phase: "VERIFY",
+      change: "verify-no-git",
+      artifact_store: "openspec",
+      attempt_id: "verify-no-git-1",
+      prompt: "Verify the change",
+      context_files: [],
+      workflow_advance: workflowAdvance("VERIFY"),
+    }, { sessionID: "s1", task: taskApi } as any)
+
+    const envelope = JSON.parse(output as string)
+    expect(envelope).toMatchObject({ status: "blocked" })
+    expect(envelope.reason).toContain("verification-unavailable")
+    expect(envelope.reason).toContain("initialize a git repository")
+    expect(taskApi).not.toHaveBeenCalled()
   })
 
   it("treats legacy ledger records without branch_id as the default branch", async () => {
@@ -1744,7 +2040,7 @@ describe("createODFDelegate", () => {
     const { createODFDelegate, clearMetricsBuffer } = await import("./odf-delegation.js")
     clearMetricsBuffer()
     const taskApi = vi.fn().mockResolvedValue({ status: "ok", executive_summary: "verified" })
-    await prepareWorkflowState("gate-verify", "VERIFY")
+    await verifyEvidenceFor("gate-verify")
     const delegateTool = createODFDelegate(undefined, tempHome)
 
     const output = await delegateTool.execute(
@@ -1781,7 +2077,7 @@ describe("createODFDelegate", () => {
     const { createODFDelegate, clearMetricsBuffer } = await import("./odf-delegation.js")
     clearMetricsBuffer()
     const taskApi = vi.fn().mockResolvedValue({ status: "ok", executive_summary: "verified" })
-    await prepareWorkflowState("gate-verify-only", "VERIFY", "verify-only")
+    await verifyEvidenceFor("gate-verify-only", "verify-only")
     const delegateTool = createODFDelegate(undefined, tempHome)
 
     const output = await delegateTool.execute(
@@ -1870,9 +2166,14 @@ describe("createODFDelegate", () => {
     expect(await fs.readFile(statePath, "utf8")).toBe(committed)
   })
 
-  it("commits VERIFY as VERIFY only when selected-store evidence and the inner result pass", async () => {
+  it("commits VERIFY only when the validation-evidence receipt passes the blind artifact rules", async () => {
     const change = "direct-verify-commit"
-    const changeDir = path.join(tempHome, "openspec", "changes", change)
+    const repo = path.join(tempHome, "repo-verify-commit")
+    initGitRepo(repo)
+    commitFile(repo, "a.py", 10)
+    appendLines(repo, "a.py", 100)
+
+    const changeDir = path.join(repo, "openspec", "changes", change)
     await fs.mkdir(changeDir, { recursive: true })
     await fs.writeFile(path.join(changeDir, "state.yaml"), [
       "work_type: feature",
@@ -1881,12 +2182,31 @@ describe("createODFDelegate", () => {
       "resumable: true",
       "",
     ].join("\n"), "utf8")
-    await fs.writeFile(path.join(changeDir, "verify.yaml"), "status: passed\n", "utf8")
+    const head = gitHead(repo)!
+    const digest = computeCandidateDigest(buildCandidateManifest(repo))
+
+    await fs.mkdir(path.join(repo, ".odf"), { recursive: true })
+    await fs.writeFile(path.join(repo, ".odf", `policy-gate-${change}.json`), JSON.stringify({
+      change, phase: "VERIFY", gate: "allow", reason: "test gate",
+      tdd: { global: false, local_readable: true, local_off: false, effective: "off" },
+      risk_tier: "MEDIUM", frozen_diff_ref: head, candidate_digest: digest, base_head: head,
+      changed_lines: 100, correction_budget_lines: 50, changed_paths: ["a.py"],
+      resolved_at: new Date().toISOString(),
+    }))
+    await fs.writeFile(path.join(repo, ".odf", `validation-evidence-${change}.json`), JSON.stringify({
+      change, phase: "VERIFY", batch: 1, risk_tier: "MEDIUM", frozen_diff_ref: head,
+      candidate_digest: digest, executor: "odoo_qa_engineer", test_identity: "a.py test suite",
+      resolved_at: new Date().toISOString(),
+      commands: [
+        { name: "git-diff-check", command: "git diff --check", database: "odf_test_db", exit_code: 0, output_tail: "no whitespace errors" },
+        { name: "odoo-tests", command: "odoo-bin -d odf_test_db -i test_module --test-enable --stop-after-init", database: "odf_test_db", exit_code: 0, output_tail: "12 passed, 0 failed" },
+      ],
+    }), "utf8")
     const proof = workflowAdvance("VERIFY")
     const recomputed = advanceWorkflow({ route: resolveWorkflowRoute(proof.work_type), ...proof })
 
     const result = await commitWorkflowTransition({
-      workspaceRoot: tempHome,
+      workspaceRoot: repo,
       changeName: change,
       artifactStore: "openspec",
       proof,
@@ -1949,6 +2269,220 @@ describe("createODFDelegate", () => {
       state_ref: `openspec/changes/${change}/state.yaml`,
     })
     expect(getMetricsBuffer()).toEqual([])
+  })
+
+  it("digest-mismatch: blocks a VERIFY transition bound to a stale candidate receipt without consuming an attempt", async () => {
+    const change = "digest-mismatch-verify"
+    const repo = path.join(tempHome, "repo-digest")
+    initGitRepo(repo)
+    commitFile(repo, "a.py", 10)
+    appendLines(repo, "a.py", 100)
+    const digestA = computeCandidateDigest(buildCandidateManifest(repo))
+
+    const changeDir = path.join(repo, "openspec", "changes", change)
+    await fs.mkdir(changeDir, { recursive: true })
+    await fs.writeFile(path.join(changeDir, "state.yaml"), [
+      "work_type: feature",
+      "canonical_stage: VERIFY",
+      "completed_canonical_stages: [DECIDE, PLAN, BUILD]",
+      "resumable: true",
+      "",
+    ].join("\n"), "utf8")
+    await fs.writeFile(path.join(changeDir, "verify.yaml"), "status: passed\n", "utf8")
+    await fs.mkdir(path.join(repo, ".odf"), { recursive: true })
+    await fs.writeFile(path.join(repo, ".odf", `receipt-${change}.json`), JSON.stringify({
+      change,
+      phase: "VERIFY",
+      status: "failed",
+      cause: "validation-failed",
+      evidence: { summary: "old candidate failed", frozen_diff_ref: null, failing: [], refs: [] },
+      action: { committed: "retry" },
+      review_gate: null,
+      frozen_diff_ref: null,
+      candidate_digest: digestA,
+      resolved_at: new Date().toISOString(),
+    }), "utf8")
+
+    appendLines(repo, "a.py", 1)
+    const proof = workflowAdvance("VERIFY")
+    const recomputed = advanceWorkflow({ route: resolveWorkflowRoute(proof.work_type), ...proof })
+    const result = await commitWorkflowTransition({
+      workspaceRoot: repo,
+      changeName: change,
+      artifactStore: "openspec",
+      proof,
+      expectedStage: "VERIFY",
+      callerResult: recomputed,
+      phaseResultStatus: "ok",
+      validationStatus: "verified",
+      validation: null,
+    })
+
+    expect(result).toMatchObject({ status: "blocked", reason: "candidate-digest-mismatch", canonical_stage: "VERIFY" })
+    expect(result.message).toContain("candidate-digest-mismatch: the receipt is bound to candidate")
+    expect(fsSync.existsSync(path.join(repo, ".odf", `attempt-ledger-${change}.jsonl`))).toBe(false)
+    expect(await fs.readFile(path.join(changeDir, "state.yaml"), "utf8")).toContain("canonical_stage: VERIFY")
+  })
+
+  it("compatibility: transitions with no candidate digests are not blocked by digest", async () => {
+    const change = "legacy-digest-free"
+    const repo = path.join(tempHome, "repo-legacy-transition")
+    initGitRepo(repo)
+    commitFile(repo, "a.py", 10)
+    appendLines(repo, "a.py", 100)
+    const changeDir = path.join(repo, "openspec", "changes", change)
+    await fs.mkdir(changeDir, { recursive: true })
+    await fs.writeFile(path.join(changeDir, "state.yaml"), [
+      "work_type: feature",
+      "canonical_stage: BUILD",
+      "completed_canonical_stages: [DECIDE, PLAN]",
+      "resumable: true",
+      "",
+    ].join("\n"), "utf8")
+
+    const proof = workflowAdvance("IMPLEMENT")
+    const recomputed = advanceWorkflow({ route: resolveWorkflowRoute(proof.work_type), ...proof })
+    const result = await commitWorkflowTransition({
+      workspaceRoot: repo,
+      changeName: change,
+      artifactStore: "openspec",
+      proof,
+      expectedStage: "BUILD",
+      callerResult: recomputed,
+      phaseResultStatus: "ok",
+      validationStatus: "verified",
+      validation: { status: "verified", reason: "focused test evidence", commands_validated: 2 },
+    })
+    expect(result).toMatchObject({ status: "committed", reason: "committed" })
+  })
+
+  it("fail-closed: blocks a VERIFY transition when the validation-evidence receipt is missing", async () => {
+    const change = "verify-no-evidence"
+    const repo = path.join(tempHome, "repo-verify-no-evidence")
+    initGitRepo(repo)
+    commitFile(repo, "a.py", 10)
+    appendLines(repo, "a.py", 100)
+
+    const changeDir = path.join(repo, "openspec", "changes", change)
+    await fs.mkdir(changeDir, { recursive: true })
+    await fs.writeFile(path.join(changeDir, "state.yaml"), [
+      "work_type: feature",
+      "canonical_stage: VERIFY",
+      "completed_canonical_stages: [DECIDE, PLAN, BUILD]",
+      "resumable: true",
+      "",
+    ].join("\n"), "utf8")
+    const head = gitHead(repo)!
+    const digest = computeCandidateDigest(buildCandidateManifest(repo))
+
+    await fs.mkdir(path.join(repo, ".odf"), { recursive: true })
+    await fs.writeFile(path.join(repo, ".odf", `policy-gate-${change}.json`), JSON.stringify({
+      change, phase: "VERIFY", gate: "allow", reason: "test gate",
+      tdd: { global: false, local_readable: true, local_off: false, effective: "off" },
+      risk_tier: "MEDIUM", frozen_diff_ref: head, candidate_digest: digest, base_head: head,
+      changed_lines: 100, correction_budget_lines: 50, changed_paths: ["a.py"],
+      resolved_at: new Date().toISOString(),
+    }))
+
+    const proof = workflowAdvance("VERIFY")
+    const recomputed = advanceWorkflow({ route: resolveWorkflowRoute(proof.work_type), ...proof })
+    const result = await commitWorkflowTransition({
+      workspaceRoot: repo,
+      changeName: change,
+      artifactStore: "openspec",
+      proof,
+      expectedStage: "VERIFY",
+      callerResult: recomputed,
+      phaseResultStatus: "ok",
+      validationStatus: "verified",
+      validation: null,
+    })
+
+    expect(result).toMatchObject({ status: "blocked", reason: "verification-evidence-missing", validation: { status: "missing" } })
+    expect(await fs.readFile(path.join(changeDir, "state.yaml"), "utf8")).toContain("canonical_stage: VERIFY")
+  })
+
+  it("fail-closed: blocks a VERIFY transition when the receipt is invalid (missing executor)", async () => {
+    const change = "verify-invalid-evidence"
+    const repo = path.join(tempHome, "repo-verify-invalid-evidence")
+    initGitRepo(repo)
+    commitFile(repo, "a.py", 10)
+    appendLines(repo, "a.py", 100)
+
+    const changeDir = path.join(repo, "openspec", "changes", change)
+    await fs.mkdir(changeDir, { recursive: true })
+    await fs.writeFile(path.join(changeDir, "state.yaml"), [
+      "work_type: feature",
+      "canonical_stage: VERIFY",
+      "completed_canonical_stages: [DECIDE, PLAN, BUILD]",
+      "resumable: true",
+      "",
+    ].join("\n"), "utf8")
+    const head = gitHead(repo)!
+    const digest = computeCandidateDigest(buildCandidateManifest(repo))
+
+    await fs.mkdir(path.join(repo, ".odf"), { recursive: true })
+    await fs.writeFile(path.join(repo, ".odf", `policy-gate-${change}.json`), JSON.stringify({
+      change, phase: "VERIFY", gate: "allow", reason: "test gate",
+      tdd: { global: false, local_readable: true, local_off: false, effective: "off" },
+      risk_tier: "MEDIUM", frozen_diff_ref: head, candidate_digest: digest, base_head: head,
+      changed_lines: 100, correction_budget_lines: 50, changed_paths: ["a.py"],
+      resolved_at: new Date().toISOString(),
+    }))
+    await fs.writeFile(path.join(repo, ".odf", `validation-evidence-${change}.json`), JSON.stringify({
+      change, phase: "VERIFY", batch: 1, risk_tier: "MEDIUM", frozen_diff_ref: head,
+      candidate_digest: digest, test_identity: "a.py test suite",
+      resolved_at: new Date().toISOString(),
+      commands: [
+        { name: "odoo-tests", command: "odoo-bin -d odf_test_db -i test_module --test-enable --stop-after-init", database: "odf_test_db", exit_code: 0, output_tail: "12 passed, 0 failed" },
+        { name: "git-diff-check", command: "git diff --check", database: "odf_test_db", exit_code: 0, output_tail: "no whitespace errors" },
+      ],
+    }), "utf8")
+
+    const proof = workflowAdvance("VERIFY")
+    const recomputed = advanceWorkflow({ route: resolveWorkflowRoute(proof.work_type), ...proof })
+    const result = await commitWorkflowTransition({
+      workspaceRoot: repo,
+      changeName: change,
+      artifactStore: "openspec",
+      proof,
+      expectedStage: "VERIFY",
+      callerResult: recomputed,
+      phaseResultStatus: "ok",
+      validationStatus: "verified",
+      validation: null,
+    })
+
+    expect(result).toMatchObject({ status: "blocked", reason: "verification-evidence-invalid", validation: { status: "invalid" } })
+    expect(await fs.readFile(path.join(changeDir, "state.yaml"), "utf8")).toContain("canonical_stage: VERIFY")
+  })
+
+  it("acquireAttempt records the candidate digest and settleAttempt preserves it", async () => {
+    const { createODFDelegate } = await import("./odf-delegation.js")
+    initGitRepo(tempHome)
+    commitFile(tempHome, "README.md", 1)
+    const change = "attempt-digest"
+    await prepareWorkflowState(change, "IMPLEMENT")
+    await writeValidationEvidence(change)
+    const taskApi = vi.fn().mockResolvedValue({ status: "ok", executive_summary: "implemented" })
+    const delegateTool = createODFDelegate(undefined, tempHome)
+
+    const output = await delegateTool.execute({
+      phase: "IMPLEMENT",
+      change,
+      artifact_store: "openspec",
+      attempt_id: "attempt-digest-1",
+      prompt: "Implement the change",
+      context_files: [],
+      workflow_advance: workflowAdvance("IMPLEMENT"),
+    }, { sessionID: "s1", task: taskApi } as any)
+
+    expect(JSON.parse(output as string).status).toBe("delegated")
+    const ledgerPath = path.join(tempHome, ".odf", `attempt-ledger-${change}.jsonl`)
+    const records = (await fs.readFile(ledgerPath, "utf8")).trim().split("\n").map(line => JSON.parse(line))
+    expect(records.map(record => record.status)).toEqual(["running", "completed"])
+    expect(records[0].candidate_digest).toMatch(/^[0-9a-f]{64}$/)
+    expect(records[1].candidate_digest).toBe(records[0].candidate_digest)
   })
 
   it("blocks invalid inner results and evidence without advancing state or owning receipts", async () => {
@@ -2324,7 +2858,7 @@ describe("createODFDelegate", () => {
 
     const delegateTool = createODFDelegate(undefined)
     const output = await delegateTool.execute(
-      { phase, prompt: "Run the phase without a change identifier", context_files: [] },
+      { phase, prompt: "Run the phase without a change identifier", context_files: [], artifact_store: "openspec", workflow_advance: workflowAdvance(phase as "IMPLEMENT" | "VERIFY") },
       toolCtx
     )
 
@@ -2392,10 +2926,11 @@ describe("createODFDelegate", () => {
   it("appends executor and database boundaries to delegated prompts", async () => {
     const { createODFDelegate } = await import("./odf-delegation.js")
     const taskApi = vi.fn().mockResolvedValue({ status: "ok", executive_summary: "verified" })
+    await verifyEvidenceFor("boundary-test")
     const delegateTool = createODFDelegate(undefined, tempHome)
 
     await delegateTool.execute(
-      { phase: "VERIFY", change: "boundary-test", prompt: "Verify the implementation", context_files: [] },
+      { phase: "VERIFY", change: "boundary-test", artifact_store: "openspec", attempt_id: "boundary-verify-1", workflow_advance: workflowAdvance("VERIFY"), prompt: "Verify the implementation", context_files: [] },
       { sessionID: "s1", task: taskApi } as any
     )
 
@@ -2506,6 +3041,7 @@ describe("createODFDelegate", () => {
   })
 
   it("uses an explicit workspace directory for policy and evidence lookup", async () => {
+    await setRegistryFlags({ strict_workflow: false })
     const { createODFDelegate } = await import("./odf-delegation.js")
     const workspace = path.join(tempHome, "isolated-worktree")
     initGitRepo(workspace)
@@ -3211,6 +3747,7 @@ describe("odf_delegate policy gate hook", () => {
       path.resolve(process.cwd(), "odf-registry.json"),
       path.join(configDir, "odf-registry.json")
     )
+    await writeRegistryFlags(tempHome, { strict_workflow: false })
     vi.resetModules()
   })
 
@@ -3330,6 +3867,35 @@ describe("validateValidationEvidence", () => {
     expect(verdict.status).toBe("verified")
   })
 
+  it("mutation-after-build: evidence bound to a candidate is invalid after the candidate mutates", async () => {
+    const repo = path.join(tmp, "repo-ev")
+    initGitRepo(repo)
+    commitFile(repo, "a.py", 10)
+    appendLines(repo, "a.py", 100)
+    const digestA = computeCandidateDigest(buildCandidateManifest(repo))
+    await fs.mkdir(path.join(repo, ".odf"), { recursive: true })
+    await fs.writeFile(path.join(repo, ".odf", "validation-evidence-ev-change.json"), JSON.stringify(validEvidence({ candidate_digest: digestA })))
+
+    const bound = validateValidationEvidence({ workspaceDir: repo, change: "ev-change", tier: "MEDIUM", frozenDiffRef: null, now })
+    expect(bound.status).toBe("verified")
+
+    appendLines(repo, "a.py", 1)
+    const verdict = validateValidationEvidence({ workspaceDir: repo, change: "ev-change", tier: "MEDIUM", frozenDiffRef: null, now })
+    expect(verdict.status).toBe("invalid")
+    expect(verdict.reason).toContain("candidate digest mismatch")
+  })
+
+  it("compatibility: legacy evidence without candidate_digest still verifies even with git present", async () => {
+    const repo = path.join(tmp, "repo-legacy-ev")
+    initGitRepo(repo)
+    commitFile(repo, "a.py", 10)
+    appendLines(repo, "a.py", 100)
+    await fs.mkdir(path.join(repo, ".odf"), { recursive: true })
+    await fs.writeFile(path.join(repo, ".odf", "validation-evidence-ev-change.json"), JSON.stringify(validEvidence()))
+    const verdict = validateValidationEvidence({ workspaceDir: repo, change: "ev-change", tier: "MEDIUM", frozenDiffRef: null, now })
+    expect(verdict.status).toBe("verified")
+  })
+
   it("rejects stale evidence beyond the freshness window", async () => {
     await writeEvidence(validEvidence({ resolved_at: "2026-07-31T10:30:00Z" })) // 90 min old
     const verdict = validateValidationEvidence({ workspaceDir: tmp, change: "ev-change", tier: "LOW", frozenDiffRef: null, now })
@@ -3370,6 +3936,96 @@ describe("validateValidationEvidence", () => {
     expect(verdict.status).toBe("invalid")
     expect(verdict.reason).toContain("tier HIGH requires at least 3")
   })
+
+  const validVerifyEvidence = (overrides: Record<string, unknown> = {}) => ({
+    change: "ev-change",
+    phase: "VERIFY",
+    batch: 1,
+    risk_tier: "LOW",
+    frozen_diff_ref: null,
+    candidate_digest: null,
+    executor: "odoo_qa_engineer",
+    test_identity: "test_module test suite",
+    resolved_at: "2026-07-31T11:30:00Z",
+    commands: [
+      { name: "odoo-tests", command: "odoo-bin -d odf_test_db -i test_module --test-enable --stop-after-init", database: "odf_test_db", exit_code: 0, output_tail: "12 passed, 0 failed" },
+    ],
+    ...overrides,
+  })
+
+  it("verify-rejects-status-only-evidence: rejects VERIFY evidence with no commands", async () => {
+    await writeEvidence({ change: "ev-change", phase: "VERIFY", status: "passed", resolved_at: "2026-07-31T11:30:00Z" })
+    const verdict = validateValidationEvidence({ workspaceDir: tmp, change: "ev-change", tier: "LOW", frozenDiffRef: null, now })
+    expect(verdict.status).toBe("invalid")
+    expect(verdict.reason).toContain("requires at least one command")
+  })
+
+  it("verify-rejects-missing-required-fields: rejects a VERIFY command without database or output", async () => {
+    await writeEvidence(validVerifyEvidence({ commands: [
+      { name: "odoo-tests", command: "odoo-bin -d odf_test_db -i test_module --test-enable --stop-after-init", exit_code: 0, output_tail: "12 passed, 0 failed" },
+    ] }))
+    const noDb = validateValidationEvidence({ workspaceDir: tmp, change: "ev-change", tier: "LOW", frozenDiffRef: null, now })
+    expect(noDb.status).toBe("invalid")
+    expect(noDb.reason).toContain("missing the database context")
+
+    await writeEvidence(validVerifyEvidence({ commands: [
+      { name: "odoo-tests", command: "odoo-bin -d odf_test_db -i test_module --test-enable --stop-after-init", database: "odf_test_db", exit_code: 0, output_tail: "", output_evidence: "" },
+    ] }))
+    const noOutput = validateValidationEvidence({ workspaceDir: tmp, change: "ev-change", tier: "LOW", frozenDiffRef: null, now })
+    expect(noOutput.status).toBe("invalid")
+    expect(noOutput.reason).toContain("missing output evidence")
+  })
+
+  it("verify-rejects-nonzero-exit: any non-zero exit invalidates the VERIFY receipt", async () => {
+    await writeEvidence(validVerifyEvidence({ commands: [
+      { name: "odoo-tests", command: "odoo-bin -d odf_test_db -i test_module --test-enable --stop-after-init", database: "odf_test_db", exit_code: 1, output_tail: "2 failed, 0 passed" },
+    ] }))
+    const verdict = validateValidationEvidence({ workspaceDir: tmp, change: "ev-change", tier: "LOW", frozenDiffRef: null, now })
+    expect(verdict.status).toBe("invalid")
+    expect(verdict.reason).toContain("exited with 1")
+  })
+
+  it("verify-rejects-stale-evidence: VERIFY receipt outside the freshness window is invalid", async () => {
+    await writeEvidence(validVerifyEvidence({ resolved_at: "2026-07-31T10:30:00Z" }))
+    const verdict = validateValidationEvidence({ workspaceDir: tmp, change: "ev-change", tier: "LOW", frozenDiffRef: null, now })
+    expect(verdict.status).toBe("invalid")
+    expect(verdict.reason).toContain("stale")
+  })
+
+  it("verify-rejects-missing-executor-or-test-identity: the receipt must name who ran and which suite", async () => {
+    await writeEvidence(validVerifyEvidence({ executor: undefined }))
+    const noExecutor = validateValidationEvidence({ workspaceDir: tmp, change: "ev-change", tier: "LOW", frozenDiffRef: null, now })
+    expect(noExecutor.status).toBe("invalid")
+    expect(noExecutor.reason).toContain("missing executor")
+
+    await writeEvidence(validVerifyEvidence({ test_identity: undefined }))
+    const noIdentity = validateValidationEvidence({ workspaceDir: tmp, change: "ev-change", tier: "LOW", frozenDiffRef: null, now })
+    expect(noIdentity.status).toBe("invalid")
+    expect(noIdentity.reason).toContain("missing test_identity")
+  })
+
+  it("verify-accepts-complete-fresh-evidence: a complete, fresh VERIFY receipt verifies", async () => {
+    await writeEvidence(validVerifyEvidence())
+    const verdict = validateValidationEvidence({ workspaceDir: tmp, change: "ev-change", tier: "LOW", frozenDiffRef: null, now })
+    expect(verdict.status).toBe("verified")
+  })
+
+  it("verify-digest-required: VERIFY receipt must carry the candidate_digest when git is present", async () => {
+    const repo = path.join(tmp, "repo-verify-digest")
+    initGitRepo(repo)
+    commitFile(repo, "a.py", 10)
+    appendLines(repo, "a.py", 100)
+    await fs.mkdir(path.join(repo, ".odf"), { recursive: true })
+    await fs.writeFile(path.join(repo, ".odf", "validation-evidence-ev-change.json"), JSON.stringify(validVerifyEvidence()))
+    const noDigest = validateValidationEvidence({ workspaceDir: repo, change: "ev-change", tier: "LOW", frozenDiffRef: null, now })
+    expect(noDigest.status).toBe("invalid")
+    expect(noDigest.reason).toContain("candidate_digest required")
+
+    const digest = computeCandidateDigest(buildCandidateManifest(repo))
+    await fs.writeFile(path.join(repo, ".odf", "validation-evidence-ev-change.json"), JSON.stringify(validVerifyEvidence({ candidate_digest: digest })))
+    const bound = validateValidationEvidence({ workspaceDir: repo, change: "ev-change", tier: "LOW", frozenDiffRef: null, now })
+    expect(bound.status).toBe("verified")
+  })
 })
 
 describe("odf_delegate stop-validation seal", () => {
@@ -3386,6 +4042,7 @@ describe("odf_delegate stop-validation seal", () => {
       path.resolve(process.cwd(), "odf-registry.json"),
       path.join(configDir, "odf-registry.json")
     )
+    await writeRegistryFlags(tempHome, { strict_workflow: false })
     vi.resetModules()
   })
 
@@ -3529,6 +4186,7 @@ describe("odf_delegate receipt auto-seal on error", () => {
       path.resolve(process.cwd(), "odf-registry.json"),
       path.join(configDir, "odf-registry.json")
     )
+    await writeRegistryFlags(tempHome, { strict_workflow: false })
     vi.resetModules()
   })
 

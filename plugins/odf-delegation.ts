@@ -46,6 +46,9 @@ import {
   writeParallelJoinArtifact,
   type ParallelJoinArtifact,
 } from "./odf-parallel-join.js"
+import { buildCandidateManifest, computeCandidateDigest, extractChangedPaths } from "./candidate-manifest.js"
+import { classifyEntryTriage, type EntryTriageInput } from "./entry-triage.js"
+import { inspectToolArgs } from "../scripts/odf-safety.js"
 
 export type OpencodeClient = ReturnType<typeof createOpencodeClient>
 
@@ -216,6 +219,7 @@ const ODF_REGISTERED_TOOLS = [
   "odf_workflow_route",
   "odf_workflow_advance",
   "odf_workflow_bind",
+  "odf_entry_triage",
   "odf_skill_inject",
   "odf_registry_read",
   "odf_notebooklm_lookup",
@@ -740,7 +744,25 @@ async function hasSkillsChanged(): Promise<boolean> {
 // METRICS (F1: Agent Observatory)
 // ==========================================
 
-interface DelegationMetrics {
+// Versioned telemetry schema (T7). `event` distinguishes a full delegation
+// (run) from a sub-step / tool call (span). Every emitted line carries
+// schema_version, a trace_id, and parent/span ids so runs can be correlated
+// with their spans. Host-provided fields (model, provider, model_version,
+// tokens) are captured ONLY when the host exposes them; absent fields are
+// serialized explicitly as null / model_available=false. The heuristic
+// estimateTokens() is never treated as real input/output token counts.
+export type TelemetryEvent = "run" | "span"
+
+export interface TelemetryTokens {
+  /** Real input tokens from the host, when exposed. */
+  input?: number | null
+  /** Real output tokens from the host, when exposed. */
+  output?: number | null
+  /** Heuristic len/4 estimate, always flagged as estimated. */
+  estimated?: number | null
+}
+
+export interface DelegationMetrics {
   timestamp: string
   session_hash: string
   phase: string
@@ -760,6 +782,22 @@ interface DelegationMetrics {
   join_running?: number
   validation_ratio?: number
   error?: string
+  // T7 telemetry
+  event?: TelemetryEvent
+  schema_version?: 1
+  trace_id?: string
+  parent_span_id?: string
+  span_id?: string
+  task?: string
+  tool?: string
+  model?: string | null
+  provider?: string | null
+  model_version?: string | null
+  model_available?: boolean
+  tokens?: TelemetryTokens
+  retry_count?: number
+  candidate_digest?: string
+  receipt_ref?: string
 }
 
 type DelegationMetricInput = Omit<DelegationMetrics, "session_hash"> & {
@@ -790,7 +828,7 @@ function hashSession(sessionId: string): string {
 
 function sanitizeError(error?: string): string | undefined {
   if (!error) return undefined
-  const safe = error.replace(/\r?\n/g, " ").replace(/"/g, "'").trim()
+  const safe = scrubMetricSecrets(error).replace(/\r?\n/g, " ").replace(/"/g, "'").trim()
   return safe.length > 200 ? safe.slice(0, 200) + "..." : safe
 }
 
@@ -817,6 +855,91 @@ function sanitizeMetricJoinCount(value: unknown): number | undefined {
 
 function sanitizeMetricValidationRatio(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= 1 ? value : undefined
+}
+
+const METRIC_TASK_MAX = 120
+
+/**
+ * Scrub PII/secret-bearing substrings from a free-text value before it is
+ * persisted: absolute home paths (`/home/<user>/...`), and env-like
+ * `NAME=VALUE` assignments (which commonly carry secrets). Applied to the
+ * error and task labels so prompts, user paths and env values never leak into
+ * the JSONL.
+ */
+function scrubMetricSecrets(value: string): string {
+  return value
+    .replace(/\/home\/[^/\s,"']+(?:\/[^\s,"']*)?/g, "[home]")
+    .replace(/\/Users\/[^/\s,"']+(?:\/[^\s,"']*)?/g, "[home]")
+    .replace(/\b[A-Z][A-Z0-9_]{2,}=[^\s,"']{1,64}\b/g, "[env]")
+}
+
+function sanitizeMetricTask(prompt?: string): string | undefined {
+  if (!prompt || typeof prompt !== "string") return undefined
+  const firstLine = prompt.split(/\r?\n/).map(l => l.trim()).find(Boolean)
+  if (!firstLine) return undefined
+  const safe = scrubMetricSecrets(firstLine).replace(/"/g, "'").slice(0, METRIC_TASK_MAX)
+  return safe.length > 0 ? safe : undefined
+}
+
+function sanitizeMetricTokenCount(value: unknown): number | null | undefined {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : null
+}
+
+/**
+ * Token counts are always honest: host-provided counts are used verbatim;
+ * otherwise input/output stay null and only `estimated` (the len/4 heuristic)
+ * is recorded. The estimate is never surfaced as a real token count.
+ */
+function sanitizeMetricTokens(
+  input: unknown,
+  output: unknown,
+  estimated: unknown
+): TelemetryTokens {
+  return {
+    input: sanitizeMetricTokenCount(input),
+    output: sanitizeMetricTokenCount(output),
+    estimated: sanitizeMetricTokenCount(estimated),
+  }
+}
+
+function sanitizeMetricBool(value: unknown): boolean | undefined {
+  return typeof value === "boolean" ? value : undefined
+}
+
+function sanitizeMetricRetryCount(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isInteger(value) && value >= 0 ? value : undefined
+}
+
+const METRIC_MODEL_MAX = 80
+const METRIC_MODEL_PATTERN = /^[A-Za-z0-9][A-Za-z0-9./:_-]{0,79}$/
+
+/** Model/provider/version identifiers are bounded and shape-checked. */
+function sanitizeMetricModel(value: unknown): string | null | undefined {
+  if (typeof value !== "string") return undefined
+  const trimmed = value.trim().slice(0, METRIC_MODEL_MAX)
+  return METRIC_MODEL_PATTERN.test(trimmed) ? trimmed : null
+}
+
+/**
+ * A span id derived from the session hash + phase + monotonic sequence, so a
+ * delegation and its sub-steps are correlated without storing the raw session.
+ */
+let telemetrySpanCounter = 0
+function nextTelemetrySpanId(sessionId: string, phase: string): string {
+  telemetrySpanCounter = (telemetrySpanCounter + 1) % 0xffff
+  return `${hashSession(sessionId)}-${phase.slice(0, 8).replace(/[^A-Za-z0-9]/g, "") || "x"}-${telemetrySpanCounter.toString(16)}`
+}
+
+function sanitizeMetricSafeToken(value: unknown): string | undefined {
+  return typeof value === "string" && METRIC_SAFE_TOKEN_PATTERN.test(value) ? value : undefined
+}
+
+/** Long candidate digests / receipt refs are bounded to safe tokens. */
+function sanitizeMetricDigest(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined
+  const trimmed = value.trim()
+  if (!/^[0-9a-f]{64}$/i.test(trimmed)) return undefined
+  return trimmed.toLowerCase()
 }
 
 /**
@@ -869,8 +992,23 @@ function recordMetrics(metric: DelegationMetricInput): void {
     join_running,
     validation_ratio,
     error,
+    task,
+    tool,
+    model,
+    provider,
+    model_version,
+    tokens,
+    retry_count,
+    candidate_digest,
+    receipt_ref,
+    event,
+    trace_id,
+    span_id,
+    parent_span_id,
     ...rest
   } = metric
+  const isSpan = event === "span"
+  const runSpanId = span_id || nextTelemetrySpanId(session_id, rest.phase || "phase")
   const sanitized: DelegationMetrics = {
     ...rest,
     session_hash: hashSession(session_id),
@@ -883,6 +1021,27 @@ function recordMetrics(metric: DelegationMetricInput): void {
     ...(sanitizeMetricJoinCount(join_running) !== undefined ? { join_running: sanitizeMetricJoinCount(join_running) } : {}),
     ...(sanitizeMetricValidationRatio(validation_ratio) !== undefined ? { validation_ratio: sanitizeMetricValidationRatio(validation_ratio) } : {}),
     error: sanitizeError(error),
+    event: isSpan ? "span" : "run",
+    schema_version: 1,
+    trace_id: sanitizeMetricSafeToken(trace_id) || hashSession(session_id),
+    span_id: sanitizeMetricSafeToken(span_id) || runSpanId,
+    // A span's parent must be supplied by the caller (the enclosing run's
+    // span_id). Root runs omit parent_span_id. Never synthesized.
+    ...(isSpan && sanitizeMetricSafeToken(parent_span_id) ? { parent_span_id: sanitizeMetricSafeToken(parent_span_id) } : {}),
+    ...(sanitizeMetricTask(task) ? { task: sanitizeMetricTask(task) } : {}),
+    ...(sanitizeMetricToken(tool) ? { tool: sanitizeMetricToken(tool) } : {}),
+    model: sanitizeMetricModel(model) ?? null,
+    provider: sanitizeMetricModel(provider) ?? null,
+    model_version: sanitizeMetricModel(model_version) ?? null,
+    model_available: sanitizeMetricBool(model !== undefined && model !== null) ?? false,
+    tokens: sanitizeMetricTokens(
+      (tokens as any)?.input,
+      (tokens as any)?.output,
+      (tokens as any)?.estimated ?? (rest as any).token_estimate,
+    ),
+    ...(sanitizeMetricRetryCount(retry_count) !== undefined ? { retry_count: sanitizeMetricRetryCount(retry_count) } : {}),
+    ...(sanitizeMetricDigest(candidate_digest) ? { candidate_digest: sanitizeMetricDigest(candidate_digest) } : {}),
+    ...(sanitizeMetricSafeToken(receipt_ref) ? { receipt_ref: sanitizeMetricSafeToken(receipt_ref) } : {}),
   }
   metricsBuffer.push(sanitized)
   if (metricsBuffer.length >= getMetricsBufferCap()) {
@@ -1268,6 +1427,33 @@ function findTaskApi(toolCtx: ToolContext, client?: OpencodeClient): { taskApi: 
   return null
 }
 
+/**
+ * T7: defensively read host runtime telemetry from toolCtx. The current
+ * @opencode-ai/plugin ToolContext type exposes only sessionID/messageID/agent/
+ * directory/worktree/abort/metadata/ask — no model, provider, or token usage.
+ * A future host may extend it; we read those optional fields here when present
+ * and honestly represent absence as null. The heuristic estimate is supplied
+ * separately and never masquerades as a real token count.
+ */
+function hostTelemetryFromContext(toolCtx: ToolContext): Partial<DelegationMetricInput> {
+  const ctx = toolCtx as Record<string, any>
+  const model = ctx?.model
+  const provider = ctx?.provider
+  const modelVersion = ctx?.model_version ?? ctx?.modelVersion
+  const usage = ctx?.usage ?? ctx?.tokens ?? ctx?.tokenUsage
+  const inputTokens = usage?.input ?? usage?.input_tokens ?? usage?.prompt_tokens
+  const outputTokens = usage?.output ?? usage?.output_tokens ?? usage?.completion_tokens
+  return {
+    model: typeof model === "string" ? model : typeof model?.id === "string" ? model.id : model?.modelID,
+    provider: typeof provider === "string" ? provider : provider?.id ?? provider?.providerID,
+    model_version: typeof modelVersion === "string" ? modelVersion : undefined,
+    tokens: {
+      input: typeof inputTokens === "number" ? inputTokens : null,
+      output: typeof outputTokens === "number" ? outputTokens : null,
+    },
+  }
+}
+
 async function invokeTask(
   taskApi: TaskApi,
   agentName: string,
@@ -1389,6 +1575,7 @@ interface AttemptLedgerRecord {
   settled_at: string | null
   reason: AttemptLedgerReason
   result_status: AttemptLedgerResultStatus
+  candidate_digest?: string | null
 }
 
 interface AcquiredAttempt {
@@ -1438,7 +1625,8 @@ function isAttemptLedgerRecord(value: unknown): value is AttemptLedgerRecord {
       record.reason === "task-api-unavailable") &&
     (record.result_status === "running" || record.result_status === "delegated" || record.result_status === "validation-failed" || record.result_status === "timeout" ||
       record.result_status === "cancelled" || record.result_status === "empty-task-result" || record.result_status === "error" ||
-      record.result_status === "task-api-unavailable")
+      record.result_status === "task-api-unavailable") &&
+    (record.candidate_digest === undefined || record.candidate_digest === null || isSafeToken(record.candidate_digest))
 }
 
 function attemptBranchId(record: AttemptLedgerRecord): string {
@@ -1548,6 +1736,12 @@ function withAttemptLedgerLock<T>(ledgerPath: string, operation: () => T): Attem
   }
 }
 
+/** Candidate digest of a workspace, or null when git is unavailable (T3 makes it mandatory). */
+function candidateDigestOrNull(workspaceDir: string): string | null {
+  const manifest = buildCandidateManifest(workspaceDir)
+  return manifest.base_head !== null ? computeCandidateDigest(manifest) : null
+}
+
 function acquireAttempt(opts: {
   workspaceDir: string
   change: string
@@ -1590,6 +1784,7 @@ function acquireAttempt(opts: {
       settled_at: null,
       reason: "acquired",
       result_status: "running",
+      candidate_digest: candidateDigestOrNull(opts.workspaceDir),
     }
     const appendError = appendAttemptLedgerRecord(ledgerPath, record)
     if (appendError) {
@@ -1643,6 +1838,8 @@ export interface PolicyGateDecision {
   }
   risk_tier: "LOW" | "MEDIUM" | "HIGH"
   frozen_diff_ref: string | null
+  candidate_digest: string | null
+  base_head: string | null
   changed_lines: number | null
   correction_budget_lines: number | null
   changed_paths: string[]
@@ -1800,6 +1997,8 @@ export function computePolicyGate(opts: {
       tdd,
       risk_tier: "MEDIUM",
       frozen_diff_ref: null,
+      candidate_digest: null,
+      base_head: null,
       changed_lines: null,
       correction_budget_lines: null,
       changed_paths: [],
@@ -1808,16 +2007,18 @@ export function computePolicyGate(opts: {
   }
 
   const gatePath = path.join(workspace, ".odf", `policy-gate-${opts.change}.json`)
-  const head = gitHead(workspace)
+  const manifest = buildCandidateManifest(workspace)
+  const head = manifest.base_head
 
-  // Idempotency: reuse a frozen decision for the same change + phase + ref.
+  // Idempotency: reuse a frozen decision for the same change + phase only when
+  // the candidate bytes are unchanged (digest match), not merely when HEAD is.
   try {
     const existing = JSON.parse(fsSync.readFileSync(gatePath, "utf8")) as PolicyGateDecision
     if (
       existing.phase === opts.phase &&
-      existing.frozen_diff_ref != null &&
       head !== null &&
-      existing.frozen_diff_ref === head
+      existing.candidate_digest != null &&
+      existing.candidate_digest === computeCandidateDigest(manifest)
     ) {
       return existing
     }
@@ -1826,6 +2027,8 @@ export function computePolicyGate(opts: {
   }
 
   let frozenDiffRef: string | null = null
+  let candidateDigest: string | null = null
+  let baseHead: string | null = null
   let changedLines: number | null = null
   let changedPaths: string[] = []
   let riskTier: "LOW" | "MEDIUM" | "HIGH" = "MEDIUM"
@@ -1833,7 +2036,9 @@ export function computePolicyGate(opts: {
 
   if (opts.phase === "VERIFY") {
     frozenDiffRef = head
-    if (frozenDiffRef) {
+    baseHead = head
+    if (head !== null) {
+      candidateDigest = computeCandidateDigest(manifest)
       try {
         const numstat = execSync("git diff --numstat HEAD", { cwd: workspace, encoding: "utf8" }).trim()
         changedLines = numstat
@@ -1848,19 +2053,28 @@ export function computePolicyGate(opts: {
       } catch {
         changedLines = null
       }
-      try {
-        changedPaths = execSync("git diff --name-only HEAD", { cwd: workspace, encoding: "utf8" })
-          .trim()
-          .split("\n")
-          .filter(Boolean)
-      } catch {
-        changedPaths = []
-      }
+      changedPaths = extractChangedPaths(manifest)
       riskTier = classifyRiskTierWithContent(changedPaths, workspace)
       correctionBudget = changedLines != null ? Math.min(200, Math.ceil(changedLines / 2)) : null
     } else {
-      // git unavailable → fail-open for VERIFY (the odf-verify skill demands bytes).
-      riskTier = "LOW"
+      // git unavailable → fail-closed for VERIFY: no reproducible candidate
+      // means verification cannot be bound to anything, so the delegation must
+      // not run. The user must make the candidate reproducible first.
+      return {
+        change: opts.change,
+        phase: opts.phase,
+        gate: "block",
+        reason: "verification-unavailable: initialize a git repository or provide candidate discovery; verification cannot proceed without a reproducible candidate",
+        tdd,
+        risk_tier: "MEDIUM",
+        frozen_diff_ref: null,
+        candidate_digest: null,
+        base_head: null,
+        changed_lines: null,
+        correction_budget_lines: null,
+        changed_paths: [],
+        resolved_at: new Date().toISOString(),
+      }
     }
   }
 
@@ -1875,6 +2089,8 @@ export function computePolicyGate(opts: {
     tdd,
     risk_tier: riskTier,
     frozen_diff_ref: frozenDiffRef,
+    candidate_digest: candidateDigest,
+    base_head: baseHead,
     changed_lines: changedLines,
     correction_budget_lines: correctionBudget,
     changed_paths: changedPaths,
@@ -1909,6 +2125,9 @@ export interface ValidationEvidenceFile {
   batch: number
   risk_tier: "LOW" | "MEDIUM" | "HIGH"
   frozen_diff_ref: string | null
+  candidate_digest?: string | null
+  executor?: string
+  test_identity?: string
   resolved_at: string
   commands: ValidationEvidenceCommand[]
 }
@@ -1996,6 +2215,17 @@ export function validateValidationEvidence(opts: {
     return { status: "invalid", reason: `validation-evidence change "${evidence.change}" does not match "${opts.change}"`, commands_validated: 0 }
   }
 
+  if (evidence.candidate_digest != null) {
+    const freshDigest = candidateDigestOrNull(opts.workspaceDir)
+    if (freshDigest !== null && evidence.candidate_digest !== freshDigest) {
+      return {
+        status: "invalid",
+        reason: `candidate digest mismatch: evidence bound to ${evidence.candidate_digest}, workspace candidate is ${freshDigest}`,
+        commands_validated: 0,
+      }
+    }
+  }
+
   if (opts.frozenDiffRef != null && evidence.frozen_diff_ref !== opts.frozenDiffRef) {
     return { status: "invalid", reason: "validation-evidence frozen_diff_ref does not match the policy gate frozen ref", commands_validated: 0 }
   }
@@ -2009,15 +2239,42 @@ export function validateValidationEvidence(opts: {
     return { status: "invalid", reason: `validation-evidence is stale (resolved ${Math.round(ageMs / 1000)}s ago, window ${EVIDENCE_FRESHNESS_MS / 1000}s)`, commands_validated: 0 }
   }
 
+  const isVerify = evidence.phase === "VERIFY"
   const commands = Array.isArray(evidence.commands) ? evidence.commands : []
+  if (isVerify && commands.length === 0) {
+    return { status: "invalid", reason: "verification-evidence requires at least one command — status-only evidence is not accepted", commands_validated: 0 }
+  }
   if (commands.length < EVIDENCE_MIN_COMMANDS[opts.tier]) {
     return { status: "invalid", reason: `tier ${opts.tier} requires at least ${EVIDENCE_MIN_COMMANDS[opts.tier]} command(s), got ${commands.length}`, commands_validated: commands.length }
+  }
+  if (isVerify) {
+    if (typeof evidence.executor !== "string" || !evidence.executor.trim()) {
+      return { status: "invalid", reason: "verification-evidence is missing executor — who ran the verification", commands_validated: 0 }
+    }
+    if (typeof evidence.test_identity !== "string" || !evidence.test_identity.trim()) {
+      return { status: "invalid", reason: "verification-evidence is missing test_identity — which test suite ran", commands_validated: 0 }
+    }
+    const freshDigest = candidateDigestOrNull(opts.workspaceDir)
+    if (freshDigest !== null && (typeof evidence.candidate_digest !== "string" || !evidence.candidate_digest.trim())) {
+      return { status: "invalid", reason: "candidate_digest required for verification-evidence — bind the receipt to the verified candidate", commands_validated: 0 }
+    }
   }
 
   let checked = 0
   for (const cmd of commands) {
     if (!cmd || typeof cmd.name !== "string" || typeof cmd.exit_code !== "number") {
       return { status: "invalid", reason: "evidence command missing name or exit_code", commands_validated: checked }
+    }
+    if (isVerify) {
+      if (typeof cmd.command !== "string" || !cmd.command.trim()) {
+        return { status: "invalid", reason: `command "${cmd.name}" is missing the full command line`, commands_validated: checked }
+      }
+      if (typeof cmd.database !== "string" || !cmd.database.trim()) {
+        return { status: "invalid", reason: `command "${cmd.name}" is missing the database context`, commands_validated: checked }
+      }
+      if (!(typeof cmd.output_tail === "string" && cmd.output_tail.trim()) && !(typeof cmd.output_evidence === "string" && cmd.output_evidence.trim())) {
+        return { status: "invalid", reason: `command "${cmd.name}" is missing output evidence`, commands_validated: checked }
+      }
     }
     if (cmd.exit_code !== 0) {
       return { status: "invalid", reason: `command "${cmd.name}" exited with ${cmd.exit_code}`, commands_validated: checked }
@@ -2058,6 +2315,7 @@ export interface ODFReceipt {
   action: { committed: "scope-change" | "re-plan" | "abandon" | "retry" | "none"; user_decision?: string } | null
   review_gate: { attempts_used: number; budget_lines: number | null; verdict: "FAIL" | "PASS" | "PASS_WITH_WARNINGS" } | null
   frozen_diff_ref: string | null
+  candidate_digest?: string | null
   resolved_at: string
   parallel?: {
     branch_ids: string[]
@@ -2085,6 +2343,10 @@ export function saveReceiptJson(workspaceDir: string, receipt: ODFReceipt): void
  * Upsert a receipt without clobbering a resolved one. A receipt whose `action`
  * is set is terminal until a deliberate transition; an update with `action:
  * null` never overwrites an existing set action.
+ *
+ * A written receipt is bound to the candidate digest current at write time
+ * (stamped over any caller value), so a later write for the same change after a
+ * candidate mutation never inherits the old candidate's binding.
  */
 export function mergeReceipt(
   workspaceDir: string,
@@ -2102,6 +2364,7 @@ export function mergeReceipt(
   } catch {
     // No prior receipt or unreadable → write incoming.
   }
+  incoming.candidate_digest = candidateDigestOrNull(workspaceDir)
   saveReceiptJson(workspaceDir, incoming)
   return incoming
 }
@@ -2221,6 +2484,8 @@ frozen diff ref). The gate documents — the sub-agent applies, never recomputes
           tdd: { global: false, local_readable: false, local_off: false, effective: "off" },
           risk_tier: "MEDIUM",
           frozen_diff_ref: null,
+          candidate_digest: null,
+          base_head: null,
           changed_lines: null,
           correction_budget_lines: null,
           changed_paths: [],
@@ -2343,6 +2608,10 @@ Use this instead of generic task() for ODF workflow delegation.`,
       const metricContext = {
         work_type: args.workflow_advance?.work_type,
         branch_id: executionOptions.branch_id,
+        // T7: capture host runtime telemetry (model/provider/tokens) when the
+        // toolCtx exposes it. This host's ToolContext does not, so these stay
+        // null / model_available=false — never synthesized.
+        ...hostTelemetryFromContext(toolCtx),
       }
 
       if (!ALLOWED_PHASES.includes(args.phase)) {
@@ -2350,7 +2619,7 @@ Use this instead of generic task() for ODF workflow delegation.`,
       }
 
       const startTime = Date.now()
-      const blockWorkflow = (reason: string, message: string, workflowResult: ReturnType<typeof advanceWorkflow> | null): string => {
+      const blockWorkflow = (reason: string, message: string, workflowResult: ReturnType<typeof advanceWorkflow> | null, extra: Record<string, unknown> = {}): string => {
         recordMetrics({
           timestamp: new Date().toISOString(),
           session_id: toolCtx.sessionID,
@@ -2379,6 +2648,7 @@ Use this instead of generic task() for ODF workflow delegation.`,
           result: null,
           workflow_advance: workflowResult,
           message,
+          ...extra,
         }, null, 2)
       }
 
@@ -2678,6 +2948,13 @@ Use this instead of generic task() for ODF workflow delegation.`,
           workspaceDir: workspaceRoot,
           registry,
         })
+        if (policyGate.gate === "block") {
+          return blockWorkflow(
+            policyGate.reason,
+            `Policy gate blocked ${args.phase} before delegation: ${policyGate.reason}`,
+            workflowResult,
+          )
+        }
       }
 
       // Inject compact rules, profile, and the Policy Gate decision
@@ -2691,6 +2968,28 @@ Use this instead of generic task() for ODF workflow delegation.`,
         policyGate ? `## Policy Gate Decision (authoritative, do not recompute)\n${JSON.stringify(policyGate, null, 2)}` : "",
         EXECUTOR_BOUNDARY,
       ].filter(Boolean).join("\n\n")
+
+      // T11 pre-tool safety: inspect the USER task payload (args.prompt) BEFORE
+      // delegating. Complements native OpenCode permissions
+      // (permission.allow/deny) which gate by tool+path; this catches dangerous
+      // ARGUMENTS inside an allowed tool's payload. We scan args.prompt (the
+      // orchestrator/user request), NOT the enriched delegationPrompt — the
+      // latter embeds system-instructive material (skill rules, EXECUTOR_BOUNDARY
+      // that legitimately name "DROP DATABASE"/"TRUNCATE"), which would be a
+      // false-positive machine. Scoped to corpus classes only.
+      const safety = inspectToolArgs({
+        tool: "odf_delegate",
+        args: { prompt: args.prompt },
+        authorized_roots: [workspaceRoot],
+      })
+      if (safety.blocked) {
+        const message = `Pre-tool safety blocked delegation to ${agentName}: ${safety.classes.join(", ")}. ${safety.safe_continuation || "Request explicit user consent for the exact target."}`
+        return blockWorkflow("pre-tool-safety", message, workflowResult, {
+          classes: safety.classes,
+          matched_rules: safety.matched_rules,
+          safe_continuation: safety.safe_continuation,
+        })
+      }
 
       const taskApiInfo = findTaskApi(toolCtx, client)
       const profilePayload = profile
@@ -2825,6 +3124,7 @@ Use this instead of generic task() for ODF workflow delegation.`,
               status: innerDisposition.metricStatus,
              task_api_source: taskApiInfo.source,
              ...metricContext,
+             candidate_digest: policyGate?.candidate_digest ?? undefined,
            })
           return JSON.stringify({
             status: "delegated",
@@ -2881,6 +3181,7 @@ Use this instead of generic task() for ODF workflow delegation.`,
              status: isTimeout ? "timeout" : isCancelled ? "blocked" : "error",
              task_api_source: taskApiInfo.source,
              ...metricContext,
+             candidate_digest: policyGate?.candidate_digest ?? undefined,
              error: errorMessage,
           })
           // Receipt auto-seal (slice 4): persist a failure disposition so the
@@ -4386,9 +4687,6 @@ export interface WorkflowCommitResult {
 }
 
 const WORKFLOW_LOCK_SUFFIX = ".workflow.lock"
-const WORKFLOW_EVIDENCE_STATUSES = new Set([
-  "ok", "warning", "pass", "passed", "success", "successful", "verified", "complete", "completed",
-])
 
 function parseStateDocument(content: string): { state: Record<string, unknown>; document: ReturnType<typeof parseDocument> } | null {
   try {
@@ -4637,18 +4935,30 @@ function inspectPersistedTransition(opts: {
   return { ok: true, alreadyCommitted: false, reason: "ready", message: "Persisted workflow transition is ready.", snapshot: opts.snapshot, route, completed }
 }
 
-function selectedVerificationEvidence(snapshot: SelectedWorkflowSnapshot): ValidationVerdict {
-  const evidence = snapshot.artifacts.filter(artifact => {
-    const type = normalizeArtifactKey(artifact.key).type
-    return type === "verify" || type === "verify-report"
+/**
+ * VERIFY commit gate: re-validate the persisted validation-evidence file with
+ * the blind artifact rules. The policy gate carries the authoritative risk tier
+ * and frozen ref; without a persisted gate there is nothing to bind the
+ * transition to, so the transition stays blocked.
+ */
+function verifyEvidenceVerdict(workspaceRoot: string, changeName: string): ValidationVerdict {
+  let gate: Partial<PolicyGateDecision> | null = null
+  try {
+    gate = JSON.parse(
+      fsSync.readFileSync(path.join(workspaceRoot, ".odf", `policy-gate-${changeName}.json`), "utf8")
+    ) as Partial<PolicyGateDecision>
+  } catch {
+    gate = null
+  }
+  if (!gate) {
+    return { status: "missing", reason: "verification-evidence-missing: no policy gate persisted for this change — run the policy gate before verifying", commands_validated: 0 }
+  }
+  return validateValidationEvidence({
+    workspaceDir: workspaceRoot,
+    change: changeName,
+    tier: gate.risk_tier ?? "MEDIUM",
+    frozenDiffRef: gate.frozen_diff_ref ?? null,
   })
-  const valid = evidence.some(artifact => {
-    const status = contentStatus(artifact.content)
-    return status !== null && WORKFLOW_EVIDENCE_STATUSES.has(status)
-  })
-  return valid
-    ? { status: "verified", reason: "selected-store verification evidence verified", commands_validated: 1 }
-    : { status: "missing", reason: "selected-store verification evidence is missing or unsuccessful", commands_validated: 0 }
 }
 
 function workflowLockPath(workspaceRoot: string, changeName: string): string {
@@ -4756,6 +5066,41 @@ function writeEngramWorkflowState(
   }
 }
 
+/**
+ * Block reason when any persisted content-bound artifact (policy gate, validation
+ * evidence, receipt) is bound to a candidate digest that no longer matches the
+ * workspace. Returns null when git is unavailable or no artifact carries a
+ * digest (legacy flows stay unblocked; T3 makes the digest mandatory).
+ */
+function candidateDigestMismatchReason(workspaceRoot: string, changeName: string): string | null {
+  const fresh = candidateDigestOrNull(workspaceRoot)
+  if (fresh === null) return null
+
+  const bindings: Array<{ label: string; digest: string }> = []
+  try {
+    const gate = JSON.parse(
+      fsSync.readFileSync(path.join(workspaceRoot, ".odf", `policy-gate-${changeName}.json`), "utf8")
+    ) as Partial<PolicyGateDecision>
+    if (typeof gate.candidate_digest === "string") bindings.push({ label: "policy gate", digest: gate.candidate_digest })
+  } catch { /* no persisted gate */ }
+  try {
+    const evidence = JSON.parse(
+      fsSync.readFileSync(path.join(workspaceRoot, ".odf", `validation-evidence-${changeName}.json`), "utf8")
+    ) as Partial<ValidationEvidenceFile>
+    if (typeof evidence.candidate_digest === "string") bindings.push({ label: "validation evidence", digest: evidence.candidate_digest })
+  } catch { /* no persisted evidence */ }
+  const receiptRead = readReceiptFile(workspaceRoot, changeName)
+  const receiptDigest = receiptRead.receipt?.candidate_digest
+  if (typeof receiptDigest === "string") bindings.push({ label: "receipt", digest: receiptDigest })
+
+  for (const binding of bindings) {
+    if (binding.digest !== fresh) {
+      return `candidate-digest-mismatch: the ${binding.label} is bound to candidate ${binding.digest}, workspace candidate is ${fresh}`
+    }
+  }
+  return null
+}
+
 export async function commitWorkflowTransition(opts: {
   workspaceRoot: string
   changeName: string
@@ -4833,6 +5178,19 @@ export async function commitWorkflowTransition(opts: {
       )
     }
 
+    const digestMismatch = candidateDigestMismatchReason(opts.workspaceRoot, opts.changeName)
+    if (digestMismatch) {
+      return makeResult(
+        "blocked",
+        "candidate-digest-mismatch",
+        digestMismatch,
+        read.snapshot,
+        inspection.completed,
+        opts.validation,
+        null,
+      )
+    }
+
     if (opts.phaseResultStatus !== "ok" && opts.phaseResultStatus !== "warning") {
       return makeResult(
         "blocked",
@@ -4846,11 +5204,12 @@ export async function commitWorkflowTransition(opts: {
     }
 
     let validation = opts.validation
-    if (opts.expectedStage === "VERIFY") validation = selectedVerificationEvidence(read.snapshot)
+    if (opts.expectedStage === "VERIFY") validation = verifyEvidenceVerdict(opts.workspaceRoot, opts.changeName)
     if (validation?.status !== "verified") {
+      const reason = validation?.status === "missing" ? "verification-evidence-missing" : "verification-evidence-invalid"
       return makeResult(
         "blocked",
-        "workflow-evidence-invalid",
+        reason,
         validation?.reason || "Valid transition evidence is required.",
         read.snapshot,
         inspection.completed,
@@ -5435,6 +5794,66 @@ function createODFWorkflowRoute(): ReturnType<typeof tool> {
   })
 }
 
+function createODFEntryTriage(): ReturnType<typeof tool> {
+  return tool({
+    description: `Classify an ODF change entry as micro, standard, or full and select an existing canonical work type.
+
+Pure and read-only: no disk, registry, delegation, or side effects. If needs_question
+is true, ask one grouped question for the missing facts and re-run.`,
+    args: {
+      command: tool.schema
+        .string()
+        .optional()
+        .describe("Origin command (odf-new or odf-fix)"),
+      change: tool.schema
+        .string()
+        .optional()
+        .describe("Change name in kebab-case"),
+      description: tool.schema
+        .string()
+        .describe("User description of the change"),
+      explicit_work_type: tool.schema
+        .enum([...WORK_TYPES])
+        .optional()
+        .describe("Explicit canonical work type to honor"),
+      module: tool.schema
+        .string()
+        .optional()
+        .describe("Primary Odoo module (micro eligibility)"),
+      domain: tool.schema
+        .string()
+        .optional()
+        .describe("Functional domain (micro eligibility)"),
+      expected_files: tool.schema
+        .number()
+        .optional()
+        .describe("Forecast number of files to change (micro eligibility)"),
+      expectations_clear: tool.schema
+        .boolean()
+        .optional()
+        .describe("Whether expectations are clear (micro eligibility)"),
+      risk_signals: tool.schema
+        .array(tool.schema.string())
+        .optional()
+        .describe("Risk signals detected by the caller (security, migration, payment, public-api, data-loss)"),
+    },
+    async execute(args: Omit<EntryTriageInput, "change"> & { change?: string }): Promise<string> {
+      const result = classifyEntryTriage({
+        command: args.command,
+        change: args.change || "",
+        description: args.description || "",
+        explicit_work_type: args.explicit_work_type,
+        module: args.module,
+        domain: args.domain,
+        expected_files: args.expected_files,
+        expectations_clear: args.expectations_clear,
+        risk_signals: args.risk_signals,
+      })
+      return JSON.stringify(result, null, 2)
+    },
+  })
+}
+
 function createODFWorkflowAdvance(): ReturnType<typeof tool> {
   return tool({
     description: "Advance a canonical ODF workflow without writing state, receipts, artifacts, or files.",
@@ -5524,6 +5943,7 @@ function createODFWorkflowAdvance(): ReturnType<typeof tool> {
 - \`odf_workflow_route\`: read-only canonical route selection by work type
 - \`odf_workflow_advance\`: read-only canonical transition validation and next-stage calculation
 - \`odf_workflow_bind\`: explicit route binding; OpenSpec by default or Engram with \`artifact_store: engram\`
+- \`odf_entry_triage\`: read-only deterministic micro/standard/full entry classification and work-type selection for \`/odf-new\`
 - Proof-backed BUILD/VERIFY delegation requires an explicit \`artifact_store\`; the selected store is the single workflow-state authority.
 - Workflow state commits happen after successful inner results and evidence; ARCHIVED remains an explicit archive transition.
 - \`odf_skill_inject\`, \`odf_skill_resolve\`, \`odf_registry_read\`: standards and routing inspection
@@ -5627,6 +6047,7 @@ export const OdfDelegationPlugin: Plugin = async (ctx) => {
       odf_workflow_route: createODFWorkflowRoute(),
       odf_workflow_advance: createODFWorkflowAdvance(),
       odf_workflow_bind: createODFWorkflowBind(),
+      odf_entry_triage: createODFEntryTriage(),
       odf_skill_inject: createODFSkillInject(),
       odf_skill_resolve: createODFSkillResolve(),
       odf_registry_read: createODFRegistryRead(),
@@ -5665,6 +6086,7 @@ export {
   createODFWorkflowRoute,
   createODFWorkflowAdvance,
   createODFWorkflowBind,
+  createODFEntryTriage,
   createODFWorkflowStatus,
   createODFHealth,
   getProfileByPhase,
@@ -5673,11 +6095,11 @@ export {
   recordMetrics,
   ALLOWED_PHASES,
   createODFPolicyGate,
+  ODF_REGISTERED_TOOLS,
   type ODFRegistry,
   type ODFSkill,
   type ODFAgent,
   type ODFCommunityTool,
-  type DelegationMetrics,
   type WorkType,
   type WorkflowRoute,
 }

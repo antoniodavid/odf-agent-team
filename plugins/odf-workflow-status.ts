@@ -20,7 +20,7 @@ export interface WorkflowState {
   completed_stages?: unknown; work_type?: unknown; artifacts?: unknown; [key: string]: unknown
 }
 export interface WorkflowReceipt {
-  status?: unknown; action?: unknown; ref?: unknown; receipt_ref?: unknown; frozen_diff_ref?: unknown; evidence?: unknown; [key: string]: unknown
+  status?: unknown; action?: unknown; ref?: unknown; receipt_ref?: unknown; frozen_diff_ref?: unknown; evidence?: unknown; candidate_digest?: unknown; [key: string]: unknown
 }
 export interface WorkflowStatusInput {
   change: string; artifacts?: WorkflowArtifacts; state?: WorkflowState | string | null; receipt?: WorkflowReceipt | null
