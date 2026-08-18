@@ -37,7 +37,7 @@ Use after DESIGN returns approved task breakdown. Implement assigned tasks in ba
 2. **Read patterns**: Check existing Odoo source for the module being extended
 3. **Implement tasks**: For each task → read REQ-XX → read source patterns → write code (OCA standards) → mark [x]
 4. **Smoke test**: pre-commit run --files {changed} + pylint-odoo on changed files
-5. **Write stop-validation evidence**: run the tier's stop-validation commands and write `<worktree>/.odf/validation-evidence-{change}.json`. The Policy Gate decision injected in your prompt carries the authoritative `risk_tier` and `frozen_diff_ref` — use them. Minimum commands per tier (use the project's real commands from `odf-init/{project}`; no fabricated exit codes):
+5. **Write stop-validation evidence**: run the tier's stop-validation commands and write `<worktree>/.odf/validation-evidence-{change}.json`. The Policy Gate decision injected in your prompt carries the authoritative `risk_tier`, `frozen_diff_ref`, and `candidate_digest` — use them. Minimum commands per tier (use the project's real commands from `odf-init/{project}`; no fabricated exit codes):
    - **LOW**: ≥ 1 — e.g. `git diff --check` (+ AST parse of changed `.py`, or `xmllint --noout` when only views changed)
    - **MEDIUM**: ≥ 2 — LOW + module lint (pre-commit `--files` or pylint-odoo) + module tests (`test_command`)
    - **HIGH**: ≥ 3 — MEDIUM + `pre-commit run -a` + automated security scan (grep for `env.cr.execute` with interpolation, `eval(`, `subprocess` with `shell=True`)
@@ -47,6 +47,7 @@ Use after DESIGN returns approved task breakdown. Implement assigned tasks in ba
    {
      "change": "my-change", "phase": "IMPLEMENT", "batch": 1,
      "risk_tier": "MEDIUM", "frozen_diff_ref": "<same ref as the policy gate>",
+      "candidate_digest": "<same digest as the policy gate>",
      "resolved_at": "<ISO-8601>",
      "commands": [
        { "name": "git-diff-check", "command": "git diff --check", "exit_code": 0, "output_tail": "..." },

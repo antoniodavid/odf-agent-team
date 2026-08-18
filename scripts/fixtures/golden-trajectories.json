@@ -1,0 +1,97 @@
+[
+  {
+    "id": "golden-feature-success",
+    "work_type": "feature",
+    "risk": "low",
+    "expectation": "EXP-01",
+    "trajectory": [
+      { "step": "PROPOSE", "tool": "odf_delegate", "ok": true },
+      { "step": "ASSESS", "tool": "odf_delegate", "ok": true },
+      { "step": "DESIGN", "tool": "odf_delegate", "ok": true },
+      { "step": "IMPLEMENT", "tool": "odf_delegate", "ok": true },
+      { "step": "VERIFY", "tool": "odf_delegate", "ok": true }
+    ],
+    "outcome": "pass",
+    "golden": true,
+    "protects": "Una feature correcta atraviesa DECIDE->BUILD->VERIFY con todas las delegaciones ok y VERIFY contra EXP aprobadas"
+  },
+  {
+    "id": "golden-migration-failure",
+    "work_type": "migration",
+    "risk": "high",
+    "expectation": "EXP-01",
+    "trajectory": [
+      { "step": "ASSESS", "tool": "odf_delegate", "ok": true },
+      { "step": "IMPLEMENT", "tool": "odf_delegate", "ok": false },
+      { "step": "VERIFY", "tool": "odf_delegate", "ok": false }
+    ],
+    "outcome": "fail",
+    "golden": true,
+    "protects": "Una migración con fallo de build o de verify NO debe cerrarse como pass; el resultado fallido es el contrato esperado"
+  },
+  {
+    "id": "golden-recovery-correction",
+    "work_type": "feature",
+    "risk": "medium",
+    "expectation": "EXP-01",
+    "trajectory": [
+      { "step": "BUILD", "tool": "odf_delegate", "ok": false },
+      { "step": "BUILD-retry", "tool": "odf_delegate", "ok": true },
+      { "step": "VERIFY", "tool": "odf_delegate", "ok": true }
+    ],
+    "outcome": "pass",
+    "golden": true,
+    "protects": "Recovery legítimo: un build fallido seguido de corrección y re-verify contra el mismo frozen ref puede pasar; no debe marcarse como fail por el primer intento"
+  },
+  {
+    "id": "golden-stale-evidence",
+    "work_type": "feature",
+    "risk": "high",
+    "expectation": "EXP-02",
+    "trajectory": [
+      { "step": "IMPLEMENT", "tool": "odf_delegate", "ok": true },
+      { "step": "VERIFY", "tool": "receipt_stale", "ok": false }
+    ],
+    "outcome": "fail",
+    "golden": true,
+    "protects": "VERIFY con receipt/evidencia vieja (no fresca respecto al frozen ref) debe fallar; nunca validar con evidencia desactualizada"
+  },
+  {
+    "id": "golden-unsafe-tool",
+    "work_type": "feature",
+    "risk": "high",
+    "expectation": "EXP-01",
+    "trajectory": [
+      { "step": "IMPLEMENT", "tool": "odf_dba_devops", "ok": false, "note": "dropdb requested" }
+    ],
+    "outcome": "fail",
+    "golden": true,
+    "protects": "Un intento destructivo de DB (dropdb/DROP DATABASE) sin consentimiento explícito debe bloquearse; nunca ejecutarse"
+  },
+  {
+    "id": "golden-multicompany",
+    "work_type": "feature",
+    "risk": "medium",
+    "expectation": "EXP-02",
+    "trajectory": [
+      { "step": "ASSESS", "tool": "odf_delegate", "ok": true },
+      { "step": "IMPLEMENT", "tool": "odf_delegate", "ok": true },
+      { "step": "VERIFY", "tool": "odf_delegate", "ok": true, "note": "multi-company + ir.rule tested" }
+    ],
+    "outcome": "pass",
+    "golden": true,
+    "protects": "Edge case Odoo multi-company/ir.rule: la expectativa de aislamiento por compañía y reglas de acceso debe verificarse con tests de seguridad"
+  },
+  {
+    "id": "golden-unapproved-expectations",
+    "work_type": "feature",
+    "risk": "medium",
+    "expectation": "EXP-01",
+    "trajectory": [
+      { "step": "VERIFY", "tool": "odf_delegate", "ok": false, "note": "expectations-not-approved" }
+    ],
+    "outcome": "fail",
+    "golden": true,
+    "protects": "VERIFY con expectations no aprobadas debe bloquear (expectations-not-approved); nunca evaluar contra un contrato no confirmado"
+  }
+]

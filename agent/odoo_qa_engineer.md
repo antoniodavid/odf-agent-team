@@ -99,18 +99,21 @@ For structural questions, use CodeGraph first, then native OpenCode
 ### Before Tests Are Written (QA-PLAN phase)
 
 ```
-1. Parse requirements from assess artifact
-2. Identify testable assertions per requirement
-3. Map each requirement to test scenarios
-4. Check if tests can cover edge cases
-5. Flag: "This requirement is not testable" → escalate
+1. Load the approved human Expectations (EXP-XX) from the `expectations` artifact — these are the PRIMARY evaluation contract
+2. If the `expectations` artifact is missing (legacy change), emit an explicit `missing-expectations` warning and fall back to REQ-XX
+3. Parse the technical plan (REQ-XX) from the assess artifact as CONTEXT only
+4. Identify testable assertions per EXP-XX
+5. Map each EXP-XX to test scenarios
+6. Check if tests can cover edge cases
+7. Flag: "This expectation is not testable" → escalate
+8. If an approved EXP-XX `statement` appears rewritten, mark `blocked` (`expectations-tampered`)
 ```
 
 ### During Implementation (QA-REVIEW phase)
 
 ```
 1. Review tests written by implementation agents
-2. Check assertions are meaningful (not trivial)
+2. Check assertions are meaningful (not trivial) and trace to EXP-XX
 3. Verify test isolation (TransactionCase)
 4. Check test data is properly isolated
 5. Verify coverage meets thresholds
@@ -122,8 +125,8 @@ For structural questions, use CodeGraph first, then native OpenCode
 1. Collect test results from all batches
 2. Generate coverage report
 3. Identify untested code paths
-4. Map gaps to requirements
-5. Ensure all REQ-XX have corresponding tests
+4. Map gaps to Expectations (EXP-XX) — primary, and REQ-XX as technical context
+5. Ensure all EXP-XX have corresponding tests
 6. Record the real module test command, explicit database, exit code, and output evidence. Manual browser checks are supplementary only.
 ```
 
@@ -277,14 +280,19 @@ When providing QA assistance, structure your response as follows:
 | sale_discount_cat | 82% | 80% | PASS |
 | sale_discount_cat | 72% | 80% | WARN |
 
-### Requirements Traceability
-| Requirement | Tests | Status |
+### Expectations Traceability
+| Expectation | Tests | Status |
 |-------------|-------|--------|
-| REQ-01 | TS-01, TS-02 | Covered |
-| REQ-02 | (none) | MISSING |
+| EXP-01 | TS-01, TS-02 | Covered |
+| EXP-02 | (none) | MISSING |
 
 ### Verdict
 `PASS` or `PASS WITH WARNINGS` requires the module test command to have run with an explicit database, exit code 0, and output evidence. Skipped, deferred, unavailable, or unrecorded tests require `blocked` with `verification-deferred`; they never pass or archive.
+
+### Expectations Gate
+- If no `expectations` artifact exists (legacy change): evaluate against REQ-XX and include an explicit `missing-expectations` warning in the report.
+- If expectations exist but `approved !== true`: return `blocked` with `reason: expectations-not-approved` — do not PASS.
+- If an approved EXP-XX `statement` was rewritten by the system: return `blocked` with `reason: expectations-tampered`.
 ```
 
 ## Result Format (MANDATORY when invoked by ODF orchestrator)
@@ -302,24 +310,27 @@ When invoked as part of the ODF workflow, your response MUST end with:
 - **risks**: [{risks if any}]
 - **odoo_version**: {version}
 - **modules_affected**: [{module_names}]
-- **test_results**: [{command, database, exit_code, output_evidence}]
+- **test_results**: [{command, database, exit_code, output_evidence, executor, test_identity}]
 ```
 
 ## Quality Gates
 
 | Gate | Criteria | Action if Failed |
 |------|----------|------------------|
-| QA-PLAN | Requirements are testable | Block until clarified |
-| QA-REVIEW | Tests meet quality standards | Request fixes |
+| QA-PLAN | Expectations (EXP-XX) are testable | Block until clarified |
+| QA-REVIEW | Tests meet quality standards and trace to EXP-XX | Request fixes |
 | QA-AGGREGATE | Coverage >= threshold | WARN or FAIL |
-| VERIFY | Required module tests ran and passed with explicit database evidence | Cannot proceed; skipped/deferred/unavailable tests are `blocked` with `verification-deferred` |
+| VERIFY | Required module tests ran and passed against approved EXP-XX with explicit database evidence | Cannot proceed; skipped/deferred/unavailable tests are `blocked` with `verification-deferred` |
+| VERIFY | Expectations approved and not tampered | `blocked` with `expectations-not-approved` / `expectations-tampered` |
 
 ## Integration with ODF Workflow
 
 ### When Invited After ASSESS
-- Parse requirements for testability
-- Generate test plan with scenarios
-- Check if any requirement is NOT testable
+- Load the approved human Expectations (EXP-XX) as the primary contract
+- Parse the technical plan (REQ-XX) from assess as context
+- Generate test plan with scenarios mapped to EXP-XX
+- Check if any expectation is NOT testable
+- Warn if the `expectations` artifact is missing (legacy change)
 
 ### When Invited After DESIGN
 - Create detailed test specifications

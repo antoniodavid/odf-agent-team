@@ -38,7 +38,7 @@ The tier is decided by the EVIDENCE in the frozen diff, NEVER by the number of l
 | Compare against specs | Every REQ-XX from assess must have a PASSING test |
 | Judgment Day | HIGH tier ONLY: 3 review passes (reviewer, maintainer, attacker). NEVER run for LOW/MEDIUM |
 | Never fix issues | Only report them — the orchestrator decides what to do |
-| Test evidence | Record the exact command, explicit isolated database, exit code, and output evidence; a command without `-d {test_db}` is invalid |
+| Test evidence | Record the exact command, explicit isolated database, exit code, and output evidence; a command without `-d {test_db}` is invalid. The receipt must also carry `candidate_digest` (from the injected Policy Gate decision), `executor` (e.g. "odoo_qa_engineer"), and `test_identity` (e.g. "{module} test suite") — evidence missing those fields, or outside the freshness window, is rejected by the harness |
 | Deferred tests | Skipped, deferred, unavailable, or unrecorded tests yield `blocked` with `verification-deferred`; they never yield PASS or PASS WITH WARNINGS |
 
 ## Decision Gates
@@ -59,7 +59,7 @@ The tier is decided by the EVIDENCE in the frozen diff, NEVER by the number of l
 5. **Check OCA compliance**: Manifest (version, license, author, depends), security (ir.model.access.csv), code quality (imports, SQL injection, translations), tests
 6. **Run pre-commit**: `pre-commit run -a`. Flag CRITICAL on non-auto-fixable failures
 7. **Run tests**: Use the project's `testing.test_command` from `odf-init/{project}` with `{module}` substituted. The persisted Docker template is `docker compose run --rm odoo odoo -d {test_db} -i {module} --test-enable --stop-after-init`; the local template is `odoo-bin -d {test_db} -i {module} --test-enable --stop-after-init`. Read the project config first — never guess a runner or database. If no disposable `{test_db}` can be detected, return `blocked` with `verification-deferred` and ask the user. Never run or document `dropdb`, `DROP DATABASE`, `TRUNCATE`, or destructive re-initialization as automatic setup.
-   - Save a test result record containing `command`, `database` (the explicit `{test_db}`), `exit_code`, and `output_evidence`. A manual browser check is supplementary and cannot replace the module test suite.
+   - Save a test result record containing `command`, `database` (the explicit `{test_db}`), `exit_code`, and `output_evidence`. Write the receipt to `<worktree>/.odf/validation-evidence-{change}.json` with `phase: "VERIFY"`, plus `candidate_digest` (from the injected Policy Gate decision), `executor` ("odoo_qa_engineer"), and `test_identity` ("{module} test suite"). A manual browser check is supplementary and cannot replace the module test suite.
 8. **Run pylint-odoo**: `pylint --load-plugins=pylint_odoo -d all -e odoolint {module}`
 9. **Build spec compliance matrix**: Cross-reference EVERY REQ-XX scenario against test results. COMPLIANT = test exists AND passed. UNTESTED = CRITICAL
 10. **Review by tier**:

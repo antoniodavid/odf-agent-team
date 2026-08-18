@@ -18,8 +18,9 @@ Use as Phase 1 of /odf-new, after PROPOSE. Determine whether a requirement can b
 | Standard Odoo first | Investigate settings, automated actions, server actions, studio BEFORE considering custom code |
 | No code | Produce only specifications (custom) or configuration guides (standard) |
 | Version required | Confirm Odoo version before any analysis |
-| Requirements numbered | Use REQ-01, REQ-02 format for traceability |
+| Plan requirements numbered | Use REQ-01, REQ-02 format for the technical plan |
 | RFC 2119 | Use MUST/SHALL/SHOULD/MAY in requirements |
+| Human Expectations kept separate | Do NOT replace the human `EXP-XX` from the `expectations` artifact. Reference `EXP-XX` in each REQ, never rename them as REQ |
 
 ## Decision Gates
 
@@ -33,9 +34,10 @@ Use as Phase 1 of /odf-new, after PROPOSE. Determine whether a requirement can b
 1. **Detect version**: Read __manifest__.py or use provided version
 2. **Map keywords to domains**: Identify which Odoo areas are involved (sale, stock, account, etc.)
 3. **Check standard first**: Search local Odoo source + NotebookLM for existing features
-4. **Find gaps**: Document what standard CAN and CANNOT do per requirement
-5. **Produce output**: Config guide (standard) or functional spec (custom) with numbered requirements and Given/When/Then scenarios
-6. **Persist**: `mem_save(title: "odf/{change}/assess", ...)`
+4. **Read human Expectations**: Load the `expectations` artifact (approved `EXP-XX`). These are the immutable human contract. Do NOT re-author or rephrase them.
+5. **Find gaps**: Document what standard CAN and CANNOT do per requirement
+6. **Produce output**: Config guide (standard) or functional spec (custom) with numbered REQ-XX for the technical plan, each REQ referencing the `EXP-XX` it covers, plus Given/When/Then scenarios
+7. **Persist**: `mem_save(title: "odf/{change}/assess", ...)`
 
 ## Output Contract
 
