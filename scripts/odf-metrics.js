@@ -14,6 +14,8 @@
 import * as fs from "node:fs"
 import * as path from "node:path"
 import * as os from "node:os"
+import { estimateFromHistory } from "./odf-estimator.js"
+import { readLibrary, resolveLibraryPath } from "./odf-design-library.js"
 
 export function resolveMetricsDir() {
   const configDir = process.env.ODF_CONFIG_DIR
@@ -103,8 +105,86 @@ function hasTelemetry(record) {
   return !!record && (record.event !== undefined || record.schema_version !== undefined || record.model_available !== undefined || record.candidate_digest !== undefined)
 }
 
+/* ------------------------------------------------------------------ */
+/* C2 — learning / estimation progress (MAPE + library stats)           */
+/* ------------------------------------------------------------------ */
+
+const mean = (xs) => (xs.length ? xs.reduce((s, x) => s + x, 0) / xs.length : 0)
+const stddev = (xs) => {
+  if (xs.length < 2) return 0
+  const m = mean(xs)
+  return Math.sqrt(xs.reduce((s, x) => s + (x - m) ** 2, 0) / (xs.length - 1))
+}
+
+// Group all indexed designs by the estimator's bucket key (work_type + risk +
+// module_type); avg_rounds_real is the mean over entries WITH rounds_real
+// (null when a bucket has none — never invented).
+function bucketStats(designs) {
+  const byKey = new Map()
+  for (const d of designs) {
+    const meta = d && d.design_meta ? d.design_meta : {}
+    const key = `${meta.work_type ?? ""}|${meta.risk ?? ""}|${meta.module_type ?? ""}`
+    if (!byKey.has(key)) {
+      byKey.set(key, { work_type: meta.work_type ?? "", risk: meta.risk ?? "", module_type: meta.module_type ?? "", n: 0, rounds: [] })
+    }
+    const b = byKey.get(key)
+    b.n += 1
+    if (Number.isFinite(d.rounds_real) && d.rounds_real > 0) b.rounds.push(d.rounds_real)
+  }
+  return [...byKey.values()]
+    .map((b) => ({
+      work_type: b.work_type,
+      risk: b.risk,
+      module_type: b.module_type,
+      n: b.n,
+      avg_rounds_real: b.rounds.length ? Number(mean(b.rounds).toFixed(2)) : null,
+    }))
+    .sort((a, b) => b.n - a.n || `${a.work_type}|${a.risk}|${a.module_type}`.localeCompare(`${b.work_type}|${b.risk}|${b.module_type}`))
+}
+
+// Leave-one-out MAPE over the real estimator: for each design with rounds_real,
+// estimate it from every OTHER design (the estimator keeps same-bucket ones)
+// and measure |estimated_total_rounds - real| / real. Estimates that come back
+// no_data (no same-bucket peer) are skipped, not counted as zero error.
+function computeMape(withEffort) {
+  if (withEffort.length < 2) return { value: null, n: 0, sigma: null, label: "N/A" }
+  const aps = []
+  for (const d of withEffort) {
+    const peers = withEffort.filter((p) => p !== d)
+    const est = estimateFromHistory(d.design_meta, peers)
+    if (est.data_status !== "complete" || !est.estimate || est.estimate.total_rounds <= 0) continue
+    aps.push(Math.abs(est.estimate.total_rounds - d.rounds_real) / d.rounds_real)
+  }
+  if (aps.length === 0) return { value: null, n: 0, sigma: null, label: "N/A" }
+  const value = Number(mean(aps).toFixed(4))
+  return { value, n: aps.length, sigma: Number(stddev(aps).toFixed(4)), label: `${Math.round(value * 100)}%` }
+}
+
+/**
+ * Continuous-improvement signal over the design library (C2). Reports library
+ * size, per-bucket effort stats, and a leave-one-out MAPE of the estimator
+ * against real effort. Honesty contract (T8): with an empty library or fewer
+ * than 2 designs carrying rounds_real it returns data_status "no_data" with
+ * mape.value null / label "N/A" — never 0 nor NaN.
+ *
+ * reuse_proxy is a simple stand-in for reuse: the number of indexed designs
+ * (no reuse telemetry is captured today).
+ */
+export function learningProgress(library) {
+  const designs = library && Array.isArray(library.designs) ? library.designs : []
+  const withEffort = designs.filter((d) => d && d.design_meta && Number.isFinite(d.rounds_real) && d.rounds_real > 0)
+  const mape = computeMape(withEffort)
+  return {
+    data_status: mape.n > 0 ? "complete" : "no_data",
+    design_count: designs.length,
+    by_bucket: bucketStats(designs),
+    mape,
+    reuse_proxy: designs.length,
+  }
+}
+
 /** Build the dashboard from delegation records. */
-export function buildDashboard(records, days) {
+export function buildDashboard(records, days, library = null) {
   let total = 0
   const byAgent = new Map()
   const byWorkType = new Map()
@@ -246,6 +326,7 @@ export function buildDashboard(records, days) {
     skillRows,
     errorRows,
     days,
+    learning: learningProgress(library),
   }
 }
 
@@ -287,14 +368,29 @@ export function renderDashboard(d) {
   } else {
     lines.push("  (none)")
   }
+  const l = d.learning || { data_status: "no_data", design_count: 0, by_bucket: [], mape: { value: null, n: 0, sigma: null, label: "N/A" }, reuse_proxy: 0 }
+  lines.push("", "=== Learning / estimation progress ===")
+  lines.push(`  Design library: ${l.design_count} indexed`)
+  if (l.by_bucket.length > 0) {
+    lines.push(
+      "  By bucket: " + l.by_bucket.map((b) => `${b.work_type}/${b.risk}/${b.module_type}: n=${b.n}${b.avg_rounds_real !== null ? `, avg ${b.avg_rounds_real} rounds` : ""}`).join("; ")
+    )
+  }
+  lines.push(`  MAPE (leave-one-out): ${l.mape.label}`)
+  if (l.mape.n > 0) {
+    lines.push(`    n=${l.mape.n}, sigma=${l.mape.sigma}`)
+  }
   return lines.join("\n")
 }
 
 export function main(argv = process.argv.slice(2)) {
   const daysFlag = argv.indexOf("--days")
-  const days = daysFlag !== -1 && argv[daysFlag + 1] ? parseInt(argv[daysFlag + 1], 10) : 1
-  const records = collectDelegations(resolveMetricsDir(), Number.isFinite(days) ? days : 1)
-  const dashboard = buildDashboard(records, Number.isFinite(days) ? days : 1)
+  const daysRaw = daysFlag !== -1 && argv[daysFlag + 1] ? parseInt(argv[daysFlag + 1], 10) : 1
+  const days = Number.isFinite(daysRaw) ? daysRaw : 1
+  const records = collectDelegations(resolveMetricsDir(), days)
+  const library = readLibrary(resolveLibraryPath({ repo: argv.includes("--repo") }))
+  const dashboard = buildDashboard(records, days, library)
+  if (argv.includes("--json")) return JSON.stringify(dashboard, null, 2)
   return renderDashboard(dashboard)
 }
 

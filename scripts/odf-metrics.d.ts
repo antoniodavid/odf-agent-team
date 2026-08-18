@@ -28,6 +28,44 @@ export interface DelegationRecord {
 
 export type DataStatus = "no_data" | "partial" | "complete"
 
+export interface DesignLibraryEntry {
+  change?: string | null
+  design_meta?: Record<string, unknown>
+  rounds_real?: number | null
+  design_ref?: string | null
+  retrospective_ref?: string | null
+  archived_at?: string | null
+}
+
+export interface DesignLibrary {
+  schema_version?: number
+  data_status?: DataStatus
+  designs?: DesignLibraryEntry[]
+}
+
+export interface LearningBucket {
+  work_type: string
+  risk: string
+  module_type: string
+  n: number
+  avg_rounds_real: number | null
+}
+
+export interface LearningMape {
+  value: number | null
+  n: number
+  sigma: number | null
+  label: string
+}
+
+export interface LearningProgress {
+  data_status: DataStatus
+  design_count: number
+  by_bucket: LearningBucket[]
+  mape: LearningMape
+  reuse_proxy: number
+}
+
 export interface DashboardData {
   total: number
   data_status: DataStatus
@@ -50,11 +88,13 @@ export interface DashboardData {
   skillRows: string[]
   errorRows: string[]
   days: number
+  learning: LearningProgress
 }
 
 export function resolveMetricsDir(): string
 export function readDelegationFile(filePath: string): DelegationRecord[]
 export function collectDelegations(metricsDir: string, days: number): DelegationRecord[]
-export function buildDashboard(records: DelegationRecord[], days: number): DashboardData
+export function learningProgress(library: DesignLibrary | null | undefined): LearningProgress
+export function buildDashboard(records: DelegationRecord[], days: number, library?: DesignLibrary | null): DashboardData
 export function renderDashboard(d: DashboardData): string
 export function main(argv?: string[]): string

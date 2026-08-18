@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest"
 import * as fs from "node:fs/promises"
 import * as path from "node:path"
 import * as os from "node:os"
-import { readDelegationFile, collectDelegations, buildDashboard, renderDashboard } from "./odf-metrics.js"
+import { readDelegationFile, collectDelegations, buildDashboard, renderDashboard, learningProgress } from "./odf-metrics.js"
 
 const now = new Date()
 
@@ -137,5 +137,99 @@ describe("buildDashboard + render", () => {
     expect(d.joinRows.join("\n")).toContain("complete")
     expect(d.validationRatio).toBe(0.5)
     expect(renderDashboard(d)).toContain("Scheduler Joins")
+  })
+})
+
+describe("learningProgress (C2)", () => {
+  let seq = 0
+  // Same bucket key as the estimator: work_type+risk+module_type. models=1,
+  // tasks=2, risk low → the estimator predicts 115 rounds for a 100-round design
+  // (100 base + 15% integration), i.e. an APE of 0.15.
+  function libDesign(rounds_real: number | null, bucket: Record<string, unknown> = { work_type: "feature", risk: "low", module_type: "new" }) {
+    seq += 1
+    return {
+      change: `c${seq}`,
+      design_meta: { models: 1, fields: 10, views: 1, tasks: 2, exp_count: 0, manifest_depends: [], module_destination: "test_module", ...bucket },
+      rounds_real,
+      archived_at: "2026-01-01",
+    }
+  }
+
+  it("learning-progress-no-library: null/empty gives no_data and N/A mape", () => {
+    for (const lib of [null, undefined, {}, { designs: [] }]) {
+      const lp = learningProgress(lib)
+      expect(lp.data_status).toBe("no_data")
+      expect(lp.design_count).toBe(0)
+      expect(lp.by_bucket).toEqual([])
+      expect(lp.mape.value).toBeNull()
+      expect(lp.mape.n).toBe(0)
+      expect(lp.mape.sigma).toBeNull()
+      expect(lp.mape.label).toBe("N/A")
+      expect(lp.reuse_proxy).toBe(0)
+    }
+  })
+
+  it("learning-progress-one-design: a single design cannot form a MAPE", () => {
+    const lp = learningProgress({ schema_version: 1, designs: [libDesign(50)] })
+    expect(lp.data_status).toBe("no_data")
+    expect(lp.design_count).toBe(1)
+    expect(lp.reuse_proxy).toBe(1)
+    expect(lp.mape.value).toBeNull()
+    expect(lp.mape.label).toBe("N/A")
+    expect(lp.by_bucket).toHaveLength(1)
+    expect(lp.by_bucket[0]).toMatchObject({ work_type: "feature", risk: "low", module_type: "new", n: 1, avg_rounds_real: 50 })
+  })
+
+  it("learning-progress-mape: leave-one-out MAPE over same-bucket designs", () => {
+    const lp = learningProgress({ schema_version: 1, designs: [libDesign(100), libDesign(100), libDesign(100)] })
+    expect(lp.data_status).toBe("complete")
+    expect(lp.design_count).toBe(3)
+    expect(lp.reuse_proxy).toBe(3)
+    expect(lp.mape.n).toBe(3)
+    expect(lp.mape.value).toBeCloseTo(0.15, 4)
+    expect(lp.mape.sigma).toBe(0)
+    expect(lp.mape.label).toBe("15%")
+    expect(lp.by_bucket).toHaveLength(1)
+    expect(lp.by_bucket[0].avg_rounds_real).toBe(100)
+  })
+
+  it("learning-progress-mixed-buckets: buckets separate and MAPE uses its own bucket", () => {
+    const lp = learningProgress({
+      schema_version: 1,
+      designs: [
+        libDesign(100),
+        libDesign(100),
+        libDesign(100),
+        libDesign(50, { work_type: "feature", risk: "high", module_type: "inherit" }),
+      ],
+    })
+    expect(lp.data_status).toBe("complete")
+    expect(lp.by_bucket).toHaveLength(2)
+    expect(lp.by_bucket[0]).toMatchObject({ work_type: "feature", risk: "low", module_type: "new", n: 3, avg_rounds_real: 100 })
+    expect(lp.by_bucket[1]).toMatchObject({ work_type: "feature", risk: "high", module_type: "inherit", n: 1, avg_rounds_real: 50 })
+    expect(lp.mape.n).toBe(3)
+    expect(lp.mape.value).toBeCloseTo(0.15, 4)
+  })
+
+  it("learning-progress-no-rounds: designs without rounds_real give no_data", () => {
+    const lp = learningProgress({ schema_version: 1, designs: [libDesign(null), libDesign(null)] })
+    expect(lp.data_status).toBe("no_data")
+    expect(lp.design_count).toBe(2)
+    expect(lp.mape.value).toBeNull()
+    expect(lp.mape.label).toBe("N/A")
+    expect(lp.by_bucket[0].avg_rounds_real).toBeNull()
+  })
+
+  it("render shows the learning section, N/A when no library, MAPE when complete", () => {
+    const empty = renderDashboard(buildDashboard([], 1))
+    expect(empty).toContain("=== Learning / estimation progress ===")
+    expect(empty).toContain("Design library: 0 indexed")
+    expect(empty).toContain("MAPE (leave-one-out): N/A")
+
+    const lib = { schema_version: 1, designs: [libDesign(100), libDesign(100), libDesign(100)] }
+    const full = renderDashboard(buildDashboard([{ agent: "a", status: "ok" }], 1, lib))
+    expect(full).toContain("Design library: 3 indexed")
+    expect(full).toContain("MAPE (leave-one-out): 15%")
+    expect(full).toContain("n=3, sigma=0")
   })
 })
