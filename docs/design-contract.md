@@ -114,6 +114,61 @@ El documento DEBE pasar TODOS los criterios antes de devolverse:
 - [ ] Cada tarea del plan de IMPLEMENT ligada a archivo(s) exacto(s) y EXP-XX.
 - [ ] IMPLEMENT puede proceder sin re-investigar (no quedan decisiones abiertas).
 
+## design_meta (para estimación y biblioteca)
+
+Además del documento completo, DESIGN deriva un **resumen estructurado**
+`design_meta` que alimenta el estimador por similitud (`scripts/odf-estimator.js`)
+y una futura biblioteca de diseños. Es **derivado** del documento cerrado, nunca
+inventado: si no hay documento cerrado, no hay `design_meta`.
+
+```json
+{
+  "change": "<kebab>",
+  "work_type": "feature|migration|security|small-change|standard-config|...",
+  "risk": "low|medium|high",
+  "module_type": "new|inherit",
+  "odoo_version": 17,
+  "models": 2,
+  "fields": 9,
+  "views": 3,
+  "tasks": 6,
+  "exp_count": 3,
+  "manifest_depends": ["sale", "account"],
+  "module_destination": "sale",
+  "closed": true
+}
+```
+
+### Campo → significado
+
+| Campo | Tipo | Origen en el documento cerrado |
+|-------|------|-------------------------------|
+| `change` | string | Nombre kebab-case del cambio. |
+| `work_type` | string | Naturaleza del cambio: `feature` / `migration` / `security` / `small-change` / `standard-config` / ... |
+| `risk` | string | `low` / `medium` / `high` — según complejidad y superficie del diseño. |
+| `module_type` | string | `new` (crear módulo) o `inherit` (extender) — del paso "Fix the module". |
+| `odoo_version` | int | 16 / 17 / 18 / 19 — del contexto. |
+| `models` | int | Nº de modelos definidos en la sección data model. |
+| `fields` | int | Total de campos definidos (todos los modelos). |
+| `views` | int | Nº de vistas/acciones/menús definidos en la sección vistas. |
+| `tasks` | int | Nº de filas del plan de IMPLEMENT (T1..Tn). |
+| `exp_count` | int | Nº de filas de la tabla de resolución EXP-XX. |
+| `manifest_depends` | string[] | Dependencias del manifest, del contexto. |
+| `module_destination` | string | Módulo destino exacto (nuevo o heredado). |
+| `closed` | bool | `true` si el diseño pasó el checklist de cierre (§8). |
+
+### Derivación
+
+- Contar: `models` (filas por modelo en data model), `fields` (suma de campos),
+  `views` (filas de vistas/acciones/menús), `tasks` (filas del plan de IMPLEMENT),
+  `exp_count` (filas de resolución EXP-XX).
+- `module_type` del paso "Fix the module" (new vs inherit).
+- `manifest_depends` y `odoo_version` del contexto.
+- `closed` = checklist §8 completo.
+
+Si DESIGN no puede derivar algún campo (documento vacío o sin datos), devuelve
+`design_meta: null` con `reason` — nunca valores inventados.
+
 ## Persistencia
 
 El documento design se persiste en el store seleccionado:

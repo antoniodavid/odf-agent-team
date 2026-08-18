@@ -55,14 +55,21 @@ plan from it. The orchestrator will approve before IMPLEMENT.
 6. **Apply the closed-design checklist** (`docs/design-contract.md` §8). If not
    closed, iterate before returning; if a decision genuinely cannot be resolved,
    return `blocked` listing the open decisions.
-7. **Persist**: `mem_save(title: "odf/{change}/design", ...)` with `design_path`
-   and `design_closed`.
+7. **Persist**: `mem_save(title: "odf/{change}/design", ...)` with `design_path`,
+   `design_closed`, and `design_meta`. Derive `design_meta` from the closed
+   document per `docs/design-contract.md` §"design_meta": count models, fields,
+   views, tasks, EXP-XX rows; `module_type` from the "Fix the module" decision;
+   `manifest_depends`/`odoo_version` from the context. Include `design_meta` in
+   the envelope and as part of the persisted artifact. If it cannot be derived
+   (empty document / no data), return `design_meta: null` with `reason` — never
+   invent values.
 
 ## Output Contract
 
 Return ODF Result envelope with: status (ok), executive_summary ("N modules, M
 models, V views, K tasks in M phases — design closed"), **design_closed** (true|false),
-**design_path** (path of the persisted design.md), artifacts_saved,
+**design_path** (path of the persisted design.md), **design_meta** (structured summary
+for estimation — see `docs/design-contract.md`), artifacts_saved,
 next_recommended (["implement"]), risks, odoo_version, modules_affected. If
 `design_closed: false`, do NOT return ok — iterate or return blocked.
 
