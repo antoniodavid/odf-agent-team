@@ -15,7 +15,7 @@ Use odf-fix for targeted bugs where the problem is known and scope is small (1-3
 
 | Rule | Requirement |
 |------|-------------|
-| No gates | Run DIAGNOSE → FIX → VERIFY continuously without pausing for approval |
+| No gates | No human phase-approval pauses: run DIAGNOSE → FIX → VERIFY continuously. Mechanical gates (`odf_policy_gate`, validation evidence, VERIFY, risk escalation) stay mandatory and run silently |
 | Root cause first | Identify root cause BEFORE modifying any code |
 | Test validates fix | Include a test that fails without the fix |
 | Scope bound | If diagnosis reveals >3 files affected, STOP and suggest /odf-new |

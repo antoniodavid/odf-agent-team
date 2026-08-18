@@ -59,7 +59,11 @@ Usar para:
 
 Cuando la actividad delegue trabajo ODF, usar `odf_delegate` y su resolución de
 skills; no llamar `task()` directamente. Los nombres legacy de los artefactos
-se conservan como adaptadores de compatibilidad.
+se conservan como adaptadores de compatibilidad. Con strict workflow activo por
+defecto, toda delegación con fase `IMPLEMENT`/`VERIFY` debe pasar la transición
+bajo `workflow_advance`, `artifact_store: openspec|engram` y un `attempt_id`
+opaco y nuevo; QA-REVIEW/AGGREGATE/REPORT son sub-pasos dentro de un intento
+BUILD/VERIFY ya abierto, no inicios gateados frescos.
 
 **QA-PLAN** (lente de `PLAN`; nombre legacy):
 ```

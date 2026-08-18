@@ -108,6 +108,7 @@ not a mandatory step before every VERIFY. VERIFY remains an independent stage.
 ## Plugin Tools
 
 - `odf_workflow_route(work_type)` selects route depth from the executable matrix.
+- `odf_entry_triage(description, ...)` classifies a `/odf-new` entry as micro/standard/full and selects an existing canonical work type deterministically; pure and read-only, it may ask one grouped question via `needs_question`.
 - `odf_workflow_bind(change_name, work_type, artifact_store)` explicitly binds the route in OpenSpec by default or persists the canonical state binding to `odf/{change}/state` when `artifact_store: engram`; it is mutating and validated.
 - `odf_workflow_advance(...)` is a read-only, store-independent advisory transition check; for BUILD/VERIFY starts, embed its exact input under `workflow_advance` in `odf_delegate` and pass an explicit `artifact_store: openspec|engram`. Delegate-side validation is authoritative and commits only that selected store; it never dual-writes.
 - `odf_delegate` runs legacy phase adapters and preserves their contracts.
@@ -116,9 +117,13 @@ not a mandatory step before every VERIFY. VERIFY remains an independent stage.
 
 ## Delegation Rules
 
+At `/odf-new`, classify the change with `odf_entry_triage` before resolving work_type; never let migration, security, payment, public API, or data-loss signals choose micro; if the triage is ambiguous, ask one grouped question.
+
+**Micro path:** when `odf_entry_triage` returns micro with `needs_question: false`, skip PROPOSE/ASSESS approval rounds; use an inline plan before BUILD; ask at most one grouped question when a fact is missing; escalate on any high-risk signal before editing.
+
 1. At `/odf-new` start, call `odf_workflow_route(work_type)` and then `odf_workflow_bind(change_name, work_type, artifact_store: openspec)` before the first phase when OpenSpec `state.yaml` exists. For Engram-only state, call the binding with `artifact_store: engram`; `odf_workflow_status` may then recover the persisted state from Engram. Stop on a binding failure and never claim OpenSpec persistence for Engram-only changes.
 2. On continuation, use only a valid persisted `work_type` from `odf_workflow_status`. Never infer it from legacy phase, artifacts, or solution strategy. If absent, require explicit `--work-type <type>` before route resolution and any BUILD/VERIFY gate; bind it with the explicit selected `artifact_store` when state exists, otherwise forward it without claiming OpenSpec persistence. Do not silently choose a default.
-3. Before BUILD (`IMPLEMENT`) or VERIFY starts, call `odf_workflow_advance` with that persisted or explicitly selected `work_type` and current transition evidence, then embed that exact input under `workflow_advance` in `odf_delegate` together with an explicit `artifact_store` and fresh opaque `attempt_id`. Reusing an attempt ID or relaunching a completed phase is blocked; an already committed desired state returns `already-committed` without relaunching. The delegate locks and re-reads the selected state, recomputes the transition, commits state before settling the attempt complete, and fails closed on evidence or persistence errors. Legacy compatibility callers may omit `workflow_advance` (and therefore `artifact_store` and `attempt_id`) only while registry `flags.strict_workflow` is `false` (the default); strict mode blocks that omission before delegation.
+3. Before BUILD (`IMPLEMENT`) or VERIFY starts, call `odf_workflow_advance` with that persisted or explicitly selected `work_type` and current transition evidence, then embed that exact input under `workflow_advance` in `odf_delegate` together with an explicit `artifact_store` and fresh opaque `attempt_id`. Reusing an attempt ID or relaunching a completed phase is blocked; an already committed desired state returns `already-committed` without relaunching. The delegate locks and re-reads the selected state, recomputes the transition, commits state before settling the attempt complete, and fails closed on evidence or persistence errors. Legacy compatibility callers may omit `workflow_advance` (and therefore `artifact_store` and `attempt_id`) only while registry `flags.strict_workflow` is explicitly `false` (self-service opt-out; the default is `true` since the strict-workflow rollout); strict mode blocks that omission before delegation.
 4. Delegate every ODF phase through `odf_delegate`; do not call `task()` directly.
 5. Before every code/design/review delegation, resolve registry skills by file and task context.
 6. Inject compact rules under `## Project Standards (auto-resolved)`, with at most five skills; prioritize code context, then task context.
@@ -219,9 +224,11 @@ comes from `odf_workflow_route`; adapters must not create extra business stages.
 ### PROPOSE
 
 - In `interactive`, ask 3-5 business questions before delegation: problem, users, rules, scope, and risks/rollback. In `batch`, skip this voluntary question round.
+- **Capture human Expectations**: before delegating, distill the USER's intent and expectations from the command description plus ONE clarification round (via `question`). You do NOT author `EXP-XX` from your own analysis — you only reformulate the user's stated expectations as testable `EXP-XX` statements and request explicit confirmation. Persist the `expectations` artifact (see `docs/expectations-contract.md`) to the selected store (`openspec/changes/{change}/expectations` or `odf/{change}/expectations`) and mark `approved: true` only after the user confirms. Every `EXP` has `owned_by: "human"`.
 - Delegate the proposal; it contains intent, scope, capabilities, approach, affected areas, risks, rollback, and success criteria.
 - No code, functional spec, or configuration guide; keep it under 300 words.
 - Persist `odf/{change}/propose`. In `interactive`, ask whether to approve and assess, adjust scope, or cancel; in `batch`, continue only for inner `ok`/`warning`. `blocked`/`failed` or a product/user disposition stops.
+- **Immutability**: once an `EXP` is `approved: true`, no agent may rewrite its `statement`. Only an explicit later human approval (clear `approved`, edit, re-approve) may modify it.
 
 ### ASSESS
 
@@ -253,10 +260,11 @@ comes from `odf_workflow_route`; adapters must not create extra business stages.
 
 1. Call `odf_policy_gate(change, phase="VERIFY")` before delegation. Pass through its `frozen_diff_ref`, `risk_tier`, `changed_lines`, `correction_budget_lines`, and effective TDD; never recompute them. Forward strict TDD only when `tdd.effective === "on"`.
 2. The risk tier is evidence-based: changed-path and content signals may escalate to HIGH, never downgrade. Use the tier to select lenses: HIGH four, MEDIUM one, LOW zero.
-3. Verify the real module test suite, lint, OCA compliance, spec coverage, and the frozen candidate. Persist `odf/{change}/verify-report` on PASS or PASS WITH WARNINGS only when the required test command actually ran and passed. The test result record MUST include command, explicit database, exit code, and output evidence. A manual browser check is supplementary. Skipped, deferred, unavailable, or unrecorded tests yield `blocked` with `verification-deferred`, never PASS or PASS WITH WARNINGS.
-4. On FAIL, allow one correction attempt within the returned budget and re-verify once against the same frozen ref. An inconclusive frozen-byte inspection does not consume the attempt.
-5. If the inspected re-verification still fails, write `odf_receipt` FIRST with cause/evidence/refs, then stop for exactly one actionable disposition: scope change, re-plan, or abandon. In `interactive`, use `question`; in `batch`, present the same disposition without auto-continuing. Never auto-loop.
-6. Update the receipt with the user's committed action. A successful VERIFY saves a retrospective under `odf-learned/{project}/{change}`.
+3. Ensure an approved `expectations` artifact exists and forward it to VERIFY as the primary evaluation criterion. If expectations are missing (legacy change), instruct VERIFY to evaluate against the plan/REQ and emit the explicit `missing-expectations` warning.
+4. Verify the real module test suite, lint, OCA compliance, spec coverage, and the frozen candidate against the approved Expectations. Persist `odf/{change}/verify-report` on PASS or PASS WITH WARNINGS only when the required test command actually ran and passed. The test result record MUST include command, explicit database, exit code, and output evidence. A manual browser check is supplementary. Skipped, deferred, unavailable, or unrecorded tests yield `blocked` with `verification-deferred`, never PASS or PASS WITH WARNINGS.
+5. On FAIL, allow one correction attempt within the returned budget and re-verify once against the same frozen ref. An inconclusive frozen-byte inspection does not consume the attempt.
+6. If the inspected re-verification still fails, write `odf_receipt` FIRST with cause/evidence/refs, then stop for exactly one actionable disposition: scope change, re-plan, or abandon. In `interactive`, use `question`; in `batch`, present the same disposition without auto-continuing. Never auto-loop.
+7. Update the receipt with the user's committed action. A successful VERIFY saves a retrospective under `odf-learned/{project}/{change}`.
 
 ## Continue and Receipts
 

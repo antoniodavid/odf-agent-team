@@ -56,16 +56,23 @@ ODF: Verifying "{change-name}"
   Imports: Correct order
 
   -- Spec Compliance --
-  | Requirement | Status |
+  | Expectation | Status |
   |-------------|--------|
-  | REQ-01: Discount per category | COMPLIANT |
-  | REQ-02: Manager-only config | COMPLIANT |
-  | REQ-03: Negative discount blocked | PARTIAL |
+  | EXP-01: Discount per category | COMPLIANT |
+  | EXP-02: Manager-only config | COMPLIANT |
+  | EXP-03: Negative discount blocked | PARTIAL |
 
    Verdict: PASS WITH WARNINGS
    Warnings: 1 scenario partially covered
    Correction budget: min(200, ceil(X/2)) = Y lines, 0/1 attempts used
 ```
+
+Evaluate against the approved human Expectations (EXP-XX) as the primary
+contract; use REQ-XX only as technical context. If no `expectations` artifact
+exists (legacy change), emit an explicit `missing-expectations` warning and
+fall back to REQ-XX. If expectations exist but are not approved, or an
+approved statement was rewritten, block with `expectations-not-approved` /
+`expectations-tampered`.
 
 If the test command cannot run, is skipped, deferred, unavailable, lacks an
 explicit `-d {test_db}`, or has no result record with command, database,
@@ -73,3 +80,7 @@ exit_code, and output evidence, return `blocked` with
 `verification-deferred`. Ask for the exact disposable database instead of
 guessing one. Never run or generate `dropdb`, `DROP DATABASE`, `TRUNCATE`, or
 destructive re-initialization as automatic setup.
+
+The receipt must also include `candidate_digest`, `executor`, and
+`test_identity` (from the injected Policy Gate decision) or the harness
+rejects it before the workflow can advance.

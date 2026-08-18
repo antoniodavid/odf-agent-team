@@ -24,7 +24,7 @@ decisión de ruta ni el `PLAN`/`DESIGN` requerido.
 3. **Verificar el PLAN requerido**: leer el diseño/tareas canónicas o el artefacto legacy `odf/{change}/design`. Si no está completo, detenerse y sugerir `/odf-continue`; no hacer bypass directo.
 4. **Determinar las tareas pendientes** desde el desglose de tareas, fusionando el progreso existente sin sobrescribirlo.
 5. **Antes de cada lote**, ejecutar `odf_policy_gate(change, phase="IMPLEMENT")`; su decisión es autoritativa.
-6. **Delegar el lote** mediante `odf_delegate` usando el adaptador legacy `IMPLEMENT` para `BUILD`. No llamar `task()` directamente.
+6. **Delegar el lote** mediante `odf_delegate` usando el adaptador legacy `IMPLEMENT` para `BUILD`, pasando la transición hacia `BUILD` bajo `workflow_advance`, un `artifact_store: openspec|engram` explícito y un `attempt_id` opaco y nuevo; strict workflow está activo por defecto y la omisión de esos campos se bloquea. No llamar `task()` directamente.
 7. **Seleccionar el agente** según el dominio de la tarea:
    - Modelos Python, vistas y seguridad — `odoo_backend_engineer`
    - Componentes JS/OWL/QWeb — `odoo_frontend_engineer`

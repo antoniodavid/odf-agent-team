@@ -17,6 +17,10 @@ Compone el flujo `diagnose -> BUILD -> VERIFY`. `FIX` es la entrada/adaptador de
 diagnóstico y `BUILD` usa el adaptador legacy `IMPLEMENT`; no existe un bypass
 válido mediante una tarea directa fuera del workflow.
 
+"Sin pausas" se refiere a aprobaciones de fase humanas: los gates mecánicos
+(`odf_policy_gate`, validation evidence, VERIFY y escalado de riesgo) siguen
+siendo obligatorios y se ejecutan en silencio.
+
 ## Instrucciones para el orquestador
 
 1. **Comprobar configuración**: `mem_search("odf-init/{project-name}")` para comandos de test/lint.
@@ -28,9 +32,9 @@ válido mediante una tarea directa fuera del workflow.
    - Bug de integración → `odoo_api_integrator`
    - Bug de base de datos/rendimiento → `odoo_dba_devops`
    - Sin dominio claro → `odoo_backend_engineer` (predeterminado)
-5. **Elegir el plan**: un bugfix pequeño y localizado puede usar un plan inline y continuar a `BUILD`. Si el diagnóstico revela un cambio arquitectónico, multi-file o de riesgo elevado, escalar a `DECIDE -> PLAN`; no continuar como tarea directa.
-6. **Ejecutar BUILD** mediante `odf_delegate` con el adaptador legacy `IMPLEMENT`. Antes de cada lote, aplicar `odf_policy_gate`; cerrar solo con validation evidence verificada y actualizar `implement-progress`.
-7. **Ejecutar VERIFY** mediante `odf_delegate`, conservando el frozen ref, el correction budget y la selección de riesgo/lentes.
+5. **Elegir el plan**: un bugfix pequeño y localizado puede usar un plan inline y continuar a `BUILD`. Si el diagnóstico revela un cambio arquitectónico, multi-file o de riesgo elevado, escalar a `DECIDE -> PLAN` ANTES de editar; no continuar como tarea directa.
+6. **Ejecutar BUILD** mediante `odf_delegate` con el adaptador legacy `IMPLEMENT`, pasando la transición de `odf_workflow_route("bugfix")` bajo `workflow_advance`, un `artifact_store: openspec|engram` explícito y un `attempt_id` opaco y nuevo por lanzamiento. Strict workflow está activo por defecto; omitir esos campos bloquea antes de delegar. Antes de cada lote, aplicar `odf_policy_gate`; cerrar solo con validation evidence verificada y actualizar `implement-progress`.
+7. **Ejecutar VERIFY** mediante `odf_delegate` con la transición hacia `VERIFY` bajo `workflow_advance`, `artifact_store: openspec|engram` explícito y un `attempt_id` opaco y nuevo, conservando el frozen ref, el correction budget y la selección de riesgo/lentes.
 8. **Mostrar resultados** al usuario, preservando receipt y garantías de verificación:
 
 ```
