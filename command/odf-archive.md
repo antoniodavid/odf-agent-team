@@ -16,9 +16,10 @@ Examples:
 Formalizes the closure of a completed ODF change:
 1. Finalizes the retrospective (lessons learned + calibrated effort)
 2. Appends the design to the reusable design library (`design-library/index.json`)
-3. Saves to Engram for future reference
-4. Cleans up active state
-5. Updates metrics
+3. Proposes reviewable skill/memory candidates from the verified change (C1, never auto-activated)
+4. Saves to Engram for future reference
+5. Cleans up active state
+6. Updates metrics
 
 **Only run this AFTER successful VERIFY.**
 
@@ -148,7 +149,36 @@ Formalizes the closure of a completed ODF change:
    )
    ```
 
-8. **Mark as archived (update state):**
+8. **Propose learning candidates from the archived change (C1):**
+   Build a verified run from the change's artifacts and feed the T12 learning loop:
+   ```
+   proposeFromArchivedChange({
+     design_meta,            // from step 3 (or design_meta.candidate_digest)
+     expectations,           // odf/{change}/expectations (approved EXP-XX)
+     records,                // IMPLEMENT telemetry from step 3
+     goldens,                // scripts/fixtures/golden-trajectories.json
+     outcome: "pass",        // VERIFY passed
+     receipt: { status: "success", candidate_digest, receipt_id: "<verify-report>" },
+   })                        // scripts/odf-learning-bridge.js
+   ```
+   - `buildVerifiedRunFromChange` requires a 64-hex `candidate_digest` (from the verify receipt or `design_meta.candidate_digest`) AND approved expectations; without them the run is `no_data` and NOTHING is proposed (fail-closed, T8).
+   - `tool_call_count` is derived honestly and flagged via `tool_call_source`: `"actual"` when records carry per-tool spans, `"derived"` when it comes from `rounds_real` (`collectImplementationRounds`), `null` when there is no data — never invented.
+   - Skills are proposed ONLY from a difficult (`>= tool_calls_threshold`, default 5) verified success. NEVER auto-activate: every candidate is `proposed_for: "human"` (learning-loop-contract.md).
+   - Only proceed when `data_status: "complete"`; with `no_data` skip steps 9 and the skill confirmation below (N/A).
+
+9. **Save learning proposals to Engram (C1):**
+   ```
+   mem_save(
+     title: "odf/{change-name}/learning-proposals",
+     topic_key: "odf/{change-name}/learning-proposals",
+     type: "learning",
+     project: "{project}",
+     content: "{skill_candidates + memory_candidates + golden_regression + kpi JSON}"
+   )
+   ```
+   Saved for human review later; nothing is activated at archive time.
+
+10. **Mark as archived (update state):**
    ```
    mem_save(
      title: "odf/{change-name}/state",
@@ -191,6 +221,11 @@ ODF: Change Archived
   Learnings saved to Engram:
   - odf/{change-name}/retrospective
   - odf-learned/{project}/{change-name}
+  - odf/{change-name}/learning-proposals
+
+  Skills propuestos (requieren aprobación humana):
+  - skill-{work_type}-{digest8}: {N} tool calls (source: actual|derived), ruta verificada
+  (o "Ninguno" si no hay candidatos de skill / data_status no_data)
 
   The change is now archived and available for future reference.
 ```
@@ -223,5 +258,6 @@ After archiving:
 - Change appears in `/odf-metrics`
 - Design is searchable via `scripts/odf-design-library.js search <query> [index.json]`
 - Calibration buckets available via `scripts/odf-design-library.js calibrate <index.json>`
+- Skill/memory candidates from the verified change stored in `odf/{change}/learning-proposals`, awaiting human approval
 - Learnings referenced in future `/odf-new` explorations
 - Available via `mem_search("odf-learned/{project}/")`
