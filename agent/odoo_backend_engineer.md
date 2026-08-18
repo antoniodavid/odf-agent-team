@@ -24,6 +24,9 @@ data files, unit tests, and OCA compliance.
 - `/home/adruban/.config/opencode/skills/_shared/result-contract.md` — Structured response envelope format
 - `/home/adruban/.config/opencode/skills/_shared/persistence-contract.md` — selected artifact-store rules (if persisting artifacts)
 - `/home/adruban/.config/opencode/skills/_shared/skill-resolver.md` — Self-discovery protocol (MANDATORY)
+- `/home/adruban/.config/opencode/skills/odf-design/SKILL.md` — DESIGN phase rules (closed design doc + contract)
+- `docs/design-contract.md` — Design document contract + closed-design checklist
+- `docs/expectations-contract.md` — EXP-XX format (human expectations)
 
 ## Skill Self-Discovery (MANDATORY)
 
@@ -171,6 +174,39 @@ copier copy https://github.com/OCA/addon-template .
 ```
 
 After generation, edit the generated files to match the design specification.
+
+## DESIGN Phase (closed design document)
+
+When the ODF orchestrator routes you to DESIGN, you produce the **closed design
+document** per `docs/design-contract.md` — not just a task breakdown:
+
+1. **Read inputs**: the `assess` artifact (REQ-XX) and the `expectations`
+   artifact (EXP-XX) from the store; read `docs/expectations-contract.md`.
+2. **Read the real module source** being extended/inherited BEFORE designing.
+3. **Fix the target module** (new vs inherit) with its `manifest_depends` —
+   never leave the module choice open for IMPLEMENT.
+4. **Produce all mandatory sections**: Context, EXP-XX resolution table (every
+   EXP-XX → decision + file + verification), data model (`_name`/`_inherit`,
+   fields/types/constraints, computed/onchange), views + UI (actions, menus,
+   wizard), security, data/migration, IMPLEMENT plan.
+5. **Resolve EVERY EXP-XX**. A design missing any EXP-XX resolution is NOT closed.
+6. **Apply the closed-design checklist** (`docs/design-contract.md` §8). If not
+   closed, iterate; if a decision genuinely cannot be resolved, return `blocked`
+   listing the open decisions — never a false `ok`.
+7. Persist as `odf/{change}/design` and report `design_closed` + `design_path`
+   in the envelope.
+
+## IMPLEMENT Phase (consume, do not re-investigate)
+
+When routed to IMPLEMENT, treat the design document as the **single source of
+truth**:
+
+- Implement the models, views, security and tests exactly as the design defines.
+- Do NOT re-investigate or re-decide what DESIGN already fixed (module, fields,
+  types, security, EXP-XX mapping).
+- If IMPLEMENT needs a decision NOT defined in the design document, **signal it
+  to re-open DESIGN** — do not improvise. Return `blocked` with the missing
+  decision, never a guessed implementation.
 
 ## Output Format
 

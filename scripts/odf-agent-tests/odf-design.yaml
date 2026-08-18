@@ -1,0 +1,24 @@
+name: odf-design
+agent: odoo_backend_engineer
+tests:
+  - name: "closed design document for sale discount"
+    input:
+      task: "Design a discount field on sale.order applying a configurable percentage discount to the total. Produce a CLOSED design document: fix the target module, resolve all EXP-XX expectations, define the data model, views, security and the IMPLEMENT task plan with exact target files."
+      context:
+        version: 18
+        files: ["models/sale_order.py"]
+    expected:
+      skill_resolution: "self-discovered"
+      status_in: ["ok"]
+      diagnosis_has: ["design", "module", "security"]
+
+  - name: "design resolves human expectations before implement"
+    input:
+      task: "Design an architecture for inventory lot tracking. Produce a closed design: resolve every EXP-XX human expectation to concrete technical decisions and files, define data model and security, so IMPLEMENT does not re-investigate."
+      context:
+        version: 17
+        files: ["models/stock_lot.py"]
+    expected:
+      skill_resolution: "self-discovered"
+      status_in: ["ok"]
+      diagnosis_has: ["design", "exp", "model"]

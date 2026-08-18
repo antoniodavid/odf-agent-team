@@ -562,7 +562,7 @@
         "architecture",
         "task breakdown"
       ],
-      "compact_rules": "Read source BEFORE designing. Link every task to REQ-XX.\n- Architecture decisions with rationale + rejected alternatives\n- Data model: models + fields. Views: type + action\n- Every model MUST have ir.model.access.csv\n- Every feature MUST have >=1 test task\n- 3 phases: Foundation (models+security) \u2192 Views \u2192 Tests+Polish\n- Multi-module: primary first, secondary after. Task IDs: A1.1, B1.1",
+      "compact_rules": "Produce a CLOSED design document (docs/design-contract.md).\n- Read ASSESS REQ-XX + human EXPECTATIONS EXP-XX BEFORE designing\n- Fix the target module (new vs inherited) \u2014 IMPLEMENT must not decide it\n- Resolve every EXP-XX into concrete fields/models/views/security/archives\n- Data model: _name/_inherit + fields (type, required, index, relation, default)\n- Views: type + action + domain + menu parent. Security: ir.model.access.csv by group + ir.rule\n- Derive IMPLEMENT tasks: each task references exact file(s) + EXP-XX\n- Apply the closed-design checklist; if not closed -> iterate, never return ok\n- IMPLEMENT consumes the design; missing decision -> reopen DESIGN, never improvise",
       "path": "skills/odf-design/SKILL.md",
       "odoo_versions": [
         14,
@@ -573,8 +573,13 @@
         19
       ],
       "sdd_phase": "DESIGN",
-      "version": "2.0",
+      "version": "3.0",
       "changelog": [
+        {
+          "version": "3.0",
+          "date": "2026-08-17",
+          "change": "Closed design document contract (docs/design-contract.md); resolve human EXP-XX; fix target module; IMPLEMENT must not re-investigate"
+        },
         {
           "version": "2.0",
           "date": "2026-05-14",
@@ -586,7 +591,7 @@
           "change": "Initial design flow"
         }
       ],
-      "last_updated": "2026-05-14"
+      "last_updated": "2026-08-17"
     },
     {
       "name": "odf-implement",
