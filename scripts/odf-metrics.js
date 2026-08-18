@@ -96,6 +96,13 @@ function joinRecord(record) {
   }
 }
 
+/** True when a record carries any of the T7 telemetry fields. Shared heuristic
+ *  with odf-evaluation.js — a record is "telemetry-bearing" if it has any of
+ *  event / schema_version / model_available / candidate_digest. */
+function hasTelemetry(record) {
+  return !!record && (record.event !== undefined || record.schema_version !== undefined || record.model_available !== undefined || record.candidate_digest !== undefined)
+}
+
 /** Build the dashboard from delegation records. */
 export function buildDashboard(records, days) {
   let total = 0
@@ -174,7 +181,9 @@ export function buildDashboard(records, days) {
 
   const fmtDur = (ms) => `${Math.round((ms || 0) / 1000)}s`
   const fmtTokens = (n) => (n || 0).toLocaleString()
-  const pct = (part, tot) => (tot > 0 ? Math.round((part / tot) * 100) : 0)
+  // Returns null (not 0/100) when there is no base — a percentage over zero
+  // records would misrepresent "no data" as a real figure.
+  const pct = (part, tot) => (tot > 0 ? Math.round((part / tot) * 100) : null)
   const fmtRatio = (ratio) => ratio === null ? "n/a" : `${Math.round(ratio * 100)}%`
 
   const agentRows = [...byAgent.entries()]
@@ -208,13 +217,27 @@ export function buildDashboard(records, days) {
     .slice(0, 10)
     .map((e) => `  ${String(e.timestamp || "unknown").slice(0, 64)} | ${e.agent} | ${String(e.error || "").replace(/\s+/g, " ").slice(0, 80)} | ${fmtDur(e.duration_ms)}`)
 
+  // "partial" heuristic (same simple rule as odf-evaluation): a dataset is
+  // partial when at least one record lacks the T7 telemetry fields. Coverage
+  // is the ratio of telemetry-bearing records; null when none lack fields.
+  const withTelemetry = records.filter(hasTelemetry).length
+  const partial = records.length > 0 && withTelemetry < records.length
+  const data_status = total === 0 ? "no_data" : partial ? "partial" : "complete"
+
   return {
     total,
+    data_status,
+    coverage: partial ? withTelemetry / records.length : null,
+    records_with_telemetry: withTelemetry,
     avgDurationMs: total > 0 ? durationSum / total : 0,
     avgTokens: total > 0 ? tokensSum / total : 0,
     selfDiscoveredPct: pct(selfDiscovered, total),
+    selfDiscoveredPctLabel: total > 0 ? `${pct(selfDiscovered, total)}%` : "N/A",
+    skillInjectionPct: pct(total - selfDiscovered, total),
+    skillInjectionPctLabel: total > 0 ? `${pct(total - selfDiscovered, total)}%` : "N/A",
     errorsCount: errors.length,
     errorPct: pct(errors.length, total),
+    errorPctLabel: total > 0 ? `${pct(errors.length, total)}%` : "N/A",
     agentRows,
     workTypeRows,
     branchRows,
@@ -232,11 +255,11 @@ export function renderDashboard(d) {
     "",
     "=== Overall ===",
     `  Total delegations: ${d.total}`,
-    `  Avg duration: ${Math.round(d.avgDurationMs / 1000)}s`,
-    `  Avg tokens: ${Math.round(d.avgTokens)}`,
-    `  Skill resolution rate: ${100 - d.selfDiscoveredPct}% injected`,
+    `  Avg duration: ${d.total > 0 ? `${Math.round(d.avgDurationMs / 1000)}s` : "N/A"}`,
+    `  Avg tokens: ${d.total > 0 ? `${Math.round(d.avgTokens)}` : "N/A"}`,
+    `  Skill resolution rate: ${d.skillInjectionPctLabel} injected`,
     `  Validation ratio: ${d.validationRatio === null ? "n/a" : `${Math.round(d.validationRatio * 100)}%`}`,
-    `  Errors: ${d.errorsCount} (${d.errorPct}%)`,
+    `  Errors: ${d.errorsCount} (${d.errorPctLabel})`,
     "",
     "=== By Agent ===",
     `  ${"Agent".padEnd(18)} ${"Delegations".padStart(11)} ${"Avg Dur".padStart(9)} ${"Avg Tokens".padStart(12)} ${"Resolution".padStart(11)}`,

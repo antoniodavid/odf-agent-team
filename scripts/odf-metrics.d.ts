@@ -18,15 +18,30 @@ export interface DelegationRecord {
   join_running?: number
   validation_ratio?: number
   error?: string
+  event?: string
+  schema_version?: number
+  model_available?: boolean
+  candidate_digest?: string
+  trace_id?: string
+  receipt_ref?: string
 }
+
+export type DataStatus = "no_data" | "partial" | "complete"
 
 export interface DashboardData {
   total: number
+  data_status: DataStatus
+  coverage: number | null
+  records_with_telemetry: number
   avgDurationMs: number
   avgTokens: number
-  selfDiscoveredPct: number
+  selfDiscoveredPct: number | null
+  selfDiscoveredPctLabel: string
+  skillInjectionPct: number | null
+  skillInjectionPctLabel: string
   errorsCount: number
-  errorPct: number
+  errorPct: number | null
+  errorPctLabel: string
   agentRows: string[]
   workTypeRows: string[]
   branchRows: string[]

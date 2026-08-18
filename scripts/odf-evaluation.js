@@ -7,32 +7,130 @@ function matchExpectation(record, expected) {
   return Object.entries(expected || {}).every(([key, value]) => record[key] === value)
 }
 
-/** Deterministic evaluation over checked-in or supplied JSON fixtures. */
+/**
+ * Deterministic evaluation over checked-in or supplied JSON fixtures.
+ * An empty/missing fixture set is honest "no_data": score is null (N/A),
+ * never 1 (a perfect score on zero evidence would misrepresent results).
+ */
 export function evaluateOffline(fixtures) {
-  const results = (Array.isArray(fixtures) ? fixtures : []).map((fixture, index) => ({
+  if (!Array.isArray(fixtures) || fixtures.length === 0) {
+    return { mode: "offline", data_status: "no_data", total: 0, passed: 0, failed: 0, score: null, score_label: "N/A", results: [] }
+  }
+  const results = fixtures.map((fixture, index) => ({
     name: fixture.name || `fixture-${index + 1}`,
     passed: matchExpectation(fixture.record || {}, fixture.expect),
   }))
   const passed = results.filter(result => result.passed).length
   return {
     mode: "offline",
+    data_status: "complete",
     total: results.length,
     passed,
     failed: results.length - passed,
-    score: results.length ? passed / results.length : 1,
+    score: passed / results.length,
+    score_label: `${passed}/${results.length}`,
     results,
   }
 }
 
-/** Evaluate only observed metric records; no model or provider is involved. */
+/**
+ * Evaluate only observed metric records; no model or provider is involved.
+ * Zero observed records is honest "no_data": score null + N/A, never 1.
+ *
+ * "partial" heuristic: a dataset is partial when at least one record lacks the
+ * T7 telemetry fields (event / schema_version / model_available / candidate_digest
+ * or the T7 fields on the record itself). Coverage = telemetry-bearing records / total.
+ * Partial data still yields a real score when there are records to score.
+ */
+function hasTelemetry(record) {
+  return !!record && (record.event !== undefined || record.schema_version !== undefined || record.model_available !== undefined || record.candidate_digest !== undefined)
+}
+
 export function evaluateOnline(records, days = 1) {
   const dashboard = buildDashboard(records, days)
-  return {
+  if (!Array.isArray(records) || records.length === 0 || dashboard.total === 0) {
+    return { mode: "online", data_status: "no_data", total: 0, errors: 0, error_rate: null, score: null, score_label: "N/A" }
+  }
+  const total = dashboard.total
+  const errors = dashboard.errorsCount
+  const withTelemetry = records.filter(hasTelemetry).length
+  const partial = withTelemetry < records.length
+  const coverage = partial ? withTelemetry / records.length : null
+  const result = {
     mode: "online",
-    total: dashboard.total,
-    errors: dashboard.errorsCount,
-    error_rate: dashboard.total ? dashboard.errorsCount / dashboard.total : 0,
-    score: dashboard.total ? 1 - dashboard.errorsCount / dashboard.total : 1,
+    total,
+    errors,
+    error_rate: errors / total,
+    score: 1 - errors / total,
+    score_label: `${errors}/${total} errors`,
+  }
+  if (partial) {
+    result.data_status = "partial"
+    result.coverage = coverage
+    result.records_with_telemetry = withTelemetry
+  } else {
+    result.data_status = "complete"
+  }
+  return result
+}
+
+const VALID_WORK_TYPES = new Set(["feature", "migration", "security", "bugfix", "cross-domain", "custom"])
+const VALID_RISKS = new Set(["low", "medium", "high"])
+const VALID_OUTCOMES = new Set(["pass", "fail"])
+
+/**
+ * Deterministic shape/consistency check for a single golden trajectory.
+ * A golden is a reference corpus entry, not an executable runner; we only
+ * verify that its shape is well-formed and its fields are consistent.
+ */
+export function validateGolden(golden) {
+  const problems = []
+  if (!golden || typeof golden !== "object") {
+    return { valid: false, problems: ["golden must be an object"] }
+  }
+  if (typeof golden.id !== "string" || golden.id.length === 0) problems.push("id must be a non-empty string")
+  if (!VALID_WORK_TYPES.has(golden.work_type)) problems.push(`work_type must be one of ${[...VALID_WORK_TYPES].join(", ")}`)
+  if (!VALID_RISKS.has(golden.risk)) problems.push(`risk must be one of ${[...VALID_RISKS].join(", ")}`)
+  if (!VALID_OUTCOMES.has(golden.outcome)) problems.push("outcome must be 'pass' or 'fail'")
+  if (typeof golden.expectation !== "string" || golden.expectation.length === 0) problems.push("expectation must be a non-empty string")
+  if (typeof golden.protects !== "string" || golden.protects.trim().length === 0) problems.push("protects must be a non-empty string describing the guarded defect/contract")
+  if (golden.golden !== true) problems.push("golden must be true")
+  if (!Array.isArray(golden.trajectory) || golden.trajectory.length === 0) problems.push("trajectory must be a non-empty array")
+  for (const step of golden.trajectory || []) {
+    if (!step || typeof step.step !== "string") { problems.push("each trajectory step must have a string step"); break }
+    if (step.ok !== undefined && typeof step.ok !== "boolean") { problems.push("each trajectory step ok must be boolean"); break }
+  }
+  return { valid: problems.length === 0, problems }
+}
+
+/**
+ * Deterministic reference-corpus evaluation over golden trajectories.
+ * Empty/missing corpus is honest "no_data": score null (N/A), never 1.
+ * This is a shape/consistency verifier, not an executable trajectory runner.
+ */
+export function evaluateGoldens(goldens) {
+  if (!Array.isArray(goldens) || goldens.length === 0) {
+    return { mode: "golden", data_status: "no_data", total: 0, passed: 0, failed: 0, score: null, results: [] }
+  }
+  const results = goldens.map((golden) => {
+    const { valid, problems } = validateGolden(golden)
+    return {
+      id: golden && golden.id ? golden.id : "(unnamed)",
+      passed: valid,
+      expectation: golden && golden.expectation ? golden.expectation : null,
+      protects: golden && golden.protects ? golden.protects : null,
+      problems: valid ? [] : problems,
+    }
+  })
+  const passed = results.filter((result) => result.passed).length
+  return {
+    mode: "golden",
+    data_status: "complete",
+    total: results.length,
+    passed,
+    failed: results.length - passed,
+    score: results.length ? passed / results.length : null,
+    results,
   }
 }
 
@@ -43,12 +141,13 @@ function readJson(filePath) {
 export function main(argv = process.argv.slice(2)) {
   const [mode, input, daysArg] = argv
   if (mode === "offline" && input) return evaluateOffline(readJson(input))
+  if (mode === "golden" && input) return evaluateGoldens(readJson(input))
   if (mode === "online") {
     const days = Number.parseInt(daysArg || "7", 10)
     const records = input ? readJson(input) : collectDelegations(resolveMetricsDir(), days)
     return evaluateOnline(records, days)
   }
-  throw new Error("Usage: odf-evaluation offline <fixtures.json> | online [metrics.json] [days]")
+  throw new Error("Usage: odf-evaluation offline <fixtures.json> | golden <goldens.json> | online [metrics.json] [days]")
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) console.log(JSON.stringify(main(), null, 2))

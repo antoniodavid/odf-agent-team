@@ -88,6 +88,35 @@ describe("buildDashboard + render", () => {
     expect(out).toContain("Avg duration: 1s")
   })
 
+  it("dashboard-no-data: zero lines give N/A percentages, no 100%, data_status no_data", () => {
+    const d = buildDashboard([], 1)
+    expect(d.total).toBe(0)
+    expect(d.data_status).toBe("no_data")
+    expect(d.selfDiscoveredPct).toBeNull()
+    expect(d.skillInjectionPct).toBeNull()
+    expect(d.errorPct).toBeNull()
+    expect(d.selfDiscoveredPctLabel).toBe("N/A")
+    expect(d.skillInjectionPctLabel).toBe("N/A")
+    expect(d.errorPctLabel).toBe("N/A")
+    expect(d.coverage).toBeNull()
+    const out = renderDashboard(d)
+    expect(out).not.toContain("100%")
+    expect(out).not.toContain("0%")
+    expect(out).toContain("Skill resolution rate: N/A injected")
+    expect(out).toContain("Errors: 0 (N/A)")
+  })
+
+  it("dashboard-partial: legacy lines without T7 telemetry expose partial + coverage", () => {
+    const d = buildDashboard([
+      { agent: "backend", status: "ok", event: "complete", schema_version: 2, model_available: true, candidate_digest: "abc" },
+      { agent: "backend", status: "ok" },
+      { agent: "backend", status: "error" },
+    ], 1)
+    expect(d.data_status).toBe("partial")
+    expect(d.coverage).toBeCloseTo(1 / 3)
+    expect(d.records_with_telemetry).toBe(1)
+  })
+
   it("aggregates bounded work, branch, and join fields while reading legacy records", () => {
     const d = buildDashboard([
       { agent: "backend", duration_ms: 1000, token_estimate: 100, skill_resolution: "injected", skills_injected: [], status: "ok", work_type: "cross-domain", branch_id: "backend" },
