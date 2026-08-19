@@ -285,6 +285,105 @@ describe("createODFWorkflowBind", () => {
     }
   })
 
+  it("materializes a terminal DECIDE prefix for a complete small change", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "odf-micro-bind-"))
+    const changeDir = path.join(root, "openspec", "changes", "micro-change")
+    await fs.mkdir(changeDir, { recursive: true })
+    await fs.writeFile(path.join(changeDir, "state.yaml"), "preflight:\n  solution_strategy: standard\n", "utf8")
+
+    try {
+      const output = JSON.parse(await createODFWorkflowBind().execute({
+        change_name: "micro-change",
+        work_type: "small-change",
+        terminal_stage: "DECIDE",
+        intent: "Add the discount field",
+        expectations_approved: true,
+        workspace_dir: root,
+      }, {} as any) as string)
+      expect(output).toMatchObject({ status: "bound", terminal_stage: "DECIDE" })
+      expect(YAML.parse(await fs.readFile(path.join(changeDir, "state.yaml"), "utf8"))).toMatchObject({
+        work_type: "small-change",
+        canonical_stage: "DECIDE",
+        completed_canonical_stages: ["DECIDE"],
+      })
+      expect(YAML.parse(await fs.readFile(path.join(changeDir, "decision.yaml"), "utf8"))).toMatchObject({
+        status: "passed",
+        intent: "Add the discount field",
+        expectations_approved: true,
+      })
+      const advance = JSON.parse(await createODFWorkflowAdvance().execute({
+        work_type: "small-change",
+        completed_stages: [],
+        candidate_stage: "DECIDE",
+        phase_result_status: "ok",
+        validation_status: "verified",
+        receipt_state: "none",
+        resumable_state: true,
+        archived_state: false,
+      }, {} as any) as string)
+      expect(advance).toMatchObject({ status: "advanced", next_stage: "BUILD" })
+    } finally {
+      await fs.rm(root, { recursive: true, force: true })
+    }
+  })
+
+  it("creates and materializes terminal FIX for a bugfix without prior state", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "odf-fix-bind-"))
+    const changeDir = path.join(root, "openspec", "changes", "fix-change")
+
+    try {
+      const output = JSON.parse(await createODFWorkflowBind().execute({
+        change_name: "fix-change",
+        work_type: "bugfix",
+        terminal_stage: "FIX",
+        root_cause: "The quantity guard ran after rounding",
+        regression: "Add a zero-quantity regression test",
+        workspace_dir: root,
+      }, {} as any) as string)
+      expect(output).toMatchObject({ status: "bound", terminal_stage: "FIX" })
+      expect(YAML.parse(await fs.readFile(path.join(changeDir, "state.yaml"), "utf8"))).toMatchObject({
+        work_type: "bugfix",
+        canonical_stage: "FIX",
+        completed_canonical_stages: ["FIX"],
+      })
+      expect(YAML.parse(await fs.readFile(path.join(changeDir, "fix.yaml"), "utf8"))).toMatchObject({
+        status: "passed",
+        root_cause: "The quantity guard ran after rounding",
+        regression: "Add a zero-quantity regression test",
+      })
+    } finally {
+      await fs.rm(root, { recursive: true, force: true })
+    }
+  })
+
+  it("blocks BUILD without state and offers a safe continuation", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "odf-missing-state-"))
+    try {
+      const { createODFDelegate } = await import("./odf-delegation.js")
+      const output = JSON.parse(await createODFDelegate(undefined, root).execute({
+        phase: "IMPLEMENT",
+        change: "missing-state",
+        artifact_store: "openspec",
+        attempt_id: "missing-state-attempt",
+        prompt: "Build the change",
+        context_files: [],
+        workflow_advance: {
+          work_type: "small-change",
+          completed_stages: [],
+          candidate_stage: "DECIDE",
+          phase_result_status: "ok",
+          validation_status: "verified",
+          receipt_state: "none",
+          resumable_state: true,
+          archived_state: false,
+        },
+      }, { sessionID: "missing-state", task: vi.fn() } as any) as string)
+      expect(output).toMatchObject({ status: "blocked", reason: "workflow-state-not-found", safe_continuation: "/odf-continue missing-state" })
+    } finally {
+      await fs.rm(root, { recursive: true, force: true })
+    }
+  })
+
   it("blocks missing, malformed, unsafe, and invalid binding inputs", async () => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), "odf-workflow-bind-blocked-"))
     const changeDir = path.join(root, "openspec", "changes", "broken-change")
@@ -480,18 +579,17 @@ describe("resolvePath", () => {
 
 describe("matchSkills", () => {
   it("returns up to 5 matching skills sorted by score", () => {
-    const skills = matchSkills(baseRegistry, {
+    const skills = matchSkills(baseRegistry, "DESIGN", {
       task: "Design a new model with python",
       files: ["models/sale_order.py"],
     })
     expect(skills.length).toBeGreaterThan(0)
     expect(skills.length).toBeLessThanOrEqual(5)
-    // File match for .py gives python style the highest score.
-    expect(skills[0].name).toBe("oca-python-style")
+    expect(skills[0].name).toBe("odf-design")
   })
 
   it("filters by Odoo version", () => {
-    const skills = matchSkills(baseRegistry, {
+    const skills = matchSkills(baseRegistry, "DESIGN", {
       task: "Design a model",
       files: [],
       odooVersion: 14,
@@ -502,11 +600,48 @@ describe("matchSkills", () => {
   })
 
   it("returns no skills when nothing matches", () => {
-    const skills = matchSkills(baseRegistry, {
+    const skills = matchSkills(baseRegistry, null, {
       task: "deploy to kubernetes",
       files: [],
     })
     expect(skills).toEqual([])
+  })
+
+  it("selects the canonical skill for the requested phase", () => {
+    const skills = matchSkills(baseRegistry, "DESIGN", {
+      task: "unrelated task",
+      files: [],
+    })
+    expect(skills[0].name).toBe("odf-design")
+  })
+
+  it("does not select an ODF skill with an incompatible phase", () => {
+    const skills = matchSkills({
+      ...baseRegistry,
+      skills: [...baseRegistry.skills, {
+        name: "odf-implement",
+        title: "Implement",
+        category: "odf",
+        triggers: ["implement", "python"],
+        compact_rules: "Implement rules",
+        path: "/tmp/odf-implement.md",
+        odoo_versions: [16],
+        sdd_phase: "IMPLEMENT",
+      } as ODFSkill],
+    }, "DESIGN", {
+      task: "implement python code",
+      files: [],
+    })
+    expect(skills.map((skill) => skill.name)).not.toContain("odf-implement")
+    expect(skills.map((skill) => skill.name)).toContain("oca-python-style")
+  })
+
+  it("falls back to contextual skills when no canonical skill exists", () => {
+    const skills = matchSkills(baseRegistry, "VERIFY", {
+      task: "python model",
+      files: ["models/sale_order.py"],
+    })
+    expect(skills.map((skill) => skill.name)).toContain("oca-python-style")
   })
 })
 
@@ -1271,9 +1406,9 @@ describe("createODFDelegate", () => {
         validation_status: "not-required" as const,
         receipt_state: "none" as const,
         resumable_state: true,
-        archived_state: false,
-      }
-    : {
+       archived_state: false,
+       }
+     : {
         work_type: "feature" as const,
         completed_stages: ["DECIDE" as const, "PLAN" as const],
         candidate_stage: "BUILD" as const,
@@ -1281,8 +1416,19 @@ describe("createODFDelegate", () => {
         validation_status: "verified" as const,
         receipt_state: "none" as const,
         resumable_state: true,
-        archived_state: false,
-      }
+         archived_state: false,
+       }
+
+  const archiveProof = {
+    work_type: "feature" as const,
+    completed_stages: ["DECIDE" as const, "PLAN" as const, "BUILD" as const, "VERIFY" as const],
+    candidate_stage: null,
+    phase_result_status: "ok" as const,
+    validation_status: "verified" as const,
+    receipt_state: "none" as const,
+    resumable_state: true,
+    archived_state: false,
+  }
 
   const parallelWorkflowAdvance = () => ({
     work_type: "cross-domain" as const,
@@ -1351,7 +1497,13 @@ describe("createODFDelegate", () => {
       "resumable: true",
       "",
     ].join("\n"), "utf8")
-    if (phase === "VERIFY") await fs.writeFile(path.join(changeDir, "verify.yaml"), "status: passed\n", "utf8")
+    if (phase === "IMPLEMENT") {
+      await fs.writeFile(path.join(changeDir, "implement-progress.md"), "- [x] implementation\n", "utf8")
+    }
+    if (phase === "VERIFY") {
+      await fs.writeFile(path.join(changeDir, "verify.yaml"), "status: passed\n", "utf8")
+      await fs.writeFile(path.join(changeDir, "verify-report.yaml"), "status: passed\n", "utf8")
+    }
   }
 
   // T3: a runnable VERIFY delegation needs a git workspace plus a persisted
@@ -1378,8 +1530,26 @@ describe("createODFDelegate", () => {
       commands: [
         { name: "odoo-tests", command: "odoo-bin -d odf_test_db -i test_module --test-enable --stop-after-init", database: "odf_test_db", exit_code: 0, output_tail: "12 passed, 0 failed" },
         { name: "git-diff-check", command: "git diff --check", database: "odf_test_db", exit_code: 0, output_tail: "no whitespace errors" },
-      ],
-    }))
+       ],
+      }))
+    }
+
+  const writeExpectations = async (change: string, overrides = "") => {
+    const content = `change: ${change}
+intent: Verify the implementation
+expectations:
+  - id: EXP-01
+    statement: The implementation passes verification
+    testable: true
+    owned_by: human
+approved: true
+approved_by: user
+approved_at: 2026-08-17T00:00:00Z
+immutable_since: 2026-08-17T00:00:00Z
+${overrides}`
+    const changeDir = path.join(tempHome, "openspec", "changes", change)
+    await fs.mkdir(changeDir, { recursive: true })
+    await fs.writeFile(path.join(changeDir, "expectations.yaml"), content, "utf8")
   }
 
   const setRegistryFlags = async (flags: Record<string, boolean>) => {
@@ -1526,7 +1696,7 @@ describe("createODFDelegate", () => {
   it("blocks a destructive prompt pre-tool and never delegates (T11)", async () => {
     const { createODFDelegate, clearMetricsBuffer, getMetricsBuffer } = await import("./odf-delegation.js")
     clearMetricsBuffer()
-    const taskApi = vi.fn().mockResolvedValue({ status: "ok" })
+     const taskApi = vi.fn().mockResolvedValue({ status: "ok", design_closed: true })
     const output = await createODFDelegate(undefined, tempHome).execute({
       phase: "DESIGN",
       prompt: "Run DROP DATABASE mydb; and start over",
@@ -1545,7 +1715,7 @@ describe("createODFDelegate", () => {
   it("still delegates a benign prompt (T11 no false positive)", async () => {
     const { createODFDelegate, clearMetricsBuffer } = await import("./odf-delegation.js")
     clearMetricsBuffer()
-    const taskApi = vi.fn().mockResolvedValue({ status: "ok" })
+    const taskApi = vi.fn().mockResolvedValue({ status: "ok", design_closed: true })
     const output = await createODFDelegate(undefined, tempHome).execute({
       phase: "DESIGN",
       prompt: "Design a new res.partner extension with a computed field",
@@ -1979,6 +2149,61 @@ describe("createODFDelegate", () => {
     expect(records[0]).toMatchObject({ phase, change, attempt_id: `strict-${phase.toLowerCase()}-1` })
   })
 
+  it.each([
+    ["invalid", "approved: false\n"],
+    ["tampered", "change: another-change\n"],
+  ])("blocks VERIFY when Expectations are %s before task()", async (_status, override) => {
+    const { createODFDelegate } = await import("./odf-delegation.js")
+    const change = `expectations-${_status}`
+    await writeExpectations(change, override)
+    await verifyEvidenceFor(change)
+    const taskApi = vi.fn().mockResolvedValue({ status: "ok" })
+    const output = await createODFDelegate(undefined, tempHome).execute({
+      phase: "VERIFY", change, artifact_store: "openspec", attempt_id: `${change}-1`,
+      prompt: "Verify the change", context_files: [], workflow_advance: workflowAdvance("VERIFY"),
+    }, { sessionID: "s1", task: taskApi } as any)
+    expect(JSON.parse(output as string)).toMatchObject({
+      status: "blocked",
+      reason: _status === "invalid" ? "expectations-not-approved" : "expectations-invalid",
+      safe_continuation: `/odf-continue ${change}`,
+    })
+    expect(taskApi).not.toHaveBeenCalled()
+  })
+
+  it("delegates VERIFY with approved Expectations", async () => {
+    const { createODFDelegate } = await import("./odf-delegation.js")
+    const change = "expectations-approved"
+    await writeExpectations(change)
+    await verifyEvidenceFor(change)
+    const taskApi = vi.fn().mockResolvedValue({ status: "ok" })
+    const output = await createODFDelegate(undefined, tempHome).execute({
+      phase: "VERIFY", change, artifact_store: "openspec", attempt_id: `${change}-1`,
+      prompt: "Verify the change", context_files: [], workflow_advance: workflowAdvance("VERIFY"),
+    }, { sessionID: "s1", task: taskApi } as any)
+    expect(JSON.parse(output as string)).toMatchObject({
+      status: "delegated",
+      validation: { status: "verified", expectations_ids: ["EXP-01"] },
+    })
+    expect(taskApi).toHaveBeenCalledTimes(1)
+  })
+
+  it("keeps legacy VERIFY delegation when Expectations are missing", async () => {
+    const { createODFDelegate, clearMetricsBuffer, getMetricsBuffer } = await import("./odf-delegation.js")
+    const change = "expectations-missing"
+    await verifyEvidenceFor(change)
+    clearMetricsBuffer()
+    const taskApi = vi.fn().mockResolvedValue({ status: "ok" })
+    const output = await createODFDelegate(undefined, tempHome).execute({
+      phase: "VERIFY", change, artifact_store: "openspec", attempt_id: `${change}-1`,
+      prompt: "Verify the change", context_files: [], workflow_advance: workflowAdvance("VERIFY"),
+    }, { sessionID: "s1", task: taskApi } as any)
+    expect(JSON.parse(output as string)).toMatchObject({ status: "delegated", warnings: ["missing-expectations"] })
+    expect(getMetricsBuffer().at(-1)?.warnings).toEqual(["missing-expectations"])
+    const status = JSON.parse(await createODFWorkflowStatus().execute({ change_name: change, workspace_dir: tempHome }, {} as any) as string)
+    expect(status.warnings).toContain("missing-expectations")
+    expect(taskApi).toHaveBeenCalledTimes(1)
+  })
+
   it("verify-fail-closed-without-git: blocks VERIFY delegation when no git repo exists", async () => {
     const { createODFDelegate } = await import("./odf-delegation.js")
     const taskApi = vi.fn().mockResolvedValue({ status: "ok" })
@@ -2106,6 +2331,58 @@ describe("createODFDelegate", () => {
     expect(taskApi).toHaveBeenCalledTimes(1)
   })
 
+  it.each([
+    ["BUILD", "workflow-implement-progress-missing"],
+    ["VERIFY", "workflow-verify-report-missing"],
+  ] as const)("blocks %s when its terminal artifact is missing", async (stage, reason) => {
+    const change = `missing-${stage.toLowerCase()}-artifact`
+    const changeDir = path.join(tempHome, "openspec", "changes", change)
+    await fs.mkdir(changeDir, { recursive: true })
+    const proof = workflowAdvance(stage === "BUILD" ? "IMPLEMENT" : "VERIFY")
+    await fs.writeFile(path.join(changeDir, "state.yaml"), [
+      "work_type: feature",
+      `canonical_stage: ${stage}`,
+      `completed_canonical_stages: [DECIDE, PLAN${stage === "VERIFY" ? ", BUILD" : ""}]`,
+      "resumable: true",
+      "",
+    ].join("\n"), "utf8")
+    const result = await commitWorkflowTransition({
+      workspaceRoot: tempHome,
+      changeName: change,
+      artifactStore: "openspec",
+      proof,
+      expectedStage: stage === "BUILD" ? "BUILD" : "VERIFY",
+      callerResult: advanceWorkflow({ route: resolveWorkflowRoute(proof.work_type), ...proof }),
+      phaseResultStatus: "ok",
+      validationStatus: stage === "BUILD" ? "verified" : "verified",
+      validation: { status: "verified", reason: "focused test evidence", commands_validated: 2 },
+    })
+    expect(result).toMatchObject({ status: "blocked", reason })
+  })
+
+  it.each([undefined, false])("blocks DESIGN when design_closed is %s", async designClosed => {
+    const { createODFDelegate } = await import("./odf-delegation.js")
+    const taskApi = vi.fn().mockResolvedValue({ status: "ok", ...(designClosed === undefined ? {} : { design_closed: designClosed }) })
+    const output = JSON.parse(await createODFDelegate(undefined, tempHome).execute({
+      phase: "DESIGN",
+      prompt: "Close the technical design",
+      context_files: [],
+    }, { sessionID: `design-open-${String(designClosed)}`, task: taskApi } as any) as string)
+    expect(output).toMatchObject({ status: "blocked", reason: "design-not-closed" })
+    expect(output.message).toContain("continue DESIGN")
+  })
+
+  it("delegates DESIGN when design_closed is true", async () => {
+    const { createODFDelegate } = await import("./odf-delegation.js")
+    const taskApi = vi.fn().mockResolvedValue({ status: "ok", design_closed: true, executive_summary: "closed" })
+    const output = JSON.parse(await createODFDelegate(undefined, tempHome).execute({
+      phase: "DESIGN",
+      prompt: "Close the technical design",
+      context_files: [],
+    }, { sessionID: "design-closed", task: taskApi } as any) as string)
+    expect(output.status).toBe("delegated")
+  })
+
   it("commits an atomic OpenSpec BUILD, preserves unrelated YAML, and is idempotent", async () => {
     const change = "direct-build-commit"
     const changeDir = path.join(tempHome, "openspec", "changes", change)
@@ -2123,6 +2400,7 @@ describe("createODFDelegate", () => {
     ].join("\n")
     const statePath = path.join(changeDir, "state.yaml")
     await fs.writeFile(statePath, before, "utf8")
+    await fs.writeFile(path.join(changeDir, "implement-progress.md"), "- [x] implementation\n", "utf8")
     const proof = workflowAdvance("IMPLEMENT")
     const recomputed = advanceWorkflow({ route: resolveWorkflowRoute(proof.work_type), ...proof })
     const input = {
@@ -2182,6 +2460,7 @@ describe("createODFDelegate", () => {
       "resumable: true",
       "",
     ].join("\n"), "utf8")
+    await fs.writeFile(path.join(changeDir, "verify-report.yaml"), "status: passed\n", "utf8")
     const head = gitHead(repo)!
     const digest = computeCandidateDigest(buildCandidateManifest(repo))
 
@@ -2288,6 +2567,7 @@ describe("createODFDelegate", () => {
       "resumable: true",
       "",
     ].join("\n"), "utf8")
+    await fs.writeFile(path.join(changeDir, "verify-report.yaml"), "status: passed\n", "utf8")
     await fs.writeFile(path.join(changeDir, "verify.yaml"), "status: passed\n", "utf8")
     await fs.mkdir(path.join(repo, ".odf"), { recursive: true })
     await fs.writeFile(path.join(repo, ".odf", `receipt-${change}.json`), JSON.stringify({
@@ -2339,6 +2619,7 @@ describe("createODFDelegate", () => {
       "resumable: true",
       "",
     ].join("\n"), "utf8")
+    await fs.writeFile(path.join(changeDir, "implement-progress.md"), "- [x] implementation\n", "utf8")
 
     const proof = workflowAdvance("IMPLEMENT")
     const recomputed = advanceWorkflow({ route: resolveWorkflowRoute(proof.work_type), ...proof })
@@ -2372,6 +2653,7 @@ describe("createODFDelegate", () => {
       "resumable: true",
       "",
     ].join("\n"), "utf8")
+    await fs.writeFile(path.join(changeDir, "verify-report.yaml"), "status: passed\n", "utf8")
     const head = gitHead(repo)!
     const digest = computeCandidateDigest(buildCandidateManifest(repo))
 
@@ -2418,6 +2700,7 @@ describe("createODFDelegate", () => {
       "resumable: true",
       "",
     ].join("\n"), "utf8")
+    await fs.writeFile(path.join(changeDir, "verify-report.yaml"), "status: passed\n", "utf8")
     const head = gitHead(repo)!
     const digest = computeCandidateDigest(buildCandidateManifest(repo))
 
@@ -2574,6 +2857,10 @@ describe("createODFDelegate", () => {
       topic_key: `odf/${change}/state`,
       content: JSON.stringify(state),
       created_at: new Date().toISOString(),
+    }, {
+      topic_key: `odf/${change}/implement-progress`,
+      content: "- [x] implementation\n",
+      created_at: new Date().toISOString(),
     }])
     fake.setFailure(true)
 
@@ -2653,6 +2940,7 @@ describe("createODFDelegate", () => {
       const openSpecDir = path.join(openSpecRoot, "openspec", "changes", change)
       await fs.mkdir(openSpecDir, { recursive: true })
       await fs.writeFile(path.join(openSpecDir, "state.yaml"), "work_type: feature\ncanonical_stage: BUILD\ncompleted_canonical_stages: [DECIDE, PLAN]\n", "utf8")
+      await fs.writeFile(path.join(openSpecDir, "implement-progress.md"), "- [x] implementation\n", "utf8")
       await writeEvidenceAt(openSpecRoot, change)
       const openOutput = JSON.parse(await createODFDelegate(undefined, openSpecRoot).execute({
         phase: "IMPLEMENT", change, artifact_store: "openspec", attempt_id: "openspec-build-1", prompt: "Build", context_files: [], workflow_advance: workflowAdvance("IMPLEMENT"),
@@ -2663,11 +2951,15 @@ describe("createODFDelegate", () => {
       expect(openCalls.filter((call: string[]) => call[0] === "save")).toHaveLength(0)
 
       const engramChange = "selected-store-engram"
-      await fake.setObservations([{
-        topic_key: `odf/${engramChange}/state`,
-        content: JSON.stringify({ work_type: "feature", canonical_stage: "BUILD", completed_canonical_stages: ["DECIDE", "PLAN"] }),
-        created_at: new Date().toISOString(),
-      }])
+       await fake.setObservations([{
+         topic_key: `odf/${engramChange}/state`,
+         content: JSON.stringify({ work_type: "feature", canonical_stage: "BUILD", completed_canonical_stages: ["DECIDE", "PLAN"] }),
+         created_at: new Date().toISOString(),
+       }, {
+         topic_key: `odf/${engramChange}/implement-progress`,
+         content: "- [x] implementation\n",
+         created_at: new Date().toISOString(),
+       }])
       await writeEvidenceAt(engramRoot, engramChange)
       const engramOutput = JSON.parse(await createODFDelegate(undefined, engramRoot).execute({
         phase: "IMPLEMENT", change: engramChange, artifact_store: "engram", attempt_id: "engram-build-1", prompt: "Build", context_files: [], workflow_advance: workflowAdvance("IMPLEMENT"),
@@ -2684,6 +2976,94 @@ describe("createODFDelegate", () => {
     }
   })
 
+  it("archives OpenSpec only after terminal VERIFY and preserves binding", async () => {
+    const change = "archive-openspec"
+    const changeDir = path.join(tempHome, "openspec", "changes", change)
+    await fs.mkdir(changeDir, { recursive: true })
+    await fs.writeFile(path.join(changeDir, "state.yaml"), "work_type: feature\ncanonical_stage: VERIFY\ncompleted_canonical_stages: [DECIDE, PLAN, BUILD, VERIFY]\n", "utf8")
+    await fs.writeFile(path.join(changeDir, "verify-report.yaml"), "status: passed\n", "utf8")
+    const input = {
+      workspaceRoot: tempHome, changeName: change, artifactStore: "openspec" as const,
+      proof: archiveProof, expectedStage: "ARCHIVE" as const, callerResult: advanceWorkflow({ route: resolveWorkflowRoute("feature"), ...archiveProof }),
+      phaseResultStatus: "ok" as const, validationStatus: "verified" as const, validation: null,
+    }
+
+    const first = await commitWorkflowTransition(input)
+    expect(first).toMatchObject({ status: "committed", canonical_stage: "ARCHIVED", completed_stages: ["DECIDE", "PLAN", "BUILD", "VERIFY"] })
+    expect(YAML.parse(await fs.readFile(path.join(changeDir, "state.yaml"), "utf8"))).toMatchObject({
+      work_type: "feature", canonical_stage: "ARCHIVED", completed_canonical_stages: ["DECIDE", "PLAN", "BUILD", "VERIFY"], archived: true,
+    })
+    expect(YAML.parse(await fs.readFile(path.join(changeDir, "archive-report.yaml"), "utf8"))).toMatchObject({ status: "archived", work_type: "feature" })
+    const second = await commitWorkflowTransition(input)
+    expect(second).toMatchObject({ status: "already-committed", canonical_stage: "ARCHIVED" })
+  })
+
+  it("preserves the Engram binding while archiving", async () => {
+    const change = "archive-engram"
+    const fake = await configureFakeEngram()
+    await fake.setObservations([
+      { topic_key: `odf/${change}/state`, content: JSON.stringify({ work_type: "feature", canonical_stage: "VERIFY", completed_canonical_stages: ["DECIDE", "PLAN", "BUILD", "VERIFY"] }), created_at: new Date().toISOString() },
+      { topic_key: `odf/${change}/verify-report`, content: "status: passed\n", created_at: new Date().toISOString() },
+    ])
+    try {
+      const result = await commitWorkflowTransition({
+        workspaceRoot: tempHome, changeName: change, artifactStore: "engram", proof: archiveProof,
+        expectedStage: "ARCHIVE", callerResult: advanceWorkflow({ route: resolveWorkflowRoute("feature"), ...archiveProof }),
+        phaseResultStatus: "ok", validationStatus: "verified", validation: null,
+      })
+      expect(result).toMatchObject({ status: "committed", store: "engram", canonical_stage: "ARCHIVED", state_ref: `odf/${change}/state` })
+      const calls = JSON.parse(await fs.readFile(fake.logPath, "utf8"))
+      expect(calls.filter((call: string[]) => call[0] === "save").map((call: string[]) => call[1])).toEqual([
+        `odf/${change}/state`, `odf/${change}/archive-report`,
+      ])
+      const saves = calls.filter((call: string[]) => call[0] === "save")
+      expect(saves[0][2]).toContain('"work_type":"feature"')
+    } finally {
+      await fake.cleanup()
+    }
+  })
+
+  it("archives hybrid with OpenSpec authority and does not leave it in VERIFY", async () => {
+    const change = "archive-hybrid"
+    const fake = await configureFakeEngram()
+    const changeDir = path.join(tempHome, "openspec", "changes", change)
+    await fs.mkdir(changeDir, { recursive: true })
+    await fs.writeFile(path.join(changeDir, "state.yaml"), "work_type: feature\ncanonical_stage: VERIFY\ncompleted_canonical_stages: [DECIDE, PLAN, BUILD, VERIFY]\n", "utf8")
+    await fs.writeFile(path.join(changeDir, "verify-report.yaml"), "status: passed\n", "utf8")
+    try {
+      const input = {
+        workspaceRoot: tempHome, changeName: change, artifactStore: "hybrid" as const, proof: archiveProof,
+        expectedStage: "ARCHIVE" as const, callerResult: advanceWorkflow({ route: resolveWorkflowRoute("feature"), ...archiveProof }),
+        phaseResultStatus: "ok" as const, validationStatus: "verified" as const, validation: null,
+      }
+      const first = await commitWorkflowTransition(input)
+      expect(first).toMatchObject({ status: "committed", store: "hybrid", canonical_stage: "ARCHIVED" })
+      expect(YAML.parse(await fs.readFile(path.join(changeDir, "state.yaml"), "utf8")).canonical_stage).toBe("ARCHIVED")
+      const second = await commitWorkflowTransition(input)
+      expect(second.status).toBe("already-committed")
+      const calls = JSON.parse(await fs.readFile(fake.logPath, "utf8"))
+      expect(calls.filter((call: string[]) => call[0] === "save").map((call: string[]) => call[1])).toEqual([
+        `odf/${change}/state`, `odf/${change}/archive-report`,
+      ])
+    } finally {
+      await fake.cleanup()
+    }
+  })
+
+  it("blocks ARCHIVE when VERIFY is incomplete", async () => {
+    const change = "archive-incomplete-verify"
+    const changeDir = path.join(tempHome, "openspec", "changes", change)
+    await fs.mkdir(changeDir, { recursive: true })
+    await fs.writeFile(path.join(changeDir, "state.yaml"), "work_type: feature\ncanonical_stage: VERIFY\ncompleted_canonical_stages: [DECIDE, PLAN, BUILD]\n", "utf8")
+    const result = await commitWorkflowTransition({
+      workspaceRoot: tempHome, changeName: change, artifactStore: "openspec", proof: archiveProof,
+      expectedStage: "ARCHIVE", callerResult: advanceWorkflow({ route: resolveWorkflowRoute("feature"), ...archiveProof }),
+      phaseResultStatus: "ok", validationStatus: "verified", validation: null,
+    })
+    expect(result).toMatchObject({ status: "blocked", reason: "workflow-verify-not-terminal" })
+    expect(fsSync.existsSync(path.join(changeDir, "archive-report.yaml"))).toBe(false)
+  })
+
   it("fails closed when the workflow state write fails and leaves the attempt incomplete", async () => {
     const { createODFDelegate } = await import("./odf-delegation.js")
     const change = "state-write-failure"
@@ -2692,6 +3072,7 @@ describe("createODFDelegate", () => {
     const statePath = path.join(changeDir, "state.yaml")
     const before = "work_type: feature\ncanonical_stage: BUILD\ncompleted_canonical_stages: [DECIDE, PLAN]\nresumable: true\n"
     await fs.writeFile(statePath, before, "utf8")
+    await fs.writeFile(path.join(changeDir, "implement-progress.md"), "- [x] implementation\n", "utf8")
     await writeEvidenceAt(tempHome, change)
     await fs.chmod(changeDir, 0o555)
 
@@ -2885,7 +3266,7 @@ describe("createODFDelegate", () => {
 
   it("continues to delegate non-gated phases without a change", async () => {
     const { createODFDelegate } = await import("./odf-delegation.js")
-    const taskApi = vi.fn().mockResolvedValue({ status: "ok", executive_summary: "planned" })
+     const taskApi = vi.fn().mockResolvedValue({ status: "ok", design_closed: true, executive_summary: "planned" })
     const toolCtx = { sessionID: "s1", task: taskApi } as any
 
     const delegateTool = createODFDelegate(undefined)
@@ -3024,7 +3405,7 @@ describe("createODFDelegate", () => {
 
   it("falls back when client.task is provided but toolCtx.task is not", async () => {
     const { createODFDelegate } = await import("./odf-delegation.js")
-    const taskResult = { status: "ok", executive_summary: "designed" }
+     const taskResult = { status: "ok", design_closed: true, executive_summary: "designed" }
     const taskApi = vi.fn().mockResolvedValue(taskResult)
     const client = { task: taskApi } as any
     const toolCtx = { sessionID: "s1" } as any
@@ -3101,7 +3482,7 @@ describe("createODFDelegate", () => {
 
   it("injects active SDD profile into the delegated prompt", async () => {
     const { createODFDelegate } = await import("./odf-delegation.js")
-    const taskResult = { status: "ok", executive_summary: "designed" }
+     const taskResult = { status: "ok", design_closed: true, executive_summary: "designed" }
     const taskApi = vi.fn().mockResolvedValue(taskResult)
     const toolCtx = { sessionID: "s1", task: taskApi } as any
 
@@ -4010,6 +4391,17 @@ describe("validateValidationEvidence", () => {
     expect(verdict.status).toBe("verified")
   })
 
+  it("links optional expectation IDs while keeping legacy evidence valid", async () => {
+    await writeEvidence(validVerifyEvidence({ expectations_ids: ["EXP-01", "EXP-02"] }))
+    const linked = validateValidationEvidence({ workspaceDir: tmp, change: "ev-change", tier: "LOW", frozenDiffRef: null, now })
+    expect(linked).toMatchObject({ status: "verified", expectations_ids: ["EXP-01", "EXP-02"] })
+
+    await writeEvidence(validVerifyEvidence())
+    const legacy = validateValidationEvidence({ workspaceDir: tmp, change: "ev-change", tier: "LOW", frozenDiffRef: null, now })
+    expect(legacy).toMatchObject({ status: "verified" })
+    expect(legacy).not.toHaveProperty("expectations_ids")
+  })
+
   it("verify-digest-required: VERIFY receipt must carry the candidate_digest when git is present", async () => {
     const repo = path.join(tmp, "repo-verify-digest")
     initGitRepo(repo)
@@ -4104,7 +4496,7 @@ describe("odf_delegate stop-validation seal", () => {
 
   it("does not stamp validation on non-IMPLEMENT phases", async () => {
     const { createODFDelegate } = await import("./odf-delegation.js")
-    const taskApi = vi.fn().mockResolvedValue({ status: "ok", executive_summary: "planned" })
+     const taskApi = vi.fn().mockResolvedValue({ status: "ok", design_closed: true, executive_summary: "planned" })
     const toolCtx = { sessionID: "s1", task: taskApi } as any
 
     const delegateTool = createODFDelegate(undefined)
@@ -4169,6 +4561,16 @@ describe("mergeReceipt", () => {
     const result = mergeReceipt(tmp, incoming)
     expect(result.change).toBe("rc-new")
     expect(result.status).toBe("failed")
+  })
+
+  it("links approved expectation IDs without requiring them on legacy receipts", () => {
+    const legacy = receipt({ change: "legacy-receipt" }) as any
+    expect(mergeReceipt(tmp, legacy)).not.toHaveProperty("expectations_ids")
+
+    const linked = receipt({ change: "linked-receipt", expectations_ids: ["EXP-01"] }) as any
+    expect(mergeReceipt(tmp, linked).expectations_ids).toEqual(["EXP-01"])
+    expect(JSON.parse(fsSync.readFileSync(path.join(tmp, ".odf", "receipt-linked-receipt.json"), "utf8")).expectations_ids)
+      .toEqual(["EXP-01"])
   })
 })
 

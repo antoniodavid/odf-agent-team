@@ -45,14 +45,14 @@
 |-----------|--------|--------|
 | `@api.multi` | Removed | Must remove decorator |
 | `track_visibility` | Deprecated | Replace with `tracking` |
-| OWL | Introduced | New frontend framework |
+| OWL | Version-gated | Verify the target branch's frontend API |
 
 ### v15 → v16
 | Component | Change | Impact |
 |-----------|--------|--------|
 | x2many commands | `Command` class | New syntax for relations |
 | `attrs` | Deprecated | Prepare for removal |
-| OWL | 2.x | Module system change |
+| OWL | Version-gated | Verify module system and API in the target branch |
 | Assets | `assets` key | New manifest structure |
 
 ### v16 → v17
@@ -77,7 +77,7 @@
 |-----------|--------|--------|
 | Type hints | Mandatory | Must annotate all |
 | `SQL()` builder | Mandatory | Required for raw SQL |
-| OWL | 3.x | Component changes |
+| OWL | Version-gated | Verify component changes in the target branch |
 | Python | 3.12+ | Version requirement |
 
 ## GitHub Branch Reference
@@ -139,12 +139,12 @@ odoo.define('x', function(require) {
     var Widget = require('web.Widget');
 });
 
-// v15: OWL 1.x
+// Branch-specific OWL API; verify the target branch
 odoo.define('x', function(require) {
     const { Component } = owl;
 });
 
-// v16+: OWL 2.x
+// Branch-specific ES-module OWL API; verify the target branch
 /** @odoo-module **/
 import { Component } from "@odoo/owl";
 ```
@@ -192,8 +192,7 @@ If answer is unclear, look for:
 | `_check_company_auto` | ❌ | ❌ | ❌ | ❌ | ✅ | ✅ |
 | Type hints on fields | ❌ | ❌ | ❌ | ❌ | ⚠️ | ✅ |
 | `SQL()` builder | ❌ | ❌ | ❌ | ❌ | ⚠️ | ✅ |
-| OWL 2.x | ❌ | ❌ | ✅ | ✅ | ✅ | ❌ |
-| OWL 2.8.x | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ |
+| OWL API | Verify | Verify | Verify | Verify | Verify | Verify |
 
 Legend: ✅ Supported | ⚠️ Deprecated/Optional | ❌ Not available/Removed
 

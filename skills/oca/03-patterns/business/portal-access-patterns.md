@@ -442,7 +442,6 @@ class SignedUrlMixin(models.AbstractModel):
         """Get secret key for signing."""
         return self.env['ir.config_parameter'].sudo().get_param(
             'my_module.signing_key',
-            default='default-secret-key'
         )
 
     def generate_signed_url(self, base_path, params, validity_seconds=3600):
@@ -463,13 +462,17 @@ class SignedUrlMixin(models.AbstractModel):
 
     def verify_signature(self, base_path, params):
         """Verify URL signature."""
-        signature = params.pop('signature', None)
-        expires = int(params.get('expires', 0))
-
-        if not signature or expires < time.time():
+        signed_params = dict(params)
+        signature = signed_params.pop('signature', None)
+        try:
+            expires = int(signed_params.get('expires', 0))
+        except (TypeError, ValueError):
             return False
 
-        message = f"{base_path}?{urlencode(sorted(params.items()))}"
+        if not signature or expires < time.time() or not self._get_signing_key():
+            return False
+
+        message = f"{base_path}?{urlencode(sorted(signed_params.items()))}"
         expected = hmac.new(
             self._get_signing_key().encode(),
             message.encode(),

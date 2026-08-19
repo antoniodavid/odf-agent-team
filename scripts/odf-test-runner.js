@@ -63,7 +63,7 @@ function filterStopWords(keywords) {
   });
 }
 
-function matchSkills(registry, context) {
+function matchSkills(registry, _phase, context) {
   const matches = [];
   const taskLower = context.task?.toLowerCase() || '';
 
@@ -158,7 +158,8 @@ function runTestSuite(suite) {
 
     // Test 1: skill resolution
     test('resolves correct skill_resolution', () => {
-      const skills = matchSkills(registry, { task, files: contextFiles, odooVersion: version });
+      // YAML scenarios do not model a delegation phase; null keeps matching contextual.
+      const skills = matchSkills(registry, null, { task, files: contextFiles, odooVersion: version });
       const resolution = skills.length > 0 ? 'self-discovered' : 'none';
       return resolution === tc.expected.skill_resolution;
     });
@@ -166,7 +167,7 @@ function runTestSuite(suite) {
     // Test 2: expected skills injected
     if (tc.expected.expected_skills) {
       test('injects expected skills', () => {
-        const skills = matchSkills(registry, { task, files: contextFiles, odooVersion: version });
+        const skills = matchSkills(registry, null, { task, files: contextFiles, odooVersion: version });
         const skillNames = skills.map(s => s.name);
         return tc.expected.expected_skills.every(es => skillNames.includes(es));
       });
@@ -300,6 +301,17 @@ function runOrchestratorSuite(suite) {
 
   for (const tc of (suite.tests || [])) {
     console.log(`\n  Test: "${tc.name}"`);
+
+    if (tc.input.prompt_contract_only) {
+      const prompt = fs.readFileSync(path.join(__dirname, '..', 'agent', `${suite.agent}.md`), 'utf8');
+      const marker = '### Continuation Intent';
+      const start = prompt.indexOf(marker);
+      const end = start >= 0 ? prompt.indexOf('\n### ', start + marker.length) : -1;
+      const section = start >= 0 ? prompt.slice(start, end >= 0 ? end : undefined).trim() : '';
+      test('prompt contract section matches exactly (non-behavioral)', () => {
+        return section === tc.expected.prompt_section.trim();
+      });
+    }
 
     if (tc.input.state) {
       test('next phase matches expected', () => {

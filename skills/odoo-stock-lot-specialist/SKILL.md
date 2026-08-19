@@ -1,4 +1,21 @@
+---
+name: odoo-stock-lot-specialist
+description: "Odoo stock lot and serial specialist for traceability, removal strategies, expiration, and barcode flows. Trigger: stock, lot, serial, FEFO, traceability, picking, or inventory work in DESIGN or IMPLEMENT."
+license: MIT
+metadata:
+  author: adruban
+  version: "1.2"
+---
+
 # Odoo Stock Lot/Serial Specialist
+
+## Activation Contract
+
+Use only for DESIGN or IMPLEMENT work involving stock lots, serial numbers,
+traceability, removal strategies, expiration, or barcode flows. Require the
+target Odoo version, local source, and approved human `EXP-XX` expectations
+before relying on a field, model, UI behavior, or business rule. Version-
+specific claims are `verify-local` unless proven.
 
 ## Description
 
@@ -16,68 +33,56 @@ Activate when working with:
 - Stock picking operations (`picking`, `receipt`, `delivery`, `transfer`)
 - Barcode scanning for lots/serials (`barcode`, `scan`)
 
-## Instructions
+## Execution Steps
 
 ### When This Skill Is Active
 
 1. **Product Configuration (product.template/product.product):**
    - Verify `tracking` field: `none` | `lot` | `serial`
-   - For `lot`: single lot number assigned to batch of items
-   - For `serial`: every unit MUST have unique serial number (quantity=1)
-   - Check if `expiration_dates` group is enabled in Inventory Settings
+    - For `lot`: verify the target version's lot assignment behavior
+    - For `serial`: verify the target version and approved policy for quantity and uniqueness
+    - Check whether expiration settings exist and apply in the target version
 
 2. **Lot/Serial Assignment (stock.move.line):**
-   - **Receipts**: assign lots/serials BEFORE validating transfer
+    - **Receipts**: assign lots/serials before validation only when required by target metadata and approved policy
    - Methods: manual entry, barcode scan, paste list, or auto-generate sequential
-   - **Deliveries**: Odoo auto-reserves based on removal strategy
+    - **Deliveries**: verify reservation behavior and configured removal strategy locally
    - Users can modify reserved lots via detailed operations icon
 
 3. **FEFO/FIFO Removal Strategies:**
-   - Configured on `product.category` OR `stock.location`
-   - **FIFO**: reserves oldest received stock first (by receipt datetime)
-   - **FEFO**: reserves by **Removal Date** (NOT expiration date) — earliest removal date first
-   - **LIFO**: reserves newest stock first
-   - **Closest location**: nearest physical location
-   - **Least packages**: minimizes number of packages to pick
+    - Verify the target version's configuration scope and precedence
+    - Verify FIFO, FEFO, LIFO, location, or package ordering locally before relying on it
 
 4. **Expiration Dates (stock.lot fields):**
-   - `expiration_date`: product strictly expires (unsafe after)
-   - `best_before_date`: quality begins degrading
-   - `removal_date`: when to pull from shelves (FEFO uses this)
-   - `alert_date`: automated activity/alert triggered
-   - Dates auto-calculated from product-level settings on receipt
+    - Expiration field names and enforcement semantics are version-gated; verify local metadata and business policy
+    - Do not infer that an expiration date automatically blocks every delivery
 
 5. **Traceability:**
-   - Core model: `stock.lot` (v16+), was `stock.production.lot` in older versions
-   - Traceability report shows upstream/downstream genealogy
-   - Tracks: vendor receipt → manufacturing component → customer delivery
-   - Access from any lot/serial record
+    - Lot model name is version-gated; verify it in the target local source before coding
+    - Verify the target version's traceability report and genealogy path
 
 6. **Barcode Integration:**
-   - Barcode app supports scanning lots/serials during operations
-   - GS1 barcode nomenclature supported
-   - RFID integration available for v18+
+    - Verify barcode lot/serial scanning and GS1 support for the target version and installed modules
+    - RFID integration is version/module-gated; verify locally before claiming support
 
 7. **Engram Persistence:**
    - After significant findings: `mem_save(title, type="decision"|"pattern")`
    - Save lot management decisions with topic_key: `odf/agents/odoo_stock_lot_specialist/{artifact}`
 
-## Rules
+## Hard Rules
 
-- NEVER validate transfers without lot/serial assignment if product tracking requires it
-- ALWAYS configure removal strategy at category OR location level (not both inconsistently)
-- NEVER deliver lots past `expiration_date` (block at validation)
-- ALWAYS enforce serial uniqueness at database level (constrain quantity=1)
-- For FEFO: `removal_date` drives reservation, NOT `expiration_date`
+- Do not impose lot/serial assignment, expiration, uniqueness, or reservation rules universally; require target-version evidence and approved EXP-XX policy first.
+- If a requested rule changes reservation or validation semantics, require an approved EXP-XX and a regression test before implementation.
+- Treat model, field, menu, strategy, and `Command` usage as version-gated until verified against local source.
 - Use `stock.quant` for lot/location availability checks
 - Handle `stock.move.line` correctly for lot/serial assignments
 - Follow OCA style: `_()` for user-facing strings, proper field naming
-- For v16+: Use `Command` class for x2many lot operations
+- Use `Command` for x2many lot operations only when supported by the target version.
 - NEVER modify core Odoo files — only custom modules
 
 ## Examples
 
-### Example 1: Validate Lot on Delivery (Block Expired)
+### Example 1: Conditional Expired-Lot Validation
 
 ```python
 from odoo import api, fields, models, _
@@ -97,11 +102,11 @@ class StockPicking(models.Model):
         return super().button_validate()
 ```
 
-### Example 2: FEFO Lot Selection (Prioritize by Removal Date)
+### Example 2: Version-Gated FEFO Lot Selection
 
 ```python
 def get_fefo_lots(self, product_id, location_id, quantity_needed):
-    """Return lots ordered by removal_date ASC (FEFO strategy)."""
+    """Illustrative ordering; verify the configured target-version date field."""
     lots = self.env['stock.lot'].search([
         ('product_id', '=', product_id),
         ('quant_ids.location_id', '=', location_id),
@@ -135,8 +140,10 @@ class StockMove(models.Model):
         if self.product_id.tracking != 'serial':
             return
         
-        serial_prefix = self.product_id.serial_prefix or 'SN'
-        start_num = self.product_id.last_serial_number or 1
+        # These are custom fields in this example, not universal Odoo fields.
+        # Verify or replace them against the target module and version.
+        serial_prefix = self.product_id.x_serial_prefix or 'SN'
+        start_num = self.product_id.x_last_serial_number or 1
         
         for i in range(int(self.product_uom_qty)):
             serial_name = f"{serial_prefix}{start_num + i:06d}"
@@ -150,6 +157,12 @@ class StockMove(models.Model):
             })
 ```
 
+## Decision Gates
+
+- If a model, field, menu, or strategy differs by version, stop and mark it
+  `version-gated/verify-local` rather than asserting a universal API.
+- If no approved EXP-XX or target Odoo version is available, block implementation and return `version-gated/verify-local`.
+
 ## ODF Integration
 
 Supports **DESIGN** and **IMPLEMENT** phases:
@@ -159,12 +172,19 @@ Supports **DESIGN** and **IMPLEMENT** phases:
 
 Does NOT support ASSESS (use `odoo_functional_consultant` for standard vs custom).
 
+## Output Contract
+
+Return findings, verified model/field names, version, assumptions, EXP-XX
+traceability, and test implications. Mark unverified claims explicitly.
+
+## References
+
+- `/home/adruban/.config/opencode/skills/_shared/result-contract.md` — ODF Result envelope
+- `/home/adruban/.config/opencode/skills/_shared/odoo-sources.md` — Local source paths
+
 ## Version-Specific Notes
 
-- **v16**: Basic lot/serial tracking, expiration dates, removal strategies under generic menu
-- **v17**: Added specific guides for "Assign serial numbers", "Reassign lot/serial numbers", removal strategies broken into dedicated pages (FIFO, LIFO, FEFO, Closest location, Least packages)
-- **v18**: New "Valuation by lots/serial numbers", expanded "Barcodes for lot and serial numbers", "Manufacture with lots and serial numbers" guides
-- **v18+**: RFID integration available in Barcode app
+- **v16-v19**: Verify feature availability, field names, menus, and strategy semantics against the target local source and official version documentation
 
 ## Documentation Sources
 

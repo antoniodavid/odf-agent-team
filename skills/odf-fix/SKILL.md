@@ -4,8 +4,14 @@ description: "Lightweight 3-step bugfix flow: DIAGNOSE → FIX → VERIFY. Trigg
 license: MIT
 metadata:
   author: adruban
-  version: "2.0"
+  version: "2.1"
 ---
+
+## Activation Contract
+
+Use for `/odf-fix` targeted, reproducible bugs with a bounded 1-3 file scope.
+It may chain the three steps without human phase approvals, but policy,
+evidence, VERIFY, and risk escalation remain mandatory.
 
 ## When to Use
 
@@ -15,7 +21,7 @@ Use odf-fix for targeted bugs where the problem is known and scope is small (1-3
 
 | Rule | Requirement |
 |------|-------------|
-| No gates | No human phase-approval pauses: run DIAGNOSE → FIX → VERIFY continuously. Mechanical gates (`odf_policy_gate`, validation evidence, VERIFY, risk escalation) stay mandatory and run silently |
+| No gates | No human phase-approval pauses: run DIAGNOSE → FIX → VERIFY continuously. This does not remove policy gates, validation evidence, VERIFY, or risk escalation; `odf_policy_gate` and those checks remain mandatory and may block |
 | Root cause first | Identify root cause BEFORE modifying any code |
 | Test validates fix | Include a test that fails without the fix |
 | Scope bound | If diagnosis reveals >3 files affected, STOP and suggest /odf-new |
@@ -35,6 +41,8 @@ Use odf-fix for targeted bugs where the problem is known and scope is small (1-3
 1. **DIAGNOSE**: Reproduce the bug, find root cause. Check logs, trace the error path, identify the exact file + line.
 2. **FIX**: Write the fix + a test that fails without it. Follow OCA standards.
 3. **VERIFY**: Run pre-commit on changed files, run module tests, confirm the fix works.
+4. **Persist** diagnosis, fix progress, verification evidence, learning, and any
+   receipt in the selected store; return canonical `artifact_ref` values.
 
 ## Output Contract
 
@@ -43,5 +51,5 @@ Return ODF Result envelope with: status (ok|blocked|failed), executive_summary, 
 ## References
 
 - `/home/adruban/.config/opencode/skills/_shared/result-contract.md` — ODF Result envelope
-- `/home/adruban/.config/opencode/skills/_shared/persistence-contract.md` — Engram rules
+- `/home/adruban/.config/opencode/skills/_shared/persistence-contract.md` — selected store and artifact references
 - `/home/adruban/.config/opencode/skills/_shared/odoo-sources.md` — Local source paths

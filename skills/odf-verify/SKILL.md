@@ -7,6 +7,11 @@ metadata:
   version: "3.0"
 ---
 
+## Activation Contract
+
+Use only for Phase 4 (VERIFY) after IMPLEMENT reports completed work and its
+validation evidence. VERIFY is the final verdict owner; it never fixes code.
+
 ## When to Use
 
 Use as the final phase of /odf-new after IMPLEMENT is complete. Run real tests and linting — static analysis alone is NOT verification. Review effort scales with the RISK TIER of the frozen diff, never with diff size.
@@ -52,7 +57,8 @@ The tier is decided by the EVIDENCE in the frozen diff, NEVER by the number of l
 
 ## Execution Steps
 
-1. **Retrieve artifacts**: assess (specs), design (tasks), implement-progress (what was built) from Engram
+1. **Retrieve artifacts**: assess (specs), design (tasks), and implement-progress
+   (what was built) from the selected store
 2. **Freeze the candidate diff**: record the base tree/reference and count `original_changed_lines`
 3. **Classify risk tier** from the frozen diff (Risk Tier Classification table)
 4. **Check completeness**: Count total vs completed tasks. Flag CRITICAL if core tasks incomplete
@@ -66,7 +72,8 @@ The tier is decided by the EVIDENCE in the frozen diff, NEVER by the number of l
     - **HIGH** → 4 lenses: risk, resilience, readability, reliability via Judgment Day 3-pass (reviewer → maintainer → attacker); the risk lens covers the attacker perspective
     - **MEDIUM** → 1 focused lens (default readability, focus configurable)
     - **LOW** → structural readback + native tool verification only — do NOT launch reviewers
-11. **Persist**: `mem_save(title: "odf/{change}/verify-report", ..., frozen_diff_ref: ...)` (see Correction Budget & Single Attempt)
+11. **Persist** the verify report in the selected store with its canonical
+    `artifact_ref` (see Correction Budget & Single Attempt)
 
 ## Correction Budget & Single Attempt
 
@@ -86,4 +93,5 @@ Return ODF Result envelope with: status (ok|warning|blocked|failed), executive_s
 ## References
 
 - `/home/adruban/.config/opencode/skills/_shared/result-contract.md` — ODF Result envelope
+- `/home/adruban/.config/opencode/skills/_shared/persistence-contract.md` — selected store and artifact references
 - `/home/adruban/.config/opencode/skills/_shared/odoo-sources.md` — Local source paths

@@ -35,7 +35,7 @@ const expectedRoutes: Record<WorkType, ReturnType<typeof resolveWorkflowRoute>> 
     stages: ["DECIDE"],
     legacy_phases: ["PROPOSE", "ASSESS"],
     plan: "none",
-    verification: "optional",
+      verification: "none",
     parallel_build: false,
     risk: "low",
   },

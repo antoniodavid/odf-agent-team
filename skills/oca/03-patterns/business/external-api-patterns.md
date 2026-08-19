@@ -395,10 +395,15 @@ class WebhookController(http.Controller):
                 methods=['POST'], csrf=False)
     def handle_webhook(self):
         """Handle incoming webhook from external service."""
-        # Verify signature
+        # Verify the raw body, timestamp, and provider event id before parsing.
         signature = request.httprequest.headers.get('X-Signature')
-        if not self._verify_signature(signature):
+        timestamp = request.httprequest.headers.get('X-Timestamp')
+        event_id = request.httprequest.headers.get('X-Event-Id')
+        raw_body = request.httprequest.get_data()
+        if not self._verify_signature(raw_body, signature, timestamp):
             return {'error': 'Invalid signature'}, 401
+        if not event_id or self._event_already_processed(event_id):
+            return {'status': 'duplicate'}
 
         data = request.jsonrequest
         event_type = data.get('event')
@@ -421,9 +426,9 @@ class WebhookController(http.Controller):
             _logger.error("Webhook processing failed: %s", str(e))
             return {'status': 'error', 'message': str(e)}
 
-    def _verify_signature(self, signature):
-        """Verify webhook signature."""
-        if not signature:
+    def _verify_signature(self, raw_body, signature, timestamp):
+        """Verify the provider scheme; adapt canonicalization locally."""
+        if not signature or not timestamp or not raw_body:
             return False
 
         secret = request.env['ir.config_parameter'].sudo().get_param(
@@ -435,11 +440,17 @@ class WebhookController(http.Controller):
         raw_body = request.httprequest.get_data()
         expected = hmac.new(
             secret.encode(),
-            raw_body,
+            timestamp.encode() + b'.' + raw_body,
             hashlib.sha256
         ).hexdigest()
 
         return hmac.compare_digest(signature, expected)
+
+    def _event_already_processed(self, event_id):
+        """Use a unique persisted event id; never rely on an in-memory flag."""
+        return bool(request.env['my_module.webhook.event'].sudo().search_count(
+            [('external_id', '=', event_id)]
+        ))
 
     def _handle_customer_created(self, payload):
         """Process customer creation webhook."""

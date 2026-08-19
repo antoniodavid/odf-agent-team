@@ -389,7 +389,8 @@ class WebhookController(http.Controller):
                 methods=['POST'], csrf=False)
     def webhook_handler(self):
         """Handle incoming webhook."""
-        # Get raw data
+        # Read raw bytes first; signing and replay rules are provider-specific.
+        raw_body = request.httprequest.get_data()
         data = request.jsonrequest
 
         # Verify signature (example)
@@ -398,7 +399,11 @@ class WebhookController(http.Controller):
             'my_module.webhook_secret'
         )
 
-        if not self._verify_signature(data, signature, secret):
+        timestamp = request.httprequest.headers.get('X-Timestamp')
+        event_id = request.httprequest.headers.get('X-Event-Id')
+        if not event_id or self._event_already_processed(event_id):
+            return {'status': 'duplicate'}
+        if not self._verify_signature(raw_body, signature, timestamp, secret):
             return {'status': 'error', 'message': 'Invalid signature'}
 
         # Process webhook
@@ -416,16 +421,22 @@ class WebhookController(http.Controller):
         except Exception as e:
             return {'status': 'error', 'message': str(e)}
 
-    def _verify_signature(self, data, signature, secret):
-        """Verify webhook signature."""
-        if not signature or not secret:
+    def _verify_signature(self, raw_body, signature, timestamp, secret):
+        """Verify provider-specific raw-body signature and timestamp."""
+        if not signature or not timestamp or not secret:
             return False
         expected = hmac.new(
             secret.encode(),
-            json.dumps(data).encode(),
+            timestamp.encode() + b'.' + raw_body,
             hashlib.sha256
         ).hexdigest()
         return hmac.compare_digest(signature, expected)
+
+    def _event_already_processed(self, event_id):
+        """Back this check with a database unique constraint."""
+        return bool(request.env['my_module.webhook.event'].sudo().search_count(
+            [('external_id', '=', event_id)]
+        ))
 
     def _handle_order_created(self, payload):
         """Handle order created event."""

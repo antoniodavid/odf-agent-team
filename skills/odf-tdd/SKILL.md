@@ -4,8 +4,14 @@ description: "Strict TDD mode for ODF: tests before code. Two-source kill switch
 license: MIT
 metadata:
   author: antoniodavid
-  version: "2.0"
+  version: "2.1"
 ---
+
+## Activation Contract
+
+Use only when the effective TDD policy gate is ON. The gate is global
+`flags.strict_tdd` AND absence of the local off marker; any off or unreadable
+source disables enforcement.
 
 ## When to Use
 
@@ -29,7 +35,7 @@ Active when the EFFECTIVE TDD mode is ON. Effective mode = two-source kill switc
 | Condition | Action |
 |-----------|--------|
 | Effective ON AND no test for REQ-XX | Block IMPLEMENT, require test task first |
-| Effective ON, test written, test passes before code | Accept (red skipped — test must fail first) |
+| Effective ON, test written but red evidence is missing or it passes before code | Block IMPLEMENT; demonstrate a genuine failing run (non-zero exit code and output) before writing implementation |
 | Effective OFF (any source off, or local unreadable) | Standard behavior: tests can come after code |
 | User runs /odf-tdd on | Set global flag in registry; effective mode still gated by local source |
 | User runs /odf-tdd local off | Create `<worktree>/.odf/tdd.off` → effective OFF for that repo |
@@ -39,7 +45,7 @@ Active when the EFFECTIVE TDD mode is ON. Effective mode = two-source kill switc
 1. **RESOLVE effective mode BEFORE each IMPLEMENT/VERIFY phase**: read global `flags.strict_tdd` from `~/.config/opencode/odf-registry.json` AND check for `<worktree>/.odf/tdd.off` (worktree root via `git rev-parse --show-toplevel`). Any off (or unreadable local) → effective OFF. This effective mode is what applies — the preflight `tdd_mode` is only the declared default.
 2. **ASSESS**: Include "testable" as requirement criterion. Each REQ-XX must have a testable scenario.
 3. **DESIGN**: Every implementation task must have a paired test task. Task IDs: `T-N` for test, `I-N` for implementation.
-4. **IMPLEMENT**: For each pair: write test (T-N) → confirm it fails → implement (I-N) → confirm test passes.
+4. **IMPLEMENT**: For each pair: write test (T-N) → run the focused test and persist non-zero red evidence for the intended behavior → implement (I-N) → confirm the same test passes. A claimed red state without command, exit code, and output is not evidence; block if red cannot be demonstrated.
 5. **VERIFY**: Check that every REQ-XX has a PASSING test. If code exists without test → FAIL.
 
 ## Output Contract

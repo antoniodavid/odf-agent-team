@@ -19,7 +19,7 @@ import * as nodeCrypto from "node:crypto"
 import { type Plugin, type ToolContext, tool } from "@opencode-ai/plugin"
 import { execFileSync, execSync } from "node:child_process"
 import type { createOpencodeClient } from "@opencode-ai/sdk"
-import { isMap, parseDocument } from "yaml"
+import { isMap, parseDocument, stringify } from "yaml"
 import {
   advanceWorkflow,
   resolveWorkflowRoute,
@@ -48,6 +48,7 @@ import {
 } from "./odf-parallel-join.js"
 import { buildCandidateManifest, computeCandidateDigest, extractChangedPaths } from "./candidate-manifest.js"
 import { classifyEntryTriage, type EntryTriageInput } from "./entry-triage.js"
+import { validateExpectations, validDate } from "./odf-expectations.js"
 import { inspectToolArgs } from "../scripts/odf-safety.js"
 
 export type OpencodeClient = ReturnType<typeof createOpencodeClient>
@@ -798,6 +799,7 @@ export interface DelegationMetrics {
   retry_count?: number
   candidate_digest?: string
   receipt_ref?: string
+  warnings?: string[]
 }
 
 type DelegationMetricInput = Omit<DelegationMetrics, "session_hash"> & {
@@ -1161,12 +1163,25 @@ Reasoning: ${profile.reasoning ? "enabled" : "disabled"}`
 
 function matchSkills(
   registry: ODFRegistry,
+  phase: string | null,
   context: { files?: string[]; task?: string; odooVersion?: number | null }
 ): ODFSkill[] {
   const matches: ODFSkill[] = []
   const taskLower = context.task?.toLowerCase() || ""
+  const normalizedPhase = phase?.toUpperCase() || null
+  const canonicalName = normalizedPhase === "QA-PLAN"
+    ? "odf-qa"
+    : normalizedPhase
+      ? `odf-${normalizedPhase.toLowerCase()}`
+      : null
 
   for (const skill of registry.skills) {
+    const isOdfSkill = skill.category === "odf" || skill.category.startsWith("odf/")
+    if (isOdfSkill && normalizedPhase && skill.sdd_phase && skill.sdd_phase.toUpperCase() !== normalizedPhase) {
+      continue
+    }
+
+    const isCanonical = skill.name === canonicalName
     // Version pinning: skip skills that don't support the detected version
     if (context.odooVersion && skill.odoo_versions.length > 0) {
       if (!skill.odoo_versions.includes(context.odooVersion)) {
@@ -1195,13 +1210,16 @@ function matchSkills(
       }
     }
 
-    if (score > 0) {
-      matches.push({ ...skill, _score: score } as ODFSkill & { _score: number })
+    if (score > 0 || isCanonical) {
+      matches.push({ ...skill, _score: score, _canonical: isCanonical } as ODFSkill & { _score: number; _canonical: boolean })
     }
   }
 
   // Sort by score (desc) then by compact_rules length (more specific first)
   matches.sort((a: any, b: any) => {
+    if (b._canonical !== a._canonical) {
+      return Number(b._canonical) - Number(a._canonical)
+    }
     if (b._score !== a._score) {
       return b._score - a._score
     }
@@ -1508,7 +1526,7 @@ type ODFDelegateWorkflowAdvance = Omit<WorkflowAdvanceInput, "route"> & {
   work_type: WorkType
 }
 
-type ArtifactStore = "openspec" | "engram"
+type ArtifactStore = "openspec" | "engram" | "hybrid"
 
 interface ODFDelegateArgs {
   phase: string
@@ -2128,6 +2146,7 @@ export interface ValidationEvidenceFile {
   candidate_digest?: string | null
   executor?: string
   test_identity?: string
+  expectations_ids?: string[]
   resolved_at: string
   commands: ValidationEvidenceCommand[]
 }
@@ -2136,6 +2155,8 @@ export interface ValidationVerdict {
   status: "verified" | "missing" | "invalid"
   reason: string
   commands_validated: number
+  warnings?: string[]
+  expectations_ids?: string[]
 }
 
 const EVIDENCE_FRESHNESS_MS = 60 * 60 * 1000 // 60 min window
@@ -2181,6 +2202,7 @@ export function validateValidationEvidence(opts: {
   tier: "LOW" | "MEDIUM" | "HIGH"
   frozenDiffRef: string | null
   evidencePath?: string
+  expectationsIds?: string[]
   now?: Date
 }): ValidationVerdict {
   const now = opts.now || new Date()
@@ -2294,7 +2316,13 @@ export function validateValidationEvidence(opts: {
     checked += 1
   }
 
-  return { status: "verified", reason: `stop-validation evidence verified (${checked} command(s))`, commands_validated: checked }
+  const expectationsIds = opts.expectationsIds || evidence.expectations_ids
+  return {
+    status: "verified",
+    reason: `stop-validation evidence verified (${checked} command(s))`,
+    commands_validated: checked,
+    ...(expectationsIds?.length ? { expectations_ids: expectationsIds } : {}),
+  }
 }
 
 // ==========================================
@@ -2316,6 +2344,7 @@ export interface ODFReceipt {
   review_gate: { attempts_used: number; budget_lines: number | null; verdict: "FAIL" | "PASS" | "PASS_WITH_WARNINGS" } | null
   frozen_diff_ref: string | null
   candidate_digest?: string | null
+  expectations_ids?: string[]
   resolved_at: string
   parallel?: {
     branch_ids: string[]
@@ -2551,7 +2580,7 @@ Use this instead of generic task() for ODF workflow delegation.`,
         .optional()
         .describe("Fresh opaque attempt token for gated IMPLEMENT/VERIFY execution"),
       artifact_store: tool.schema
-        .enum(["openspec", "engram"])
+        .enum(["openspec", "engram", "hybrid"])
         .optional()
         .describe("Authoritative workflow store; required when workflow_advance proof is supplied"),
       workflow_advance: tool.schema
@@ -2675,7 +2704,7 @@ Use this instead of generic task() for ODF workflow delegation.`,
         if (args.artifact_store === undefined) {
           return blockWorkflow(
             "artifact-store-required",
-            "Proof-backed IMPLEMENT/VERIFY delegation requires an explicit artifact_store: openspec or engram.",
+            "Proof-backed IMPLEMENT/VERIFY delegation requires an explicit artifact_store: openspec, engram, or hybrid.",
             null,
           )
         }
@@ -2752,6 +2781,7 @@ Use this instead of generic task() for ODF workflow delegation.`,
             selected.error || "workflow-state-unavailable",
             "The selected workflow state could not be read before delegation.",
             callerResult,
+            { safe_continuation: changeName ? `/odf-continue ${changeName}` : "/odf-continue" },
           )
         }
         const canonical = canonicalizeWorkflowAdvance(selected.snapshot, args.workflow_advance, expectedStage)
@@ -2905,7 +2935,7 @@ Use this instead of generic task() for ODF workflow delegation.`,
       }
 
       // Match skills (with version filter)
-      const skills = matchSkills(registry, {
+      const skills = matchSkills(registry, args.phase, {
         files: args.context_files,
         task: args.prompt,
         odooVersion: odooVersion,
@@ -2991,6 +3021,27 @@ Use this instead of generic task() for ODF workflow delegation.`,
         })
       }
 
+      let expectationsIds: string[] = []
+      const phaseWarnings: string[] = []
+      if (args.phase === "VERIFY" && effectiveWorkflowAdvance && transitionStart) {
+        const expectations = validateExpectations({
+          change: changeName!,
+          artifacts: transitionStart.snapshot.artifacts,
+        })
+        expectationsIds = expectations.status === "approved" ? expectations.ids : []
+        if (expectations.status === "missing") phaseWarnings.push("missing-expectations")
+        if (expectations.status === "invalid" || expectations.status === "tampered") {
+          return blockWorkflow(
+            expectations.status === "invalid" ? "expectations-not-approved" : "expectations-invalid",
+            expectations.status === "invalid"
+              ? "Human Expectations are not approved; approve them before VERIFY."
+              : "The Expectations artifact is invalid or tampered; restore the approved human artifact before VERIFY.",
+            workflowResult,
+            { safe_continuation: `/odf-continue ${changeName}` },
+          )
+        }
+      }
+
       const taskApiInfo = findTaskApi(toolCtx, client)
       const profilePayload = profile
         ? { name: profile.name, model: profile.model, temperature: profile.temperature, reasoning: profile.reasoning }
@@ -3035,10 +3086,11 @@ Use this instead of generic task() for ODF workflow delegation.`,
                 args.phase as ODFReceipt["phase"],
                 summary,
                 policyGate,
-                validation ? [validationEvidenceRelativePath(changeName!, executionOptions.branch_id)] : [],
-                disposition?.failureReceiptStatus || "blocked",
-                disposition ? "error" : "validation-failed",
-              )
+              validation ? [validationEvidenceRelativePath(changeName!, executionOptions.branch_id)] : [],
+              disposition?.failureReceiptStatus || "blocked",
+              disposition ? "error" : "validation-failed",
+              expectationsIds,
+            )
               : null
             recordMetrics({
               timestamp: new Date().toISOString(),
@@ -3051,8 +3103,9 @@ Use this instead of generic task() for ODF workflow delegation.`,
               token_estimate: estimateTokens(delegationPrompt),
               status: disposition?.metricStatus || "blocked",
               task_api_source: taskApiInfo.source,
-              ...metricContext,
-              error: reason,
+               ...metricContext,
+               warnings: phaseWarnings.length ? phaseWarnings : undefined,
+               error: reason,
             })
             return JSON.stringify({
               status: "blocked",
@@ -3067,9 +3120,20 @@ Use this instead of generic task() for ODF workflow delegation.`,
               task_api_source: taskApiInfo.source,
               result: taskResult.result,
               workflow_advance: workflowResult,
-              workflow_commit: workflowCommit,
-              message: summary,
+               workflow_commit: workflowCommit,
+               ...(phaseWarnings.length ? { warnings: phaseWarnings } : {}),
+               message: summary,
             }, null, 2)
+          }
+
+          const designResult = taskResult.result && typeof taskResult.result === "object"
+            ? taskResult.result as Record<string, unknown>
+            : null
+          if ((args.phase === "DESIGN" || args.phase === "PLAN") && innerDisposition.accepted && designResult?.design_closed !== true) {
+            return settleProofFailure(
+              "DESIGN/PLAN must return design_closed: true. Resolve the listed open design decisions and continue DESIGN.",
+              "design-not-closed",
+            )
           }
 
           if (!innerDisposition.accepted && !proofBacked && policyGate && !executionOptions.suppress_failure_receipt) {
@@ -3095,6 +3159,7 @@ Use this instead of generic task() for ODF workflow delegation.`,
               innerResultStatus: actualResultStatus,
               validationStatus: "verified",
               validation,
+              expectationsIds,
             })
             const preCommitFailure = !innerDisposition.accepted ||
               args.phase === "IMPLEMENT" && validation?.status !== "verified"
@@ -3123,8 +3188,9 @@ Use this instead of generic task() for ODF workflow delegation.`,
              token_estimate: estimateTokens(delegationPrompt),
               status: innerDisposition.metricStatus,
              task_api_source: taskApiInfo.source,
-             ...metricContext,
-             candidate_digest: policyGate?.candidate_digest ?? undefined,
+              ...metricContext,
+              warnings: phaseWarnings.length ? phaseWarnings : undefined,
+              candidate_digest: policyGate?.candidate_digest ?? undefined,
            })
           return JSON.stringify({
             status: "delegated",
@@ -3137,12 +3203,13 @@ Use this instead of generic task() for ODF workflow delegation.`,
              task_api_source: taskApiInfo.source,
              result: taskResult.result,
              ...(workflowResult ? { workflow_advance: workflowResult } : {}),
-             ...(proofBacked ? {
+              ...(proofBacked ? {
                workflow_commit: workflowCommit || (executionOptions.suppress_workflow_commit
                  ? { status: "deferred", reason: "parallel-aggregate-commit" }
                  : null),
-             } : {}),
-           }, null, 2)
+              } : {}),
+              ...(phaseWarnings.length ? { warnings: phaseWarnings } : {}),
+            }, null, 2)
         } catch (err) {
           const errorMessage = err instanceof Error ? err.message : String(err)
           const isTimeout = errorMessage.includes("timed out")
@@ -3515,7 +3582,7 @@ must not overlap. VERIFY remains sequential after the aggregate join is complete
         .string()
         .describe("Shared change name (kebab-case)"),
       artifact_store: tool.schema
-        .enum(["openspec", "engram"])
+        .enum(["openspec", "engram", "hybrid"])
         .describe("Authoritative workflow store for the aggregate transition"),
       workflow_advance: tool.schema
         .object({
@@ -3593,8 +3660,8 @@ must not overlap. VERIFY remains sequential after the aggregate join is complete
       if (args.work_type !== "cross-domain") return blocked("parallel-work-type-unsupported", "Only cross-domain work can use the parallel BUILD scheduler.")
       if (args.phase !== "IMPLEMENT") return blocked("parallel-phase-unsupported", "Only IMPLEMENT can use the parallel BUILD scheduler; VERIFY remains sequential.")
       if (!isSafeToken(args.change)) return blocked("unsafe-change-name", "The shared change name must be a safe token.")
-      if (args.artifact_store !== "openspec" && args.artifact_store !== "engram") {
-        return blocked("artifact-store-required", "Parallel proof-backed BUILD requires an explicit artifact_store: openspec or engram.")
+      if (args.artifact_store !== "openspec" && args.artifact_store !== "engram" && args.artifact_store !== "hybrid") {
+        return blocked("artifact-store-required", "Parallel proof-backed BUILD requires an explicit artifact_store: openspec, engram, or hybrid.")
       }
 
       const workspaceRoot = resolveWorkspaceRoot(canonicalDirectory || process.cwd())
@@ -4048,7 +4115,7 @@ Use this to manually inject standards into a sub-agent prompt when not using odf
         return "❌ ODF registry not found"
       }
 
-      const skills = matchSkills(registry, {
+       const skills = matchSkills(registry, null, {
         files: args.context_files,
         task: args.task_description,
       })
@@ -4170,7 +4237,7 @@ Use this for debugging:
       const agent = registry.agents.find(a => a.name === agentName)
 
       // Match skills
-      const skills = matchSkills(registry, {
+       const skills = matchSkills(registry, args.phase, {
         files: args.context_files,
         task: args.task,
         odooVersion: version,
@@ -4492,7 +4559,7 @@ interface OpenSpecSnapshot {
 const CHANGE_NAME_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]*$/
 const OPEN_SPEC_ARTIFACT_STEMS = new Set([
   "decision", "plan", "build", "verify", "proposal", "propose", "assess", "spec", "qa-plan", "design",
-  "tasks", "apply-progress", "implement-progress", "archive-report",
+  "tasks", "apply-progress", "implement-progress", "archive-report", "expectations",
 ])
 
 function openSpecStem(fileName: string): string {
@@ -4659,6 +4726,61 @@ interface SelectedWorkflowSnapshot {
   status: WorkflowStatus
 }
 
+export interface ExpectationsVerdict {
+  status: "approved" | "missing" | "invalid"
+  reason: "approved" | "missing-expectations" | "expectations-not-approved" | "expectations-invalid"
+  message: string
+  ids: string[]
+}
+
+function parseExpectationsArtifact(content: string): Record<string, unknown> | null {
+  try {
+    const value = parseDocument(content).toJSON()
+    return value !== null && typeof value === "object" && !Array.isArray(value)
+      ? value as Record<string, unknown>
+      : null
+  } catch {
+    return null
+  }
+}
+
+/** Pure T9 gate for the selected snapshot; no store or filesystem reads. */
+export function evaluateExpectations(snapshot: Pick<SelectedWorkflowSnapshot, "artifacts" | "status">): ExpectationsVerdict {
+  const artifact = snapshot.artifacts.find((candidate) => normalizeArtifactKey(candidate.key).type === "expectations")
+  if (!artifact) {
+    return { status: "missing", reason: "missing-expectations", message: "No human Expectations artifact exists; VERIFY uses legacy REQ-based evaluation.", ids: [] }
+  }
+
+  const value = parseExpectationsArtifact(artifact.content)
+  const entries = value?.expectations
+  const ids = Array.isArray(entries)
+    ? entries.map((entry) => entry && typeof entry === "object" && !Array.isArray(entry) ? (entry as Record<string, unknown>).id : null)
+      .filter((id): id is string => typeof id === "string")
+    : []
+  const validEntries = Array.isArray(entries) && entries.length > 0 && entries.every((entry) => {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) return false
+    const item = entry as Record<string, unknown>
+    return typeof item.id === "string" && /^EXP-\d+$/.test(item.id) &&
+      typeof item.statement === "string" && item.statement.trim().length > 0 &&
+      typeof item.testable === "boolean" && item.owned_by === "human"
+  }) && new Set(ids).size === ids.length
+  const matchesChange = value?.change === snapshot.status.change
+  if (!value || !matchesChange || !validEntries || value.approved !== true ||
+    typeof value.approved_by !== "string" || !value.approved_by.trim() ||
+    !validDate(value.approved_at) || !validDate(value.immutable_since)) {
+    const reason = value?.approved === false ? "expectations-not-approved" : "expectations-invalid"
+    return {
+      status: "invalid",
+      reason,
+      message: reason === "expectations-not-approved"
+        ? "Human Expectations are not approved; approve them before VERIFY."
+        : "The Expectations artifact is invalid or tampered; restore the approved human artifact before VERIFY.",
+      ids,
+    }
+  }
+  return { status: "approved", reason: "approved", message: `Approved human Expectations: ${ids.join(", ")}.`, ids }
+}
+
 interface SelectedWorkflowRead {
   snapshot: SelectedWorkflowSnapshot | null
   error: string | null
@@ -4723,23 +4845,25 @@ async function readSelectedWorkflowState(
   const receiptRead = readReceiptFile(workspaceRoot, changeName)
   if (receiptRead.malformed) return { snapshot: null, error: "workflow-receipt-malformed" }
 
-  if (store === "openspec") {
+  if (store === "openspec" || store === "hybrid") {
     const openSpec = await loadOpenSpecStatus(workspaceRoot, changeName)
-    if (!openSpec?.state) return { snapshot: null, error: "workflow-state-not-found" }
-    const parsed = parseStateDocument(openSpec.state.content)
-    if (!parsed) return { snapshot: null, error: "workflow-state-malformed" }
-    const status = deriveWorkflowStatus({
-      change: changeName,
-      state: openSpec.state.content,
-      artifacts: openSpec.artifacts,
-      receipt: receiptRead.receipt,
-      source: { state: "openspec", artifacts: [openSpec.state.key, ...openSpec.artifacts.map(artifact => artifact.key)] },
-      warnings: openSpec.warnings,
-    })
-    return {
-      snapshot: { store, state: parsed.state, stateContent: openSpec.state.content, artifacts: openSpec.artifacts, status },
-      error: null,
+    if (openSpec?.state) {
+      const parsed = parseStateDocument(openSpec.state.content)
+      if (!parsed) return { snapshot: null, error: "workflow-state-malformed" }
+      const status = deriveWorkflowStatus({
+        change: changeName,
+        state: openSpec.state.content,
+        artifacts: openSpec.artifacts,
+        receipt: receiptRead.receipt,
+        source: { state: "openspec", artifacts: [openSpec.state.key, ...openSpec.artifacts.map(artifact => artifact.key)] },
+        warnings: openSpec.warnings,
+      })
+      return {
+        snapshot: { store, state: parsed.state, stateContent: openSpec.state.content, artifacts: openSpec.artifacts, status },
+        error: null,
+      }
     }
+    if (store === "openspec") return { snapshot: null, error: "workflow-state-not-found" }
   }
 
   const observations = await readEngramObservations(workspaceRoot)
@@ -4935,13 +5059,41 @@ function inspectPersistedTransition(opts: {
   return { ok: true, alreadyCommitted: false, reason: "ready", message: "Persisted workflow transition is ready.", snapshot: opts.snapshot, route, completed }
 }
 
+function workflowArtifactGate(snapshot: SelectedWorkflowSnapshot, expectedStage: "BUILD" | "VERIFY"): { reason: string; message: string } | null {
+  const requiredType = expectedStage === "BUILD" ? "implement-progress" : "verify-report"
+  const allowedTypes = expectedStage === "BUILD"
+    ? new Set(["build", "implement-progress", "implement", "apply-progress", "tasks"])
+    : new Set(["verify-report"])
+  const refs = snapshot.status.artifact_refs[expectedStage]
+  const declared = refs.some((ref) => allowedTypes.has(normalizeArtifactKey(ref).type))
+  if (!declared) {
+    return {
+      reason: `workflow-${requiredType}-missing`,
+      message: `${expectedStage} requires a terminal ${requiredType} artifact; persist it in ${snapshot.store} and continue the phase.`,
+    }
+  }
+
+  const artifactStatus = deriveWorkflowStatus({
+    change: snapshot.status.change,
+    artifacts: snapshot.artifacts,
+    source: snapshot.store,
+  })
+  if (!artifactStatus.completed_canonical_stages.includes(expectedStage)) {
+    return {
+      reason: `workflow-${requiredType}-not-terminal`,
+      message: `${expectedStage} requires ${requiredType} to be terminal and successful; complete the artifact and continue the phase.`,
+    }
+  }
+  return null
+}
+
 /**
  * VERIFY commit gate: re-validate the persisted validation-evidence file with
  * the blind artifact rules. The policy gate carries the authoritative risk tier
  * and frozen ref; without a persisted gate there is nothing to bind the
  * transition to, so the transition stays blocked.
  */
-function verifyEvidenceVerdict(workspaceRoot: string, changeName: string): ValidationVerdict {
+function verifyEvidenceVerdict(workspaceRoot: string, changeName: string, expectationsIds?: string[]): ValidationVerdict {
   let gate: Partial<PolicyGateDecision> | null = null
   try {
     gate = JSON.parse(
@@ -4958,6 +5110,7 @@ function verifyEvidenceVerdict(workspaceRoot: string, changeName: string): Valid
     change: changeName,
     tier: gate.risk_tier ?? "MEDIUM",
     frozenDiffRef: gate.frozen_diff_ref ?? null,
+    expectationsIds,
   })
 }
 
@@ -4968,7 +5121,7 @@ function workflowLockPath(workspaceRoot: string, changeName: string): string {
 function workflowStateReference(store: ArtifactStore, changeName: string): string {
   return store === "openspec"
     ? `openspec/changes/${changeName}/state.yaml`
-    : `odf/${changeName}/state`
+    : store === "engram" ? `odf/${changeName}/state` : `openspec/changes/${changeName}/state.yaml + odf/${changeName}/state`
 }
 
 async function withWorkflowLock<T>(
@@ -5004,7 +5157,7 @@ function writeOpenSpecWorkflowState(
   changeName: string,
   stateContent: string,
   workType: WorkType,
-  canonicalStage: "BUILD" | "VERIFY",
+  canonicalStage: "BUILD" | "VERIFY" | "ARCHIVED",
   completedStages: CanonicalStage[],
 ): string | null {
   const statePath = path.resolve(workspaceRoot, "openspec", "changes", changeName, "state.yaml")
@@ -5014,6 +5167,11 @@ function writeOpenSpecWorkflowState(
   parsed.document.set("work_type", workType)
   parsed.document.set("canonical_stage", canonicalStage)
   parsed.document.set("completed_canonical_stages", completedStages)
+  if (canonicalStage === "ARCHIVED") {
+    parsed.document.set("phase", "archived")
+    parsed.document.set("status", "archived")
+    parsed.document.set("archived", true)
+  }
   const tempPath = `${statePath}.${process.pid}.${nodeCrypto.randomUUID()}.tmp`
   try {
     const root = fsSync.realpathSync(path.resolve(workspaceRoot))
@@ -5034,7 +5192,7 @@ function writeEngramWorkflowState(
   changeName: string,
   stateContent: string,
   workType: WorkType,
-  canonicalStage: "BUILD" | "VERIFY",
+  canonicalStage: "BUILD" | "VERIFY" | "ARCHIVED",
   completedStages: CanonicalStage[],
 ): string | null {
   const parsed = parseStateDocument(stateContent)
@@ -5042,6 +5200,11 @@ function writeEngramWorkflowState(
   parsed.document.set("work_type", workType)
   parsed.document.set("canonical_stage", canonicalStage)
   parsed.document.set("completed_canonical_stages", completedStages)
+  if (canonicalStage === "ARCHIVED") {
+    parsed.document.set("phase", "archived")
+    parsed.document.set("status", "archived")
+    parsed.document.set("archived", true)
+  }
   const topicKey = `odf/${changeName}/state`
   const project = workspaceProjectName(resolveWorkspaceRoot(workspaceRoot))
   const content = JSON.stringify(parsed.document.toJSON())
@@ -5064,6 +5227,76 @@ function writeEngramWorkflowState(
     const code = (error as NodeJS.ErrnoException).code
     return code === "ENOENT" ? "engram-cli-unavailable" : code === "ETIMEDOUT" ? "engram-save-timeout" : "engram-save-failed"
   }
+}
+
+function archiveReport(changeName: string, workType: WorkType, completedStages: CanonicalStage[]): string {
+  return stringify({
+    change: changeName,
+    status: "archived",
+    work_type: workType,
+    completed_canonical_stages: completedStages,
+    archived_at: new Date().toISOString(),
+  })
+}
+
+function writeOpenSpecArchive(
+  workspaceRoot: string,
+  changeName: string,
+  stateContent: string,
+  workType: WorkType,
+  completedStages: CanonicalStage[],
+): string | null {
+  const reportPath = path.resolve(workspaceRoot, "openspec", "changes", changeName, "archive-report.yaml")
+  const root = path.resolve(workspaceRoot)
+  if (!isWithinRoot(reportPath, root)) return "unsafe-archive-report-path"
+  const reportTemp = `${reportPath}.${process.pid}.${nodeCrypto.randomUUID()}.tmp`
+  try {
+    fsSync.writeFileSync(reportTemp, archiveReport(changeName, workType, completedStages), { encoding: "utf8", flag: "wx" })
+    fsSync.renameSync(reportTemp, reportPath)
+  } catch {
+    try { fsSync.unlinkSync(reportTemp) } catch { /* best-effort */ }
+    return "archive-report-write-failed"
+  }
+  return writeOpenSpecWorkflowState(workspaceRoot, changeName, stateContent, workType, "ARCHIVED", completedStages)
+}
+
+function writeEngramArchive(
+  workspaceRoot: string,
+  changeName: string,
+  stateContent: string,
+  workType: WorkType,
+  completedStages: CanonicalStage[],
+): string | null {
+  const stateError = writeEngramWorkflowState(workspaceRoot, changeName, stateContent, workType, "ARCHIVED", completedStages)
+  if (stateError) return stateError
+  const topicKey = `odf/${changeName}/archive-report`
+  const project = workspaceProjectName(resolveWorkspaceRoot(workspaceRoot))
+  try {
+    execFileSync("engram", [
+      "save", topicKey, archiveReport(changeName, workType, completedStages),
+      "--type", "architecture", "--project", project, "--scope", "project", "--topic", topicKey,
+    ], { cwd: workspaceRoot, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], timeout: 15_000, maxBuffer: 64 * 1024 })
+    return null
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code
+    return code === "ENOENT" ? "engram-cli-unavailable" : code === "ETIMEDOUT" ? "engram-save-timeout" : "archive-report-save-failed"
+  }
+}
+
+function writeArchiveWorkflow(
+  store: ArtifactStore,
+  workspaceRoot: string,
+  changeName: string,
+  stateContent: string,
+  workType: WorkType,
+  completedStages: CanonicalStage[],
+): string | null {
+  if (store === "openspec") return writeOpenSpecArchive(workspaceRoot, changeName, stateContent, workType, completedStages)
+  if (store === "engram") return writeEngramArchive(workspaceRoot, changeName, stateContent, workType, completedStages)
+  // OpenSpec is the hybrid authority; Engram is an idempotent recovery mirror.
+  const openSpecError = writeOpenSpecArchive(workspaceRoot, changeName, stateContent, workType, completedStages)
+  if (openSpecError) return openSpecError
+  return writeEngramArchive(workspaceRoot, changeName, stateContent, workType, completedStages)
 }
 
 /**
@@ -5106,11 +5339,12 @@ export async function commitWorkflowTransition(opts: {
   changeName: string
   artifactStore: ArtifactStore
   proof: ODFDelegateWorkflowAdvance
-  expectedStage: "BUILD" | "VERIFY"
+  expectedStage: "BUILD" | "VERIFY" | "ARCHIVE"
   callerResult: ReturnType<typeof advanceWorkflow>
   phaseResultStatus: WorkflowPhaseResultStatus
   validationStatus: WorkflowValidationStatus
   validation: ValidationVerdict | null
+  expectationsIds?: string[]
   parallel?: boolean
 }): Promise<WorkflowCommitResult> {
   const stateRef = workflowStateReference(opts.artifactStore, opts.changeName)
@@ -5135,7 +5369,7 @@ export async function commitWorkflowTransition(opts: {
     workflow_result: workflowResult,
   })
 
-  if (opts.expectedStage !== "BUILD" && opts.expectedStage !== "VERIFY") {
+  if (opts.expectedStage !== "BUILD" && opts.expectedStage !== "VERIFY" && opts.expectedStage !== "ARCHIVE") {
     return makeResult(
       "blocked",
       "workflow-stage-unsupported",
@@ -5159,6 +5393,26 @@ export async function commitWorkflowTransition(opts: {
         opts.validation,
         null,
       )
+    }
+    if (opts.expectedStage === "ARCHIVE") {
+      const route = resolveWorkflowRoute(opts.proof.work_type)
+      const completed = persistedCompletedStages(read.snapshot, route)
+      const alreadyArchived = read.snapshot.status.canonical_stage === "ARCHIVED" &&
+        read.snapshot.artifacts.some(artifact => normalizeArtifactKey(artifact.key).type === "archive-report")
+      if (alreadyArchived) {
+        return makeResult("already-committed", "already-committed", "Workflow is already archived.", read.snapshot, completed, opts.validation, null, "ARCHIVED")
+      }
+      if (read.snapshot.status.canonical_stage !== "VERIFY" || !completed.includes("VERIFY")) {
+        return makeResult("blocked", "workflow-verify-not-terminal", "ARCHIVE requires a terminal VERIFY state.", read.snapshot, completed, opts.validation, null)
+      }
+      if (opts.phaseResultStatus !== "ok" && opts.phaseResultStatus !== "warning") {
+        return makeResult("blocked", "workflow-result-invalid", "The VERIFY result must have status ok or warning before archiving.", read.snapshot, completed, opts.validation, null)
+      }
+      const writeError = writeArchiveWorkflow(opts.artifactStore, opts.workspaceRoot, opts.changeName, read.snapshot.stateContent, opts.proof.work_type, route.stages)
+      if (writeError) {
+        return makeResult("blocked", writeError, "The archive state and report could not be synchronized.", read.snapshot, completed, opts.validation, null)
+      }
+      return makeResult("committed", "committed", `Archived workflow state to ${opts.artifactStore}.`, read.snapshot, route.stages, opts.validation, null, "ARCHIVED")
     }
     const inspection = inspectPersistedTransition({
       snapshot: read.snapshot,
@@ -5203,8 +5457,21 @@ export async function commitWorkflowTransition(opts: {
       )
     }
 
+    const artifactFailure = workflowArtifactGate(read.snapshot, opts.expectedStage)
+    if (artifactFailure) {
+      return makeResult(
+        "blocked",
+        artifactFailure.reason,
+        artifactFailure.message,
+        read.snapshot,
+        inspection.completed,
+        opts.validation,
+        null,
+      )
+    }
+
     let validation = opts.validation
-    if (opts.expectedStage === "VERIFY") validation = verifyEvidenceVerdict(opts.workspaceRoot, opts.changeName)
+    if (opts.expectedStage === "VERIFY") validation = verifyEvidenceVerdict(opts.workspaceRoot, opts.changeName, opts.expectationsIds)
     if (validation?.status !== "verified") {
       const reason = validation?.status === "missing" ? "verification-evidence-missing" : "verification-evidence-invalid"
       return makeResult(
@@ -5289,6 +5556,7 @@ export interface ProofBackedLifecycleInput {
   innerResultStatus: WorkflowPhaseResultStatus | null
   validationStatus: WorkflowValidationStatus
   validation: ValidationVerdict | null
+  expectationsIds?: string[]
   parallel?: boolean
 }
 
@@ -5338,6 +5606,7 @@ export async function resolveProofBackedLifecycle(opts: ProofBackedLifecycleInpu
     phaseResultStatus: opts.innerResultStatus,
     validationStatus: opts.validationStatus,
     validation: opts.validation,
+    expectationsIds: opts.expectationsIds,
     parallel: opts.parallel,
   })
 }
@@ -5351,6 +5620,7 @@ function persistWorkflowFailureReceipt(
   refs: string[] = [],
   status: ODFReceipt["status"] = "blocked",
   cause: ODFReceipt["cause"] = "validation-failed",
+  expectationsIds: string[] = [],
 ): ODFReceipt {
   const frozenDiffRef = policyGate?.frozen_diff_ref || gitHead(workspaceRoot)
   return mergeReceipt(workspaceRoot, {
@@ -5370,6 +5640,7 @@ function persistWorkflowFailureReceipt(
     action: null,
     review_gate: null,
     frozen_diff_ref: frozenDiffRef,
+    ...(expectationsIds.length ? { expectations_ids: expectationsIds } : {}),
     resolved_at: new Date().toISOString(),
   })
 }
@@ -5404,12 +5675,15 @@ function buildEngramStatus(
     content: data.content,
     created_at: data.created,
   }))
+  const expectationWarnings = validateExpectations({ change: bestChange, artifacts: workflowArtifacts }).status === "missing"
+    ? ["missing-expectations"]
+    : []
   status.workflowStatus = deriveWorkflowStatus({
     change: bestChange,
     artifacts: workflowArtifacts,
     receipt: readReceiptJson(workspaceRoot, bestChange),
     source: { state: "engram", artifacts: workflowArtifacts.map((artifact) => artifact.key) },
-    warnings,
+    warnings: [...warnings, ...expectationWarnings],
   })
   status.phase = status.workflowStatus.legacy_phase?.toLowerCase() || "init"
   status.applyProgress = {
@@ -5500,13 +5774,16 @@ function buildMergedStatus(
     ...openSpec.artifacts.map((artifact) => artifact.key),
     ...(engram ? Array.from(engram.artifacts.keys()).map((type) => `odf/${engram.change}/${type}`) : []),
   ]
+  const expectationWarnings = validateExpectations({ change: openSpec.change, artifacts: mergedArtifacts }).status === "missing"
+    ? ["missing-expectations"]
+    : []
   const workflowStatus = deriveWorkflowStatus({
     change: openSpec.change,
     state: openSpec.state?.content || null,
     artifacts: mergedArtifacts,
     receipt: readReceiptJson(workspaceRoot, openSpec.change),
     source: { state: "openspec", artifacts: Array.from(new Set(sourceRefs)) },
-    warnings: Array.from(new Set(warnings)),
+    warnings: Array.from(new Set([...warnings, ...expectationWarnings])),
   })
   const artifactStates: Record<string, string> = {}
   for (const artifact of mergedArtifacts) artifactStates[normalizeArtifactKey(artifact.key).type] = "done"
@@ -5647,12 +5924,25 @@ only the canonical state binding through the Engram CLI.`,
         .enum(["openspec", "engram"])
         .optional()
         .describe("Artifact store for the binding (defaults to openspec)"),
+      terminal_stage: tool.schema
+        .enum(["DECIDE", "FIX"])
+        .optional()
+        .describe("Materialize the terminal micro prefix before BUILD"),
+      intent: tool.schema.string().optional().describe("User intent for a terminal DECIDE"),
+      expectations_approved: tool.schema.boolean().optional().describe("Whether the user's Expectations were approved"),
+      root_cause: tool.schema.string().optional().describe("Root-cause analysis for a terminal FIX"),
+      regression: tool.schema.string().optional().describe("Minimal regression for a terminal FIX"),
     },
     async execute(args: {
       change_name?: string
       work_type?: unknown
       workspace_dir?: string
       artifact_store?: "openspec" | "engram"
+      terminal_stage?: "DECIDE" | "FIX"
+      intent?: string
+      expectations_approved?: boolean
+      root_cause?: string
+      regression?: string
     }): Promise<string> {
       const blocked = (reason: string, message: string): string => JSON.stringify({ status: "blocked", reason, message }, null, 2)
       const changeName = typeof args.change_name === "string" ? args.change_name.trim() : ""
@@ -5676,7 +5966,20 @@ only the canonical state binding through the Engram CLI.`,
         const workspaceRoot = resolveWorkspaceRoot(workspace)
         const project = workspaceProjectName(workspaceRoot)
         const topicKey = `odf/${changeName}/state`
-        const content = JSON.stringify({ work_type: args.work_type })
+        const terminalStage = args.terminal_stage
+        const validTerminal = (args.work_type === "small-change" || args.work_type === "standard-config") && terminalStage === "DECIDE" ||
+          args.work_type === "bugfix" && terminalStage === "FIX"
+        if (terminalStage !== undefined && !validTerminal) return blocked("invalid-terminal-stage", "The terminal stage is not valid for this work type.")
+        if (terminalStage === "DECIDE" && (!args.intent?.trim() || args.expectations_approved !== true)) {
+          return blocked("expectations-not-approved", "A terminal DECIDE requires user intent and approved Expectations.")
+        }
+        if (terminalStage === "FIX" && (!args.root_cause?.trim() || !args.regression?.trim())) {
+          return blocked("fix-evidence-missing", "A terminal FIX requires root-cause analysis and a minimal regression.")
+        }
+        const content = JSON.stringify({
+          work_type: args.work_type,
+          ...(terminalStage ? { canonical_stage: terminalStage, completed_canonical_stages: [terminalStage] } : {}),
+        })
         try {
           execFileSync("engram", [
             "save",
@@ -5697,6 +6000,16 @@ only the canonical state binding through the Engram CLI.`,
             timeout: 15_000,
             maxBuffer: 64 * 1024,
           })
+          if (terminalStage) {
+            const artifactType = terminalStage === "DECIDE" ? "decision" : "fix"
+            const artifact = terminalStage === "DECIDE"
+              ? { status: "passed", intent: args.intent!.trim(), expectations_approved: true, resolved_at: new Date().toISOString() }
+              : { status: "passed", root_cause: args.root_cause!.trim(), regression: args.regression!.trim(), resolved_at: new Date().toISOString() }
+            const artifactKey = `odf/${changeName}/${artifactType}`
+            execFileSync("engram", ["save", artifactKey, JSON.stringify(artifact), "--type", "architecture", "--project", project, "--scope", "project", "--topic", artifactKey], {
+              cwd: workspaceRoot, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], timeout: 15_000, maxBuffer: 64 * 1024,
+            })
+          }
         } catch (error) {
           const code = (error as NodeJS.ErrnoException).code
           const reason = code === "ENOENT"
@@ -5713,6 +6026,7 @@ only the canonical state binding through the Engram CLI.`,
           artifact_store: "engram",
           topic_key: topicKey,
           project,
+          ...(terminalStage ? { terminal_stage: terminalStage } : {}),
         }, null, 2)
       }
       const statePath = path.resolve(workspace, "openspec", "changes", changeName, "state.yaml")
@@ -5723,8 +6037,14 @@ only the canonical state binding through the Engram CLI.`,
       let content: string
       try {
         const workspaceRoot = await fs.realpath(workspace)
-        const stateStat = await fs.stat(statePath)
-        if (!stateStat.isFile()) return blocked("state-not-found", "OpenSpec state.yaml is not a regular file.")
+        try {
+          const stateStat = await fs.stat(statePath)
+          if (!stateStat.isFile()) return blocked("state-not-found", "OpenSpec state.yaml is not a regular file.")
+        } catch (error) {
+          if (args.work_type !== "bugfix" || args.terminal_stage !== "FIX" || (error as NodeJS.ErrnoException).code !== "ENOENT") throw error
+          await fs.mkdir(path.dirname(statePath), { recursive: true })
+          await fs.writeFile(statePath, "{}\n", "utf8")
+        }
         const realStatePath = await fs.realpath(statePath)
         if (!isWithinRoot(realStatePath, workspaceRoot)) {
           return blocked("unsafe-change-path", "The OpenSpec state path resolves outside the workspace.")
@@ -5750,10 +6070,43 @@ only the canonical state binding through the Engram CLI.`,
       const preflightMirrored = isMap(preflight)
       if (preflightMirrored) preflight.set("work_type", args.work_type)
 
+      const terminalStage = args.terminal_stage
+      const validTerminal = (args.work_type === "small-change" || args.work_type === "standard-config") && terminalStage === "DECIDE" ||
+        args.work_type === "bugfix" && terminalStage === "FIX"
+      if (terminalStage !== undefined && !validTerminal) return blocked("invalid-terminal-stage", "The terminal stage is not valid for this work type.")
+      if (terminalStage === "DECIDE" && (!args.intent?.trim() || args.expectations_approved !== true)) {
+        return blocked("expectations-not-approved", "A terminal DECIDE requires user intent and approved Expectations.")
+      }
+      if (terminalStage === "FIX" && (!args.root_cause?.trim() || !args.regression?.trim())) {
+        return blocked("fix-evidence-missing", "A terminal FIX requires root-cause analysis and a minimal regression.")
+      }
+      if (terminalStage) {
+        document.set("canonical_stage", terminalStage)
+        document.set("completed_canonical_stages", [terminalStage])
+      }
+
       try {
+        if (terminalStage) {
+          const artifact = terminalStage === "DECIDE" ? {
+            status: "passed",
+            intent: args.intent!.trim(),
+            expectations_approved: true,
+            resolved_at: new Date().toISOString(),
+          } : {
+            status: "passed",
+            root_cause: args.root_cause!.trim(),
+            regression: args.regression!.trim(),
+            resolved_at: new Date().toISOString(),
+          }
+          await fs.writeFile(
+            path.join(path.dirname(statePath), terminalStage === "DECIDE" ? "decision.yaml" : "fix.yaml"),
+            JSON.stringify(artifact, null, 2),
+            "utf8",
+          )
+        }
         await fs.writeFile(statePath, document.toString(), "utf8")
       } catch {
-        return blocked("state-write-failed", "OpenSpec state.yaml could not be updated.")
+        return blocked(terminalStage ? "terminal-artifact-write-failed" : "state-write-failed", "OpenSpec workflow binding could not be persisted.")
       }
 
       return JSON.stringify({
@@ -5762,6 +6115,7 @@ only the canonical state binding through the Engram CLI.`,
         work_type: args.work_type,
         state_path: statePath,
         preflight_mirrored: preflightMirrored,
+        ...(terminalStage ? { terminal_stage: terminalStage } : {}),
       }, null, 2)
     },
   })

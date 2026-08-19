@@ -48,7 +48,7 @@ as the LAST part of its response. The orchestrator uses it for phase decisions.
 - **status**: ok | warning | blocked | failed
 - **executive_summary**: {1-2 sentence decision-grade summary}
 - **strategy**: standard | custom | migration | integration
-- **artifacts_saved**: [{name, engram_topic_key}]
+- **artifacts_saved**: [{name, artifact_ref: {store, ref}, engram_topic_key?}]
 - **next_recommended**: [{phase or agent to invoke next}]
 - **risks**: [{risk description}]
 - **odoo_version**: {16|17|18|19}
@@ -60,7 +60,7 @@ as the LAST part of its response. The orchestrator uses it for phase decisions.
 | `status` | YES | Overall outcome of this phase |
 | `executive_summary` | YES | Short summary shown to the user; under two sentences |
 | `strategy` | YES | Kind of work: standard, custom, migration, or integration |
-| `artifacts_saved` | YES | Engram artifacts created/updated; `[]` if none |
+| `artifacts_saved` | YES | Persisted artifacts in the selected store; each item uses canonical `artifact_ref: {store, ref}`. Optional `engram_topic_key` is compatibility-only; `[]` if none. |
 | `next_recommended` | YES | Next phase/agent; `[]` if complete |
 | `risks` | NO | Identified risks; `[]` if none |
 | `odoo_version` | YES | Target Odoo version |

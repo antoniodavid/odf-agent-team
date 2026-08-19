@@ -96,15 +96,8 @@ Produce a structured proposal document in the response:
 
 ### Step 3: Persist Artifact
 
-```
-mem_save(
-  title: "odf/{change}/propose",
-  topic_key: "odf/{change}/propose",
-  type: "architecture",
-  capture_prompt: false,
-  content: {full proposal markdown}
-)
-```
+Use the selected store from `persistence-contract.md` and record the returned
+canonical `artifact_ref`. Do not require `mem_*`; preserve the full proposal.
 
 ### Step 4: Return Summary
 

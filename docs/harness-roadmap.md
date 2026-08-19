@@ -546,8 +546,6 @@ and honest token availability.
 
 ### [x] T8 — Represent absent and incomplete data honestly
 
-### [ ] T8 — Represent absent and incomplete data honestly
-
 **Outcome:** zero records no longer appear as perfect performance.
 
 **Dependencies:** T7.
@@ -596,10 +594,6 @@ and honest token availability.
 - Rollback boundary: revert `scripts/odf-evaluation.js`,
   `scripts/odf-metrics.js`, `scripts/odf-evaluation.d.ts`,
   `scripts/odf-metrics.d.ts`, and their `.test.ts` files.
-
-## P2 — Semantic evaluation and safety
-
----
 
 ## P2 — Semantic evaluation and safety
 
@@ -785,10 +779,6 @@ are stopped before execution rather than detected afterward.
 
 ## P2 — Verified learning loop
 
----
-
-## P2 — Verified learning loop
-
 ### [x] T12 — Propose memory and skills only from verified runs
 
 **Status:** implemented; evidence recorded below.
@@ -855,12 +845,16 @@ plausible mistakes into permanent procedure.
 ## Roadmap completion
 
 All roadmap tasks T1–T12 are implemented with recorded evidence (2026-08-17).
+The post-roadmap hardening work is also implemented in the current working tree:
+phase artifact gates, executable micro/FIX routes, store-aware ARCHIVE,
+installable contracts, phase-aware skill routing, store-neutral persistence
+instructions, and Expectations validation before proof-backed VERIFY.
 The continuous-improvement loop components (goldens, verified telemetry,
 shadow judge, memory/skill candidates) now exist as deterministic contracts;
 activation of any blocking judge role or auto-skill creation still requires a
 separate human decision backed by measured calibration (see the conditional
-backlog and parking lot). No commit has been made; all changes remain in the
-working tree awaiting explicit instruction.
+backlog and parking lot). The current hardening changes remain uncommitted and
+require the standard verification below before delivery.
 
 ---
 
@@ -956,6 +950,7 @@ commit, push, and runtime deployment remain separate explicit actions.
 
 ## Next action
 
-Mark **T1** `[~]`, implement the canonical candidate manifest and digest with
-its focused tests, then update this document and the Engram recovery copy with
-the exact evidence.
+Run the standard verification commands, review the accumulated hardening diff,
+and refresh the Engram recovery copy with the final evidence. Do not restart
+T1–T12; future work belongs in the conditional backlog or a separately named
+hardening change.

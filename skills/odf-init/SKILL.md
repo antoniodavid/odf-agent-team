@@ -4,12 +4,18 @@ description: "Detect + persist Odoo project context: version, modules, test runn
 license: MIT
 metadata:
   author: adruban
-  version: "2.0"
+  version: "2.1"
 ---
+
+## Activation Contract
+
+Use at project entry or when Odoo tooling changes, before phases that consume
+project context. Detect locally and persist the result; do not guess missing
+values.
 
 ## When to Use
 
-Use when entering a new Odoo project, or when project tooling changes (new test runner, new dependencies). Persists to Engram so all ODF phases reuse the config without re-detecting.
+Use when entering a new Odoo project, or when project tooling changes (new test runner, new dependencies). Persist to the selected store so all ODF phases reuse the config without re-detecting.
 
 ## Hard Rules
 
@@ -48,7 +54,7 @@ Use when entering a new Odoo project, or when project tooling changes (new test 
 4. **Detect linting**: pre-commit config, pylint-odoo availability, OCA compliance flags
 5. **Detect conventions**: Module prefix patterns, git workflow, CI platform, README conventions
 6. **Build config**: Assemble YAML with project_name, odoo_version, modules[], environment{}, testing{}, linting{}, flags{}, conventions{}
-7. **Persist**: `mem_save(title: "odf-init/{project}", topic_key: "odf-init/{project}", type: "config", ...)`
+7. **Persist** the config in the selected store and return its canonical `artifact_ref`.
     - Persist the resolved command under `testing.test_command` with literal `{test_db}` and `{module}` placeholders so IMPLEMENT/VERIFY can substitute the exact isolated database and module under test.
 
 ## Output Contract
@@ -58,4 +64,5 @@ Return ODF Result envelope with: status (ok|warning|blocked), executive_summary 
 ## References
 
 - `/home/adruban/.config/opencode/skills/_shared/result-contract.md` — ODF Result envelope
+- `/home/adruban/.config/opencode/skills/_shared/persistence-contract.md` — selected store and artifact references
 - `/home/adruban/.config/opencode/skills/_shared/odoo-sources.md` — Local source paths

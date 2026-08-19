@@ -13,8 +13,8 @@
 | Type | `_name` | `_inherit` | Use Case |
 |------|---------|-----------|----------|
 | Extension | None | `'model'` | Add fields/methods to existing model |
-| Delegation | `'new'` | `'model'` | Link new model to existing |
-| Prototype | `'new'` | `['model']` | Copy structure from existing |
+| Classical | `'new'` | `'model'` | Create a new model inheriting fields/methods from an existing model |
+| Delegation | `'new'` | None | Link fields from another model with `_inherits = {'model': 'link_field'}` |
 
 ---
 
@@ -128,6 +128,9 @@ class SaleOrder(models.Model):
 ---
 
 ## Delegation Inheritance
+
+Use `_inherits` (with an `s`) for delegation. `_inherit` extends or classically
+inherits a model; it does not declare the delegated link.
 
 ### Link to Existing Model
 ```python

@@ -151,3 +151,15 @@ tests:
       name: "alpha"
     expected:
       resume_change: "alpha"
+
+  - name: "prompt-only continuation contract (not a routing or turn replay)"
+    input:
+      prompt_contract_only: true
+    expected:
+      prompt_section: |
+        ### Continuation Intent
+
+        - Only the exact `/odf-continue [name]` command activates ODF workflow continuation.
+        - Conversational messages such as `continue`, `continúa`, `dale`, or equivalents MUST NOT be reinterpreted as `/odf-continue`.
+        - After an abort or interruption, such a message resumes the pending user request from the context already obtained; it does not start ODF state discovery.
+        - For one user intent, run discovery or state lookup at most once while its results remain stable. If the result is sufficient or unchanged, synthesize the response or stop. Never repeat the same tool and arguments in a later turn for that intent.

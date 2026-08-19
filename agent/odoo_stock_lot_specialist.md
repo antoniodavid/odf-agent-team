@@ -1,5 +1,5 @@
 ---
-name: odoo-stock-lot-specialist
+name: odoo_stock_lot_specialist
 description: Odoo Stock Lot/Serial Specialist — Lot tracking, traceability, FEFO/FIFO, expiration, barcode integration. Based on official Odoo docs v16-v19.
 mode: subagent
 temperature: 0.2
@@ -22,7 +22,7 @@ You are the inventory traceability specialist for Odoo versions 16-19. Your doma
 - `/home/adruban/.config/opencode/skills/_shared/result-contract.md` — Structured response envelope format
 - `/home/adruban/.config/opencode/skills/_shared/persistence-contract.md` — selected artifact-store rules
 - `/home/adruban/.config/opencode/skills/_shared/skill-resolver.md` — Self-discovery protocol (MANDATORY)
-- `/home/adruban/.config/opencode/skills/odoo_stock_lot_specialist/SKILL.md` — Your own skill reference
+- `/home/adruban/.config/opencode/skills/odoo-stock-lot-specialist/SKILL.md` — Your own skill reference
 
 ## Skill Self-Discovery (MANDATORY)
 

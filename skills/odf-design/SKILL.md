@@ -4,8 +4,13 @@ description: "Create a CLOSED technical design document + IMPLEMENT plan for Odo
 license: MIT
 metadata:
   author: adruban
-  version: "3.0"
+  version: "3.1"
 ---
+
+## Activation Contract
+
+Use only for Phase 2 (DESIGN) after ASSESS is approved and its REQ-XX plus the
+approved human EXP-XX artifact are available. Return a closed design or block.
 
 ## When to Use
 
@@ -42,8 +47,8 @@ plan from it. The orchestrator will approve before IMPLEMENT.
 
 ## Execution Steps
 
-1. **Retrieve**: `mem_get_observation(id)` on the assess artifact (REQ-XX) and
-   the `expectations` artifact (EXP-XX) from Engram / the store.
+1. **Retrieve** the assess artifact (REQ-XX) and `expectations` artifact
+   (EXP-XX) through the selected store.
 2. **Read the module**: Read the real Odoo source module being extended/inherited.
 3. **Produce the design document** per `docs/design-contract.md` (ALL sections):
    Context (module + manifest_depends), EXP-XX resolution table, data model
@@ -55,7 +60,7 @@ plan from it. The orchestrator will approve before IMPLEMENT.
 6. **Apply the closed-design checklist** (`docs/design-contract.md` §8). If not
    closed, iterate before returning; if a decision genuinely cannot be resolved,
    return `blocked` listing the open decisions.
-7. **Persist**: `mem_save(title: "odf/{change}/design", ...)` with `design_path`,
+7. **Persist** in the selected store with `artifact_ref`, `design_path`,
    `design_closed`, and `design_meta`. Derive `design_meta` from the closed
    document per `docs/design-contract.md` §"design_meta": count models, fields,
    views, tasks, EXP-XX rows; `module_type` from the "Fix the module" decision;
@@ -76,6 +81,7 @@ next_recommended (["implement"]), risks, odoo_version, modules_affected. If
 ## References
 
 - `/home/adruban/.config/opencode/skills/_shared/result-contract.md` — ODF Result envelope
+- `/home/adruban/.config/opencode/skills/_shared/persistence-contract.md` — selected store and artifact references
 - `/home/adruban/.config/opencode/skills/_shared/odoo-sources.md` — Local source paths
 - `docs/design-contract.md` — The design document contract + closed-design checklist
 - `docs/expectations-contract.md` — EXP-XX format and immutability

@@ -4,8 +4,15 @@ description: "QA workflow for ODF: test planning, coverage analysis, test review
 license: MIT
 metadata:
   author: adruban
-  version: "2.0"
+  version: "2.1"
 ---
+
+## Activation Contract
+
+Use for QA-PLAN, QA-REVIEW, QA-AGGREGATE, or QA-REPORT when explicitly routed
+by ODF. Approved human `EXP-XX` is the primary acceptance criterion; REQ-XX is
+technical traceability derived from it. Do not approve QA on REQ-XX coverage
+alone when an approved expectation is missing or untested.
 
 ## When to Use
 
@@ -16,9 +23,9 @@ Use for test strategy planning (after ASSESS), test review (during IMPLEMENT), c
 | Rule | Requirement |
 |------|-------------|
 | Run actual coverage | Use coverage tools — don't estimate coverage percentages |
-| Trace to requirements | Every test must map to a REQ-XX from the assess artifact |
+| Trace to expectations | Start from every approved EXP-XX, then map through REQ-XX to tests; an untested EXP-XX blocks the acceptance verdict |
 | Flag untested paths | Identify critical paths without test coverage — don't ignore them |
-| Check isolation | Tests MUST use TransactionCase — no shared state between tests |
+| Choose the test class | Select the narrowest valid class: `TransactionCase` for ORM transactions, `SavepointCase` for savepoint behavior, `HttpCase` for browser/tour flows, and focused JS tests for frontend behavior. Do not impose one class universally |
 
 ## Decision Gates
 
@@ -31,14 +38,14 @@ Use for test strategy planning (after ASSESS), test review (during IMPLEMENT), c
 
 ## Execution Steps
 
-1. **QA-PLAN**: Parse REQ-XX from assess → design test scenarios → set coverage targets per module type → persist as qa-plan
+1. **QA-PLAN**: Read approved EXP-XX first, map REQ-XX from assess, choose the narrowest suitable test class per behavior, design scenarios for every expectation, set coverage targets per module type, and persist as qa-plan
 2. **QA-REVIEW**: Review test quality (isolation, meaningful assertions, coverage toward targets) → flag issues → persist as qa-review
 3. **QA-AGGREGATE**: Collect all batch test results → generate aggregate coverage → map to requirements → identify untested paths → persist as qa-aggregate
 4. **QA-REPORT**: Compile final metrics → build requirements traceability matrix → evaluate quality gates → persist as qa-report
 
 ## Output Contract
 
-Return ODF Result envelope with: status (ok|warning|blocked|failed), executive_summary ("{N} tests, {X}% coverage, {Y}/{Z} requirements covered"), artifacts_saved (qa-plan, qa-review, qa-aggregate, qa-report), next_recommended (["implement"] or ["verify"]), risks, odoo_version, modules_affected.
+Return ODF Result envelope with: status (ok|warning|blocked|failed), executive_summary ("{N} tests, {X}% coverage, {Y}/{Z} approved expectations covered"), artifacts_saved (qa-plan, qa-review, qa-aggregate, qa-report), next_recommended (["implement"] or ["verify"]), risks, odoo_version, modules_affected.
 
 ## References
 

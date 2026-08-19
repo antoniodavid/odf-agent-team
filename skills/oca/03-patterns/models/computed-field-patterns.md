@@ -70,13 +70,17 @@ class MyModel(models.Model):
         readonly=True,  # Default
     )
 
-    # Editable stored computed (rare)
+    # Editable computed fields require an inverse method.
     adjustable_total = fields.Float(
         compute='_compute_adjustable_total',
+        inverse='_inverse_adjustable_total',
         store=True,
         readonly=False,
     )
 ```
+
+Without `inverse`, a computed field must remain readonly; `readonly=False`
+alone does not provide a valid write path.
 
 ---
 

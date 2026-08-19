@@ -216,7 +216,7 @@ install_files() {
     log_warn "📁 [dry-run] Would install ODF files to ${ODF_DIR}"
   else
     log_warn "📁 Installing ODF files to ${ODF_DIR}..."
-    mkdir -p "$ODF_DIR"/{agent,skills,plugins,command,scripts,backups}
+    mkdir -p "$ODF_DIR"/{agent,skills,plugins,command,scripts,docs,backups}
   fi
 
   # Copy installer itself so self-test can find it
@@ -229,6 +229,10 @@ install_files() {
   copy_dir "$src_dir/command" "$ODF_DIR/command"
   copy_dir "$src_dir/scripts" "$ODF_DIR/scripts"
   copy_dir "$src_dir/openspec" "$ODF_DIR/openspec"
+
+  # Install only the contracts consumed by ODF phases.
+  copy_dir "$src_dir/docs/design-contract.md" "$ODF_DIR/docs/design-contract.md"
+  copy_dir "$src_dir/docs/expectations-contract.md" "$ODF_DIR/docs/expectations-contract.md"
 
   if [[ -f "$src_dir/package.json" ]]; then
     copy_dir "$src_dir/package.json" "$ODF_DIR/package.json"

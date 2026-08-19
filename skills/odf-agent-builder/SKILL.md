@@ -7,6 +7,11 @@ metadata:
   version: "2.0"
 ---
 
+## Activation Contract
+
+Use only for `/odf-agent-new` or an explicit request to create a new ODF
+specialist. Do not use it to repair an existing skill; use skill-improver.
+
 ## When to Use
 
 Use when user describes a specialized Odoo domain expert (accounting, inventory, manufacturing) that should be a dedicated sub-agent. The builder generates SKILL.md + AGENT.md, installs to `skills/odoo_{name}/` and `agent/odoo_{name}.md`, and registers in the registry.

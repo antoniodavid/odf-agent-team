@@ -7,6 +7,11 @@ metadata:
   version: "2.0"
 ---
 
+## Activation Contract
+
+Use only for Phase 1 (ASSESS) of `/odf-new`, after PROPOSE and preflight. Match
+requirements, version, and standard-vs-custom feasibility; do not implement.
+
 ## When to Use
 
 Use as Phase 1 of /odf-new, after PROPOSE. Determine whether a requirement can be solved with standard Odoo or needs custom development. NEVER write code in this phase — only specs or config guides.
@@ -37,7 +42,8 @@ Use as Phase 1 of /odf-new, after PROPOSE. Determine whether a requirement can b
 4. **Read human Expectations**: Load the `expectations` artifact (approved `EXP-XX`). These are the immutable human contract. Do NOT re-author or rephrase them.
 5. **Find gaps**: Document what standard CAN and CANNOT do per requirement
 6. **Produce output**: Config guide (standard) or functional spec (custom) with numbered REQ-XX for the technical plan, each REQ referencing the `EXP-XX` it covers, plus Given/When/Then scenarios
-7. **Persist**: `mem_save(title: "odf/{change}/assess", ...)`
+7. **Persist**: Save the full assessment in the selected store and return its
+   canonical `artifact_ref`; do not require `mem_*`.
 
 ## Output Contract
 
@@ -46,4 +52,5 @@ Return ODF Result envelope with: status (ok), executive_summary, strategy (stand
 ## References
 
 - `/home/adruban/.config/opencode/skills/_shared/result-contract.md` — ODF Result envelope
+- `/home/adruban/.config/opencode/skills/_shared/persistence-contract.md` — selected store and artifact references
 - `/home/adruban/.config/opencode/skills/_shared/odoo-sources.md` — Local source paths

@@ -1,19 +1,16 @@
 # Odoo OWL Components - Version Dispatcher
 
-## CRITICAL: VERSION-SPECIFIC REQUIREMENTS
+## CRITICAL: VERSION-GATED REQUIREMENTS
 
 ```
 ╔══════════════════════════════════════════════════════════════════════════════╗
 ║                                                                              ║
 ║   ⚠️  MANDATORY VERSION MATCHING ⚠️                                          ║
 ║                                                                              ║
-║   OWL versions are COMPLETELY DIFFERENT between Odoo versions.               ║
-║   Using wrong OWL patterns WILL cause JavaScript errors.                     ║
-║                                                                              ║
-║   - Odoo 14: No OWL (legacy JavaScript)                                      ║
-║   - Odoo 15: OWL 1.x                                                         ║
-║   - Odoo 16-18: OWL 2.x                                                      ║
-║   - Odoo 19+: OWL 2.8.x                                                        ║
+║   OWL APIs and bundled versions are branch-dependent.                        ║
+║   Using an unverified pattern WILL cause JavaScript errors.                   ║
+║   Do not infer the OWL version from this document; verify the target branch   ║
+║   and its source/package metadata first.                                      ║
 ║                                                                              ║
 ║   BEFORE writing ANY OWL component, identify your Odoo version               ║
 ║   and load the corresponding file. This is NOT optional.                     ║
@@ -23,15 +20,11 @@
 
 ## Version-Specific Files
 
-| Target Version | OWL Version | File to Use |
+| Target Version | OWL guidance | File to Use |
 |----------------|-------------|-------------|
-| Odoo 14.0 | No OWL | `odoo-owl-components-14.md` (legacy JS) |
-| Odoo 15.0 | OWL 1.x | `odoo-owl-components-15.md` |
-| Odoo 16.0 | OWL 2.x | `odoo-owl-components-16.md` |
-| Odoo 17.0 | OWL 2.x | `odoo-owl-components-17.md` |
-| Odoo 18.0 | OWL 2.x | `odoo-owl-components-18.md` |
-| Odoo 19.0 | OWL 2.8.x | `odoo-owl-components-19.md` |
-| All versions | Concepts | `odoo-owl-components-all.md` |
+| Odoo 14.0 | Verify whether the target branch uses legacy JS or OWL | `odoo-owl-components-14.md` |
+| Odoo 15.0+ | Verify the branch's bundled OWL API before choosing a pattern | Matching version file |
+| All versions | Concepts only; not a compatibility claim | `odoo-owl-components-all.md` |
 
 ## Migration Guides
 
@@ -41,11 +34,11 @@
 | 15.0 → 16.0 | `odoo-owl-components-15-16.md` (OWL 1.x to 2.x) |
 | 16.0 → 17.0 | `odoo-owl-components-16-17.md` (OWL 2.x refinements) |
 | 17.0 → 18.0 | `odoo-owl-components-17-18.md` (OWL 2.x refinements) |
-| 18.0 → 19.0 | `odoo-owl-components-18-19.md` (OWL 2.x to 3.x) |
+| 18.0 → 19.0 | `odoo-owl-components-18-19.md` (verify target-branch OWL changes) |
 
 ## Quick Reference: OWL Changes by Version
 
-### Odoo 14 (No OWL)
+### Legacy JavaScript (use only when verified for the target branch)
 ```javascript
 // Legacy jQuery-based
 odoo.define('module.widget', function (require) {
@@ -60,7 +53,7 @@ odoo.define('module.widget', function (require) {
 });
 ```
 
-### Odoo 15 (OWL 1.x)
+### Legacy `odoo.define` + OWL API (use only when verified)
 ```javascript
 odoo.define('module.Component', function (require) {
     const { Component } = owl;
@@ -76,7 +69,7 @@ odoo.define('module.Component', function (require) {
 });
 ```
 
-### Odoo 16-18 (OWL 2.x)
+### ES modules + OWL API (use only when verified)
 ```javascript
 /** @odoo-module **/
 import { Component, useState } from "@odoo/owl";
@@ -91,7 +84,7 @@ export class MyComponent extends Component {
 registry.category("actions").add("my_action", MyComponent);
 ```
 
-### Odoo 19+ (OWL 2.8.x)
+### ES modules + additional version-gated props (use only when verified)
 ```javascript
 /** @odoo-module **/
 import { Component, useState } from "@odoo/owl";
@@ -110,24 +103,24 @@ export class MyComponent extends Component {
 
 ## Key Differences
 
-| Feature | OWL 1.x | OWL 2.x | OWL 2.8.x |
+| Feature | Legacy/older API | ES-module OWL API | Target-branch additions |
 |---------|---------|---------|---------|
 | Module system | `odoo.define` | ES modules | ES modules |
 | Import syntax | `require()` | `import` | `import` |
 | Hooks | `owl.hooks` | Direct import | Direct import |
 | Template | Property | Static property | Static property |
-| Props | Implicit | Optional | Required |
+| Props | Version-gated | Version-gated | Version-gated |
 
 ## OWL Detection in Existing Code
 
 | Indicator | Version |
 |-----------|---------|
-| `odoo.define()` | 14 (legacy) or 15 (OWL 1.x) |
-| `require('web.Widget')` | 14 (legacy) |
-| `const { Component } = owl` | 15 (OWL 1.x) |
-| `/** @odoo-module **/` | 16+ (OWL 2.x+) |
-| `import { Component }` | 16+ (OWL 2.x+) |
-| `static props = {}` required | 19+ (OWL 2.8.x) |
+| `odoo.define()` | Legacy/older module system; verify branch |
+| `require('web.Widget')` | Legacy widget API; verify branch |
+| `const { Component } = owl` | Older OWL API; verify branch |
+| `/** @odoo-module **/` | ES-module marker; verify branch |
+| `import { Component }` | ES-module OWL API; verify branch |
+| `static props = {}` | Verify requirement in target branch |
 
 ## Common OWL Patterns
 

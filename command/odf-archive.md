@@ -23,6 +23,25 @@ Formalizes the closure of a completed ODF change:
 
 **Only run this AFTER successful VERIFY.**
 
+## Store-Aware Workflow Transition
+
+ARCHIVE is a terminal workflow transition. Call the existing workflow transition
+helper with `expectedStage: ARCHIVE` and the selected `artifact_store`:
+
+- `openspec`: OpenSpec state and `archive-report.yaml` are authoritative.
+- `engram`: Engram state and `odf/{change-name}/archive-report` are authoritative.
+- `hybrid`: OpenSpec is authoritative; Engram receives an idempotent mirror.
+
+Do not invent a public ARCHIVE transition API or write workflow state outside the
+existing helper. The helper preserves `work_type` and completed canonical route
+stages, writes `canonical_stage: ARCHIVED`, and returns `already-committed` for a
+safe retry. Hybrid must finish with both stores representing ARCHIVED; it must
+never leave the authoritative OpenSpec state at VERIFY.
+
+Before calling the helper, require persisted state with terminal `VERIFY` and a
+successful terminal `verify-report`. If VERIFY is missing, incomplete, failed,
+or non-terminal, return `workflow-verify-not-terminal` and do not modify state.
+
 ## Orchestrator Instructions
 
 1. **Verify change is complete:**
@@ -178,55 +197,43 @@ Formalizes the closure of a completed ODF change:
    ```
    Saved for human review later; nothing is activated at archive time.
 
-10. **Mark as archived (update state):**
-   ```
-   mem_save(
-     title: "odf/{change-name}/state",
-     topic_key: "odf/{change-name}/state",
-     type: "architecture",
-     project: "{project}",
-     content: "change: {change-name}
-phase: archived
-odoo_version: {ver}
-strategy: {strategy}
-artifacts:
-  assess: true
-  design: true
-  implement: true
-  verify: true
-status: COMPLETED
-archived_at: {ISO date}"
-   )
-   ```
+10. **Mark as archived:** use the store-aware transition above. Do not manually
+    replace it with a generic `mem_save`; the selected store and ARCHIVED state
+    are part of the runtime gate.
 
-9. **Show confirmation:**
+## Archive Report
+
+The report is persisted idempotently at:
+
+- OpenSpec: `openspec/changes/{change-name}/archive-report.yaml`
+- Engram: `odf/{change-name}/archive-report`
+- Hybrid: both locations, with OpenSpec as the authority
+
+The report preserves the change, `work_type`, completed canonical stages, and
+archive timestamp. It is a YAML document at the OpenSpec `.yaml` path.
+
+## Show Confirmation
 
 ```
 ODF: Change Archived
 
   Change: {change-name}
   Status: ✅ COMPLETED
-  
   Summary:
   {executive_summary from verify}
-
   Metrics:
   - Duration: {time}
   - Tasks: {N}
   - Verify attempts: {N}
-
-  Estimación calibrada: {N} rounds reales para el próximo diseño parecido
-  (o "N/A" si no hay datos de telemetría)
-
+  Calibrated estimate: {N} real rounds for the next similar design
+  (or "N/A" when telemetry data is unavailable)
   Learnings saved to Engram:
   - odf/{change-name}/retrospective
   - odf-learned/{project}/{change-name}
   - odf/{change-name}/learning-proposals
-
-  Skills propuestos (requieren aprobación humana):
-  - skill-{work_type}-{digest8}: {N} tool calls (source: actual|derived), ruta verificada
-  (o "Ninguno" si no hay candidatos de skill / data_status no_data)
-
+  Proposed skills (require human approval):
+  - skill-{work_type}-{digest8}: {N} tool calls (source: actual|derived), verified path
+  (or "None" when there are no skill candidates / data_status no_data)
   The change is now archived and available for future reference.
 ```
 

@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "last_updated": "2026-08-01T00:00:00Z",
+  "last_updated": "2026-08-19T00:00:00Z",
   "package": {
     "name": "odf-agent-team",
     "version": "1.1.0",
@@ -573,8 +573,13 @@
         19
       ],
       "sdd_phase": "DESIGN",
-      "version": "3.0",
+      "version": "3.1",
       "changelog": [
+        {
+          "version": "3.1",
+          "date": "2026-08-19",
+          "change": "Activation contract and closed-design blocking aligned with IMPLEMENT"
+        },
         {
           "version": "3.0",
           "date": "2026-08-17",
@@ -604,7 +609,7 @@
         "develop",
         "build"
       ],
-      "compact_rules": "Implement assigned tasks in batches following spec + design.\n- Read REQ-XX from assess before implementing each task\n- Follow design decisions. If wrong: NOTE IT, don't silently deviate\n- Tests with code: same commit as behavior they verify\n- Odoo DB tests require explicit -d {test_db}; Docker: docker compose run --rm odoo odoo -d {test_db} -i {module} --test-enable --stop-after-init\n- If no disposable test database is detected, block and ask; never guess or run destructive database setup\n- Smoke tests per batch: pre-commit + pylint-odoo on changed files\n- Mark tasks [x] as you go. If blocked: status: blocked",
+      "compact_rules": "Implement assigned tasks in batches following spec + closed design.\n- Read REQ-XX from assess before implementing each task\n- If design_closed is not true, block and reopen DESIGN; never improvise\n- Follow design decisions. If wrong: NOTE IT, don't silently deviate\n- Tests with code: same commit as behavior they verify\n- Odoo DB tests require explicit -d {test_db}; Docker: docker compose run --rm odoo odoo -d {test_db} -i {module} --test-enable --stop-after-init\n- If no disposable test database is detected, block and ask; never guess or run destructive database setup\n- Smoke tests per batch: pre-commit + pylint-odoo on changed files\n- Mark tasks [x] as you go. If blocked: status: blocked",
       "path": "skills/odf-implement/SKILL.md",
       "odoo_versions": [
         14,
@@ -615,8 +620,13 @@
         19
       ],
       "sdd_phase": "IMPLEMENT",
-      "version": "2.0",
+      "version": "2.1",
       "changelog": [
+        {
+          "version": "2.1",
+          "date": "2026-08-19",
+          "change": "Block and reopen DESIGN when design_closed is not true"
+        },
         {
           "version": "2.0",
           "date": "2026-05-14",
@@ -651,8 +661,13 @@
         19
       ],
       "sdd_phase": "VERIFY",
-      "version": "2.0",
+      "version": "3.0",
       "changelog": [
+        {
+          "version": "3.0",
+          "date": "2026-08-19",
+          "change": "Activation contract and approved EXP-XX verification wording aligned"
+        },
         {
           "version": "2.0",
           "date": "2026-05-14",
@@ -688,6 +703,11 @@
       "version": "1.0",
       "changelog": [
         {
+          "version": "1.1",
+          "date": "2026-08-19",
+          "change": "Aligned skill folder/name and removed universal stock assertions"
+        },
+        {
           "version": "1.0",
           "date": "2026-04-01",
           "change": "Initial version"
@@ -718,6 +738,11 @@
       "version": "2.0",
       "changelog": [
         {
+          "version": "2.1",
+          "date": "2026-08-19",
+          "change": "Clarified no human approvals while retaining mechanical safety gates"
+        },
+        {
           "version": "2.0",
           "date": "2026-05-14",
           "change": "Restructured: 222\u219260 lines, added frontmatter + Decision Gates"
@@ -745,8 +770,8 @@
         "picking",
         "inventory"
       ],
-      "compact_rules": "\\n- NEVER validate transfers without lot/serial assignment if product tracking requires it\\n- ALWAYS configure removal strategy at category OR location level (not both inconsistently)\\n- NEVER deliver lots past `expiration_date` (block at validation)\\n- ALWAYS enforce serial uniqueness at database level (constrain quantity=1)\\n- For FEFO: `removal_date` drives reservation, NOT `expiration_date`\\n- Use `stock.quant` for lot/location availability checks\\n- Handle `stock.move.line` correctly for lot/serial assignments\\n- Follow OCA style: `_()` for user-facing strings, proper field naming\\n- For v16+: Use `Command` class for x2many lot operations\\n- NEVER modify core Odoo files \u2014 only custom modules\\n",
-      "path": "skills/odoo_stock_lot_specialist/SKILL.md",
+      "compact_rules": "\\n- Require target Odoo version, local source verification, and approved EXP-XX before imposing inventory rules\\n- Do not impose lot/serial, expiration, uniqueness, or reservation behavior universally\\n- Require approved EXP-XX and a regression test for reservation or validation changes\\n- Mark version-specific models, fields, strategies, and Command usage as verify-local until proven\\n- Use `stock.quant` for lot/location availability checks\\n- Handle `stock.move.line` correctly for lot/serial assignments\\n- Follow OCA style: `_()` for user-facing strings, proper field naming\\n- NEVER modify core Odoo files \u2014 only custom modules\\n",
+      "path": "skills/odoo-stock-lot-specialist/SKILL.md",
       "odoo_versions": [
         16,
         17,
@@ -754,12 +779,17 @@
         19
       ],
       "sdd_phase": "DESIGN",
-      "version": "1.0",
+      "version": "1.2",
       "changelog": [
         {
           "version": "1.0",
           "date": "2026-04-01",
           "change": "Initial version"
+        },
+        {
+          "version": "1.2",
+          "date": "2026-08-19",
+          "change": "Require approved expectations and target-version verification"
         }
       ],
       "last_updated": "2026-05-14"
@@ -775,7 +805,7 @@
         "broken",
         "hotfix"
       ],
-      "compact_rules": "3-step: DIAGNOSE \u2192 FIX \u2192 VERIFY. No gates.\n- Root cause first: identify before modifying code\n- Include test that fails without the fix\n- Scope >3 files or needs arch change: stop, suggest /odf-new\n- One fix per invocation. Security/data issues: CRITICAL flag",
+      "compact_rules": "3-step: DIAGNOSE \u2192 FIX \u2192 VERIFY without human phase-approval pauses. Policy/evidence/VERIFY/risk gates remain mandatory.\n- Root cause first: identify before modifying code\n- Include test that fails without the fix\n- Scope >3 files or needs arch change: stop, suggest /odf-new\n- One fix per invocation. Security/data issues: CRITICAL flag",
       "path": "skills/odf-fix/SKILL.md",
       "odoo_versions": [
         14,
@@ -786,8 +816,13 @@
         19
       ],
       "sdd_phase": null,
-      "version": "2.0",
+      "version": "2.1",
       "changelog": [
+        {
+          "version": "2.1",
+          "date": "2026-08-19",
+          "change": "Added activation contract and local-source verification boundary"
+        },
         {
           "version": "2.0",
           "date": "2026-05-14",
@@ -822,8 +857,13 @@
         19
       ],
       "sdd_phase": null,
-      "version": "2.0",
+      "version": "2.1",
       "changelog": [
+        {
+          "version": "2.1",
+          "date": "2026-08-19",
+          "change": "QA starts from approved EXP-XX and chooses test class by behavior"
+        },
         {
           "version": "2.0",
           "date": "2026-05-14",
@@ -858,7 +898,7 @@
         19
       ],
       "sdd_phase": null,
-      "version": "2.0",
+      "version": "2.1",
       "changelog": [
         {
           "version": "2.0",
@@ -883,7 +923,7 @@
         "coverage",
         "quality"
       ],
-      "compact_rules": "4 phases: QA-PLAN \u2192 QA-REVIEW \u2192 QA-AGGREGATE \u2192 QA-REPORT.\n- Parse REQ-XX from assess, design test scenarios\n- Run actual coverage tools, don't estimate\n- Every test maps to REQ-XX for traceability\n- Check isolation: TransactionCase required\n- Quality gates: coverage >=80%, critical paths 100%",
+      "compact_rules": "4 phases: QA-PLAN \u2192 QA-REVIEW \u2192 QA-AGGREGATE \u2192 QA-REPORT.\n- Read approved EXP-XX first, then map REQ-XX to tests\n- Choose the narrowest valid test class per behavior; never require TransactionCase universally\n- Run actual coverage tools, don't estimate\n- Quality gates: use project policy; do not invent universal percentages",
       "path": "skills/odf-qa/SKILL.md",
       "odoo_versions": [
         14,
@@ -894,7 +934,7 @@
         19
       ],
       "sdd_phase": null,
-      "version": "2.0",
+      "version": "2.1",
       "changelog": [
         {
           "version": "2.0",
@@ -933,6 +973,11 @@
       "sdd_phase": null,
       "version": "1.0",
       "changelog": [
+        {
+          "version": "2.1",
+          "date": "2026-08-19",
+          "change": "Missing red evidence now blocks strict TDD"
+        },
         {
           "version": "1.0",
           "date": "2026-05-14",
@@ -1046,7 +1091,7 @@
         "red-green-refactor",
         "test before code"
       ],
-      "compact_rules": "Strict TDD opt-in, two-source kill switch (any off wins, fail-closed).\n- Effective mode = global flags.strict_tdd (registry) AND absence of local marker <worktree>/.odf/tdd.off\n- Any source off → effective OFF; unreadable local → OFF (fail-closed), never ON\n- Resolve effective mode BEFORE each IMPLEMENT/VERIFY phase; preflight tdd_mode is only the declared default\n- Tests BEFORE code (red-green-refactor). Every REQ-XX must have a test task paired with implementation task\n- VERIFY rejects code without matching tests when effective mode is ON\n- Re-activating TDD re-validates state from zero. Global toggle: /odf-tdd on|off; local off-only marker: /odf-tdd local off|on",
+      "compact_rules": "Strict TDD opt-in, two-source kill switch (any off wins, fail-closed).\n- Effective mode = global flags.strict_tdd (registry) AND absence of local marker <worktree>/.odf/tdd.off\n- Any source off → effective OFF; unreadable local → OFF (fail-closed), never ON\n- Resolve effective mode BEFORE each IMPLEMENT/VERIFY phase; preflight tdd_mode is only the declared default\n- Tests BEFORE code: persist a real non-zero red run before implementation; missing red evidence blocks\n- Every REQ-XX must have a test task paired with implementation task\n- VERIFY rejects code without matching tests when effective mode is ON\n- Re-activating TDD re-validates state from zero. Global toggle: /odf-tdd on|off; local off-only marker: /odf-tdd local off|on",
       "path": "skills/odf-tdd/SKILL.md",
       "odoo_versions": [
         14,
@@ -1057,7 +1102,7 @@
         19
       ],
       "sdd_phase": null,
-      "version": "1.0",
+      "version": "2.1",
       "changelog": [
         {
           "version": "1.0",
@@ -1219,7 +1264,7 @@
     {
       "name": "odoo_backend_engineer",
       "mode": "subagent",
-      "description": "Python models, views, security, tests, OCA compliance",
+      "description": "Python ORM models, declarative XML/data, security, tests, OCA compliance",
       "phases": [
         "DESIGN",
         "IMPLEMENT"
@@ -1231,7 +1276,7 @@
     {
       "name": "odoo_frontend_engineer",
       "mode": "subagent",
-      "description": "Odoo frontend, OWL, UI/UX, JS/TS, SCSS, QWeb, all view types, and native design-system reuse",
+      "description": "Odoo frontend, OWL/QWeb, assets, JS/TS, SCSS, and client interaction",
       "phases": [
         "DESIGN",
         "IMPLEMENT"
@@ -1269,7 +1314,8 @@
       "mode": "subagent",
       "description": "PostgreSQL, Docker, Nginx, performance",
       "phases": [
-        "ANY"
+        "DESIGN",
+        "IMPLEMENT"
       ],
       "model": null,
       "path": "agent/odoo_dba_devops.md",
@@ -1280,7 +1326,9 @@
       "mode": "subagent",
       "description": "OpenUpgrade, version upgrades, migrations, data ETL",
       "phases": [
-        "ANY"
+        "ASSESS",
+        "DESIGN",
+        "IMPLEMENT"
       ],
       "model": null,
       "path": "agent/odoo_upgrade_migrator.md",
@@ -1289,7 +1337,7 @@
     {
       "name": "odoo_code_reviewer",
       "mode": "subagent",
-      "description": "Comprehensive Odoo module code reviewer",
+      "description": "Odoo code reviewer returning findings only; never the VERIFY verdict",
       "phases": [
         "VERIFY"
       ],
@@ -1300,7 +1348,7 @@
     {
       "name": "odoo_context_gatherer",
       "mode": "subagent",
-      "description": "Gather Odoo development patterns and version context",
+      "description": "Auxiliary Odoo pattern and version context gathering utility",
       "phases": [
         "ASSESS"
       ],
@@ -1311,7 +1359,7 @@
     {
       "name": "odoo_skill_finder",
       "mode": "subagent",
-      "description": "Pattern/skill lookup fallback utility",
+      "description": "Auxiliary pattern and skill lookup fallback utility",
       "phases": [
         "DESIGN",
         "IMPLEMENT"

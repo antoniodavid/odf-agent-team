@@ -105,6 +105,7 @@ const COMPONENTS = [
   { name: 'commands',    label: 'Commands',          desc: 'Slash commands (/odf-*)', default: true },
   { name: 'plugins',     label: 'Plugin',            desc: 'odf-delegation.ts (runtime tools)', default: true },
   { name: 'scripts',     label: 'Scripts',           desc: 'Test runner + CLI + validators', default: true },
+  { name: 'docs',        label: 'Contracts',         desc: 'Design + expectations contracts', default: true },
   { name: 'openspec',    label: 'OpenSpec',          desc: 'Spec/config templates', default: false },
   { name: 'codegraph',   label: 'CodeGraph',         desc: 'Community: code graph indexer', default: false },
 ];
@@ -129,6 +130,8 @@ const MANAGED_SCRIPT_PATHS = [
   'scripts/fixtures',
   'scripts/lib',
   'scripts/odf-agent-tests',
+  'docs/design-contract.md',
+  'docs/expectations-contract.md',
 ];
 
 // ─── Install helpers ──────────────────────────────────────────────────────
@@ -256,6 +259,7 @@ function installFiles(srcDir, components) {
     commands: { src: 'command',            dst: path.join(CONFIG_DIR, 'command') },
     plugins:  { src: 'plugins',            dst: path.join(CONFIG_DIR, 'plugins') },
     scripts:  { src: 'scripts',            dst: path.join(CONFIG_DIR, 'scripts') },
+    docs:     { src: 'docs',               dst: path.join(CONFIG_DIR, 'docs') },
     openspec: { src: 'openspec',           dst: path.join(CONFIG_DIR, 'openspec') },
   };
 
@@ -267,7 +271,12 @@ function installFiles(srcDir, components) {
     const fullSrc = path.join(srcDir, m.src);
     if (!fs.existsSync(fullSrc)) continue;
 
-    if (fs.statSync(fullSrc).isDirectory()) {
+    if (comp === 'docs') {
+      for (const contract of ['design-contract.md', 'expectations-contract.md']) {
+        const source = path.join(fullSrc, contract);
+        if (fs.existsSync(source)) copyPath(source, path.join(m.dst, contract));
+      }
+    } else if (fs.statSync(fullSrc).isDirectory()) {
       fs.mkdirSync(m.dst, { recursive: true });
       copyDir(fullSrc, m.dst);
     } else {
@@ -546,7 +555,9 @@ async function uninstallFlow() {
                 : [])
               : comp === 'scripts'
                 ? MANAGED_SCRIPT_PATHS.map(entry => path.join(CONFIG_DIR, entry))
-                : comp === 'openspec'
+                 : comp === 'docs'
+                   ? ['docs/design-contract.md', 'docs/expectations-contract.md'].map(entry => path.join(CONFIG_DIR, entry))
+                 : comp === 'openspec'
                   ? [path.join(CONFIG_DIR, 'openspec', 'config.yaml'), path.join(CONFIG_DIR, 'openspec', 'sdd-init.yaml'), path.join(CONFIG_DIR, 'openspec', 'specs')]
                   : [];
 

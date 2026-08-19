@@ -48,6 +48,13 @@ user disposition.
 - If `question` is unavailable, print the identical phase, summary, option labels, values, and order as plain text, then wait; never choose silently. This fallback is identical in both modes whenever input is required.
 - PROPOSE runs its 3-5 business-question round in `interactive`; `batch` skips that voluntary round. Any required product/user disposition still stops both modes.
 
+### Continuation Intent
+
+- Only the exact `/odf-continue [name]` command activates ODF workflow continuation.
+- Conversational messages such as `continue`, `continúa`, `dale`, or equivalents MUST NOT be reinterpreted as `/odf-continue`.
+- After an abort or interruption, such a message resumes the pending user request from the context already obtained; it does not start ODF state discovery.
+- For one user intent, run discovery or state lookup at most once while its results remain stable. If the result is sufficient or unchanged, synthesize the response or stop. Never repeat the same tool and arguments in a later turn for that intent.
+
 ### Fast Mode
 
 `/odf-new ... --fast` skips voluntary approval gates after PROPOSE through

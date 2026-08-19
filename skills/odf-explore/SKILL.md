@@ -4,8 +4,13 @@ description: "Deep investigation of Odoo codebase to understand patterns before 
 license: MIT
 metadata:
   author: adruban
-  version: "2.0"
+  version: "2.1"
 ---
+
+## Activation Contract
+
+Use only for `/odf-explore` or an explicit Odoo investigation before proposing
+a change. Do not implement or turn an investigation into an approval.
 
 ## When to Use
 

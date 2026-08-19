@@ -4,8 +4,15 @@ description: "Implement Odoo tasks from design artifact. Write code following sp
 license: MIT
 metadata:
   author: adruban
-  version: "2.0"
+  version: "2.1"
 ---
+
+## Activation Contract
+
+Use only for Phase 3 (IMPLEMENT) after DESIGN is approved and the current
+design artifact proves `design_closed: true`. A missing, false, stale, or
+unverifiable value is a hard block that reopens DESIGN; IMPLEMENT must never
+annotate and continue.
 
 ## When to Use
 
@@ -27,13 +34,14 @@ Use after DESIGN returns approved task breakdown. Implement assigned tasks in ba
 | Condition | Action |
 |-----------|--------|
 | Task blocked by unexpected issue | Stop batch, report status: blocked to orchestrator |
+| Design is not closed (`design_closed !== true`) | Block IMPLEMENT, persist the reason, and re-open DESIGN before any code change or task update |
 | Pre-commit or pylint errors | Fix immediately before proceeding |
 | Stop-validation evidence not verified (`validation.status !== "verified"`) | Do NOT close the batch — fix, re-run the commands, rewrite the evidence file |
 | All tasks in batch complete | Persist progress, return for next batch or VERIFY |
 
 ## Execution Steps
 
-1. **Retrieve**: Read assess (functional spec) + design (task breakdown) from Engram
+1. **Retrieve**: Read assess (functional spec) + the current design (task breakdown) from the selected store. Verify `design_closed === true`; otherwise stop, return `blocked` with `next_recommended: ["design"]`, persist the reopen reason, and do not edit code or task status.
 2. **Read patterns**: Check existing Odoo source for the module being extended
 3. **Implement tasks**: For each task → read REQ-XX → read source patterns → write code (OCA standards) → mark [x]
 4. **Smoke test**: pre-commit run --files {changed} + pylint-odoo on changed files
@@ -56,7 +64,8 @@ Use after DESIGN returns approved task breakdown. Implement assigned tasks in ba
    }
    ```
    - Evidence is smoke for THIS batch — the compliance matrix, review lenses, and correction budget remain in VERIFY. Do not grow this into a parallel VERIFY.
-6. **Persist progress**: `mem_save(title: "odf/{change}/implement-progress", ...)`. Update design with [x] marks.
+6. **Persist progress** in the selected store with its canonical `artifact_ref`.
+   Update the selected task/design artifact with [x] marks as applicable.
 
 ## Output Contract
 
@@ -65,4 +74,5 @@ Return ODF Result envelope with: status (ok|warning|blocked), executive_summary 
 ## References
 
 - `/home/adruban/.config/opencode/skills/_shared/result-contract.md` — ODF Result envelope
+- `/home/adruban/.config/opencode/skills/_shared/persistence-contract.md` — selected store and artifact references
 - `/home/adruban/.config/opencode/skills/_shared/odoo-sources.md` — Local source paths
