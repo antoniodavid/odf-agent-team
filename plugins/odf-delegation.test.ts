@@ -38,6 +38,8 @@ import {
   createODFWorkflowAdvance,
   createODFWorkflowBind,
   createODFEntryTriage,
+  createODFRuntimeHooks,
+  createStableDiscoveryGuard,
   ODF_REGISTERED_TOOLS,
   type PolicyGateDecision,
   type ODFRegistry,
@@ -4814,5 +4816,154 @@ describe("odf_health", () => {
     expect(result.engram).toEqual({ cli: "unavailable", export_probe: "not-run" })
     expect(result.warnings).toContain("runtime-timeout: Engram CLI discovery timed out")
     expect(taskApi).not.toHaveBeenCalled()
+  })
+})
+
+describe("stable discovery runtime guard", () => {
+  const readTool = "engram_mem_context"
+
+  function setup() {
+    const abort = vi.fn().mockResolvedValue({ data: true })
+    const hooks = createStableDiscoveryGuard({ session: { abort } } as any)
+    const activate = async (sessionID: string, messageID: string, agent = "odoo_orchestrator") => {
+      await hooks["chat.message"]?.(
+        { sessionID, messageID, agent },
+        {
+          message: { id: messageID, sessionID, agent } as any,
+          parts: [{ type: "text", text: "continue" } as any],
+        },
+      )
+    }
+    const before = (sessionID: string, callID: string, args: unknown, tool = readTool) =>
+      hooks["tool.execute.before"]?.({ tool, sessionID, callID }, { args })
+    const after = async (sessionID: string, callID: string, args: unknown, result: string, tool = readTool) => {
+      const output = { title: "result", output: result, metadata: {} }
+      await hooks["tool.execute.after"]?.({ tool, sessionID, callID, args }, output)
+      return output
+    }
+    return { abort, hooks, activate, before, after }
+  }
+
+  it("allows the initial read and stops after the first stable repetition", async () => {
+    const { abort, activate, before, after } = setup()
+    await activate("s1", "m1")
+    await before("s1", "c1", { project: "odf-agent-team", scope: "project" })
+    await after("s1", "c1", { project: "odf-agent-team", scope: "project" }, "stable")
+    expect(abort).not.toHaveBeenCalled()
+
+    await before("s1", "c2", { scope: "project", project: "odf-agent-team" })
+    const stopped = await after("s1", "c2", { scope: "project", project: "odf-agent-team" }, "stable")
+    expect(stopped.output).toContain("stable discovery call returned the same result twice")
+    expect(abort).toHaveBeenCalledWith({ path: { id: "s1" } })
+    await expect(before("s1", "c3", { project: "odf-agent-team", scope: "project" })).rejects.toThrow("runtime loop guard stopped")
+  })
+
+  it("resets when arguments change", async () => {
+    const { abort, activate, before, after } = setup()
+    await activate("s1", "m1")
+    await before("s1", "c1", { query: "one" })
+    await after("s1", "c1", { query: "one" }, "stable")
+    await before("s1", "c2", { query: "two" })
+    await after("s1", "c2", { query: "two" }, "stable")
+    expect(abort).not.toHaveBeenCalled()
+  })
+
+  it("resets when the result changes and catches the next stable repetition", async () => {
+    const { abort, activate, before, after } = setup()
+    const args = { task: "poll" }
+    await activate("s1", "m1")
+    await before("s1", "c1", args)
+    await after("s1", "c1", args, "running")
+    await before("s1", "c2", args)
+    await after("s1", "c2", args, "complete")
+    expect(abort).not.toHaveBeenCalled()
+    await before("s1", "c3", args)
+    await after("s1", "c3", args, "complete")
+    expect(abort).toHaveBeenCalledTimes(1)
+  })
+
+  it("resets for a new human intention", async () => {
+    const { abort, activate, before, after } = setup()
+    const args = { project: "odf-agent-team" }
+    await activate("s1", "m1")
+    await before("s1", "c1", args)
+    await after("s1", "c1", args, "stable")
+    await before("s1", "c2", args)
+    await after("s1", "c2", args, "stable")
+    expect(abort).toHaveBeenCalledTimes(1)
+
+    await activate("s1", "m2")
+    await before("s1", "c3", args)
+    await after("s1", "c3", args, "stable")
+    expect(abort).toHaveBeenCalledTimes(1)
+  })
+
+  it("isolates sessions", async () => {
+    const { abort, activate, before, after } = setup()
+    const args = { project: "odf-agent-team" }
+    await activate("s1", "m1")
+    await activate("s2", "m2")
+    await before("s1", "c1", args)
+    await after("s1", "c1", args, "stable")
+    await before("s1", "c2", args)
+    await after("s1", "c2", args, "stable")
+    await before("s2", "c3", args)
+    await after("s2", "c3", args, "stable")
+    expect(abort).toHaveBeenCalledTimes(1)
+  })
+
+  it("blocks duplicate write-capable and unclassified calls before re-execution", async () => {
+    const args = { change_name: "sale-fix", approval: "do-not-log-this" }
+    for (const tool of ["odf_workflow_bind", "custom_tool"]) {
+      const { abort, activate, before, after } = setup()
+      let executions = 0
+      const execute = async (callID: string) => {
+        await before("s1", callID, args, tool)
+        executions++
+        await after("s1", callID, args, "saved", tool)
+      }
+      await activate("s1", "m1")
+      await execute("c1")
+      let error: Error | undefined
+      try {
+        await execute("c2")
+      } catch (cause) {
+        error = cause as Error
+      }
+      expect(error?.message).toContain("duplicate write-capable or unclassified tool call")
+      expect(error?.message).not.toContain(args.approval)
+      expect(executions).toBe(1)
+      expect(abort).toHaveBeenCalledTimes(1)
+    }
+  })
+
+  it("ignores other agents and clears state when a session becomes idle", async () => {
+    const { abort, hooks, activate, before, after } = setup()
+    const args = { project: "odf-agent-team" }
+    await activate("other", "m1", "build")
+    await before("other", "c1", args)
+    await after("other", "c1", args, "stable")
+    await before("other", "c2", args)
+    await after("other", "c2", args, "stable")
+
+    await activate("s1", "m2")
+    await before("s1", "c3", args)
+    await after("s1", "c3", args, "stable")
+    await hooks.event?.({ event: { type: "session.idle", properties: { sessionID: "s1" } } as any })
+    await before("s1", "c4", args)
+    await after("s1", "c4", args, "stable")
+    expect(abort).not.toHaveBeenCalled()
+  })
+
+  it("composes the guard with the existing system prompt hook", async () => {
+    const hooks = createODFRuntimeHooks({ session: { abort: vi.fn() } } as any)
+    expect(hooks["chat.message"]).toBeTypeOf("function")
+    expect(hooks["tool.execute.before"]).toBeTypeOf("function")
+    expect(hooks["tool.execute.after"]).toBeTypeOf("function")
+    const output = { system: ["base"] }
+    await hooks["experimental.chat.system.transform"]?.({} as any, output)
+    expect(output.system).toHaveLength(1)
+    expect(output.system[0]).toContain("base")
+    expect(output.system[0]).toContain("<odf-system>")
   })
 })

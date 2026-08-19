@@ -16,7 +16,7 @@ import * as fsSync from "node:fs"
 import * as path from "node:path"
 import * as os from "node:os"
 import * as nodeCrypto from "node:crypto"
-import { type Plugin, type ToolContext, tool } from "@opencode-ai/plugin"
+import { type Hooks, type Plugin, type ToolContext, tool } from "@opencode-ai/plugin"
 import { execFileSync, execSync } from "node:child_process"
 import type { createOpencodeClient } from "@opencode-ai/sdk"
 import { isMap, parseDocument, stringify } from "yaml"
@@ -6276,10 +6276,135 @@ function createODFWorkflowAdvance(): ReturnType<typeof tool> {
 }
 
 // ==========================================
+// STABLE DISCOVERY LOOP GUARD
+// ==========================================
+
+const LOOP_GUARD_READ_TOOLS = new Set([
+  "read", "glob", "grep", "webfetch", "mgrep",
+  "list_mcp_resources", "list_mcp_resource_templates", "read_mcp_resource",
+  "codegraph_codegraph_explore", "fff_find_files", "fff_grep", "fff_multi_grep",
+  "engram_mem_context", "engram_mem_search", "engram_mem_get_observation",
+  "engram_mem_current_project", "engram_mem_doctor",
+  "odf_workflow_route", "odf_workflow_advance", "odf_entry_triage",
+  "odf_skill_inject", "odf_skill_resolve", "odf_registry_read", "odf_notebooklm_lookup",
+  "odf_profile_select", "odf_community_tool_detect", "odf_status", "odf_workflow_status", "odf_health",
+])
+const LOOP_GUARD_MAX_SESSIONS = 128
+const LOOP_GUARD_MAX_TOOLS = 64
+const LOOP_GUARD_MAX_CALLS = 128
+const LOOP_GUARD_STOP_REASON = "ODF runtime loop guard stopped this session: the same stable discovery call returned the same result twice for one user intent. Review the existing result or send a new request."
+const LOOP_GUARD_WRITE_REASON = "ODF runtime loop guard blocked a duplicate write-capable or unclassified tool call in the same user intent. Send a new explicit request to retry it."
+
+type LoopGuardHooks = Pick<Hooks, "dispose" | "event" | "chat.message" | "tool.execute.before" | "tool.execute.after">
+type LoopGuardState = {
+  intentID: string
+  stopped: boolean
+  tools: Map<string, { signatureDigest: string; resultDigest?: string }>
+  calls: Map<string, { tool: string; signatureDigest: string }>
+}
+
+function canonicalLoopGuardValue(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(canonicalLoopGuardValue)
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>)
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([key, item]) => [key, canonicalLoopGuardValue(item)]),
+    )
+  }
+  return value
+}
+
+function loopGuardDigest(value: unknown): string {
+  return nodeCrypto.createHash("sha256")
+    .update(JSON.stringify(canonicalLoopGuardValue(value)) ?? "null")
+    .digest("hex")
+}
+
+export function createStableDiscoveryGuard(client: OpencodeClient): LoopGuardHooks {
+  const sessions = new Map<string, LoopGuardState>()
+  const abortSession = async (sessionID: string): Promise<void> => {
+    try {
+      await client.session.abort({ path: { id: sessionID } })
+    } catch {
+      // The hook still fails closed even if the host abort endpoint is unavailable.
+    }
+  }
+  const boundedSet = <K, V>(map: Map<K, V>, key: K, value: V, limit: number): void => {
+    if (!map.has(key) && map.size >= limit) map.delete(map.keys().next().value!)
+    map.set(key, value)
+  }
+
+  return {
+    dispose: async () => sessions.clear(),
+    event: async ({ event }) => {
+      if (event.type === "server.instance.disposed") sessions.clear()
+      if (event.type === "session.idle") sessions.delete(event.properties.sessionID)
+      if (event.type === "session.error" && event.properties.sessionID) sessions.delete(event.properties.sessionID)
+      if (event.type === "session.deleted") sessions.delete(event.properties.info.id)
+    },
+    "chat.message": async (input, output) => {
+      const synthetic = output.parts.length > 0 && output.parts.every(part => "synthetic" in part && part.synthetic === true)
+      if (synthetic) return
+      const agent = input.agent ?? output.message.agent
+      if (agent !== "odoo_orchestrator") {
+        sessions.delete(input.sessionID)
+        return
+      }
+      boundedSet(sessions, input.sessionID, {
+        intentID: input.messageID ?? output.message.id,
+        stopped: false,
+        tools: new Map(),
+        calls: new Map(),
+      }, LOOP_GUARD_MAX_SESSIONS)
+    },
+    "tool.execute.before": async (input, output) => {
+      const state = sessions.get(input.sessionID)
+      if (!state) return
+      if (state.stopped) throw new Error(LOOP_GUARD_STOP_REASON)
+
+      const signatureDigest = loopGuardDigest({ tool: input.tool, args: output.args })
+      const previous = state.tools.get(input.tool)
+      if (previous?.signatureDigest === signatureDigest && !LOOP_GUARD_READ_TOOLS.has(input.tool)) {
+        state.stopped = true
+        await abortSession(input.sessionID)
+        throw new Error(LOOP_GUARD_WRITE_REASON)
+      }
+      if (!previous || previous.signatureDigest !== signatureDigest) {
+        boundedSet(state.tools, input.tool, { signatureDigest }, LOOP_GUARD_MAX_TOOLS)
+      }
+      boundedSet(state.calls, input.callID, { tool: input.tool, signatureDigest }, LOOP_GUARD_MAX_CALLS)
+    },
+    "tool.execute.after": async (input, output) => {
+      const state = sessions.get(input.sessionID)
+      const call = state?.calls.get(input.callID)
+      if (!state || !call) return
+      state.calls.delete(input.callID)
+      if (state.stopped || call.tool !== input.tool || !LOOP_GUARD_READ_TOOLS.has(input.tool)) return
+
+      const signatureDigest = loopGuardDigest({ tool: input.tool, args: input.args })
+      const entry = state.tools.get(input.tool)
+      if (!entry || entry.signatureDigest !== signatureDigest || call.signatureDigest !== signatureDigest) return
+      const resultDigest = loopGuardDigest(output.output)
+      if (entry.resultDigest === undefined || entry.resultDigest !== resultDigest) {
+        entry.resultDigest = resultDigest
+        return
+      }
+
+      state.stopped = true
+      output.title = "ODF stable discovery loop stopped"
+      output.output = LOOP_GUARD_STOP_REASON
+      output.metadata = { odf_loop_guard: { status: "stopped", reason: "stable-discovery-repeat" } }
+      await abortSession(input.sessionID)
+    },
+  }
+}
+
+// ==========================================
 // SYSTEM PROMPT INJECTION
 // ==========================================
 
-  const ODF_SYSTEM_RULES = `<odf-system>
+const ODF_SYSTEM_RULES = `<odf-system>
 ## ODF Responsibilities
 
 | Layer | Responsibility |
@@ -6318,12 +6443,23 @@ function createODFWorkflowAdvance(): ReturnType<typeof tool> {
 - The outer plugin envelope and inner agent \`## ODF Result\` are separate; preserve the agent result and inspect both layers.
 </odf-system>`
 
+export function createODFRuntimeHooks(client: OpencodeClient): LoopGuardHooks & Pick<Hooks, "experimental.chat.system.transform"> {
+  return {
+    ...createStableDiscoveryGuard(client),
+    "experimental.chat.system.transform": async (_input, output) => {
+      const combined = [...output.system, ODF_SYSTEM_RULES].join("\n\n---\n\n")
+      output.system = [combined]
+    },
+  }
+}
+
 // ==========================================
 // PLUGIN EXPORT
 // ==========================================
 
 export const OdfDelegationPlugin: Plugin = async (ctx) => {
   const { directory, client } = ctx
+  const runtimeHooks = createODFRuntimeHooks(client)
 
   // Ensure registry exists (log warning if not)
   try {
@@ -6395,6 +6531,7 @@ export const OdfDelegationPlugin: Plugin = async (ctx) => {
   console.log(`[odf-delegation] Plugin loaded. Tools: ${ODF_REGISTERED_TOOLS.join(", ")}`)
 
   return {
+    ...runtimeHooks,
     tool: {
       odf_delegate: createODFDelegate(client, directory),
       odf_parallel_delegate: createODFParallelDelegate(client, directory),
@@ -6414,12 +6551,6 @@ export const OdfDelegationPlugin: Plugin = async (ctx) => {
       odf_policy_gate: createODFPolicyGate(),
       odf_receipt: createODFReceipt(),
       odf_health: createODFHealth(client),
-    },
-
-    // Inject ODF system rules into system prompt
-    "experimental.chat.system.transform": async (_input, output) => {
-      const combined = [...output.system, ODF_SYSTEM_RULES].join("\n\n---\n\n")
-      output.system = [combined]
     },
   }
 }
