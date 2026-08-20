@@ -43,7 +43,7 @@ Variables de entorno útiles:
 | **Comandos** | 21 | Definiciones de slash commands en `command/` |
 | **Comandos nativos** | 4 | `/odf-new`, `/odf-continue`, `/odf-status`, `/odf-explore` registrados en el orchestrator |
 | **Plugin** | 1 | `odf-delegation.ts` — delegación real vía `task()`, inyección de skills, métricas y bloqueos seguros |
-| **Perfiles** | 2 | `default` (deepseek-r1 + kimi-k2.6), `cheap` (kimi-k2.6 todas las fases) |
+| **Perfiles** | 2 | `default` y `cheap` — ambas heredan el modelo de sesión actual (sin override) |
 | **Tests** | 307 | 188 unit tests (Vitest) + 119 aserciones de escenarios YAML |
 
 ## Uso Rápido

@@ -111,8 +111,8 @@ const COMPONENTS = [
 ];
 
 const PROFILES = [
-  { name: 'default', desc: 'deepseek-r1 for ASSESS/VERIFY, kimi-k2.6 for rest' },
-  { name: 'cheap',   desc: 'kimi-k2.6 for all phases (faster, cheaper)' },
+  { name: 'default', desc: 'current session model for all phases' },
+  { name: 'cheap',   desc: 'current session model for all phases' },
 ];
 
 const MANAGED_SCRIPT_PATHS = [

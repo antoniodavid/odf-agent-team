@@ -28,16 +28,16 @@ ODF supports named model profiles. Each profile assigns a model + temperature pe
 Output:
   ODF: Model Profiles
     default    ← active
-      ASSESS:    deepseek-r1 (temp 0.3)
-      DESIGN:    kimi-k2.6 (temp 0.25)
-      IMPLEMENT: kimi-k2.6 (temp 0.1)
-      VERIFY:    deepseek-r1 (temp 0.2)
+      ASSESS:    current (inherited)
+      DESIGN:    current (inherited)
+      IMPLEMENT: current (inherited)
+      VERIFY:    current (inherited)
 
     cheap
-      ASSESS:    kimi-k2.6 (temp 0.3)
-      DESIGN:    kimi-k2.6 (temp 0.25)
-      IMPLEMENT: kimi-k2.6 (temp 0.1)
-      VERIFY:    kimi-k2.6 (temp 0.2)
+      ASSESS:    current (inherited)
+      DESIGN:    current (inherited)
+      IMPLEMENT: current (inherited)
+      VERIFY:    current (inherited)
 ```
 
 ### Switch

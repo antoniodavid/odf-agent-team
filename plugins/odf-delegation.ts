@@ -1164,7 +1164,7 @@ function formatProfileBlock(
   return `## SDD Profile (auto-resolved)
 Profile: ${profile.name || "default"}
 Phase: ${phase}
-Model: ${profile.model}
+Model: ${profile.model ?? "current (inherited)"}
 Temperature: ${profile.temperature}
 Reasoning: ${profile.reasoning ? "enabled" : "disabled"}`
 }
@@ -1664,7 +1664,7 @@ async function invokeTask(
   agentName: string,
   prompt: string,
   contextFiles?: string[],
-  timeoutMs = 120_000,
+  timeoutMs = 300_000,
   abortSignal?: AbortSignal,
 ): Promise<{ status: string; result: unknown }> {
   const taskPromise = taskApi({ agent: agentName, prompt, context_files: contextFiles })
@@ -2796,7 +2796,7 @@ Use this instead of generic task() for ODF workflow delegation.`,
       timeout_ms: tool.schema
         .number()
         .optional()
-        .describe("Task timeout in milliseconds (default: 120000)"),
+        .describe("Task timeout in milliseconds (default: 300000)"),
       attempt_id: tool.schema
         .string()
         .optional()
@@ -3271,7 +3271,7 @@ Use this instead of generic task() for ODF workflow delegation.`,
 
       if (taskApiInfo) {
         try {
-          const timeoutMs = args.timeout_ms ?? 120_000
+          const timeoutMs = args.timeout_ms ?? 300_000
           const taskResult = await invokeTask(taskApiInfo.taskApi, agentName, delegationPrompt, contextValidation.paths, timeoutMs, toolCtx.abort)
           // Stop-validation seal (slice 2): after an IMPLEMENT delegation, stamp
           // the envelope with the deterministic evidence verdict. The sub-agent
@@ -4410,7 +4410,7 @@ the sub-agent model before delegation for optimal phase performance.`,
       debugLog(`[odf-delegation] odf_profile_select: phase=${args.phase} model=${profile.model} temp=${profile.temperature}`)
 
       return `Phase: ${args.phase}
-Model: ${profile.model}
+Model: ${profile.model ?? "current (inherited)"}
 Temperature: ${profile.temperature}
 Reasoning: ${profile.reasoning ? "enabled" : "disabled"}`
     },
@@ -4506,7 +4506,7 @@ Use this for debugging:
       lines.push("")
       lines.push("### SDD Profile")
       if (profile) {
-        lines.push(`**Model:** ${profile.model}`)
+        lines.push(`**Model:** ${profile.model ?? "current (inherited)"}`)
         lines.push(`**Temperature:** ${profile.temperature}`)
         lines.push(`**Reasoning:** ${profile.reasoning ? "enabled" : "disabled"}`)
       } else {

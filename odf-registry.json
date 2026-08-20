@@ -1159,32 +1159,32 @@
       "active": true,
       "phases": {
         "PROPOSE": {
-          "model": "opencode-go/kimi-k2.6",
+          "model": null,
           "temperature": 0.2,
           "reasoning": false
         },
         "ASSESS": {
-          "model": "opencode-go/deepseek-r1",
+          "model": null,
           "temperature": 0.3,
           "reasoning": true
         },
         "QA-PLAN": {
-          "model": "opencode-go/kimi-k2.6",
+          "model": null,
           "temperature": 0.2,
           "reasoning": false
         },
         "DESIGN": {
-          "model": "opencode-go/kimi-k2.6",
+          "model": null,
           "temperature": 0.25,
           "reasoning": false
         },
         "IMPLEMENT": {
-          "model": "opencode-go/kimi-k2.6",
+          "model": null,
           "temperature": 0.1,
           "reasoning": false
         },
         "VERIFY": {
-          "model": "opencode-go/deepseek-r1",
+          "model": null,
           "temperature": 0.2,
           "reasoning": true
         }
@@ -1195,32 +1195,32 @@
       "active": false,
       "phases": {
         "PROPOSE": {
-          "model": "opencode-go/kimi-k2.6",
+          "model": null,
           "temperature": 0.2,
           "reasoning": false
         },
         "ASSESS": {
-          "model": "opencode-go/kimi-k2.6",
+          "model": null,
           "temperature": 0.3,
           "reasoning": false
         },
         "QA-PLAN": {
-          "model": "opencode-go/kimi-k2.6",
+          "model": null,
           "temperature": 0.2,
           "reasoning": false
         },
         "DESIGN": {
-          "model": "opencode-go/kimi-k2.6",
+          "model": null,
           "temperature": 0.25,
           "reasoning": false
         },
         "IMPLEMENT": {
-          "model": "opencode-go/kimi-k2.6",
+          "model": null,
           "temperature": 0.1,
           "reasoning": false
         },
         "VERIFY": {
-          "model": "opencode-go/kimi-k2.6",
+          "model": null,
           "temperature": 0.2,
           "reasoning": false
         }

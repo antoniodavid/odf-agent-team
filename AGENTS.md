@@ -105,10 +105,10 @@ Max 5 skills per delegation via compact rules.
 
 | Profile | ASSESS | VERIFY | Other phases |
 |---------|--------|--------|--------------|
-| `default` | deepseek-r1 | deepseek-r1 | kimi-k2.6 |
-| `cheap` | kimi-k2.6 | kimi-k2.6 | kimi-k2.6 |
+| `default` | current | current | current |
+| `cheap` | current | current | current |
 
-Profiles apply ONLY to SDD pipeline phases. General queries and non-SDD tasks use the default runtime model.
+All phases inherit the **current session model** (no hardcoded model override). Profiles apply ONLY to SDD pipeline phases. General queries and non-SDD tasks use the default runtime model.
 
 ### Community tools
 
