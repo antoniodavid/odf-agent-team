@@ -6408,7 +6408,7 @@ only after canonical state exists. Existing state and Expectations are reused on
         authorization.sessionID === sessionID && authorization.changeName === changeName &&
         authorization.workspaceRoot === workspaceRoot)
       if (authorization && !capabilityMatches) {
-        return blocked("workflow-start-unauthorized", "Workflow initialization authorization does not match this message, generation, change, or workspace.")
+        return blocked("workflow-start-unauthorized", "Workflow initialization authorization does not match this session, change, or workspace. Recovery: re-run the clean slash command `/odf-new <change>` in this workspace and let odf_health run first, then retry the bind.")
       }
       if (capabilityMatches) authorization!.claimed = true
       const claimedCapability = capabilityMatches ? authorization! : null
