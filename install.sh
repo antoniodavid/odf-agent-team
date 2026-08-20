@@ -17,6 +17,22 @@ BRANCH="${BRANCH:-main}"
 VERSION="1.1.0"
 
 BACKUP_DIR="${ODF_DIR}/backups/install-$(date +%Y%m%d_%H%M%S)"
+PLUGIN_ENTRYPOINT="${ODF_DIR}/plugins/odf-delegation.ts"
+PLUGIN_SUPPORT_DIR="${ODF_DIR}/odf-plugin"
+STALE_ODF_PLUGIN_FILES=(
+  candidate-manifest.test.ts
+  candidate-manifest.ts
+  entry-triage.test.ts
+  entry-triage.ts
+  odf-delegation.test.ts
+  odf-expectations.test.ts
+  odf-expectations.ts
+  odf-parallel-join.ts
+  odf-workflow-status.test.ts
+  odf-workflow-status.ts
+  odf-workflow.test.ts
+  odf-workflow.ts
+)
 
 # Auto-detect local source when running from inside the cloned repo.
 # Respects explicit ODF_SOURCE_DIR if set.
@@ -177,7 +193,7 @@ create_backup() {
   mkdir -p "$BACKUP_DIR"
 
   [[ -f "$ODF_DIR/odf-registry.json" ]] && cp "$ODF_DIR/odf-registry.json" "$BACKUP_DIR/"
-  for dir in agent skills plugins command scripts; do
+  for dir in agent skills plugins odf-plugin command scripts; do
     if [[ -d "$ODF_DIR/$dir" ]]; then
       cp -r "$ODF_DIR/$dir" "$BACKUP_DIR/" 2>/dev/null || true
     fi
@@ -209,6 +225,20 @@ copy_dir() {
   fi
 }
 
+cleanup_stale_odf_plugins() {
+  local name
+  local stale_path
+  for name in "${STALE_ODF_PLUGIN_FILES[@]}"; do
+    stale_path="${ODF_DIR}/plugins/${name}"
+    [[ -e "$stale_path" ]] || continue
+    if [[ "$INSTALL_DRY_RUN" == true ]]; then
+      log_info "    [dry-run] Would remove stale ODF plugin file $stale_path"
+    else
+      rm -f -- "$stale_path"
+    fi
+  done
+}
+
 install_files() {
   local src_dir="$1"
 
@@ -216,8 +246,13 @@ install_files() {
     log_warn "📁 [dry-run] Would install ODF files to ${ODF_DIR}"
   else
     log_warn "📁 Installing ODF files to ${ODF_DIR}..."
-    mkdir -p "$ODF_DIR"/{agent,skills,plugins,command,scripts,docs,backups}
+    mkdir -p "$ODF_DIR"/{agent,skills,plugins,odf-plugin,command,scripts,docs,backups}
   fi
+
+  log_info "    Plugin entrypoint: ${PLUGIN_ENTRYPOINT}"
+  log_info "    Plugin support:    ${PLUGIN_SUPPORT_DIR}"
+  log_info "    Cleanup:           known stale ODF helpers/tests in ${ODF_DIR}/plugins"
+  cleanup_stale_odf_plugins
 
   # Copy installer itself so self-test can find it
   [[ -f "$src_dir/install.sh" ]] && copy_dir "$src_dir/install.sh" "$ODF_DIR/install.sh"
@@ -225,7 +260,8 @@ install_files() {
   [[ -f "$src_dir/odf-registry.json" ]] && copy_dir "$src_dir/odf-registry.json" "$ODF_DIR/odf-registry.json"
   copy_dir "$src_dir/agent" "$ODF_DIR/agent"
   copy_dir "$src_dir/skills" "$ODF_DIR/skills"
-  copy_dir "$src_dir/plugins" "$ODF_DIR/plugins"
+  copy_dir "$src_dir/plugins/odf-delegation.ts" "$PLUGIN_ENTRYPOINT"
+  copy_dir "$src_dir/odf-plugin" "$PLUGIN_SUPPORT_DIR"
   copy_dir "$src_dir/command" "$ODF_DIR/command"
   copy_dir "$src_dir/scripts" "$ODF_DIR/scripts"
   copy_dir "$src_dir/openspec" "$ODF_DIR/openspec"

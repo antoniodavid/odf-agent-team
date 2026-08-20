@@ -13,6 +13,6 @@
     "noEmit": true,
     "types": ["node", "vitest/globals"]
   },
-  "include": ["plugins/**/*.ts", "scripts/**/*.ts"],
+  "include": ["plugins/**/*.ts", "odf-plugin/**/*.ts", "scripts/**/*.ts"],
   "exclude": ["node_modules", "tools"]
 }

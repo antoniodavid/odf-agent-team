@@ -31,7 +31,7 @@ function getConfigDir() {
 
 const REGISTRY_PATH = path.join(getConfigDir(), 'odf-registry.json');
 const TESTS_DIR = path.join(__dirname, 'odf-agent-tests');
-const PLUGIN_TESTS = path.join(__dirname, '..', 'plugins', 'odf-delegation.test.ts');
+const PLUGIN_TESTS = path.join(__dirname, '..', 'odf-plugin', 'odf-delegation.test.ts');
 
 // ==========================================
 // Plugin logic simulation (same as odf-delegation.ts)

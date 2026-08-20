@@ -31,7 +31,7 @@ import {
   type WorkflowValidationStatus,
   type WorkflowReceiptState,
   type WorkflowRoute,
-} from "./odf-workflow.js"
+} from "../odf-plugin/odf-workflow.js"
 import {
   deriveWorkflowStatus,
   normalizeArtifactKey,
@@ -39,16 +39,16 @@ import {
   type WorkflowReceipt,
   type WorkflowStage,
   type WorkflowStatus,
-} from "./odf-workflow-status.js"
+} from "../odf-plugin/odf-workflow-status.js"
 import {
   parallelJoinArtifactRef,
   readParallelJoinArtifact,
   writeParallelJoinArtifact,
   type ParallelJoinArtifact,
-} from "./odf-parallel-join.js"
-import { buildCandidateManifest, computeCandidateDigest, extractChangedPaths } from "./candidate-manifest.js"
-import { classifyEntryTriage, type EntryTriageInput } from "./entry-triage.js"
-import { validateExpectations, validDate } from "./odf-expectations.js"
+} from "../odf-plugin/odf-parallel-join.js"
+import { buildCandidateManifest, computeCandidateDigest, extractChangedPaths } from "../odf-plugin/candidate-manifest.js"
+import { classifyEntryTriage, type EntryTriageInput } from "../odf-plugin/entry-triage.js"
+import { validateExpectations, validDate } from "../odf-plugin/odf-expectations.js"
 import { inspectToolArgs } from "../scripts/odf-safety.js"
 
 export type OpencodeClient = ReturnType<typeof createOpencodeClient>
@@ -6555,7 +6555,10 @@ export const OdfDelegationPlugin: Plugin = async (ctx) => {
   }
 }
 
-export default OdfDelegationPlugin
+export default {
+  id: "odf-delegation",
+  server: OdfDelegationPlugin,
+}
 
 // Exported for unit testing
 export {
