@@ -6400,12 +6400,12 @@ only after canonical state exists. Existing state and Expectations are reused on
       const route = resolveWorkflowRoute(args.work_type)
       const stateArtifactStore = preflight?.artifact_store || artifactStore
       const sessionID = toolCtx?.sessionID
-      const messageID = toolCtx?.messageID
       const authorization = sessionID ? entryAuthorizations.get(sessionID) : null
-      const generation = sessionID ? entryGenerations.get(sessionID) : undefined
+      // The capability is scoped to session + change + workspace only. It is intentionally
+      // tolerant of message/generation drift so a rate-limit abort, an intervening user message,
+      // or a retried bind in the same session does not dead-end a legitimate /odf-new flow.
       const capabilityMatches = Boolean(authorization && !authorization.claimed &&
-        authorization.sessionID === sessionID && authorization.messageID === messageID &&
-        authorization.generation === generation && authorization.changeName === changeName &&
+        authorization.sessionID === sessionID && authorization.changeName === changeName &&
         authorization.workspaceRoot === workspaceRoot)
       if (authorization && !capabilityMatches) {
         return blocked("workflow-start-unauthorized", "Workflow initialization authorization does not match this message, generation, change, or workspace.")
@@ -6529,7 +6529,7 @@ only after canonical state exists. Existing state and Expectations are reused on
             return blocked("workflow-start-preflight-required", "An ordinary Engram bind can only update existing state; initialization requires complete preflight.")
           }
           if (!stateObservation && !claimedCapability) {
-            return blocked("workflow-start-unauthorized", "Engram state initialization requires same-session /odf-new health authorization for this change.")
+            return blocked("workflow-start-unauthorized", "Engram state initialization requires a same-session /odf-new entry plus a successful odf_health for this change. Recovery: re-run the clean slash command `/odf-new <change>`, let odf_health run first, then retry the bind.")
           }
           const terminalKey = terminalStage ? `odf/${changeName}/${terminalStage === "DECIDE" ? "decision" : "fix"}` : null
           const terminalObservation = terminalKey
@@ -6605,7 +6605,7 @@ only after canonical state exists. Existing state and Expectations are reused on
         } catch (error) {
           if ((error as NodeJS.ErrnoException).code !== "ENOENT") return blocked("state-unreadable", "Existing OpenSpec state.yaml could not be read.")
           if (!preflight) return blocked("workflow-start-preflight-required", "An ordinary OpenSpec bind can only update existing state; initialization requires complete preflight.")
-          if (!claimedCapability) return blocked("workflow-start-unauthorized", "OpenSpec state initialization requires same-session /odf-new health authorization for this change.")
+          if (!claimedCapability) return blocked("workflow-start-unauthorized", "OpenSpec state initialization requires a same-session /odf-new entry plus a successful odf_health for this change. Recovery: re-run the clean slash command `/odf-new <change>`, let odf_health run first, then retry the bind.")
         }
         const expectationsAction = compareExpectations(existingExpectations?.content || null, stateExists)
         if (expectationsAction.startsWith("expectations-")) {
@@ -6954,11 +6954,19 @@ export function createStableDiscoveryGuard(
         entryAuthorizations.clear()
         entryGenerations.clear()
       }
+      if (event.type === "session.deleted") {
+        const deletedID = event.properties?.info?.id
+        if (deletedID) clearSession(deletedID, true)
+        return
+      }
+      // session.idle and session.error clear the transient loop-guard state but preserve the
+      // entry authorization so a resumed session can still complete a legitimate bind.
       const sessionID = event.type === "session.idle" || event.type === "session.error"
         ? event.properties.sessionID
-        : event.type === "session.deleted" ? event.properties.info.id : null
+        : null
       if (sessionID) {
-        clearSession(sessionID, true)
+        sessions.delete(sessionID)
+        pendingCommands.delete(sessionID)
       }
     },
     "command.execute.before": async (input, output) => {
@@ -6978,7 +6986,10 @@ export function createStableDiscoveryGuard(
       if (synthetic) return
       const pendingCommand = pendingCommands.get(input.sessionID)
       pendingCommands.delete(input.sessionID)
-      entryAuthorizations.delete(input.sessionID)
+      // Do NOT revoke the entry authorization here. It is single-use and scoped to change +
+      // workspace, so letting it survive intervening messages keeps a legitimate /odf-new flow
+      // resilient to rate-limit aborts and retries. It is superseded by a new command and
+      // consumed by a successful bind.
       const generation = pendingCommand?.generation ?? nextGeneration(input.sessionID)
       const agent = input.agent ?? output.message.agent
       if (agent !== "odoo_orchestrator") {

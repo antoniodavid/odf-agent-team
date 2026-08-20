@@ -5568,32 +5568,41 @@ describe("stable discovery runtime guard", () => {
     expect(abort).not.toHaveBeenCalled()
   })
 
-  it("revokes start authorization on a new user intent or session idle", async () => {
+  it("keeps start authorization across intervening messages and idle; revokes only on delete or supersede", async () => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), "odf-runtime-start-auth-"))
     const { authorizations, generations, hooks, activate, activateCommand, before, after } = setup(root)
     await activateCommand("s1", "m-start", "odf-new", "authorized-start", "expanded odf-new command")
     await before("s1", "health", {}, "odf_health")
     await after("s1", "health", {}, successfulHealthOutput(), "odf_health")
     expect(authorizations.has("s1")).toBe(true)
-    await activate("s1", "m-followup", "odoo_orchestrator", "different user intent")
-    expect(authorizations.has("s1")).toBe(false)
-    const bind = createODFWorkflowBind(authorizations, generations)
 
+    // A follow-up user message must not revoke the still-unclaimed authorization.
+    await activate("s1", "m-followup", "odoo_orchestrator", "different user intent")
+    expect(authorizations.has("s1")).toBe(true)
+
+    // Session idle must preserve it too, so a paused-then-resumed session can still bind.
+    await hooks.event?.({ event: { type: "session.idle", properties: { sessionID: "s1" } } as any })
+    expect(authorizations.has("s1")).toBe(true)
+
+    const bind = createODFWorkflowBind(authorizations, generations)
     try {
-      const blocked = JSON.parse(await bind.execute({
+      const bound = JSON.parse(await bind.execute({
         change_name: "authorized-start",
         work_type: "feature",
         artifact_store: "openspec",
         workspace_dir: root,
         preflight: completePreflight("authorized-start"),
       }, { sessionID: "s1", messageID: "m-followup" } as any) as string)
-      expect(blocked).toMatchObject({ status: "blocked", reason: "workflow-start-unauthorized" })
+      expect(bound).toMatchObject({ status: "bound" })
 
+      // A fresh /odf-new supersedes and re-arms a new capability.
       await activateCommand("s1", "m-retry", "odf-new", "authorized-start", "expanded retry command")
       await before("s1", "retry-health", {}, "odf_health")
       await after("s1", "retry-health", {}, successfulHealthOutput(), "odf_health")
       expect(authorizations.has("s1")).toBe(true)
-      await hooks.event?.({ event: { type: "session.idle", properties: { sessionID: "s1" } } as any })
+
+      // session.deleted still revokes.
+      await hooks.event?.({ event: { type: "session.deleted", properties: { info: { id: "s1" } } } as any })
       expect(authorizations.has("s1")).toBe(false)
       expect(generations.has("s1")).toBe(false)
     } finally {
@@ -5651,14 +5660,13 @@ describe("stable discovery runtime guard", () => {
     }
   })
 
-  it("matches capability message, generation, canonical change, and workspace", async () => {
+  it("matches capability canonical change and workspace, tolerant of message and generation drift", async () => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), "odf-capability-scope-"))
     const otherRoot = await fs.mkdtemp(path.join(os.tmpdir(), "odf-capability-other-"))
     const cases = [
-      { messageID: "wrong-message", change: "scoped-start", workspace: root, mutateGeneration: false },
+      { messageID: "drifted-message", change: "scoped-start", workspace: root, mutateGeneration: true },
       { messageID: "m-scope", change: "wrong-change", workspace: root, mutateGeneration: false },
       { messageID: "m-scope", change: "scoped-start", workspace: otherRoot, mutateGeneration: false },
-      { messageID: "m-scope", change: "scoped-start", workspace: root, mutateGeneration: true },
     ]
 
     try {
@@ -5667,14 +5675,16 @@ describe("stable discovery runtime guard", () => {
         await runtime.activateCommand("s1", "m-scope", "odf-new", "Scoped-Start", "expanded scoped start")
         await runtime.before("s1", `health-${index}`, {}, "odf_health")
         await runtime.after("s1", `health-${index}`, {}, successfulHealthOutput(), "odf_health")
-        if (testCase.mutateGeneration) runtime.generations.set("s1", runtime.generations.get("s1") + 1)
+        if (testCase.mutateGeneration) runtime.generations.set("s1", (runtime.generations.get("s1") || 0) + 1)
         const output = JSON.parse(await createODFWorkflowBind(runtime.authorizations, runtime.generations).execute({
           change_name: testCase.change,
           work_type: "feature",
           workspace_dir: testCase.workspace,
           preflight: completePreflight(testCase.change),
         }, { sessionID: "s1", messageID: testCase.messageID } as any) as string)
-        expect(output).toMatchObject({ status: "blocked", reason: "workflow-start-unauthorized" })
+        expect(output).toMatchObject(index === 0
+          ? { status: "bound", change_name: "scoped-start" }
+          : { status: "blocked", reason: "workflow-start-unauthorized" })
       }
 
       const runtime = setup(root)
@@ -5714,7 +5724,7 @@ describe("stable discovery runtime guard", () => {
     }
     expect(runtime.authorizations.size).toBe(128)
     expect(runtime.generations.size).toBe(128)
-    await runtime.hooks.event?.({ event: { type: "session.idle", properties: { sessionID: "session-128" } } as any })
+    await runtime.hooks.event?.({ event: { type: "session.deleted", properties: { info: { id: "session-128" } } } as any })
     expect(runtime.authorizations.has("session-128")).toBe(false)
     expect(runtime.generations.has("session-128")).toBe(false)
   })
