@@ -346,13 +346,13 @@ const defaultHealthIo: HealthIo = {
     return execFileSync(which, [command], {
       encoding: "utf8",
       stdio: ["ignore", "pipe", "ignore"],
-      timeout: 1_000,
+      timeout: 5_000,
     }).trim().split(/\r?\n/)[0] || ""
   },
   readVersion: (command) => execFileSync(command, ["--version"], {
     encoding: "utf8",
     stdio: ["ignore", "pipe", "ignore"],
-    timeout: 1_000,
+    timeout: 5_000,
   }).trim().split(/\r?\n/)[0] || "",
 }
 
