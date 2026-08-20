@@ -48,6 +48,12 @@ user disposition.
 - If `question` is unavailable, print the identical phase, summary, option labels, values, and order as plain text, then wait; never choose silently. This fallback is identical in both modes whenever input is required.
 - PROPOSE runs its 3-5 business-question round in `interactive`; `batch` skips that voluntary round. Any required product/user disposition still stops both modes.
 
+### ODF Entry Health Gate
+
+- For every exact `/odf-new ...` invocation, `odf_health` MUST be the first ODF operation. Call it before `question`, Engram writes, artifact/state creation, route/triage/status tools, or delegation.
+- Continue only when `odf_health` returns `status: warning` with the required static/runtime checks present, or a future `status: ok`. A missing tool, thrown/malformed result, `failed`, or `blocked` result stops the command immediately with no subsequent question, write, artifact creation, or delegation.
+- Never simulate health from file reads and never bypass this gate because project configuration or prior session health exists. The runtime hook also enforces this order for `/odf-new` sessions.
+
 ### Continuation Intent
 
 - Only the exact `/odf-continue [name]` command activates ODF workflow continuation.
@@ -116,7 +122,7 @@ not a mandatory step before every VERIFY. VERIFY remains an independent stage.
 
 - `odf_workflow_route(work_type)` selects route depth from the executable matrix.
 - `odf_entry_triage(description, ...)` classifies a `/odf-new` entry as micro/standard/full and selects an existing canonical work type deterministically; pure and read-only, it may ask one grouped question via `needs_question`.
-- `odf_workflow_bind(change_name, work_type, artifact_store)` explicitly binds the route in OpenSpec by default or persists the canonical state binding to `odf/{change}/state` when `artifact_store: engram`; it is mutating and validated.
+- `odf_workflow_bind(change_name, work_type, artifact_store, preflight?, expectations?)` is the only `/odf-new` start boundary. Missing-state initialization additionally requires the plugin's same-session authorization produced by the exact command metadata plus successful health; ordinary binds only update existing state. State is written first; identical existing Expectations are reused and divergent/tampered content blocks closed.
 - `odf_workflow_advance(...)` is a read-only, store-independent advisory transition check; for BUILD/VERIFY starts, embed its exact input under `workflow_advance` in `odf_delegate` and pass an explicit `artifact_store: openspec|engram`. Delegate-side validation is authoritative and commits only that selected store; it never dual-writes.
 - `odf_delegate` runs legacy phase adapters and preserves their contracts.
 - `odf_health` returns a schema-versioned, read-only installed/runtime health result. It checks static files and task API presence but never probes `task()`, Odoo, PostgreSQL, or `engram export`.
@@ -128,8 +134,8 @@ At `/odf-new`, classify the change with `odf_entry_triage` before resolving work
 
 **Micro path:** when `odf_entry_triage` returns micro with `needs_question: false`, skip PROPOSE/ASSESS approval rounds; use an inline plan before BUILD; ask at most one grouped question when a fact is missing; escalate on any high-risk signal before editing.
 
-1. At `/odf-new` start, call `odf_workflow_route(work_type)` and then `odf_workflow_bind(change_name, work_type, artifact_store: openspec)` before the first phase when OpenSpec `state.yaml` exists. For Engram-only state, call the binding with `artifact_store: engram`; `odf_workflow_status` may then recover the persisted state from Engram. Stop on a binding failure and never claim OpenSpec persistence for Engram-only changes.
-2. On continuation, use only a valid persisted `work_type` from `odf_workflow_status`. Never infer it from legacy phase, artifacts, or solution strategy. If absent, require explicit `--work-type <type>` before route resolution and any BUILD/VERIFY gate; bind it with the explicit selected `artifact_store` when state exists, otherwise forward it without claiming OpenSpec persistence. Do not silently choose a default.
+1. At `/odf-new` start, after the health gate and user approvals, call `odf_workflow_route(work_type)` and then one `odf_workflow_bind` with the complete preflight plus the exact approved Expectations document. Use `artifact_store: openspec` for OpenSpec and hybrid authority, or `artifact_store: engram` for Engram-only. The bind must report canonical state persisted before Expectations; stop on any failure. Never write Expectations directly through Engram or filesystem tools.
+2. On continuation, use `state_kind` from `odf_workflow_status`. `expectations-only` and `none` stop; `legacy-artifacts` remains resumable only through explicit `--work-type <type>` recovery and never creates/binds state; `canonical` uses its persisted `work_type`, or requires explicit recovery and binds only that existing state. Never infer work type from legacy phase, artifacts, Expectations, or solution strategy, and never supply start preflight/Expectations from `/odf-continue`.
 3. Before BUILD (`IMPLEMENT`) or VERIFY starts, call `odf_workflow_advance` with that persisted or explicitly selected `work_type` and current transition evidence, then embed that exact input under `workflow_advance` in `odf_delegate` together with an explicit `artifact_store` and fresh opaque `attempt_id`. Reusing an attempt ID or relaunching a completed phase is blocked; an already committed desired state returns `already-committed` without relaunching. The delegate locks and re-reads the selected state, recomputes the transition, commits state before settling the attempt complete, and fails closed on evidence or persistence errors. Legacy compatibility callers may omit `workflow_advance` (and therefore `artifact_store` and `attempt_id`) only while registry `flags.strict_workflow` is explicitly `false` (self-service opt-out; the default is `true` since the strict-workflow rollout); strict mode blocks that omission before delegation.
 4. Delegate every ODF phase through `odf_delegate`; do not call `task()` directly.
 5. Before every code/design/review delegation, resolve registry skills by file and task context.
@@ -205,7 +211,7 @@ Flow:
 
 1. `/odf-new` or `/odf-continue` loads state from the selected artifact store.
 2. Ask for missing fields in Spanish, validate each answer, then show the complete summary for amendment.
-3. Persist preflight to the selected store; for Engram-only state, use `odf/{change}/state` and do not represent it as OpenSpec-persisted.
+3. On `/odf-new`, keep the validated preflight in memory until route and Expectations approval are ready, then pass it to `odf_workflow_bind`. Do not persist preflight or Expectations separately. Hybrid starts in OpenSpec authority; Engram-only uses `odf/{change}/state` and must not be represented as OpenSpec-persisted.
 4. Treat `tdd_mode` as the declared default only. Effective TDD is the Policy
    Gate decision: any OFF source, or an unreadable local source, means OFF.
 
@@ -231,7 +237,7 @@ comes from `odf_workflow_route`; adapters must not create extra business stages.
 ### PROPOSE
 
 - In `interactive`, ask 3-5 business questions before delegation: problem, users, rules, scope, and risks/rollback. In `batch`, skip this voluntary question round.
-- **Capture human Expectations**: before delegating, distill the USER's intent and expectations from the command description plus ONE clarification round (via `question`). You do NOT author `EXP-XX` from your own analysis — you only reformulate the user's stated expectations as testable `EXP-XX` statements and request explicit confirmation. Persist the `expectations` artifact (see `docs/expectations-contract.md`) to the selected store (`openspec/changes/{change}/expectations` or `odf/{change}/expectations`) and mark `approved: true` only after the user confirms. Every `EXP` has `owned_by: "human"`.
+- **Capture human Expectations**: before delegating, first inspect any existing Expectations artifact. If it is valid, approved, and byte-equivalent in protected content to the intended contract, reuse it without another question, renumbering, or write. If it differs or is invalid/tampered, stop closed. Otherwise distill the USER's intent and expectations from the command description plus ONE clarification round (via `question`), reformulate them as testable `EXP-XX`, and request explicit confirmation. Pass the complete approved document to `odf_workflow_bind`; never persist it directly. Every `EXP` has `owned_by: "human"`.
 - Delegate the proposal; it contains intent, scope, capabilities, approach, affected areas, risks, rollback, and success criteria.
 - No code, functional spec, or configuration guide; keep it under 300 words.
 - Persist `odf/{change}/propose`. In `interactive`, ask whether to approve and assess, adjust scope, or cancel; in `batch`, continue only for inner `ok`/`warning`. `blocked`/`failed` or a product/user disposition stops.

@@ -11,6 +11,7 @@ export type CanonicalStage = RouteCanonicalStage | "ARCHIVED"
 export type WorkflowStage = "INIT" | CanonicalStage
 export type LegacyPhase = RouteLegacyPhase | "ARCHIVED"
 export type ReceiptState = "none" | "pending" | "resolved"
+export type WorkflowStateKind = "canonical" | "legacy-artifacts" | "expectations-only" | "none"
 export interface NormalizedArtifactKey { original: string; group: WorkflowStage | null; type: string }
 export interface WorkflowArtifact { key?: string; content?: unknown; status?: unknown; created_at?: unknown; createdAt?: unknown; ref?: unknown }
 export type WorkflowArtifacts = Record<string, WorkflowArtifact | string | boolean | null | undefined> | WorkflowArtifact[]
@@ -33,7 +34,8 @@ export interface WorkflowStatus {
   change: string; canonical_stage: WorkflowStage; legacy_phase: LegacyPhase | null; completed_canonical_stages: CanonicalStage[]
   pending_stage: Exclude<CanonicalStage, "ARCHIVED"> | null
   artifact_refs: Record<Exclude<CanonicalStage, "ARCHIVED">, string[]>
-  progress: ProgressState; receipt: ReceiptStatus; resumable: boolean; work_type: WorkType | null
+  progress: ProgressState; receipt: ReceiptStatus; state_present: boolean; state_kind: WorkflowStateKind
+  recovery_work_type_required: boolean; resumable: boolean; work_type: WorkType | null
   parallel_join?: ParallelJoinArtifact
   source: { state: "openspec" | "engram" | "inferred" | "none"; artifacts: string[] }; warnings: string[]
 }
@@ -455,8 +457,14 @@ export function deriveWorkflowStatus(input: WorkflowStatusInput): WorkflowStatus
   const artifacts = normalizeArtifacts(input.artifacts)
   const stateArtifact = artifacts.find((artifact) => artifact.normalized.type === "state")
   const parsedState = stateRecord(input.state ?? stateArtifact?.content)
+  const statePresent = parsedState.state !== null
+  const hasLegacyArtifacts = !statePresent && artifacts.some((artifact) =>
+    artifact.normalized.group !== null && artifact.normalized.type !== "qa-plan")
+  const expectationsOnly = !statePresent && !hasLegacyArtifacts && artifacts.length > 0 && artifacts.every((artifact) => artifact.normalized.type === "expectations")
+  const stateKind: WorkflowStateKind = statePresent ? "canonical" : hasLegacyArtifacts ? "legacy-artifacts" : expectationsOnly ? "expectations-only" : "none"
   const signals = explicitStateSignals(parsedState.state)
   const warnings = [...(input.warnings || []), ...parsedState.warnings]
+  if (expectationsOnly) warnings.push("Workflow state is missing; Expectations alone are not resumable.")
   const workType = declaredWorkType(parsedState.state, warnings)
   const route = workType ? resolveWorkflowRoute(workType) : null
   const routeStages = route?.stages || STAGES
@@ -538,14 +546,18 @@ export function deriveWorkflowStatus(input: WorkflowStatusInput): WorkflowStatus
     : null
   return {
     change: input.change,
-    canonical_stage: canonicalStage,
-    legacy_phase: legacy,
+    canonical_stage: stateKind === "none" || expectationsOnly ? "INIT" : canonicalStage,
+    legacy_phase: stateKind === "none" || expectationsOnly ? null : legacy,
     completed_canonical_stages: Array.from(new Set(completed)),
-    pending_stage: pendingStage,
+    pending_stage: stateKind === "none" || expectationsOnly ? null : pendingStage,
     artifact_refs: artifactRefs,
     progress,
     receipt,
-    resumable: !archived && !signals.abandoned && receipt.state !== "pending" && (receipt.action === null || receipt.action === "retry") && pendingStage !== null,
+    state_present: statePresent,
+    state_kind: stateKind,
+    recovery_work_type_required: stateKind === "legacy-artifacts" && workType === null,
+    resumable: (stateKind === "canonical" || stateKind === "legacy-artifacts") && !archived && !signals.abandoned &&
+      receipt.state !== "pending" && (receipt.action === null || receipt.action === "retry") && pendingStage !== null,
     work_type: workType,
     source: { state: source, artifacts: declaredArtifacts || Object.values(artifactRefs).flat() },
     warnings: Array.from(new Set(warnings)),

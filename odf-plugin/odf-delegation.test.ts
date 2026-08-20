@@ -137,6 +137,7 @@ async function configureFakeEngram(): Promise<{
   logPath: string
   cleanup: () => Promise<void>
   setFailure: (enabled: boolean) => void
+  setFailureTopic: (topic: string | null) => void
   setObservations: (observations: Array<Record<string, unknown>>) => Promise<void>
 }> {
   const bin = await fs.mkdtemp(path.join(os.tmpdir(), "odf-fake-engram-bin-"))
@@ -162,9 +163,11 @@ const flag = (name) => {
   return index >= 0 ? args[index + 1] : undefined
 }
 if (args[0] === "save") {
-  if (process.env.ODF_TEST_ENGRAM_FAIL === "1") process.exit(17)
-  fs.writeFileSync(storePath, JSON.stringify([{
-    topic_key: flag("--topic"),
+  const topic = flag("--topic")
+  if (process.env.ODF_TEST_ENGRAM_FAIL === "1" || process.env.ODF_TEST_ENGRAM_FAIL === topic) process.exit(17)
+  const observations = fs.existsSync(storePath) ? JSON.parse(fs.readFileSync(storePath, "utf8")) : []
+  fs.writeFileSync(storePath, JSON.stringify([...observations.filter(item => item.topic_key !== topic), {
+    topic_key: topic,
     content: args[2],
     created_at: "2026-08-07T00:00:00.000Z"
   }]))
@@ -189,6 +192,10 @@ process.exit(2)
       if (enabled) process.env.ODF_TEST_ENGRAM_FAIL = "1"
       else delete process.env.ODF_TEST_ENGRAM_FAIL
     },
+    setFailureTopic: (topic: string | null): void => {
+      if (topic) process.env.ODF_TEST_ENGRAM_FAIL = topic
+      else delete process.env.ODF_TEST_ENGRAM_FAIL
+    },
     setObservations: async (observations): Promise<void> => {
       await fs.writeFile(storePath, JSON.stringify(observations), "utf8")
     },
@@ -203,6 +210,77 @@ process.exit(2)
       await fs.rm(bin, { recursive: true, force: true })
     },
   }
+}
+
+function completePreflight(change: string, artifactStore: "openspec" | "engram" | "hybrid" = "openspec") {
+  return {
+    change,
+    execution_mode: "interactive",
+    artifact_store: artifactStore,
+    delivery_strategy: "ask-on-risk",
+    review_budget_lines: 400,
+    odoo_version: 18,
+    tdd_mode: false,
+    solution_strategy: "custom",
+    chain_strategy: "none",
+    persisted_at: "2026-08-19T00:00:00.000Z",
+  }
+}
+
+function approvedExpectations(change: string, statement = "The requested behavior is observable and verified.") {
+  return {
+    change,
+    intent: "Implement the requested behavior",
+    expectations: [{ id: "EXP-01", statement, testable: true, owned_by: "human" as const }],
+    approved: true,
+    approved_by: "user",
+    approved_at: "2026-08-19T00:01:00.000Z",
+    immutable_since: "2026-08-19T00:01:00.000Z",
+  }
+}
+
+function authorizedWorkflowBind(changeName: string, workspaceRoot: string) {
+  const context = { sessionID: "odf-new-session", messageID: "odf-new-message" } as any
+  const generation = 1
+  return {
+    bind: createODFWorkflowBind(new Map([[context.sessionID, {
+      nonce: "test-capability",
+      sessionID: context.sessionID,
+      messageID: context.messageID,
+      generation,
+      changeName,
+      workspaceRoot: fsSync.realpathSync(workspaceRoot),
+      claimed: false,
+    }]]), new Map([[context.sessionID, generation]])),
+    context,
+  }
+}
+
+function successfulHealthOutput(): string {
+  return JSON.stringify({
+    schema_version: 1,
+    status: "warning",
+    registry: { status: "valid", skills: { missing: [] }, agents: { missing: [] } },
+    plugin: { loaded: true, file_status: "readable" },
+    command: { status: "readable" },
+    task_api: { function_present: true },
+  })
+}
+
+function sdkPromptResult(result: Record<string, unknown>): Record<string, unknown> {
+  return {
+    data: {
+      info: { role: "assistant" },
+      parts: [{ type: "text", text: JSON.stringify(result) }],
+    },
+    request: {},
+    response: {},
+  }
+}
+
+// Mirrors the SDK client's default "fields" responseStyle envelope.
+function sdkCreateResult(id: string): Record<string, unknown> {
+  return { data: { id }, request: {}, response: {} }
 }
 
 describe("createODFWorkflowAdvance", () => {
@@ -324,24 +402,35 @@ describe("createODFWorkflowBind", () => {
         archived_state: false,
       }, {} as any) as string)
       expect(advance).toMatchObject({ status: "advanced", next_stage: "BUILD" })
+      const retry = JSON.parse(await createODFWorkflowBind().execute({
+        change_name: "micro-change",
+        work_type: "small-change",
+        terminal_stage: "DECIDE",
+        intent: "Add the discount field",
+        expectations_approved: true,
+        workspace_dir: root,
+      }, {} as any) as string)
+      expect(retry).toMatchObject({ status: "bound", state_action: "reused", terminal_action: "reused" })
     } finally {
       await fs.rm(root, { recursive: true, force: true })
     }
   })
 
-  it("creates and materializes terminal FIX for a bugfix without prior state", async () => {
+  it("creates and materializes terminal FIX only through an authorized start", async () => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), "odf-fix-bind-"))
     const changeDir = path.join(root, "openspec", "changes", "fix-change")
+    const { bind, context } = authorizedWorkflowBind("fix-change", root)
 
     try {
-      const output = JSON.parse(await createODFWorkflowBind().execute({
+      const output = JSON.parse(await bind.execute({
         change_name: "fix-change",
         work_type: "bugfix",
+        preflight: completePreflight("fix-change"),
         terminal_stage: "FIX",
         root_cause: "The quantity guard ran after rounding",
         regression: "Add a zero-quantity regression test",
         workspace_dir: root,
-      }, {} as any) as string)
+      }, context) as string)
       expect(output).toMatchObject({ status: "bound", terminal_stage: "FIX" })
       expect(YAML.parse(await fs.readFile(path.join(changeDir, "state.yaml"), "utf8"))).toMatchObject({
         work_type: "bugfix",
@@ -395,7 +484,7 @@ describe("createODFWorkflowBind", () => {
     try {
       const bind = createODFWorkflowBind()
       await expect(bind.execute({ change_name: "missing-change", work_type: "feature", workspace_dir: root }, {} as any))
-        .resolves.toMatch(/state-not-found/)
+        .resolves.toMatch(/workflow-start-preflight-required/)
       await expect(bind.execute({ change_name: "broken-change", work_type: "feature", workspace_dir: root }, {} as any))
         .resolves.toMatch(/malformed-state/)
       await expect(bind.execute({ change_name: "../outside", work_type: "feature", workspace_dir: root }, {} as any))
@@ -407,12 +496,48 @@ describe("createODFWorkflowBind", () => {
     }
   })
 
-  it("persists an Engram-only binding with exact convention arguments and rediscovers it", async () => {
+  it("requires complete preflight and same-session /odf-new authorization to create any missing state", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "odf-start-authorization-"))
+    const fake = await configureFakeEngram()
+    const context = { sessionID: "continue-session", messageID: "continue-message" } as any
+
+    try {
+      const bind = createODFWorkflowBind()
+      const noPreflight = JSON.parse(await bind.execute({
+        change_name: "unauthorized-engram", work_type: "feature", artifact_store: "engram", workspace_dir: root,
+      }, context) as string)
+      expect(noPreflight).toMatchObject({ status: "blocked", reason: "workflow-start-preflight-required" })
+
+      const noAuthorization = JSON.parse(await bind.execute({
+        change_name: "unauthorized-engram", work_type: "feature", artifact_store: "engram", workspace_dir: root,
+        preflight: completePreflight("unauthorized-engram", "engram"),
+      }, context) as string)
+      expect(noAuthorization).toMatchObject({ status: "blocked", reason: "workflow-start-unauthorized" })
+
+      const openSpec = JSON.parse(await bind.execute({
+        change_name: "unauthorized-openspec", work_type: "feature", artifact_store: "openspec", workspace_dir: root,
+        preflight: completePreflight("unauthorized-openspec"),
+      }, context) as string)
+      expect(openSpec).toMatchObject({ status: "blocked", reason: "workflow-start-unauthorized" })
+      expect(fsSync.existsSync(path.join(root, "openspec"))).toBe(false)
+      const calls = JSON.parse(await fs.readFile(fake.logPath, "utf8")) as string[][]
+      expect(calls.some(call => call[0] === "save")).toBe(false)
+    } finally {
+      await fake.cleanup()
+      await fs.rm(root, { recursive: true, force: true })
+    }
+  })
+
+  it("updates an existing Engram-only state with exact convention arguments and rediscovers it", async () => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), "odf-engram-bind-"))
     const fake = await configureFakeEngram()
     const changeName = "engram-only"
     const topicKey = `odf/${changeName}/state`
-    const content = JSON.stringify({ work_type: "feature" })
+    await fake.setObservations([{
+      topic_key: topicKey,
+      content: JSON.stringify({ canonical_stage: "DECIDE" }),
+      created_at: "2026-08-19T00:00:00.000Z",
+    }])
 
     try {
       const output = await createODFWorkflowBind().execute({
@@ -421,28 +546,23 @@ describe("createODFWorkflowBind", () => {
         artifact_store: "engram",
         workspace_dir: root,
       }, {} as any)
-      expect(JSON.parse(output as string)).toEqual({
+      expect(JSON.parse(output as string)).toMatchObject({
         status: "bound",
         change_name: changeName,
         work_type: "feature",
         artifact_store: "engram",
         topic_key: topicKey,
         project: path.basename(root),
+        state_action: "updated",
+        expectations_action: "none",
       })
 
       const calls = JSON.parse(await fs.readFile(fake.logPath, "utf8"))
-      expect(calls[0]).toEqual([
-        "save",
-        topicKey,
-        content,
-        "--type",
-        "architecture",
-        "--project",
-        path.basename(root),
-        "--scope",
-        "project",
-        "--topic",
-        topicKey,
+      const saveCalls = calls.filter((call: string[]) => call[0] === "save")
+      expect(saveCalls[0].slice(0, 2)).toEqual(["save", topicKey])
+      expect(JSON.parse(saveCalls[0][2])).toEqual({ canonical_stage: "DECIDE", work_type: "feature" })
+      expect(saveCalls[0].slice(3)).toEqual([
+        "--type", "architecture", "--project", path.basename(root), "--scope", "project", "--topic", topicKey,
       ])
       expect(fsSync.existsSync(path.join(root, "openspec", "changes", changeName, "state.yaml"))).toBe(false)
 
@@ -481,6 +601,11 @@ describe("createODFWorkflowBind", () => {
   it("fails closed when the Engram save command fails", async () => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), "odf-engram-save-failure-"))
     const fake = await configureFakeEngram()
+    await fake.setObservations([{
+      topic_key: "odf/save-failure/state",
+      content: JSON.stringify({ canonical_stage: "DECIDE" }),
+      created_at: "2026-08-19T00:00:00.000Z",
+    }])
     fake.setFailure(true)
 
     try {
@@ -491,6 +616,366 @@ describe("createODFWorkflowBind", () => {
         workspace_dir: root,
       }, {} as any)
       expect(JSON.parse(output as string)).toMatchObject({ status: "blocked", reason: "engram-save-failed" })
+    } finally {
+      await fake.cleanup()
+      await fs.rm(root, { recursive: true, force: true })
+    }
+  })
+
+  it("starts an OpenSpec feature with canonical state before approved Expectations", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "odf-openspec-start-"))
+    const change = "new-feature"
+    const expectations = approvedExpectations(change)
+    const { bind, context } = authorizedWorkflowBind(change, root)
+
+    try {
+      const output = JSON.parse(await bind.execute({
+        change_name: change,
+        work_type: "feature",
+        artifact_store: "openspec",
+        workspace_dir: root,
+        preflight: completePreflight(change),
+        expectations,
+      }, context) as string)
+      expect(output).toMatchObject({ status: "bound", state_action: "created", expectations_action: "persisted" })
+
+      const changeDir = path.join(root, "openspec", "changes", change)
+      const state = YAML.parse(await fs.readFile(path.join(changeDir, "state.yaml"), "utf8"))
+      expect(state).toMatchObject({
+        change,
+        artifact_store: "openspec",
+        work_type: "feature",
+        canonical_stage: "DECIDE",
+        completed_canonical_stages: [],
+        preflight: { change, artifact_store: "openspec", work_type: "feature" },
+        route: { work_type: "feature", stages: ["DECIDE", "PLAN", "BUILD", "VERIFY"] },
+      })
+      expect(YAML.parse(await fs.readFile(path.join(changeDir, "expectations.yaml"), "utf8"))).toEqual(expectations)
+    } finally {
+      await fs.rm(root, { recursive: true, force: true })
+    }
+  })
+
+  it("starts hybrid workflows in OpenSpec authority without Engram-only artifacts", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "odf-hybrid-start-"))
+    const fake = await configureFakeEngram()
+    const change = "hybrid-feature"
+    const expectations = approvedExpectations(change)
+    const { bind, context } = authorizedWorkflowBind(change, root)
+
+    try {
+      const output = JSON.parse(await bind.execute({
+        change_name: change,
+        work_type: "feature",
+        artifact_store: "openspec",
+        workspace_dir: root,
+        preflight: completePreflight(change, "hybrid"),
+        expectations,
+      }, context) as string)
+      expect(output).toMatchObject({ status: "bound", artifact_store: "openspec", state_action: "created" })
+      const changeDir = path.join(root, "openspec", "changes", change)
+      expect(YAML.parse(await fs.readFile(path.join(changeDir, "state.yaml"), "utf8"))).toMatchObject({ artifact_store: "hybrid" })
+      expect(YAML.parse(await fs.readFile(path.join(changeDir, "expectations.yaml"), "utf8"))).toEqual(expectations)
+      expect(fsSync.existsSync(fake.logPath)).toBe(false)
+    } finally {
+      await fake.cleanup()
+      await fs.rm(root, { recursive: true, force: true })
+    }
+  })
+
+  it("reuses identical OpenSpec Expectations and leaves an active state byte-identical", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "odf-openspec-retry-"))
+    const change = "retry-feature"
+    const args = {
+      change_name: change,
+      work_type: "feature" as const,
+      artifact_store: "openspec" as const,
+      workspace_dir: root,
+      preflight: completePreflight(change),
+      expectations: approvedExpectations(change),
+    }
+    const { bind, context } = authorizedWorkflowBind(change, root)
+
+    try {
+      await bind.execute(args, context)
+      const statePath = path.join(root, "openspec", "changes", change, "state.yaml")
+      const expectationsPath = path.join(root, "openspec", "changes", change, "expectations.yaml")
+      const before = [await fs.readFile(statePath, "utf8"), await fs.readFile(expectationsPath, "utf8")]
+      const retry = JSON.parse(await bind.execute(args, context) as string)
+      expect(retry).toMatchObject({ status: "bound", state_action: "reused", expectations_action: "reused" })
+      expect([await fs.readFile(statePath, "utf8"), await fs.readFile(expectationsPath, "utf8")]).toEqual(before)
+    } finally {
+      await fs.rm(root, { recursive: true, force: true })
+    }
+  })
+
+  it("recovers identical orphan OpenSpec Expectations without rewriting them", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "odf-openspec-recover-"))
+    const change = "fecha-factura"
+    const changeDir = path.join(root, "openspec", "changes", change)
+    const expectations = approvedExpectations(change, "The invoice date is retained when the invoice is posted.")
+    await fs.mkdir(changeDir, { recursive: true })
+    const expectationsPath = path.join(changeDir, "expectations.yaml")
+    await fs.writeFile(expectationsPath, YAML.stringify(expectations), "utf8")
+    const before = await fs.readFile(expectationsPath, "utf8")
+    const { bind, context } = authorizedWorkflowBind(change, root)
+
+    try {
+      const output = JSON.parse(await bind.execute({
+        change_name: change,
+        work_type: "feature",
+        artifact_store: "openspec",
+        workspace_dir: root,
+        preflight: completePreflight(change),
+        expectations,
+      }, context) as string)
+      expect(output).toMatchObject({ status: "bound", state_action: "created", expectations_action: "reused" })
+      expect(await fs.readFile(expectationsPath, "utf8")).toBe(before)
+      expect(fsSync.existsSync(path.join(changeDir, "state.yaml"))).toBe(true)
+    } finally {
+      await fs.rm(root, { recursive: true, force: true })
+    }
+  })
+
+  it("blocks divergent or tampered Expectations without changing canonical state", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "odf-expectations-conflict-"))
+    const change = "protected-expectations"
+    const baseArgs = {
+      change_name: change,
+      work_type: "feature" as const,
+      artifact_store: "openspec" as const,
+      workspace_dir: root,
+      preflight: completePreflight(change),
+      expectations: approvedExpectations(change),
+    }
+    const { bind, context } = authorizedWorkflowBind(change, root)
+
+    try {
+      await bind.execute(baseArgs, context)
+      const statePath = path.join(root, "openspec", "changes", change, "state.yaml")
+      const expectationsPath = path.join(root, "openspec", "changes", change, "expectations.yaml")
+      const stateBefore = await fs.readFile(statePath, "utf8")
+      const conflict = JSON.parse(await bind.execute({
+        ...baseArgs,
+        expectations: approvedExpectations(change, "A different approved statement."),
+      }, context) as string)
+      expect(conflict).toMatchObject({ status: "blocked", reason: "expectations-conflict" })
+      expect(await fs.readFile(statePath, "utf8")).toBe(stateBefore)
+
+      await fs.writeFile(expectationsPath, "change: protected-expectations\napproved: true\nexpectations: []\n", "utf8")
+      const tampered = JSON.parse(await bind.execute(baseArgs, context) as string)
+      expect(tampered).toMatchObject({ status: "blocked", reason: "expectations-tampered" })
+      expect(await fs.readFile(statePath, "utf8")).toBe(stateBefore)
+    } finally {
+      await fs.rm(root, { recursive: true, force: true })
+    }
+  })
+
+  it("leaves no orphan Expectations across OpenSpec state and Expectations write failures", async () => {
+    const change = "write-failure"
+    const expectations = approvedExpectations(change)
+    const stateFailureRoot = await fs.mkdtemp(path.join(os.tmpdir(), "odf-state-failure-"))
+    const expectationFailureRoot = await fs.mkdtemp(path.join(os.tmpdir(), "odf-expectation-failure-"))
+    const { bind, context } = authorizedWorkflowBind(change, stateFailureRoot)
+
+    try {
+      const brokenChangeDir = path.join(stateFailureRoot, "openspec", "changes", change)
+      await fs.mkdir(path.join(brokenChangeDir, "state.yaml"), { recursive: true })
+      const stateFailure = JSON.parse(await bind.execute({
+        change_name: change, work_type: "feature", workspace_dir: stateFailureRoot,
+        preflight: completePreflight(change), expectations,
+      }, context) as string)
+      expect(stateFailure).toMatchObject({ status: "blocked", reason: "unsafe-change-path" })
+      expect(fsSync.existsSync(path.join(brokenChangeDir, "expectations.yaml"))).toBe(false)
+
+      const expectationChangeDir = path.join(expectationFailureRoot, "openspec", "changes", change)
+      await fs.mkdir(path.join(expectationChangeDir, "expectations.yaml"), { recursive: true })
+      const expectationStart = authorizedWorkflowBind(change, expectationFailureRoot)
+      const expectationFailure = JSON.parse(await expectationStart.bind.execute({
+        change_name: change, work_type: "feature", workspace_dir: expectationFailureRoot,
+        preflight: completePreflight(change), expectations,
+      }, expectationStart.context) as string)
+      expect(expectationFailure).toMatchObject({ status: "blocked", reason: "expectations-write-failed" })
+      const statePath = path.join(expectationChangeDir, "state.yaml")
+      expect(YAML.parse(await fs.readFile(statePath, "utf8"))).toMatchObject({ work_type: "feature", artifact_store: "openspec" })
+      expect(fsSync.statSync(path.join(expectationChangeDir, "expectations.yaml")).isDirectory()).toBe(true)
+      expect((await fs.readdir(expectationChangeDir)).some(file => file.endsWith(".tmp"))).toBe(false)
+
+      await fs.rm(path.join(expectationChangeDir, "expectations.yaml"), { recursive: true })
+      const retry = JSON.parse(await expectationStart.bind.execute({
+        change_name: change, work_type: "feature", workspace_dir: expectationFailureRoot,
+        preflight: completePreflight(change), expectations,
+      }, expectationStart.context) as string)
+      expect(retry).toMatchObject({ status: "bound", state_action: "reused", expectations_action: "persisted" })
+      expect(YAML.parse(await fs.readFile(path.join(expectationChangeDir, "expectations.yaml"), "utf8"))).toEqual(expectations)
+      expect((await fs.readdir(expectationChangeDir)).some(file => file.endsWith(".tmp"))).toBe(false)
+    } finally {
+      await fs.rm(stateFailureRoot, { recursive: true, force: true })
+      await fs.rm(expectationFailureRoot, { recursive: true, force: true })
+    }
+  })
+
+  it("rejects an OpenSpec parent symlink before creating any external directory", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "odf-symlink-root-"))
+    const outside = await fs.mkdtemp(path.join(os.tmpdir(), "odf-symlink-outside-"))
+    const change = "escaped-change"
+    const { bind, context } = authorizedWorkflowBind(change, root)
+    await fs.symlink(outside, path.join(root, "openspec"), "dir")
+
+    try {
+      const output = JSON.parse(await bind.execute({
+        change_name: change,
+        work_type: "feature",
+        artifact_store: "openspec",
+        workspace_dir: root,
+        preflight: completePreflight(change),
+        expectations: approvedExpectations(change),
+      }, context) as string)
+      expect(output).toMatchObject({ status: "blocked", reason: "unsafe-change-path" })
+      expect(await fs.readdir(outside)).toEqual([])
+      expect(fsSync.existsSync(path.join(outside, "changes"))).toBe(false)
+    } finally {
+      await fs.rm(root, { recursive: true, force: true })
+      await fs.rm(outside, { recursive: true, force: true })
+    }
+  })
+
+  it("rejects a .odf symlink before the workflow lock emits external events", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "odf-lock-symlink-root-"))
+    const outside = await fs.mkdtemp(path.join(os.tmpdir(), "odf-lock-symlink-outside-"))
+    const change = "lock-escape"
+    const { bind, context } = authorizedWorkflowBind(change, root)
+    await fs.symlink(outside, path.join(root, ".odf"), "dir")
+    const events: string[] = []
+    const watcher = fsSync.watch(outside, (event, filename) => events.push(`${event}:${filename || ""}`))
+
+    try {
+      const output = JSON.parse(await bind.execute({
+        change_name: change,
+        work_type: "feature",
+        workspace_dir: root,
+        preflight: completePreflight(change),
+      }, context) as string)
+      await new Promise(resolve => setTimeout(resolve, 25))
+      expect(output).toMatchObject({ status: "blocked", reason: "workflow-lock-unsafe-path" })
+      expect(events).toEqual([])
+      expect(await fs.readdir(outside)).toEqual([])
+    } finally {
+      watcher.close()
+      await fs.rm(root, { recursive: true, force: true })
+      await fs.rm(outside, { recursive: true, force: true })
+    }
+  })
+
+  it("starts and retries Engram state plus Expectations without OpenSpec mixing or duplicate saves", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "odf-engram-start-"))
+    const fake = await configureFakeEngram()
+    const change = "engram-feature"
+    const args = {
+      change_name: change,
+      work_type: "feature" as const,
+      artifact_store: "engram" as const,
+      workspace_dir: root,
+      preflight: completePreflight(change, "engram"),
+      expectations: approvedExpectations(change),
+    }
+    const { bind, context } = authorizedWorkflowBind(change, root)
+
+    try {
+      const first = JSON.parse(await bind.execute(args, context) as string)
+      expect(first).toMatchObject({ status: "bound", state_action: "created", expectations_action: "persisted" })
+      let calls = JSON.parse(await fs.readFile(fake.logPath, "utf8")) as string[][]
+      expect(calls.filter(call => call[0] === "save").map(call => call[1])).toEqual([
+        `odf/${change}/state`,
+        `odf/${change}/expectations`,
+      ])
+      expect(fsSync.existsSync(path.join(root, "openspec"))).toBe(false)
+
+      const retry = JSON.parse(await bind.execute(args, context) as string)
+      expect(retry).toMatchObject({ status: "bound", state_action: "reused", expectations_action: "reused" })
+      calls = JSON.parse(await fs.readFile(fake.logPath, "utf8")) as string[][]
+      expect(calls.filter(call => call[0] === "save")).toHaveLength(2)
+
+      const status = JSON.parse(await createODFWorkflowStatus().execute({ change_name: change, workspace_dir: root }, {} as any) as string)
+      expect(status).toMatchObject({ status: "found", state_present: true, work_type: "feature", resumable: true })
+      expect(status.source.state).toBe("engram")
+    } finally {
+      await fake.cleanup()
+      await fs.rm(root, { recursive: true, force: true })
+    }
+  })
+
+  it("recovers identical Engram-only orphan Expectations and blocks divergent recovery", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "odf-engram-recovery-"))
+    const fake = await configureFakeEngram()
+    const change = "fecha-factura"
+    const expectations = approvedExpectations(change, "The invoice date is retained when the invoice is posted.")
+    await fake.setObservations([{
+      topic_key: `odf/${change}/expectations`,
+      content: JSON.stringify(expectations),
+      created_at: "2026-08-19T00:01:00.000Z",
+    }])
+    const { bind, context } = authorizedWorkflowBind(change, root)
+
+    try {
+      const divergent = JSON.parse(await bind.execute({
+        change_name: change,
+        work_type: "feature",
+        artifact_store: "engram",
+        workspace_dir: root,
+        preflight: completePreflight(change, "engram"),
+        expectations: approvedExpectations(change, "A different invoice date contract."),
+      }, context) as string)
+      expect(divergent).toMatchObject({ status: "blocked", reason: "expectations-conflict" })
+
+      const recoveryStart = authorizedWorkflowBind(change, root)
+      const recovered = JSON.parse(await recoveryStart.bind.execute({
+        change_name: change,
+        work_type: "feature",
+        artifact_store: "engram",
+        workspace_dir: root,
+        preflight: completePreflight(change, "engram"),
+        expectations,
+      }, recoveryStart.context) as string)
+      expect(recovered).toMatchObject({ status: "bound", state_action: "created", expectations_action: "reused" })
+      const calls = JSON.parse(await fs.readFile(fake.logPath, "utf8")) as string[][]
+      expect(calls.filter(call => call[0] === "save").map(call => call[1])).toEqual([`odf/${change}/state`])
+    } finally {
+      await fake.cleanup()
+      await fs.rm(root, { recursive: true, force: true })
+    }
+  })
+
+  it("keeps Engram state without orphan Expectations when the second save fails", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "odf-engram-expectations-failure-"))
+    const fake = await configureFakeEngram()
+    const change = "engram-partial"
+    fake.setFailureTopic(`odf/${change}/expectations`)
+    const expectations = approvedExpectations(change)
+    const args = {
+      change_name: change,
+      work_type: "feature" as const,
+      artifact_store: "engram" as const,
+      workspace_dir: root,
+      preflight: completePreflight(change, "engram"),
+      expectations,
+    }
+    const { bind, context } = authorizedWorkflowBind(change, root)
+
+    try {
+      const output = JSON.parse(await bind.execute(args, context) as string)
+      expect(output).toMatchObject({ status: "blocked", reason: "engram-save-failed" })
+      fake.setFailureTopic(null)
+      const partialStatus = JSON.parse(await createODFWorkflowStatus().execute({ change_name: change, workspace_dir: root }, {} as any) as string)
+      expect(partialStatus).toMatchObject({ status: "found", state_present: true, work_type: "feature" })
+      expect(partialStatus.artifacts.expectations).toBeUndefined()
+
+      const retry = JSON.parse(await bind.execute(args, context) as string)
+      expect(retry).toMatchObject({ status: "bound", state_action: "reused", expectations_action: "persisted" })
+      const calls = JSON.parse(await fs.readFile(fake.logPath, "utf8")) as string[][]
+      expect(calls.filter(call => call[0] === "save" && call[1] === `odf/${change}/state`)).toHaveLength(1)
+      const completeStatus = JSON.parse(await createODFWorkflowStatus().execute({ change_name: change, workspace_dir: root }, {} as any) as string)
+      expect(completeStatus).toMatchObject({ state_present: true, work_type: "feature", artifacts: { expectations: "done" } })
     } finally {
       await fake.cleanup()
       await fs.rm(root, { recursive: true, force: true })
@@ -788,23 +1273,29 @@ describe("getProfileByPhase", () => {
 describe("findTaskApi", () => {
   it("prefers toolCtx.task", () => {
     const taskFn = vi.fn()
+    const session = { create: vi.fn(), prompt: vi.fn(), abort: vi.fn() }
     const toolCtx = { task: taskFn, sessionID: "s1" } as any
-    const api = findTaskApi(toolCtx, undefined)
+    const api = findTaskApi(toolCtx, { session } as any)
     expect(api?.source).toBe("toolCtx.task")
     expect(api?.taskApi).toBe(taskFn)
   })
 
-  it("falls back to client.task", () => {
-    const taskFn = vi.fn()
-    const client = { task: taskFn } as any
-    const api = findTaskApi({ sessionID: "s1" } as any, client)
-    expect(api?.source).toBe("ctx.task")
-    expect(api?.taskApi).toBe(taskFn)
+  it("detects sdk.session without toolCtx.task or client.task", () => {
+    const client = {
+      task: vi.fn(),
+      session: { create: vi.fn(), prompt: vi.fn(), abort: vi.fn() },
+    } as any
+    const api = findTaskApi({ sessionID: "s1", directory: "/workspace" } as any, client)
+    expect(api?.source).toBe("sdk.session")
+    expect(api?.taskApi).not.toBe(client.task)
   })
 
   it("returns null when no task API is available", () => {
     expect(findTaskApi({ sessionID: "s1" } as any, undefined)).toBeNull()
     expect(findTaskApi({ sessionID: "s1" } as any, {} as any)).toBeNull()
+    expect(findTaskApi({ sessionID: "s1" } as any, {
+      session: { create: vi.fn(), prompt: vi.fn() },
+    } as any)).toBeNull()
   })
 })
 
@@ -1596,6 +2087,127 @@ ${overrides}`
     expect(metrics[0].phase).toBe("ASSESS")
     expect(metrics[0].agent).toBe("odoo_functional_consultant")
     expect(metrics[0].task_api_source).toBe("toolCtx.task")
+  })
+
+  it("delegates through an isolated SDK child session and propagates the ODF result", async () => {
+    const { createODFDelegate } = await import("./odf-delegation.js")
+    const session = {
+      create: vi.fn().mockResolvedValue(sdkCreateResult("child-1")),
+      prompt: vi.fn().mockResolvedValue(sdkPromptResult({ status: "ok", executive_summary: "assessed" })),
+      abort: vi.fn().mockResolvedValue(true),
+    }
+    const delegateTool = createODFDelegate({ session } as any, tempHome)
+    const output = await delegateTool.execute(
+      { phase: "ASSESS", prompt: "Assess a sales feature", context_files: ["models/sale.py"] },
+      { sessionID: "parent-1", directory: tempHome, abort: new AbortController().signal } as any,
+    )
+
+    const envelope = JSON.parse(output as string)
+    expect(envelope).toMatchObject({
+      status: "delegated",
+      task_api_source: "sdk.session",
+      result: { status: "ok", executive_summary: "assessed" },
+    })
+    expect(session.create).toHaveBeenCalledWith({
+      body: { parentID: "parent-1", title: "ODF delegation: odoo_functional_consultant" },
+      query: { directory: tempHome },
+    })
+    expect(session.prompt).toHaveBeenCalledWith({
+      path: { id: "child-1" },
+      query: { directory: tempHome },
+      body: {
+        agent: "odoo_functional_consultant",
+        parts: [{ type: "text", text: expect.stringContaining(path.join(tempHome, "models/sale.py")) }],
+      },
+    })
+    expect(session.prompt.mock.calls[0][0].body).not.toHaveProperty("context_files")
+  })
+
+  it.each([
+    ["empty", { data: { info: { role: "assistant" }, parts: [] }, request: {}, response: {} }, "blocked", "empty-task-result"],
+    ["cancelled", { data: { info: { error: { name: "MessageAbortedError", data: { message: "cancelled" } } }, parts: [] }, request: {}, response: {} }, "blocked", "task-cancelled"],
+    ["error", { data: { info: { error: { name: "UnknownError", data: { message: "provider failed" } } }, parts: [] }, request: {}, response: {} }, "error", "session-prompt-error"],
+    ["api-error", { error: { name: "UnknownError", data: { message: "provider failed" } }, request: {}, response: {} }, "error", "session-prompt-error"],
+  ])("blocks unusable SDK result: %s", async (_label, response, status, reason) => {
+    const { createODFDelegate } = await import("./odf-delegation.js")
+    const session = {
+      create: vi.fn().mockResolvedValue(sdkCreateResult("child-result")),
+      prompt: vi.fn().mockResolvedValue(response),
+      abort: vi.fn().mockResolvedValue(true),
+    }
+    const output = await createODFDelegate({ session } as any, tempHome).execute(
+      { phase: "ASSESS", prompt: "Assess a sales feature", context_files: [] },
+      { sessionID: "parent-result", directory: tempHome, abort: new AbortController().signal } as any,
+    )
+
+    const envelope = JSON.parse(output as string)
+    expect(envelope.status).toBe(status)
+    expect(envelope.message).toContain(reason)
+    if (status === "blocked") expect(session.abort).toHaveBeenCalledTimes(1 - Number(_label === "empty"))
+  })
+
+  it("aborts the child session on timeout", async () => {
+    const { createODFDelegate } = await import("./odf-delegation.js")
+    const session = {
+      create: vi.fn().mockResolvedValue(sdkCreateResult("child-timeout")),
+      prompt: vi.fn().mockReturnValue(new Promise(() => {})),
+      abort: vi.fn().mockResolvedValue(true),
+    }
+    const output = await createODFDelegate({ session } as any, tempHome).execute(
+      { phase: "ASSESS", prompt: "Assess a sales feature", context_files: [], timeout_ms: 10 },
+      { sessionID: "parent-timeout", directory: tempHome, abort: new AbortController().signal } as any,
+    )
+
+    expect(JSON.parse(output as string)).toMatchObject({ status: "timeout" })
+    expect(session.abort).toHaveBeenCalledWith({ path: { id: "child-timeout" }, query: { directory: tempHome } })
+  })
+
+  it("aborts the child session when the tool is cancelled", async () => {
+    const { createODFDelegate } = await import("./odf-delegation.js")
+    const controller = new AbortController()
+    const session = {
+      create: vi.fn().mockResolvedValue(sdkCreateResult("child-cancelled")),
+      prompt: vi.fn().mockReturnValue(new Promise(() => {})),
+      abort: vi.fn().mockResolvedValue(true),
+    }
+    const pending = createODFDelegate({ session } as any, tempHome).execute(
+      { phase: "ASSESS", prompt: "Assess a sales feature", context_files: [] },
+      { sessionID: "parent-cancelled", directory: tempHome, abort: controller.signal } as any,
+    )
+    await new Promise(resolve => setTimeout(resolve, 0))
+    controller.abort()
+    const envelope = JSON.parse(await pending as string)
+
+    expect(envelope).toMatchObject({ status: "blocked", reason: "task-cancelled" })
+    expect(session.abort).toHaveBeenCalledWith({ path: { id: "child-cancelled" }, query: { directory: tempHome } })
+  })
+
+  it("keeps concurrent SDK child sessions isolated", async () => {
+    const { createODFDelegate } = await import("./odf-delegation.js")
+    const session = {
+      create: vi.fn()
+        .mockResolvedValueOnce(sdkCreateResult("child-a"))
+        .mockResolvedValueOnce(sdkCreateResult("child-b")),
+      prompt: vi.fn().mockImplementation(({ path: promptPath }: { path: { id: string } }) =>
+        Promise.resolve(sdkPromptResult({ status: "ok", executive_summary: promptPath.id }))),
+      abort: vi.fn().mockResolvedValue(true),
+    }
+    const delegateTool = createODFDelegate({ session } as any, tempHome)
+    const [first, second] = await Promise.all([
+      delegateTool.execute(
+        { phase: "ASSESS", prompt: "Assess one", context_files: [] },
+        { sessionID: "parent-a", directory: tempHome, abort: new AbortController().signal } as any,
+      ),
+      delegateTool.execute(
+        { phase: "ASSESS", prompt: "Assess two", context_files: [] },
+        { sessionID: "parent-b", directory: tempHome, abort: new AbortController().signal } as any,
+      ),
+    ])
+
+    expect(JSON.parse(first as string).result.executive_summary).toBe("child-a")
+    expect(JSON.parse(second as string).result.executive_summary).toBe("child-b")
+    expect(session.create.mock.calls.map(call => call[0].body.parentID)).toEqual(["parent-a", "parent-b"])
+    expect(session.prompt.mock.calls.map(call => call[0].path.id)).toEqual(["child-a", "child-b"])
   })
 
   it("allows IMPLEMENT when PLAN advances to BUILD", async () => {
@@ -3405,10 +4017,9 @@ ${overrides}`
     expect(resolveWorkspaceRoot(path.join(process.cwd(), "plugins"))).toBe(process.cwd())
   })
 
-  it("falls back when client.task is provided but toolCtx.task is not", async () => {
+  it("does not invent a runtime client.task fallback", async () => {
     const { createODFDelegate } = await import("./odf-delegation.js")
-     const taskResult = { status: "ok", design_closed: true, executive_summary: "designed" }
-    const taskApi = vi.fn().mockResolvedValue(taskResult)
+    const taskApi = vi.fn()
     const client = { task: taskApi } as any
     const toolCtx = { sessionID: "s1" } as any
 
@@ -3419,8 +4030,10 @@ ${overrides}`
     )
 
     const envelope = JSON.parse(output as string)
-    expect(envelope.status).toBe("delegated")
-    expect(envelope.task_api_source).toBe("ctx.task")
+    expect(envelope.status).toBe("blocked")
+    expect(envelope.reason).toBe("task-api-unavailable")
+    expect(envelope.task_api_source).toBe("unavailable")
+    expect(taskApi).not.toHaveBeenCalled()
   })
 
   it("uses an explicit workspace directory for policy and evidence lookup", async () => {
@@ -4698,8 +5311,8 @@ describe("odf_health", () => {
     readVersion: () => "",
   })
 
-  const runHealth = async (toolCtx: Record<string, unknown>, io = noEngramIo()) => {
-    const output = await createODFHealth(undefined, io).execute({}, toolCtx as any)
+  const runHealth = async (toolCtx: Record<string, unknown>, io = noEngramIo(), client?: unknown) => {
+    const output = await createODFHealth(client as any, io).execute({}, toolCtx as any)
     return JSON.parse(output as string)
   }
 
@@ -4752,6 +5365,22 @@ describe("odf_health", () => {
     expect(result.warnings).toEqual(expect.arrayContaining(["task-api-unverified: task usability was not probed because probing executes a task", "engram-cli-unavailable"]))
     expect(taskApi).not.toHaveBeenCalled()
     expect(Number.isNaN(Date.parse(result.checked_at))).toBe(false)
+  })
+
+  it("detects sdk.session without toolCtx.task", async () => {
+    const client = {
+      session: { create: vi.fn(), prompt: vi.fn(), abort: vi.fn() },
+    }
+    const result = await runHealth({ sessionID: "parent", directory: configDir }, noEngramIo(), client)
+
+    expect(result.task_api).toMatchObject({
+      source: "sdk.session",
+      function_present: true,
+      usability: "unverified",
+      probe: "not-run",
+    })
+    expect(result.status).toBe("warning")
+    expect(result.warnings).toContain("task-api-unverified: task usability was not probed because probing executes a task")
   })
 
   it("fails for a malformed registry", async () => {
@@ -4822,16 +5451,26 @@ describe("odf_health", () => {
 describe("stable discovery runtime guard", () => {
   const readTool = "engram_mem_context"
 
-  function setup() {
+  function setup(workspaceDir = process.cwd()) {
     const abort = vi.fn().mockResolvedValue({ data: true })
-    const hooks = createStableDiscoveryGuard({ session: { abort } } as any)
-    const activate = async (sessionID: string, messageID: string, agent = "odoo_orchestrator") => {
+    const authorizations = new Map()
+    const generations = new Map()
+    const hooks = createStableDiscoveryGuard({ session: { abort } } as any, authorizations, generations, workspaceDir)
+    const activate = async (sessionID: string, messageID: string, agent = "odoo_orchestrator", text = "continue") => {
       await hooks["chat.message"]?.(
         { sessionID, messageID, agent },
         {
           message: { id: messageID, sessionID, agent } as any,
-          parts: [{ type: "text", text: "continue" } as any],
+          parts: [{ type: "text", text } as any],
         },
+      )
+    }
+    const activateCommand = async (sessionID: string, messageID: string, command: string, args: string, text: string) => {
+      const parts = [{ type: "text", text } as any]
+      await hooks["command.execute.before"]?.({ command, sessionID, arguments: args }, { parts })
+      await hooks["chat.message"]?.(
+        { sessionID, messageID, agent: "odoo_orchestrator" },
+        { message: { id: messageID, sessionID, agent: "odoo_orchestrator" } as any, parts },
       )
     }
     const before = (sessionID: string, callID: string, args: unknown, tool = readTool) =>
@@ -4841,7 +5480,7 @@ describe("stable discovery runtime guard", () => {
       await hooks["tool.execute.after"]?.({ tool, sessionID, callID, args }, output)
       return output
     }
-    return { abort, hooks, activate, before, after }
+    return { abort, authorizations, generations, hooks, activate, activateCommand, before, after }
   }
 
   it("allows the initial read and stops after the first stable repetition", async () => {
@@ -4856,6 +5495,266 @@ describe("stable discovery runtime guard", () => {
     expect(stopped.output).toContain("stable discovery call returned the same result twice")
     expect(abort).toHaveBeenCalledWith({ path: { id: "s1" } })
     await expect(before("s1", "c3", { project: "odf-agent-team", scope: "project" })).rejects.toThrow("runtime loop guard stopped")
+  })
+
+  it("blocks every gated /odf-new operation before health", async () => {
+    for (const tool of ["odf_workflow_status", "question", "engram_mem_save", "odf_workflow_bind", "odf_delegate"]) {
+      const { abort, activateCommand, before } = setup()
+      await activateCommand("s1", `m-${tool}`, "odf-new", "health-gated", "expanded odf-new command")
+      await expect(before("s1", `c-${tool}`, {}, tool)).rejects.toThrow("requires a successful odf_health call")
+      expect(abort).toHaveBeenCalledWith({ path: { id: "s1" } })
+    }
+  })
+
+  it("allows only conservatively classified read-only Engram operations before health", async () => {
+    const allowed: Array<[string, Record<string, unknown>]> = [
+      ["engram_mem_context", { project: "odf-agent-team" }],
+      ["engram_mem_search", { query: "state" }],
+      ["engram_mem_get_observation", { id: 1 }],
+      ["engram_mem_current_project", {}],
+      ["engram_mem_doctor", {}],
+      ["engram_mem_review", { action: "list" }],
+    ]
+    for (const [tool, args] of allowed) {
+      const { activateCommand, before } = setup()
+      await activateCommand("s1", `m-${tool}`, "odf-new", "read-only", "expanded odf-new command")
+      await expect(before("s1", `c-${tool}`, args, tool)).resolves.toBeUndefined()
+    }
+  })
+
+  it("blocks mutating and unknown Engram operations before health", async () => {
+    const blocked: Array<[string, Record<string, unknown>]> = [
+      ["engram_mem_capture_passive", { content: "candidate" }],
+      ["engram_mem_review", { action: "mark_reviewed", observation_id: 1 }],
+      ["engram_mem_pin", { id: 1 }],
+      ["engram_mem_unpin", { id: 1 }],
+      ["engram_mem_future_unknown", {}],
+    ]
+    for (const [tool, args] of blocked) {
+      const { abort, activateCommand, before } = setup()
+      await activateCommand("s1", `m-${tool}`, "odf-new", "mutating", "expanded odf-new command")
+      await expect(before("s1", `c-${tool}`, args, tool)).rejects.toThrow("requires a successful odf_health call")
+      expect(abort).toHaveBeenCalledTimes(1)
+    }
+  })
+
+  it("keeps /odf-new blocked after failed or malformed health", async () => {
+    for (const result of [JSON.stringify({ status: "blocked" }), JSON.stringify({ status: "warning" }), "not-json"]) {
+      const { abort, activateCommand, before, after } = setup()
+      await activateCommand("s1", `m-${result}`, "odf-new", "failed-health", "expanded odf-new command")
+      await before("s1", "health", {}, "odf_health")
+      await after("s1", "health", {}, result, "odf_health")
+      await expect(before("s1", "question", {}, "question")).rejects.toThrow("requires a successful odf_health call")
+      expect(abort).toHaveBeenCalledTimes(1)
+    }
+  })
+
+  it("allows /odf-new questions and binding only after warning health", async () => {
+    const { abort, authorizations, activateCommand, before, after } = setup()
+    await activateCommand("s1", "m-health", "odf-new", "healthy", "expanded odf-new command")
+    await before("s1", "health", {}, "odf_health")
+    await after("s1", "health", {}, successfulHealthOutput(), "odf_health")
+    await expect(before("s1", "question", {}, "question")).resolves.toBeUndefined()
+    await expect(before("s1", "bind", {}, "odf_workflow_bind")).resolves.toBeUndefined()
+    expect(authorizations.get("s1")).toMatchObject({
+      sessionID: "s1",
+      messageID: "m-health",
+      generation: 1,
+      changeName: "healthy",
+      workspaceRoot: fsSync.realpathSync(process.cwd()),
+      claimed: false,
+    })
+    expect(authorizations.get("s1")?.nonce).toMatch(/^[0-9a-f-]{36}$/)
+    expect(abort).not.toHaveBeenCalled()
+  })
+
+  it("revokes start authorization on a new user intent or session idle", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "odf-runtime-start-auth-"))
+    const { authorizations, generations, hooks, activate, activateCommand, before, after } = setup(root)
+    await activateCommand("s1", "m-start", "odf-new", "authorized-start", "expanded odf-new command")
+    await before("s1", "health", {}, "odf_health")
+    await after("s1", "health", {}, successfulHealthOutput(), "odf_health")
+    expect(authorizations.has("s1")).toBe(true)
+    await activate("s1", "m-followup", "odoo_orchestrator", "different user intent")
+    expect(authorizations.has("s1")).toBe(false)
+    const bind = createODFWorkflowBind(authorizations, generations)
+
+    try {
+      const blocked = JSON.parse(await bind.execute({
+        change_name: "authorized-start",
+        work_type: "feature",
+        artifact_store: "openspec",
+        workspace_dir: root,
+        preflight: completePreflight("authorized-start"),
+      }, { sessionID: "s1", messageID: "m-followup" } as any) as string)
+      expect(blocked).toMatchObject({ status: "blocked", reason: "workflow-start-unauthorized" })
+
+      await activateCommand("s1", "m-retry", "odf-new", "authorized-start", "expanded retry command")
+      await before("s1", "retry-health", {}, "odf_health")
+      await after("s1", "retry-health", {}, successfulHealthOutput(), "odf_health")
+      expect(authorizations.has("s1")).toBe(true)
+      await hooks.event?.({ event: { type: "session.idle", properties: { sessionID: "s1" } } as any })
+      expect(authorizations.has("s1")).toBe(false)
+      expect(generations.has("s1")).toBe(false)
+    } finally {
+      await fs.rm(root, { recursive: true, force: true })
+    }
+  })
+
+  it("does not let stale health completion reauthorize a superseded command", async () => {
+    const { authorizations, activateCommand, before, after } = setup()
+    await activateCommand("s1", "m-start", "odf-new", "stale-health", "expanded odf-new command")
+    await before("s1", "health", {}, "odf_health")
+    await activateCommand("s1", "m-continue", "odf-continue", "stale-health --work-type feature", "expanded continue command")
+    await after("s1", "health", {}, successfulHealthOutput(), "odf_health")
+    expect(authorizations.has("s1")).toBe(false)
+  })
+
+  it("claims one capability synchronously across concurrent and cross-workspace starts", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "odf-concurrent-start-"))
+    const otherRoot = await fs.mkdtemp(path.join(os.tmpdir(), "odf-cross-workspace-start-"))
+    const runtime = setup(root)
+    const authorize = async (messageID: string, change: string) => {
+      await runtime.activateCommand("s1", messageID, "odf-new", change, `expanded ${change}`)
+      await runtime.before("s1", `health-${messageID}`, {}, "odf_health")
+      await runtime.after("s1", `health-${messageID}`, {}, successfulHealthOutput(), "odf_health")
+    }
+
+    try {
+      await authorize("m-concurrent", "concurrent-start")
+      const bind = createODFWorkflowBind(runtime.authorizations, runtime.generations)
+      const args = {
+        change_name: "concurrent-start",
+        work_type: "feature" as const,
+        workspace_dir: root,
+        preflight: completePreflight("concurrent-start"),
+      }
+      const concurrent = await Promise.all([
+        bind.execute(args, { sessionID: "s1", messageID: "m-concurrent" } as any),
+        bind.execute(args, { sessionID: "s1", messageID: "m-concurrent" } as any),
+      ])
+      expect(concurrent.map(result => JSON.parse(result as string).status).sort()).toEqual(["blocked", "bound"])
+      expect(concurrent.map(result => JSON.parse(result as string).state_action).filter(Boolean)).toEqual(["created"])
+
+      await authorize("m-cross", "cross-start")
+      const crossBind = createODFWorkflowBind(runtime.authorizations, runtime.generations)
+      const [created, blocked] = await Promise.all([
+        crossBind.execute({ ...args, change_name: "cross-start", preflight: completePreflight("cross-start") }, { sessionID: "s1", messageID: "m-cross" } as any),
+        crossBind.execute({ ...args, change_name: "cross-start", workspace_dir: otherRoot, preflight: completePreflight("cross-start") }, { sessionID: "s1", messageID: "m-cross" } as any),
+      ])
+      expect(JSON.parse(created as string)).toMatchObject({ status: "bound", state_action: "created" })
+      expect(JSON.parse(blocked as string)).toMatchObject({ status: "blocked", reason: "workflow-start-unauthorized" })
+      expect(await fs.readdir(otherRoot)).toEqual([])
+    } finally {
+      await fs.rm(root, { recursive: true, force: true })
+      await fs.rm(otherRoot, { recursive: true, force: true })
+    }
+  })
+
+  it("matches capability message, generation, canonical change, and workspace", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "odf-capability-scope-"))
+    const otherRoot = await fs.mkdtemp(path.join(os.tmpdir(), "odf-capability-other-"))
+    const cases = [
+      { messageID: "wrong-message", change: "scoped-start", workspace: root, mutateGeneration: false },
+      { messageID: "m-scope", change: "wrong-change", workspace: root, mutateGeneration: false },
+      { messageID: "m-scope", change: "scoped-start", workspace: otherRoot, mutateGeneration: false },
+      { messageID: "m-scope", change: "scoped-start", workspace: root, mutateGeneration: true },
+    ]
+
+    try {
+      for (const [index, testCase] of cases.entries()) {
+        const runtime = setup(root)
+        await runtime.activateCommand("s1", "m-scope", "odf-new", "Scoped-Start", "expanded scoped start")
+        await runtime.before("s1", `health-${index}`, {}, "odf_health")
+        await runtime.after("s1", `health-${index}`, {}, successfulHealthOutput(), "odf_health")
+        if (testCase.mutateGeneration) runtime.generations.set("s1", runtime.generations.get("s1") + 1)
+        const output = JSON.parse(await createODFWorkflowBind(runtime.authorizations, runtime.generations).execute({
+          change_name: testCase.change,
+          work_type: "feature",
+          workspace_dir: testCase.workspace,
+          preflight: completePreflight(testCase.change),
+        }, { sessionID: "s1", messageID: testCase.messageID } as any) as string)
+        expect(output).toMatchObject({ status: "blocked", reason: "workflow-start-unauthorized" })
+      }
+
+      const runtime = setup(root)
+      await runtime.activateCommand("mixed", "m-mixed", "odf-new", "Mixed-CASE", "expanded mixed case")
+      await runtime.before("mixed", "health-mixed", {}, "odf_health")
+      await runtime.after("mixed", "health-mixed", {}, successfulHealthOutput(), "odf_health")
+      const normalized = JSON.parse(await createODFWorkflowBind(runtime.authorizations, runtime.generations).execute({
+        change_name: "Mixed-CASE",
+        work_type: "feature",
+        workspace_dir: root,
+        preflight: completePreflight("Mixed-CASE"),
+      }, { sessionID: "mixed", messageID: "m-mixed" } as any) as string)
+      expect(normalized).toMatchObject({ status: "bound", change_name: "mixed-case", state_action: "created" })
+    } finally {
+      await fs.rm(root, { recursive: true, force: true })
+      await fs.rm(otherRoot, { recursive: true, force: true })
+    }
+  })
+
+  it("bounds pending commands and capabilities and cleans session state", async () => {
+    const pendingRuntime = setup()
+    for (let index = 0; index <= 128; index++) {
+      await pendingRuntime.hooks["command.execute.before"]?.(
+        { command: "odf-new", sessionID: `pending-${index}`, arguments: `change-${index}` },
+        { parts: [{ type: "text", text: `expanded-${index}` } as any] },
+      )
+    }
+    await pendingRuntime.activate("pending-0", "m-evicted", "odoo_orchestrator", "expanded-0")
+    await expect(pendingRuntime.before("pending-0", "read", {}, "odf_workflow_status")).resolves.toBeUndefined()
+
+    const runtime = setup()
+    for (let index = 0; index <= 128; index++) {
+      const sessionID = `session-${index}`
+      await runtime.activateCommand(sessionID, `m-${index}`, "odf-new", `change-${index}`, `expanded-${index}`)
+      await runtime.before(sessionID, `health-${index}`, {}, "odf_health")
+      await runtime.after(sessionID, `health-${index}`, {}, successfulHealthOutput(), "odf_health")
+    }
+    expect(runtime.authorizations.size).toBe(128)
+    expect(runtime.generations.size).toBe(128)
+    await runtime.hooks.event?.({ event: { type: "session.idle", properties: { sessionID: "session-128" } } as any })
+    expect(runtime.authorizations.has("session-128")).toBe(false)
+    expect(runtime.generations.has("session-128")).toBe(false)
+  })
+
+  it("does not activate health or start authorization from mentions, expanded mismatches, or /odf-continue", async () => {
+    const conversational = setup()
+    await conversational.activate("mentions", "m1", "odoo_orchestrator", "Please explain /odf-new demo")
+    await expect(conversational.before("mentions", "c1", {}, "odf_workflow_status")).resolves.toBeUndefined()
+    expect(conversational.authorizations.size).toBe(0)
+
+    const continuation = setup()
+    await continuation.activateCommand("continue", "m2", "odf-continue", "legacy --work-type feature", "expanded continue command")
+    await expect(continuation.before("continue", "c2", {}, "odf_workflow_status")).resolves.toBeUndefined()
+    expect(continuation.authorizations.size).toBe(0)
+
+    const mismatched = setup()
+    const commandParts = [{ type: "text", text: "expected expanded command" } as any]
+    await mismatched.hooks["command.execute.before"]?.({ command: "odf-new", sessionID: "mismatch", arguments: "demo" }, { parts: commandParts })
+    await mismatched.activate("mismatch", "m3", "odoo_orchestrator", "different expanded command")
+    await expect(mismatched.before("mismatch", "c3", {}, "odf_workflow_status")).resolves.toBeUndefined()
+    expect(mismatched.authorizations.size).toBe(0)
+
+    const unsafe = setup()
+    await unsafe.activateCommand("unsafe", "m4", "odf-new", "../Unsafe", "expanded unsafe command")
+    await expect(unsafe.before("unsafe", "c4", {}, "odf_workflow_status")).resolves.toBeUndefined()
+    expect(unsafe.authorizations.size).toBe(0)
+  })
+
+  it("keeps command contracts health-first while preserving explicit legacy recovery", async () => {
+    const root = process.cwd()
+    const command = await fs.readFile(path.join(root, "command", "odf-new.md"), "utf8")
+    const orchestrator = await fs.readFile(path.join(root, "agent", "odoo_orchestrator.md"), "utf8")
+    const continuation = await fs.readFile(path.join(root, "command", "odf-continue.md"), "utf8")
+    expect(command).toMatch(/1\. \*\*Run `odf_health` first\*\*/)
+    expect(command.indexOf("Run `odf_health` first")).toBeLessThan(command.indexOf("`question`"))
+    expect(orchestrator).toContain("A missing tool, thrown/malformed result, `failed`, or `blocked` result stops the command immediately")
+    expect(continuation).toContain("`expectations-only` bloquea")
+    expect(continuation).toContain("`legacy-artifacts` conserva `resumable: true`")
+    expect(continuation).toContain("exige `--work-type <type>`")
+    expect(continuation).toContain("nunca crea workflows")
   })
 
   it("resets when arguments change", async () => {

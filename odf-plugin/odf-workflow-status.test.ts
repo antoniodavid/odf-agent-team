@@ -42,6 +42,18 @@ async function writeOpenSpec(
   }
 }
 
+function expectationsContent(change: string): string {
+  return JSON.stringify({
+    change,
+    intent: "Retain the approved behavior",
+    expectations: [{ id: "EXP-01", statement: "The approved behavior remains observable.", testable: true, owned_by: "human" }],
+    approved: true,
+    approved_by: "user",
+    approved_at: "2026-08-19T00:00:00.000Z",
+    immutable_since: "2026-08-19T00:00:00.000Z",
+  })
+}
+
 function parallelJoin(change: string, status: "complete" | "blocked" = "complete"): Record<string, unknown> {
   const branches = ["backend", "frontend"].map((branch, index) => ({
     branch_id: branch,
@@ -128,6 +140,9 @@ describe("workflow status adapter", () => {
       legacy_phase: "PROPOSE",
       completed_canonical_stages: [],
       pending_stage: "DECIDE",
+      state_present: false,
+      state_kind: "legacy-artifacts",
+      recovery_work_type_required: true,
       resumable: true,
     })
 
@@ -145,6 +160,44 @@ describe("workflow status adapter", () => {
     expect(complete.canonical_stage).toBe("VERIFY")
     expect(complete.pending_stage).toBeNull()
     expect(complete.legacy_phase).toBe("VERIFY")
+  })
+
+  it("does not invent resumable state for empty or QA-only evidence", () => {
+    for (const status of [
+      deriveWorkflowStatus({ change: "empty" }),
+      deriveWorkflowStatus({ change: "qa-only", artifacts: { "qa-plan": "test plan" } }),
+    ]) {
+      expect(status).toMatchObject({
+        canonical_stage: "INIT",
+        legacy_phase: null,
+        pending_stage: null,
+        state_present: false,
+        state_kind: "none",
+        recovery_work_type_required: false,
+        resumable: false,
+      })
+    }
+  })
+
+  it("reports Expectations-only evidence without inventing workflow state or a route", () => {
+    const status = deriveWorkflowStatus({
+      change: "expectations-only",
+      artifacts: [{ key: "odf/expectations-only/expectations", content: expectationsContent("expectations-only") }],
+      source: { state: "none", artifacts: ["odf/expectations-only/expectations"] },
+    })
+    expect(status).toMatchObject({
+      canonical_stage: "INIT",
+      legacy_phase: null,
+      completed_canonical_stages: [],
+      pending_stage: null,
+      state_present: false,
+      state_kind: "expectations-only",
+      recovery_work_type_required: false,
+      resumable: false,
+      work_type: null,
+      source: { state: "none" },
+    })
+    expect(status.warnings).toContain("Workflow state is missing; Expectations alone are not resumable.")
   })
 
   it("lets canonical artifacts win over legacy aliases", () => {
@@ -402,6 +455,61 @@ describe("workflow status adapter", () => {
 })
 
 describe("odf_workflow_status tool", () => {
+  it("finds Engram Expectations-only evidence but marks state missing and non-resumable", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "odf-engram-expectations-only-"))
+    const cleanup = await configureEngramExport([{
+      topic_key: "odf/fecha-factura/expectations",
+      content: expectationsContent("fecha-factura"),
+      created_at: "2026-08-19T00:00:00.000Z",
+    }])
+
+    try {
+      const result = JSON.parse(await createODFWorkflowStatus().execute({ change_name: "fecha-factura", workspace_dir: root }, {} as any) as string)
+      expect(result).toMatchObject({
+        status: "found",
+        canonical_stage: "INIT",
+        legacy_phase: null,
+        pending_stage: null,
+        state_present: false,
+        state_kind: "expectations-only",
+        recovery_work_type_required: false,
+        resumable: false,
+        work_type: null,
+        source: { state: "none" },
+        artifacts: { expectations: "done" },
+      })
+    } finally {
+      await cleanup()
+      await fs.rm(root, { recursive: true, force: true })
+    }
+  })
+
+  it("finds OpenSpec Expectations-only evidence without fabricating state", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "odf-openspec-expectations-only-"))
+    const cleanup = await configureEngramExport([])
+    const changeDir = path.join(root, "openspec", "changes", "expectations-only")
+    await fs.mkdir(changeDir, { recursive: true })
+    await fs.writeFile(path.join(changeDir, "expectations.yaml"), expectationsContent("expectations-only"), "utf8")
+
+    try {
+      const result = JSON.parse(await createODFWorkflowStatus().execute({ change_name: "expectations-only", workspace_dir: root }, {} as any) as string)
+      expect(result).toMatchObject({
+        status: "found",
+        canonical_stage: "INIT",
+        state_present: false,
+        state_kind: "expectations-only",
+        recovery_work_type_required: false,
+        resumable: false,
+        work_type: null,
+        source: { state: "none" },
+        artifacts: { expectations: "done" },
+      })
+    } finally {
+      await cleanup()
+      await fs.rm(root, { recursive: true, force: true })
+    }
+  })
+
   it("reads OpenSpec state and artifacts as the primary source", async () => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), "odf-openspec-tool-"))
     const cleanup = await configureEngramExport([])
@@ -414,6 +522,8 @@ describe("odf_workflow_status tool", () => {
       const output = await createODFWorkflowStatus().execute({ change_name: "openspec-change", workspace_dir: root }, {} as any)
       const result = JSON.parse(output as string)
       expect(result.source.state).toBe("openspec")
+      expect(result.state_kind).toBe("canonical")
+      expect(result.recovery_work_type_required).toBe(false)
       expect(result.canonical_stage).toBe("PLAN")
       expect(result.pending_stage).toBe("PLAN")
       expect(result.artifact_refs.PLAN).toEqual([expect.stringContaining("openspec/changes/openspec-change/plan.yaml")])
@@ -533,6 +643,9 @@ describe("odf_workflow_status tool", () => {
       const result = JSON.parse(output as string)
       expect(result.canonical_stage).toBe("BUILD")
       expect(result.pending_stage).toBe("BUILD")
+      expect(result.state_kind).toBe("legacy-artifacts")
+      expect(result.recovery_work_type_required).toBe(true)
+      expect(result.resumable).toBe(true)
       expect(result.phase).toBe("implement")
       expect(result.applyProgress).toEqual({ completed: 1, total: 2 })
       expect(result.artifacts["implement-progress"]).toBe("done")

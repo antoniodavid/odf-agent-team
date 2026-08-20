@@ -302,9 +302,9 @@ function runOrchestratorSuite(suite) {
   for (const tc of (suite.tests || [])) {
     console.log(`\n  Test: "${tc.name}"`);
 
-    if (tc.input.prompt_contract_only) {
+    if (tc.input.prompt_contract_only || tc.input.health_gate_contract_only) {
       const prompt = fs.readFileSync(path.join(__dirname, '..', 'agent', `${suite.agent}.md`), 'utf8');
-      const marker = '### Continuation Intent';
+      const marker = tc.input.health_gate_contract_only ? '### ODF Entry Health Gate' : '### Continuation Intent';
       const start = prompt.indexOf(marker);
       const end = start >= 0 ? prompt.indexOf('\n### ', start + marker.length) : -1;
       const section = start >= 0 ? prompt.slice(start, end >= 0 ? end : undefined).trim() : '';

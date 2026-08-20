@@ -152,6 +152,17 @@ tests:
     expected:
       resume_change: "alpha"
 
+  - name: "odf-new health is first and failed health has no later side effects"
+    input:
+      health_gate_contract_only: true
+    expected:
+      prompt_section: |
+        ### ODF Entry Health Gate
+
+        - For every exact `/odf-new ...` invocation, `odf_health` MUST be the first ODF operation. Call it before `question`, Engram writes, artifact/state creation, route/triage/status tools, or delegation.
+        - Continue only when `odf_health` returns `status: warning` with the required static/runtime checks present, or a future `status: ok`. A missing tool, thrown/malformed result, `failed`, or `blocked` result stops the command immediately with no subsequent question, write, artifact creation, or delegation.
+        - Never simulate health from file reads and never bypass this gate because project configuration or prior session health exists. The runtime hook also enforces this order for `/odf-new` sessions.
+
   - name: "prompt-only continuation contract (not a routing or turn replay)"
     input:
       prompt_contract_only: true

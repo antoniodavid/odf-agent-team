@@ -49,6 +49,7 @@ import {
 import { buildCandidateManifest, computeCandidateDigest, extractChangedPaths } from "../odf-plugin/candidate-manifest.js"
 import { classifyEntryTriage, type EntryTriageInput } from "../odf-plugin/entry-triage.js"
 import { validateExpectations, validDate } from "../odf-plugin/odf-expectations.js"
+import { sanitizeChangeName, validatePreflight, type PreflightRecord } from "../scripts/lib/preflight.js"
 import { inspectToolArgs } from "../scripts/odf-safety.js"
 
 export type OpencodeClient = ReturnType<typeof createOpencodeClient>
@@ -95,6 +96,10 @@ function resolveWorkspaceRoot(cwd = process.cwd()): string {
     // Fall back for non-Git workspaces.
   }
   return path.normalize(path.resolve(cwd))
+}
+
+function canonicalWorkspaceRoot(cwd = process.cwd()): string {
+  return fsSync.realpathSync(resolveWorkspaceRoot(cwd))
 }
 
 function workspaceProjectName(workspaceRoot: string): string {
@@ -773,7 +778,7 @@ export interface DelegationMetrics {
   duration_ms: number
   token_estimate: number
   status: "ok" | "blocked" | "error" | "timeout"
-  task_api_source: "ctx.task" | "toolCtx.task" | "sdk" | "unavailable"
+  task_api_source: "toolCtx.task" | "sdk.session" | "unavailable"
   work_type?: WorkType
   branch_id?: string
   join_status?: "running" | "complete" | "blocked"
@@ -1349,11 +1354,15 @@ function resolveAgent(registry: ODFRegistry, phase: string, taskKeywords: string
 // TASK INVOCATION
 // ==========================================
 
-type TaskApi = (input: {
+type TaskApiInput = {
   agent: string
   prompt: string
   context_files?: string[]
-}) => Promise<unknown>
+}
+
+type TaskApi = ((input: TaskApiInput) => Promise<unknown>) & {
+  abort?: (invocation: Promise<unknown>) => Promise<void>
+}
 
 const EXECUTOR_BOUNDARY = `## Executor Boundary (non-negotiable)
 - Executor only: do not delegate, call nested agents, or ask whether to proceed.
@@ -1435,12 +1444,183 @@ function innerResultDisposition(result: unknown): InnerResultDisposition {
   }
 }
 
+interface SDKSessionApi {
+  create: (options: Record<string, unknown>) => Promise<unknown>
+  prompt: (options: Record<string, unknown>) => Promise<unknown>
+  abort: (options: Record<string, unknown>) => Promise<unknown>
+}
+
+function sessionResultFromText(text: string): Record<string, unknown> {
+  const trimmed = text.trim()
+  const candidates = [
+    trimmed.match(/```(?:json)?\s*([\s\S]*?)```/i)?.[1]?.trim(),
+    trimmed,
+  ].filter((candidate): candidate is string => Boolean(candidate))
+
+  for (const candidate of candidates) {
+    try {
+      const parsed = JSON.parse(candidate)
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) return parsed
+    } catch {
+      // The agent contract is Markdown, so try the ODF Result section next.
+    }
+  }
+
+  const resultSection = trimmed.match(/##\s*ODF Result\s*([\s\S]*)/i)?.[1] || ""
+  const result: Record<string, unknown> = {}
+  for (const line of resultSection.split(/\r?\n/)) {
+    const match = line.match(/^\s*-\s+\*\*([^*]+)\*\*:\s*(.*?)\s*$/)
+    if (!match) continue
+    const key = match[1].trim().toLowerCase().replace(/[\s-]+/g, "_")
+    const rawValue = match[2].trim()
+    if (key === "status") {
+      result[key] = rawValue.split("|")[0].trim()
+      continue
+    }
+    if (rawValue === "null") {
+      result[key] = null
+      continue
+    }
+    if (rawValue.startsWith("[") || rawValue.startsWith("{")) {
+      try {
+        result[key] = JSON.parse(rawValue)
+        continue
+      } catch {
+        // Preserve non-JSON Markdown values as text.
+      }
+    }
+    result[key] = rawValue
+  }
+  if (typeof result.status !== "string" || result.status.length === 0) {
+    throw new Error("invalid-task-result: session.prompt did not return an ODF Result")
+  }
+  return result
+}
+
+function sessionPromptResult(response: unknown): unknown {
+  if (isCancellation(response)) throw new Error("task-cancelled: session.prompt was cancelled")
+  if (isEmptyTaskResult(response)) throw new Error("empty-task-result: session.prompt returned no usable result")
+  if (typeof response === "string") return sessionResultFromText(response)
+  if (!response || typeof response !== "object" || Array.isArray(response)) {
+    throw new Error("invalid-task-result: session.prompt returned an invalid response")
+  }
+
+  const envelope = response as Record<string, any>
+  // The SDK client's default responseStyle is "fields": successful calls return
+  // { data, request, response } and failed calls { error, request, response }.
+  if (envelope.error) {
+    const apiError = envelope.error as Record<string, any>
+    const apiMessage = apiError.data?.message || apiError.message || apiError.name || "session.prompt failed"
+    if (apiError.name === "MessageAbortedError" || isCancellationMessage(String(apiMessage))) {
+      throw new Error(`task-cancelled: ${apiMessage}`)
+    }
+    throw new Error(`session-prompt-error: ${apiMessage}`)
+  }
+
+  const value = (envelope.data ?? envelope) as Record<string, any>
+  const error = value.info?.error
+  if (error) {
+    const message = error.data?.message || error.message || error.name || "session.prompt failed"
+    if (error.name === "MessageAbortedError" || isCancellationMessage(String(message))) {
+      throw new Error(`task-cancelled: ${message}`)
+    }
+    throw new Error(`session-prompt-error: ${message}`)
+  }
+  if (typeof value.status === "string") return value
+
+  const text = Array.isArray(value.parts)
+    ? value.parts
+      .filter((part: any) => part?.type === "text" && typeof part.text === "string")
+      .map((part: any) => part.text)
+      .join("\n")
+      .trim()
+    : ""
+  if (!text) throw new Error("empty-task-result: session.prompt returned no text")
+  return sessionResultFromText(text)
+}
+
+function appendValidatedContextFiles(prompt: string, contextFiles?: string[]): string {
+  if (!contextFiles || contextFiles.length === 0) return prompt
+  return `${prompt}\n\n## Context Files (validated paths only)\n${contextFiles.map(file => `- ${file}`).join("\n")}`
+}
+
+function createSDKSessionTaskApi(toolCtx: ToolContext, session: SDKSessionApi): TaskApi {
+  const pending = new WeakMap<Promise<unknown>, { childID?: string; abortRequested: boolean; aborting?: Promise<void> }>()
+  const directory = typeof (toolCtx as any).directory === "string" ? (toolCtx as any).directory : process.cwd()
+
+  const taskApi = ((input: TaskApiInput): Promise<unknown> => {
+    const invocation = { abortRequested: false } as { childID?: string; abortRequested: boolean; aborting?: Promise<void> }
+    const abortChild = async (): Promise<void> => {
+      invocation.abortRequested = true
+      if (!invocation.childID || invocation.aborting) return invocation.aborting
+      invocation.aborting = Promise.resolve(session.abort({
+        path: { id: invocation.childID },
+        query: { directory },
+      })).then(() => undefined)
+      await invocation.aborting
+    }
+    const promise = (async (): Promise<unknown> => {
+      let created: any
+      try {
+        created = await session.create({
+          body: { parentID: toolCtx.sessionID, title: `ODF delegation: ${input.agent}` },
+          query: { directory },
+        })
+      } catch (error) {
+        throw new Error(`session-create-error: ${error instanceof Error ? error.message : String(error)}`)
+      }
+      invocation.childID = created?.id || created?.data?.id
+      if (typeof invocation.childID !== "string" || invocation.childID.length === 0) {
+        throw new Error("session-create-error: session.create returned no child session id")
+      }
+      if (invocation.abortRequested) {
+        await abortChild()
+        throw new Error("task-cancelled: child session was aborted")
+      }
+
+      let response: unknown
+      try {
+        response = await session.prompt({
+          path: { id: invocation.childID },
+          query: { directory },
+          body: {
+            agent: input.agent,
+            parts: [{ type: "text", text: appendValidatedContextFiles(input.prompt, input.context_files) }],
+          },
+        })
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        if (isCancellationMessage(message)) throw new Error(`task-cancelled: ${message}`)
+        throw new Error(`session-prompt-error: ${message}`)
+      }
+      return sessionPromptResult(response)
+    })()
+    pending.set(promise, invocation)
+    taskApi.abort = async (invocationPromise: Promise<unknown>): Promise<void> => {
+      const state = pending.get(invocationPromise)
+      if (!state) return
+      state.abortRequested = true
+      if (!state.childID) return
+      if (!state.aborting) {
+        state.aborting = Promise.resolve(session.abort({
+          path: { id: state.childID },
+          query: { directory },
+        })).then(() => undefined)
+      }
+      await state.aborting
+    }
+    return promise
+  }) as TaskApi
+  return taskApi
+}
+
 function findTaskApi(toolCtx: ToolContext, client?: OpencodeClient): { taskApi: TaskApi; source: DelegationMetrics["task_api_source"] } | null {
   if (typeof (toolCtx as any).task === "function") {
     return { taskApi: (toolCtx as any).task as TaskApi, source: "toolCtx.task" }
   }
-  if (client && typeof (client as any).task === "function") {
-    return { taskApi: (client as any).task as TaskApi, source: "ctx.task" }
+  const session = client && (client as any).session
+  if (session && typeof session.create === "function" && typeof session.prompt === "function" && typeof session.abort === "function") {
+    return { taskApi: createSDKSessionTaskApi(toolCtx, session as SDKSessionApi), source: "sdk.session" }
   }
   return null
 }
@@ -1477,17 +1657,52 @@ async function invokeTask(
   agentName: string,
   prompt: string,
   contextFiles?: string[],
-  timeoutMs = 120_000
+  timeoutMs = 120_000,
+  abortSignal?: AbortSignal,
 ): Promise<{ status: string; result: unknown }> {
-  const result = await Promise.race([
-    taskApi({ agent: agentName, prompt, context_files: contextFiles }),
-    new Promise<never>((_, reject) => {
-      setTimeout(() => reject(new Error(`task() timed out after ${timeoutMs}ms`)), timeoutMs)
-    }),
-  ])
-  if (isCancellation(result)) throw new Error("task-cancelled: task() was cancelled")
-  if (isEmptyTaskResult(result)) throw new Error("empty-task-result: task() returned no usable result")
-  return { status: "delegated", result }
+  const taskPromise = taskApi({ agent: agentName, prompt, context_files: contextFiles })
+  let timedOut = false
+  let cancelled = false
+  let timeoutHandle: ReturnType<typeof setTimeout> | undefined
+  let removeAbortListener: (() => void) | undefined
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timeoutHandle = setTimeout(() => {
+      timedOut = true
+      reject(new Error(`task() timed out after ${timeoutMs}ms`))
+    }, timeoutMs)
+  })
+  const cancellationPromise = abortSignal
+    ? new Promise<never>((_, reject) => {
+      const onAbort = (): void => {
+        cancelled = true
+        reject(new Error("task-cancelled: delegation was cancelled"))
+      }
+      if (abortSignal.aborted) onAbort()
+      else {
+        abortSignal.addEventListener("abort", onAbort, { once: true })
+        removeAbortListener = () => abortSignal.removeEventListener("abort", onAbort)
+      }
+    })
+    : null
+  try {
+    const result = await Promise.race([...(cancellationPromise ? [cancellationPromise] : []), taskPromise, timeoutPromise])
+    if (isCancellation(result)) throw new Error("task-cancelled: task() was cancelled")
+    if (isEmptyTaskResult(result)) throw new Error("empty-task-result: task() returned no usable result")
+    return { status: "delegated", result }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    if (timedOut || cancelled || isCancellationMessage(message)) {
+      try {
+        await taskApi.abort?.(taskPromise)
+      } catch {
+        // Preserve the original timeout/cancellation result if abort also fails.
+      }
+    }
+    throw error
+  } finally {
+    if (timeoutHandle) clearTimeout(timeoutHandle)
+    removeAbortListener?.()
+  }
 }
 
 function validateContextFiles(workspaceRoot: string, contextFiles: string[]): { error: string | null; paths: string[] } {
@@ -3050,7 +3265,7 @@ Use this instead of generic task() for ODF workflow delegation.`,
       if (taskApiInfo) {
         try {
           const timeoutMs = args.timeout_ms ?? 120_000
-          const taskResult = await invokeTask(taskApiInfo.taskApi, agentName, delegationPrompt, args.context_files, timeoutMs)
+          const taskResult = await invokeTask(taskApiInfo.taskApi, agentName, delegationPrompt, contextValidation.paths, timeoutMs, toolCtx.abort)
           // Stop-validation seal (slice 2): after an IMPLEMENT delegation, stamp
           // the envelope with the deterministic evidence verdict. The sub-agent
           // executes the commands and writes the configured evidence path (the
@@ -3214,9 +3429,10 @@ Use this instead of generic task() for ODF workflow delegation.`,
           const errorMessage = err instanceof Error ? err.message : String(err)
           const isTimeout = errorMessage.includes("timed out")
           const isCancelled = isCancellationMessage(errorMessage)
+          const isEmpty = errorMessage.startsWith("empty-task-result")
           const reason = isCancelled
             ? "task-cancelled"
-            : errorMessage.startsWith("empty-task-result")
+            : isEmpty
               ? "empty-task-result"
               : undefined
           if (acquiredAttempt && !executionOptions.suppress_attempt_settlement) {
@@ -3231,7 +3447,7 @@ Use this instead of generic task() for ODF workflow delegation.`,
               ? "task-timeout"
               : isCancelled
                 ? "task-cancelled"
-                : errorMessage.startsWith("empty-task-result")
+                : isEmpty
                   ? "empty-task-result"
                   : "task-error"
             settleAttempt(acquiredAttempt, "failed", ledgerResultStatus, ledgerReason)
@@ -3245,7 +3461,7 @@ Use this instead of generic task() for ODF workflow delegation.`,
             skill_resolution: skills.length > 0 ? "injected" : "none",
             duration_ms: Date.now() - startTime,
             token_estimate: estimateTokens(delegationPrompt),
-             status: isTimeout ? "timeout" : isCancelled ? "blocked" : "error",
+            status: isTimeout ? "timeout" : isCancelled || isEmpty ? "blocked" : "error",
              task_api_source: taskApiInfo.source,
              ...metricContext,
              candidate_digest: policyGate?.candidate_digest ?? undefined,
@@ -3257,7 +3473,7 @@ Use this instead of generic task() for ODF workflow delegation.`,
             const receipt: ODFReceipt = {
               change: policyGate.change,
               phase: args.phase as ODFReceipt["phase"],
-              status: isCancelled ? "blocked" : "failed",
+              status: isCancelled || isEmpty ? "blocked" : "failed",
               cause: isTimeout ? "timeout" : "error",
               evidence: {
                 summary: errorMessage,
@@ -3273,7 +3489,7 @@ Use this instead of generic task() for ODF workflow delegation.`,
             mergeReceipt(workspaceRoot, receipt)
           }
           return JSON.stringify({
-            status: isTimeout ? "timeout" : isCancelled ? "blocked" : "error",
+            status: isTimeout ? "timeout" : isCancelled || isEmpty ? "blocked" : "error",
             reason,
             phase: args.phase,
             agent: agentName,
@@ -3288,7 +3504,7 @@ Use this instead of generic task() for ODF workflow delegation.`,
         }
       }
 
-      const message = "Native task() API is unavailable. Restart OpenCode after loading the plugin, then retry the delegation."
+      const message = "SDK session delegation is unavailable. Restart OpenCode after loading the plugin, then retry the delegation."
       if (acquiredAttempt && !executionOptions.suppress_attempt_settlement) {
         settleAttempt(acquiredAttempt, "failed", "task-api-unavailable", "task-api-unavailable")
       }
@@ -4350,7 +4566,7 @@ function createODFHealth(client?: OpencodeClient, io: HealthIo = defaultHealthIo
   return tool({
     description: `Read-only installed/runtime ODF health check.
 
-Checks the installed registry, plugin, command, task API presence, and optional
+Checks the installed registry, plugin, command, SDK session delegation capability, and optional
 Engram CLI metadata. It never calls task(), Odoo, PostgreSQL, or engram export;
 task usability remains unverified because probing it would execute work.`,
     args: {},
@@ -4630,7 +4846,12 @@ interface EngramObservation {
   created_at?: string
 }
 
-async function readEngramObservations(workspaceRoot: string): Promise<EngramObservation[] | null> {
+interface EngramObservationRead {
+  observations: EngramObservation[] | null
+  error: "engram-cli-unavailable" | "engram-export-timeout" | "engram-export-failed" | "engram-export-invalid" | null
+}
+
+function readEngramObservationsWithError(workspaceRoot: string): EngramObservationRead {
   // ponytail: unique tmpdir (not a Date.now() filename) so parallel workers never race the same path
   const tmpDir = fsSync.mkdtempSync(path.join(os.tmpdir(), "odf-status-"))
   const tmpFile = path.join(tmpDir, "export.json")
@@ -4640,20 +4861,30 @@ async function readEngramObservations(workspaceRoot: string): Promise<EngramObse
       stdio: ["ignore", "pipe", "ignore"],
       timeout: 15_000,
     })
-  } catch {
+  } catch (error) {
     try { fsSync.rmSync(tmpDir, { recursive: true, force: true }) } catch { /* ignore */ }
-    return null
+    const code = (error as NodeJS.ErrnoException).code
+    return {
+      observations: null,
+      error: code === "ENOENT" ? "engram-cli-unavailable" : code === "ETIMEDOUT" ? "engram-export-timeout" : "engram-export-failed",
+    }
   }
 
   try {
     const raw = fsSync.readFileSync(tmpFile, "utf8")
     const parsed = JSON.parse(raw)
-    return Array.isArray(parsed) ? parsed : null
+    return Array.isArray(parsed)
+      ? { observations: parsed, error: null }
+      : { observations: null, error: "engram-export-invalid" }
   } catch {
-    return null
+    return { observations: null, error: "engram-export-invalid" }
   } finally {
     try { fsSync.rmSync(tmpDir, { recursive: true, force: true }) } catch { /* ignore */ }
   }
+}
+
+async function readEngramObservations(workspaceRoot: string): Promise<EngramObservation[] | null> {
+  return readEngramObservationsWithError(workspaceRoot).observations
 }
 
 function selectEngramSnapshot(observations: EngramObservation[], changeName?: string): EngramSnapshot | null {
@@ -5129,10 +5360,15 @@ async function withWorkflowLock<T>(
   changeName: string,
   operation: () => Promise<T>,
 ): Promise<{ locked: true; value: T } | { locked: false; error: string }> {
-  const lockPath = workflowLockPath(workspaceRoot, changeName)
+  let lockPath = ""
   let lockFd: number | null = null
   try {
-    fsSync.mkdirSync(path.dirname(lockPath), { recursive: true })
+    const realWorkspace = await fs.realpath(workspaceRoot)
+    const lockDirectory = path.join(realWorkspace, ".odf")
+    if (!await safeDirectoryPath(realWorkspace, lockDirectory, true)) {
+      return { locked: false, error: "workflow-lock-unsafe-path" }
+    }
+    lockPath = workflowLockPath(realWorkspace, changeName)
     try {
       lockFd = fsSync.openSync(lockPath, "wx")
     } catch (error) {
@@ -5678,11 +5914,15 @@ function buildEngramStatus(
   const expectationWarnings = validateExpectations({ change: bestChange, artifacts: workflowArtifacts }).status === "missing"
     ? ["missing-expectations"]
     : []
+  const expectationsOnly = artifacts.size > 0 && Array.from(artifacts.keys()).every(type => normalizeArtifactKey(type).type === "expectations")
   status.workflowStatus = deriveWorkflowStatus({
     change: bestChange,
     artifacts: workflowArtifacts,
     receipt: readReceiptJson(workspaceRoot, bestChange),
-    source: { state: "engram", artifacts: workflowArtifacts.map((artifact) => artifact.key) },
+    source: {
+      state: artifacts.has("state") || !expectationsOnly ? "engram" : "none",
+      artifacts: workflowArtifacts.map((artifact) => artifact.key),
+    },
     warnings: [...warnings, ...expectationWarnings],
   })
   status.phase = status.workflowStatus.legacy_phase?.toLowerCase() || "init"
@@ -5782,7 +6022,7 @@ function buildMergedStatus(
     state: openSpec.state?.content || null,
     artifacts: mergedArtifacts,
     receipt: readReceiptJson(workspaceRoot, openSpec.change),
-    source: { state: "openspec", artifacts: Array.from(new Set(sourceRefs)) },
+    source: { state: openSpec.state ? "openspec" : "none", artifacts: Array.from(new Set(sourceRefs)) },
     warnings: Array.from(new Set([...warnings, ...expectationWarnings])),
   })
   const artifactStates: Record<string, string> = {}
@@ -5822,7 +6062,10 @@ async function loadCombinedWorkflowStatus(workspaceRoot: string, changeName?: st
   const targetChange = requestedChange || engram?.change
   const openSpec = targetChange ? await loadOpenSpecStatus(workspaceRoot, targetChange) : null
   if (!openSpec?.state) {
-    return engram ? attachParallelJoinStatus(buildEngramStatus(workspaceRoot, engram, openSpec?.warnings || []), workspaceRoot) : null
+    if (engram) return attachParallelJoinStatus(buildEngramStatus(workspaceRoot, engram, openSpec?.warnings || []), workspaceRoot)
+    return openSpec?.artifacts.length
+      ? attachParallelJoinStatus(buildMergedStatus(workspaceRoot, openSpec, null), workspaceRoot)
+      : null
   }
   return attachParallelJoinStatus(buildMergedStatus(workspaceRoot, openSpec, engram), workspaceRoot)
 }
@@ -5892,12 +6135,129 @@ function isCanonicalWorkType(value: unknown): value is WorkType {
   return typeof value === "string" && WORK_TYPES.includes(value as WorkType)
 }
 
-function createODFWorkflowBind(): ReturnType<typeof tool> {
-  return tool({
-    description: `Bind a canonical ODF work type in the selected artifact store.
+interface WorkflowBindExpectations {
+  change: string
+  intent: string
+  expectations: Array<{ id: string; statement: string; testable: boolean; owned_by: "human" }>
+  approved: boolean
+  approved_by: string
+  approved_at: string
+  immutable_since: string
+}
 
-OpenSpec is the default and requires an existing state.yaml. Engram mode persists
-only the canonical state binding through the Engram CLI.`,
+interface WorkflowBindArgs {
+  change_name?: string
+  work_type?: unknown
+  workspace_dir?: string
+  artifact_store?: "openspec" | "engram"
+  preflight?: Record<string, unknown>
+  expectations?: WorkflowBindExpectations
+  terminal_stage?: "DECIDE" | "FIX"
+  intent?: string
+  expectations_approved?: boolean
+  root_cause?: string
+  regression?: string
+}
+
+interface ODFEntryAuthorization {
+  nonce: string
+  sessionID: string
+  messageID: string
+  generation: number
+  changeName: string
+  workspaceRoot: string
+  claimed: boolean
+}
+type ODFEntryAuthorizations = Map<string, ODFEntryAuthorization>
+type ODFEntryGenerations = Map<string, number>
+
+function canonicalChangeName(value: unknown): string {
+  const raw = typeof value === "string" ? value.trim() : ""
+  return CHANGE_NAME_PATTERN.test(raw) ? sanitizeChangeName(raw) : ""
+}
+
+function canonicalWorkflowValue(value: unknown): string {
+  return JSON.stringify(canonicalLoopGuardValue(value))
+}
+
+function saveEngramTopic(workspaceRoot: string, project: string, topicKey: string, content: string): string | null {
+  try {
+    execFileSync("engram", [
+      "save", topicKey, content,
+      "--type", "architecture",
+      "--project", project,
+      "--scope", "project",
+      "--topic", topicKey,
+    ], {
+      cwd: workspaceRoot,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+      timeout: 15_000,
+      maxBuffer: 64 * 1024,
+    })
+    return null
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code
+    return code === "ENOENT" ? "engram-cli-unavailable" : code === "ETIMEDOUT" ? "engram-save-timeout" : "engram-save-failed"
+  }
+}
+
+async function writeAtomicFile(filePath: string, content: string): Promise<boolean> {
+  const tempPath = `${filePath}.${process.pid}.${nodeCrypto.randomUUID()}.tmp`
+  try {
+    await fs.writeFile(tempPath, content, { encoding: "utf8", flag: "wx" })
+    await fs.rename(tempPath, filePath)
+    return true
+  } catch {
+    try { await fs.unlink(tempPath) } catch { /* best-effort */ }
+    return false
+  }
+}
+
+async function safeDirectoryPath(workspaceRoot: string, directory: string, create: boolean): Promise<boolean> {
+  const realRoot = await fs.realpath(workspaceRoot)
+  const relative = path.relative(realRoot, directory)
+  if (!relative || relative.startsWith("..") || path.isAbsolute(relative)) return relative === ""
+  let current = realRoot
+  for (const component of relative.split(path.sep)) {
+    current = path.join(current, component)
+    try {
+      const stat = await fs.lstat(current)
+      if (stat.isSymbolicLink() || !stat.isDirectory()) return false
+      if (!isWithinRoot(await fs.realpath(current), realRoot)) return false
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") return false
+      if (!create) return true
+      try {
+        await fs.mkdir(current)
+        const created = await fs.lstat(current)
+        if (created.isSymbolicLink() || !created.isDirectory() || !isWithinRoot(await fs.realpath(current), realRoot)) return false
+      } catch {
+        return false
+      }
+    }
+  }
+  return true
+}
+
+async function safeOptionalPath(workspaceRoot: string, filePath: string): Promise<boolean> {
+  try {
+    const stat = await fs.lstat(filePath)
+    return !stat.isSymbolicLink() && isWithinRoot(await fs.realpath(filePath), await fs.realpath(workspaceRoot))
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === "ENOENT"
+  }
+}
+
+function createODFWorkflowBind(
+  entryAuthorizations: ODFEntryAuthorizations = new Map(),
+  entryGenerations: ODFEntryGenerations = new Map(),
+): ReturnType<typeof tool> {
+  return tool({
+    description: `Start or bind a canonical ODF workflow in the selected artifact store.
+
+With preflight, the operation initializes missing state and persists approved Expectations
+only after canonical state exists. Existing state and Expectations are reused only when identical.`,
     args: {
       change_name: tool.schema
         .string()
@@ -5924,6 +6284,32 @@ only the canonical state binding through the Engram CLI.`,
         .enum(["openspec", "engram"])
         .optional()
         .describe("Artifact store for the binding (defaults to openspec)"),
+      preflight: tool.schema.object({
+        change: tool.schema.string(),
+        execution_mode: tool.schema.enum(["interactive", "batch"]),
+        artifact_store: tool.schema.enum(["openspec", "engram", "hybrid"]),
+        delivery_strategy: tool.schema.enum(["ask-always", "ask-on-risk", "auto-chain", "single-pr"]),
+        review_budget_lines: tool.schema.number(),
+        odoo_version: tool.schema.number(),
+        tdd_mode: tool.schema.boolean(),
+        solution_strategy: tool.schema.enum(["standard", "custom", "pending"]),
+        chain_strategy: tool.schema.enum(["none", "chained", "feature-branch"]),
+        persisted_at: tool.schema.string().optional(),
+      }).optional().describe("Complete preflight used to initialize a missing workflow state"),
+      expectations: tool.schema.object({
+        change: tool.schema.string(),
+        intent: tool.schema.string(),
+        expectations: tool.schema.array(tool.schema.object({
+          id: tool.schema.string(),
+          statement: tool.schema.string(),
+          testable: tool.schema.boolean(),
+          owned_by: tool.schema.enum(["human"]),
+        })),
+        approved: tool.schema.boolean(),
+        approved_by: tool.schema.string(),
+        approved_at: tool.schema.string(),
+        immutable_since: tool.schema.string(),
+      }).optional().describe("Approved human Expectations to persist after canonical state"),
       terminal_stage: tool.schema
         .enum(["DECIDE", "FIX"])
         .optional()
@@ -5933,20 +6319,10 @@ only the canonical state binding through the Engram CLI.`,
       root_cause: tool.schema.string().optional().describe("Root-cause analysis for a terminal FIX"),
       regression: tool.schema.string().optional().describe("Minimal regression for a terminal FIX"),
     },
-    async execute(args: {
-      change_name?: string
-      work_type?: unknown
-      workspace_dir?: string
-      artifact_store?: "openspec" | "engram"
-      terminal_stage?: "DECIDE" | "FIX"
-      intent?: string
-      expectations_approved?: boolean
-      root_cause?: string
-      regression?: string
-    }): Promise<string> {
+    async execute(args: WorkflowBindArgs, toolCtx: ToolContext): Promise<string> {
       const blocked = (reason: string, message: string): string => JSON.stringify({ status: "blocked", reason, message }, null, 2)
-      const changeName = typeof args.change_name === "string" ? args.change_name.trim() : ""
-      if (!CHANGE_NAME_PATTERN.test(changeName)) {
+      const changeName = canonicalChangeName(args.change_name)
+      if (!changeName) {
         return blocked("unsafe-change-path", "The change name is not a safe OpenSpec path segment.")
       }
       if (!isCanonicalWorkType(args.work_type)) {
@@ -5956,140 +6332,292 @@ only the canonical state binding through the Engram CLI.`,
         return blocked("invalid-artifact-store", "The artifact_store must be openspec or engram.")
       }
 
-      const workspace = path.resolve(
-        typeof args.workspace_dir === "string" && args.workspace_dir.trim()
-          ? args.workspace_dir
-          : process.cwd(),
-      )
-      const artifactStore = args.artifact_store || "openspec"
-      if (artifactStore === "engram") {
-        const workspaceRoot = resolveWorkspaceRoot(workspace)
-        const project = workspaceProjectName(workspaceRoot)
-        const topicKey = `odf/${changeName}/state`
-        const terminalStage = args.terminal_stage
-        const validTerminal = (args.work_type === "small-change" || args.work_type === "standard-config") && terminalStage === "DECIDE" ||
-          args.work_type === "bugfix" && terminalStage === "FIX"
-        if (terminalStage !== undefined && !validTerminal) return blocked("invalid-terminal-stage", "The terminal stage is not valid for this work type.")
-        if (terminalStage === "DECIDE" && (!args.intent?.trim() || args.expectations_approved !== true)) {
-          return blocked("expectations-not-approved", "A terminal DECIDE requires user intent and approved Expectations.")
-        }
-        if (terminalStage === "FIX" && (!args.root_cause?.trim() || !args.regression?.trim())) {
-          return blocked("fix-evidence-missing", "A terminal FIX requires root-cause analysis and a minimal regression.")
-        }
-        const content = JSON.stringify({
-          work_type: args.work_type,
-          ...(terminalStage ? { canonical_stage: terminalStage, completed_canonical_stages: [terminalStage] } : {}),
-        })
-        try {
-          execFileSync("engram", [
-            "save",
-            topicKey,
-            content,
-            "--type",
-            "architecture",
-            "--project",
-            project,
-            "--scope",
-            "project",
-            "--topic",
-            topicKey,
-          ], {
-            cwd: workspaceRoot,
-            encoding: "utf8",
-            stdio: ["ignore", "pipe", "pipe"],
-            timeout: 15_000,
-            maxBuffer: 64 * 1024,
-          })
-          if (terminalStage) {
-            const artifactType = terminalStage === "DECIDE" ? "decision" : "fix"
-            const artifact = terminalStage === "DECIDE"
-              ? { status: "passed", intent: args.intent!.trim(), expectations_approved: true, resolved_at: new Date().toISOString() }
-              : { status: "passed", root_cause: args.root_cause!.trim(), regression: args.regression!.trim(), resolved_at: new Date().toISOString() }
-            const artifactKey = `odf/${changeName}/${artifactType}`
-            execFileSync("engram", ["save", artifactKey, JSON.stringify(artifact), "--type", "architecture", "--project", project, "--scope", "project", "--topic", artifactKey], {
-              cwd: workspaceRoot, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], timeout: 15_000, maxBuffer: 64 * 1024,
-            })
-          }
-        } catch (error) {
-          const code = (error as NodeJS.ErrnoException).code
-          const reason = code === "ENOENT"
-            ? "engram-cli-unavailable"
-            : code === "ETIMEDOUT"
-              ? "engram-save-timeout"
-              : "engram-save-failed"
-          return blocked(reason, "The Engram state binding could not be persisted.")
-        }
-        return JSON.stringify({
-          status: "bound",
-          change_name: changeName,
-          work_type: args.work_type,
-          artifact_store: "engram",
-          topic_key: topicKey,
-          project,
-          ...(terminalStage ? { terminal_stage: terminalStage } : {}),
-        }, null, 2)
-      }
-      const statePath = path.resolve(workspace, "openspec", "changes", changeName, "state.yaml")
-      if (!isWithinRoot(statePath, workspace)) {
-        return blocked("unsafe-change-path", "The resolved state path is outside the workspace.")
-      }
-
-      let content: string
+      let workspaceRoot: string
       try {
-        const workspaceRoot = await fs.realpath(workspace)
-        try {
-          const stateStat = await fs.stat(statePath)
-          if (!stateStat.isFile()) return blocked("state-not-found", "OpenSpec state.yaml is not a regular file.")
-        } catch (error) {
-          if (args.work_type !== "bugfix" || args.terminal_stage !== "FIX" || (error as NodeJS.ErrnoException).code !== "ENOENT") throw error
-          await fs.mkdir(path.dirname(statePath), { recursive: true })
-          await fs.writeFile(statePath, "{}\n", "utf8")
-        }
-        const realStatePath = await fs.realpath(statePath)
-        if (!isWithinRoot(realStatePath, workspaceRoot)) {
-          return blocked("unsafe-change-path", "The OpenSpec state path resolves outside the workspace.")
-        }
-        content = await fs.readFile(statePath, "utf8")
-      } catch (error) {
-        const code = (error as NodeJS.ErrnoException).code
-        return blocked(code === "ENOENT" ? "state-not-found" : "state-unreadable", "Existing OpenSpec state.yaml could not be read.")
-      }
-
-      let document: ReturnType<typeof parseDocument>
-      try {
-        document = parseDocument(content)
+        workspaceRoot = canonicalWorkspaceRoot(
+          typeof args.workspace_dir === "string" && args.workspace_dir.trim()
+            ? args.workspace_dir
+            : process.cwd(),
+        )
       } catch {
-        return blocked("malformed-state", "OpenSpec state.yaml is malformed YAML.")
+        return blocked("unsafe-workspace-path", "The workspace directory does not resolve to a safe existing root.")
       }
-      if (document.errors.length > 0 || !isMap(document.contents)) {
-        return blocked("malformed-state", "OpenSpec state.yaml must be a well-formed YAML object.")
-      }
-
-      document.set("work_type", args.work_type)
-      const preflight = document.get("preflight", true)
-      const preflightMirrored = isMap(preflight)
-      if (preflightMirrored) preflight.set("work_type", args.work_type)
-
+      const artifactStore = args.artifact_store || "openspec"
       const terminalStage = args.terminal_stage
       const validTerminal = (args.work_type === "small-change" || args.work_type === "standard-config") && terminalStage === "DECIDE" ||
         args.work_type === "bugfix" && terminalStage === "FIX"
       if (terminalStage !== undefined && !validTerminal) return blocked("invalid-terminal-stage", "The terminal stage is not valid for this work type.")
-      if (terminalStage === "DECIDE" && (!args.intent?.trim() || args.expectations_approved !== true)) {
+      const expectationsIntent = args.expectations?.intent.trim()
+      if (terminalStage === "DECIDE" && (!(args.intent?.trim() || expectationsIntent) || args.expectations_approved !== true && !args.expectations)) {
         return blocked("expectations-not-approved", "A terminal DECIDE requires user intent and approved Expectations.")
       }
       if (terminalStage === "FIX" && (!args.root_cause?.trim() || !args.regression?.trim())) {
         return blocked("fix-evidence-missing", "A terminal FIX requires root-cause analysis and a minimal regression.")
       }
-      if (terminalStage) {
-        document.set("canonical_stage", terminalStage)
-        document.set("completed_canonical_stages", [terminalStage])
+      if (args.intent?.trim() && expectationsIntent && args.intent.trim() !== expectationsIntent) {
+        return blocked("expectations-intent-mismatch", "The terminal intent does not match the approved Expectations artifact.")
       }
 
-      try {
+      let preflight: PreflightRecord | null = null
+      if (args.preflight) {
+        const validation = validatePreflight(args.preflight)
+        if (!validation.valid) return blocked("invalid-preflight", "The preflight record is incomplete or invalid.")
+        preflight = {
+          ...validation.normalized,
+          persisted_at: validDate(args.preflight.persisted_at)
+            ? args.preflight.persisted_at as string
+            : validation.normalized.persisted_at,
+        }
+        if (preflight.change !== changeName) return blocked("preflight-change-mismatch", "Preflight change does not match change_name.")
+        if (preflight.artifact_store !== artifactStore && !(preflight.artifact_store === "hybrid" && artifactStore === "openspec")) {
+          return blocked("preflight-store-mismatch", "Preflight artifact_store must match the selected binding store; hybrid starts in its OpenSpec authority.")
+        }
+      }
+
+      const expectations = args.expectations
+      if (expectations) {
+        const verdict = validateExpectations({
+          change: changeName,
+          artifacts: [{ key: `odf/${changeName}/expectations`, content: expectations }],
+        })
+        if (verdict.status !== "approved") {
+          return blocked("expectations-invalid", "The supplied Expectations artifact is not a valid approved human contract.")
+        }
+      }
+
+      const route = resolveWorkflowRoute(args.work_type)
+      const stateArtifactStore = preflight?.artifact_store || artifactStore
+      const sessionID = toolCtx?.sessionID
+      const messageID = toolCtx?.messageID
+      const authorization = sessionID ? entryAuthorizations.get(sessionID) : null
+      const generation = sessionID ? entryGenerations.get(sessionID) : undefined
+      const capabilityMatches = Boolean(authorization && !authorization.claimed &&
+        authorization.sessionID === sessionID && authorization.messageID === messageID &&
+        authorization.generation === generation && authorization.changeName === changeName &&
+        authorization.workspaceRoot === workspaceRoot)
+      if (authorization && !capabilityMatches) {
+        return blocked("workflow-start-unauthorized", "Workflow initialization authorization does not match this message, generation, change, or workspace.")
+      }
+      if (capabilityMatches) authorization!.claimed = true
+      const claimedCapability = capabilityMatches ? authorization! : null
+      const prepareState = (content: string, existed: boolean): {
+        document?: ReturnType<typeof parseDocument>
+        action?: "created" | "updated" | "reused"
+        preflightMirrored?: boolean
+        error?: string
+      } => {
+        let document: ReturnType<typeof parseDocument>
+        try {
+          document = parseDocument(content)
+        } catch {
+          return { error: "malformed-state" }
+        }
+        if (document.errors.length > 0 || !isMap(document.contents)) return { error: "malformed-state" }
+        const current = document.toJSON() as Record<string, unknown>
+        if (current.work_type !== undefined && current.work_type !== args.work_type) return { error: "work-type-conflict" }
+        if (current.change !== undefined && current.change !== changeName) return { error: "state-change-conflict" }
+        if (preflight && current.artifact_store !== undefined && current.artifact_store !== stateArtifactStore) return { error: "artifact-store-conflict" }
+        if (preflight && current.route !== undefined && canonicalWorkflowValue(current.route) !== canonicalWorkflowValue(route)) {
+          return { error: "route-conflict" }
+        }
+        const explicitStage = typeof current.canonical_stage === "string" ? current.canonical_stage.toUpperCase() : null
+        if (terminalStage && explicitStage && explicitStage !== terminalStage) return { error: "active-state-conflict" }
+
+        let persistedPreflight: Record<string, unknown> | null = null
+        const currentPreflight = current.preflight && typeof current.preflight === "object" && !Array.isArray(current.preflight)
+          ? current.preflight as Record<string, unknown>
+          : null
+        if (preflight) {
+          if (currentPreflight?.work_type !== undefined && currentPreflight.work_type !== args.work_type) return { error: "work-type-conflict" }
+          if (currentPreflight) {
+            const comparableKeys = Object.keys(preflight).filter(key => key !== "persisted_at")
+            if (comparableKeys.some(key => canonicalWorkflowValue(currentPreflight[key]) !== canonicalWorkflowValue(preflight![key]))) {
+              return { error: "preflight-conflict" }
+            }
+          }
+          persistedPreflight = {
+            ...(currentPreflight || {}),
+            ...preflight,
+            persisted_at: validDate(currentPreflight?.persisted_at) ? currentPreflight!.persisted_at : preflight.persisted_at,
+            work_type: args.work_type,
+          }
+        }
+
+        const before = canonicalWorkflowValue(current)
+        document.set("work_type", args.work_type)
+        const existingPreflightNode = document.get("preflight", true)
+        if (persistedPreflight) {
+          document.set("change", changeName)
+          document.set("artifact_store", stateArtifactStore)
+          document.set("preflight", persistedPreflight)
+          document.set("route", route)
+        } else if (isMap(existingPreflightNode)) {
+          existingPreflightNode.set("work_type", args.work_type)
+        }
+        if (!existed) {
+          if (preflight) document.set("phase", "preflight")
+          if (preflight) document.set("canonical_stage", route.entry)
+          if (preflight) document.set("completed_canonical_stages", [])
+        }
         if (terminalStage) {
+          document.set("canonical_stage", terminalStage)
+          document.set("completed_canonical_stages", [terminalStage])
+        }
+        let action: "created" | "updated" | "reused" = existed ? "reused" : "created"
+        if (before !== canonicalWorkflowValue(document.toJSON())) {
+          action = existed ? "updated" : "created"
+          if (preflight) document.set("last_updated", new Date().toISOString())
+        }
+        return { document, action, preflightMirrored: isMap(document.get("preflight", true)) }
+      }
+
+      const compareExpectations = (existingContent: string | null, stateExists: boolean): "none" | "persisted" | "reused" | string => {
+        if (!existingContent) return expectations ? "persisted" : "none"
+        const verdict = validateExpectations({
+          change: changeName,
+          artifacts: [{ key: `odf/${changeName}/expectations`, content: existingContent }],
+        })
+        if (verdict.status !== "approved") return "expectations-tampered"
+        if (!expectations) return stateExists ? "none" : "expectations-reuse-required"
+        try {
+          const existing = parseDocument(existingContent).toJSON()
+          return canonicalWorkflowValue(existing) === canonicalWorkflowValue(expectations)
+            ? "reused"
+            : "expectations-conflict"
+        } catch {
+          return "expectations-tampered"
+        }
+      }
+
+      const compareTerminalArtifact = (existingContent: string | null): "none" | "persisted" | "reused" | "terminal-artifact-conflict" => {
+        if (!terminalStage) return "none"
+        if (!existingContent) return "persisted"
+        try {
+          const existing = parseDocument(existingContent).toJSON() as Record<string, unknown>
+          const matches = terminalStage === "DECIDE"
+            ? existing.status === "passed" && existing.intent === (args.intent?.trim() || expectationsIntent) && existing.expectations_approved === true
+            : existing.status === "passed" && existing.root_cause === args.root_cause!.trim() && existing.regression === args.regression!.trim()
+          return matches ? "reused" : "terminal-artifact-conflict"
+        } catch {
+          return "terminal-artifact-conflict"
+        }
+      }
+
+      let locked: Awaited<ReturnType<typeof withWorkflowLock<string>>>
+      try {
+        locked = await withWorkflowLock(workspaceRoot, changeName, async (): Promise<string> => {
+        if (artifactStore === "engram") {
+          const read = readEngramObservationsWithError(workspaceRoot)
+          if (!read.observations) return blocked(read.error || "engram-export-failed", "Existing Engram workflow state could not be inspected safely.")
+          const stateKey = `odf/${changeName}/state`
+          const expectationsKey = `odf/${changeName}/expectations`
+          const stateObservation = read.observations.filter(observation => observation.topic_key === stateKey).at(-1)
+          const expectationsObservation = read.observations.filter(observation => observation.topic_key === expectationsKey).at(-1)
+          if (!stateObservation && !preflight) {
+            return blocked("workflow-start-preflight-required", "An ordinary Engram bind can only update existing state; initialization requires complete preflight.")
+          }
+          if (!stateObservation && !claimedCapability) {
+            return blocked("workflow-start-unauthorized", "Engram state initialization requires same-session /odf-new health authorization for this change.")
+          }
+          const terminalKey = terminalStage ? `odf/${changeName}/${terminalStage === "DECIDE" ? "decision" : "fix"}` : null
+          const terminalObservation = terminalKey
+            ? read.observations.filter(observation => observation.topic_key === terminalKey).at(-1)
+            : null
+          const expectationsAction = compareExpectations(expectationsObservation?.content || null, Boolean(stateObservation))
+          if (expectationsAction.startsWith("expectations-")) {
+            return blocked(expectationsAction, "Existing Expectations are missing from the retry input, different, invalid, or tampered.")
+          }
+          const terminalAction = compareTerminalArtifact(terminalObservation?.content || null)
+          if (terminalAction === "terminal-artifact-conflict") {
+            return blocked(terminalAction, "The existing terminal artifact conflicts with this idempotent binding.")
+          }
+          const prepared = prepareState(stateObservation?.content || "{}", Boolean(stateObservation))
+          if (!prepared.document || prepared.error) return blocked(prepared.error || "malformed-state", "Engram workflow state is malformed or conflicts with this binding.")
+          const project = workspaceProjectName(workspaceRoot)
+          if (prepared.action !== "reused") {
+            const stateError = saveEngramTopic(workspaceRoot, project, stateKey, JSON.stringify(prepared.document.toJSON()))
+            if (stateError) return blocked(stateError, "The Engram state binding could not be persisted.")
+          }
+          if (expectationsAction === "persisted") {
+            const expectationsError = saveEngramTopic(workspaceRoot, project, expectationsKey, JSON.stringify(expectations))
+            if (expectationsError) return blocked(expectationsError, "State exists, but approved Expectations could not be persisted.")
+          }
+          if (terminalStage && terminalAction === "persisted") {
+            const artifactType = terminalStage === "DECIDE" ? "decision" : "fix"
+            const artifact = terminalStage === "DECIDE"
+              ? { status: "passed", intent: (args.intent?.trim() || expectationsIntent)!, expectations_approved: true, resolved_at: new Date().toISOString() }
+              : { status: "passed", root_cause: args.root_cause!.trim(), regression: args.regression!.trim(), resolved_at: new Date().toISOString() }
+            const artifactError = saveEngramTopic(workspaceRoot, project, `odf/${changeName}/${artifactType}`, JSON.stringify(artifact))
+            if (artifactError) return blocked(artifactError, "Canonical state exists, but the terminal artifact could not be persisted.")
+          }
+          return JSON.stringify({
+            status: "bound",
+            change_name: changeName,
+            work_type: args.work_type,
+            artifact_store: "engram",
+            topic_key: stateKey,
+            project,
+            state_action: prepared.action,
+            expectations_action: expectationsAction,
+            terminal_action: terminalAction,
+            route,
+            ...(terminalStage ? { terminal_stage: terminalStage } : {}),
+          }, null, 2)
+        }
+
+        const realWorkspace = await fs.realpath(workspaceRoot)
+        const changeDir = path.resolve(realWorkspace, "openspec", "changes", changeName)
+        const statePath = path.join(changeDir, "state.yaml")
+        const expectationsPath = path.join(changeDir, "expectations.yaml")
+        if (!isWithinRoot(statePath, realWorkspace) || !await safeDirectoryPath(realWorkspace, changeDir, false)) {
+          return blocked("unsafe-change-path", "The OpenSpec change path contains a symlink or escapes the workspace.")
+        }
+        const terminalPath = path.join(changeDir, terminalStage === "DECIDE" ? "decision.yaml" : "fix.yaml")
+        if (!await safeOptionalPath(realWorkspace, statePath) ||
+          !await safeOptionalPath(realWorkspace, expectationsPath) ||
+          terminalStage && !await safeOptionalPath(realWorkspace, terminalPath)) {
+          return blocked("unsafe-change-path", "An OpenSpec artifact path is unsafe or resolves outside the workspace.")
+        }
+        const snapshot = await loadOpenSpecStatus(realWorkspace, changeName)
+        const existingExpectations = snapshot?.artifacts.find(artifact => normalizeArtifactKey(artifact.key).type === "expectations")
+        const existingTerminal = terminalStage
+          ? snapshot?.artifacts.find(artifact => normalizeArtifactKey(artifact.key).type === (terminalStage === "DECIDE" ? "decision" : "fix"))
+          : null
+        let stateContent = "{}\n"
+        let stateExists = false
+        try {
+          const stateStat = await fs.lstat(statePath)
+          if (stateStat.isSymbolicLink() || !stateStat.isFile()) return blocked("unsafe-change-path", "OpenSpec state.yaml is not a safe regular file.")
+          stateContent = await fs.readFile(statePath, "utf8")
+          stateExists = true
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== "ENOENT") return blocked("state-unreadable", "Existing OpenSpec state.yaml could not be read.")
+          if (!preflight) return blocked("workflow-start-preflight-required", "An ordinary OpenSpec bind can only update existing state; initialization requires complete preflight.")
+          if (!claimedCapability) return blocked("workflow-start-unauthorized", "OpenSpec state initialization requires same-session /odf-new health authorization for this change.")
+        }
+        const expectationsAction = compareExpectations(existingExpectations?.content || null, stateExists)
+        if (expectationsAction.startsWith("expectations-")) {
+          return blocked(expectationsAction, "Existing Expectations are missing from the retry input, different, invalid, or tampered.")
+        }
+        const terminalAction = compareTerminalArtifact(existingTerminal?.content || null)
+        if (terminalAction === "terminal-artifact-conflict") {
+          return blocked(terminalAction, "The existing terminal artifact conflicts with this idempotent binding.")
+        }
+        const prepared = prepareState(stateContent, stateExists)
+        if (!prepared.document || prepared.error) return blocked(prepared.error || "malformed-state", "OpenSpec workflow state is malformed or conflicts with this binding.")
+        if (!await safeDirectoryPath(realWorkspace, changeDir, true)) return blocked("unsafe-change-path", "The OpenSpec change path could not be created safely.")
+        if (prepared.action !== "reused") {
+          if (!await writeAtomicFile(statePath, prepared.document.toString())) {
+            return blocked("state-write-failed", "OpenSpec workflow state could not be persisted.")
+          }
+        }
+        if (expectationsAction === "persisted" && !await writeAtomicFile(expectationsPath, stringify(expectations))) {
+          return blocked("expectations-write-failed", "Canonical state exists, but approved Expectations could not be persisted.")
+        }
+        if (terminalStage && terminalAction === "persisted") {
           const artifact = terminalStage === "DECIDE" ? {
             status: "passed",
-            intent: args.intent!.trim(),
+            intent: (args.intent?.trim() || expectationsIntent)!,
             expectations_approved: true,
             resolved_at: new Date().toISOString(),
           } : {
@@ -6098,25 +6626,33 @@ only the canonical state binding through the Engram CLI.`,
             regression: args.regression!.trim(),
             resolved_at: new Date().toISOString(),
           }
-          await fs.writeFile(
-            path.join(path.dirname(statePath), terminalStage === "DECIDE" ? "decision.yaml" : "fix.yaml"),
-            JSON.stringify(artifact, null, 2),
-            "utf8",
-          )
+          const artifactPath = path.join(changeDir, terminalStage === "DECIDE" ? "decision.yaml" : "fix.yaml")
+          if (!await writeAtomicFile(artifactPath, JSON.stringify(artifact, null, 2))) {
+            return blocked("terminal-artifact-write-failed", "Canonical state exists, but the terminal artifact could not be persisted.")
+          }
         }
-        await fs.writeFile(statePath, document.toString(), "utf8")
-      } catch {
-        return blocked(terminalStage ? "terminal-artifact-write-failed" : "state-write-failed", "OpenSpec workflow binding could not be persisted.")
+        return JSON.stringify({
+          status: "bound",
+          change_name: changeName,
+          work_type: args.work_type,
+          artifact_store: "openspec",
+          state_path: statePath,
+          state_action: prepared.action,
+          expectations_action: expectationsAction,
+          terminal_action: terminalAction,
+          preflight_mirrored: prepared.preflightMirrored,
+          route,
+          ...(terminalStage ? { terminal_stage: terminalStage } : {}),
+        }, null, 2)
+        })
+      } finally {
+        if (claimedCapability && sessionID && entryAuthorizations.get(sessionID)?.nonce === claimedCapability.nonce) {
+          entryAuthorizations.delete(sessionID)
+        }
       }
-
-      return JSON.stringify({
-        status: "bound",
-        change_name: changeName,
-        work_type: args.work_type,
-        state_path: statePath,
-        preflight_mirrored: preflightMirrored,
-        ...(terminalStage ? { terminal_stage: terminalStage } : {}),
-      }, null, 2)
+      return locked.locked
+        ? locked.value
+        : blocked(locked.error, "The workflow start is already locked or the lock could not be acquired.")
     },
   })
 }
@@ -6294,13 +6830,43 @@ const LOOP_GUARD_MAX_TOOLS = 64
 const LOOP_GUARD_MAX_CALLS = 128
 const LOOP_GUARD_STOP_REASON = "ODF runtime loop guard stopped this session: the same stable discovery call returned the same result twice for one user intent. Review the existing result or send a new request."
 const LOOP_GUARD_WRITE_REASON = "ODF runtime loop guard blocked a duplicate write-capable or unclassified tool call in the same user intent. Send a new explicit request to retry it."
+const ODF_ENTRY_HEALTH_REASON = "ODF entry health gate blocked this session: /odf-new requires a successful odf_health call as its first ODF operation, before questions, writes, or delegation."
+const ENGRAM_READ_ONLY_TOOLS = new Set([
+  "engram_mem_context", "engram_mem_search", "engram_mem_get_observation",
+  "engram_mem_current_project", "engram_mem_doctor",
+])
 
-type LoopGuardHooks = Pick<Hooks, "dispose" | "event" | "chat.message" | "tool.execute.before" | "tool.execute.after">
+type LoopGuardHooks = Pick<Hooks, "dispose" | "event" | "chat.message" | "command.execute.before" | "tool.execute.before" | "tool.execute.after">
 type LoopGuardState = {
   intentID: string
+  generation: number
+  workspaceRoot: string
+  entryChange: string | null
   stopped: boolean
+  stopReason?: string
+  entryHealth: "not-required" | "not-run" | "running" | "passed" | "failed"
   tools: Map<string, { signatureDigest: string; resultDigest?: string }>
-  calls: Map<string, { tool: string; signatureDigest: string }>
+  calls: Map<string, { tool: string; signatureDigest: string; intentID: string; generation: number }>
+}
+
+function isReadOnlyEngramTool(toolName: string, args: unknown): boolean {
+  if (ENGRAM_READ_ONLY_TOOLS.has(toolName)) return true
+  return toolName === "engram_mem_review" && Boolean(args && typeof args === "object" && (args as Record<string, unknown>).action === "list")
+}
+
+function isODFEntryGatedTool(toolName: string, args: unknown): boolean {
+  return toolName.startsWith("odf_") || (toolName.startsWith("engram_mem_") && !isReadOnlyEngramTool(toolName, args)) ||
+    ["question", "task", "bash", "write", "edit", "apply_patch"].includes(toolName)
+}
+
+function isSuccessfulODFEntryHealth(value: unknown): boolean {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false
+  const result = value as Record<string, any>
+  return result.schema_version === 1 && (result.status === "ok" || result.status === "warning") &&
+    result.registry?.status === "valid" && Array.isArray(result.registry?.skills?.missing) && result.registry.skills.missing.length === 0 &&
+    Array.isArray(result.registry?.agents?.missing) && result.registry.agents.missing.length === 0 &&
+    result.plugin?.loaded === true && result.plugin?.file_status === "readable" &&
+    result.command?.status === "readable" && result.task_api?.function_present === true
 }
 
 function canonicalLoopGuardValue(value: unknown): unknown {
@@ -6321,8 +6887,23 @@ function loopGuardDigest(value: unknown): string {
     .digest("hex")
 }
 
-export function createStableDiscoveryGuard(client: OpencodeClient): LoopGuardHooks {
+function expandedCommandDigest(parts: unknown[]): string {
+  return loopGuardDigest(parts.map(part => {
+    if (!part || typeof part !== "object" || Array.isArray(part)) return part
+    const value = part as Record<string, unknown>
+    return { type: value.type, text: value.text, filename: value.filename, url: value.url }
+  }))
+}
+
+export function createStableDiscoveryGuard(
+  client: OpencodeClient,
+  entryAuthorizations: ODFEntryAuthorizations = new Map(),
+  entryGenerations: ODFEntryGenerations = new Map(),
+  workspaceDir = process.cwd(),
+): LoopGuardHooks {
   const sessions = new Map<string, LoopGuardState>()
+  const pendingCommands = new Map<string, { partsDigest: string; changeName: string; generation: number }>()
+  const workspaceRoot = canonicalWorkspaceRoot(workspaceDir)
   const abortSession = async (sessionID: string): Promise<void> => {
     try {
       await client.session.abort({ path: { id: sessionID } })
@@ -6331,21 +6912,62 @@ export function createStableDiscoveryGuard(client: OpencodeClient): LoopGuardHoo
     }
   }
   const boundedSet = <K, V>(map: Map<K, V>, key: K, value: V, limit: number): void => {
+    map.delete(key)
     if (!map.has(key) && map.size >= limit) map.delete(map.keys().next().value!)
     map.set(key, value)
   }
+  const nextGeneration = (sessionID: string): number => {
+    const generation = (entryGenerations.get(sessionID) || 0) + 1
+    boundedSet(entryGenerations, sessionID, generation, LOOP_GUARD_MAX_SESSIONS)
+    return generation
+  }
+  const clearSession = (sessionID: string, clearGeneration: boolean): void => {
+    sessions.delete(sessionID)
+    pendingCommands.delete(sessionID)
+    entryAuthorizations.delete(sessionID)
+    if (clearGeneration) entryGenerations.delete(sessionID)
+  }
 
   return {
-    dispose: async () => sessions.clear(),
+    dispose: async () => {
+      sessions.clear()
+      pendingCommands.clear()
+      entryAuthorizations.clear()
+      entryGenerations.clear()
+    },
     event: async ({ event }) => {
-      if (event.type === "server.instance.disposed") sessions.clear()
-      if (event.type === "session.idle") sessions.delete(event.properties.sessionID)
-      if (event.type === "session.error" && event.properties.sessionID) sessions.delete(event.properties.sessionID)
-      if (event.type === "session.deleted") sessions.delete(event.properties.info.id)
+      if (event.type === "server.instance.disposed") {
+        sessions.clear()
+        pendingCommands.clear()
+        entryAuthorizations.clear()
+        entryGenerations.clear()
+      }
+      const sessionID = event.type === "session.idle" || event.type === "session.error"
+        ? event.properties.sessionID
+        : event.type === "session.deleted" ? event.properties.info.id : null
+      if (sessionID) {
+        clearSession(sessionID, true)
+      }
+    },
+    "command.execute.before": async (input, output) => {
+      clearSession(input.sessionID, false)
+      const generation = nextGeneration(input.sessionID)
+      const changeName = canonicalChangeName(input.arguments.trim().split(/\s+/, 1)[0])
+      if (/^\/?odf-new$/.test(input.command) && changeName) {
+        boundedSet(pendingCommands, input.sessionID, {
+          partsDigest: expandedCommandDigest(output.parts),
+          changeName,
+          generation,
+        }, LOOP_GUARD_MAX_SESSIONS)
+      }
     },
     "chat.message": async (input, output) => {
       const synthetic = output.parts.length > 0 && output.parts.every(part => "synthetic" in part && part.synthetic === true)
       if (synthetic) return
+      const pendingCommand = pendingCommands.get(input.sessionID)
+      pendingCommands.delete(input.sessionID)
+      entryAuthorizations.delete(input.sessionID)
+      const generation = pendingCommand?.generation ?? nextGeneration(input.sessionID)
       const agent = input.agent ?? output.message.agent
       if (agent !== "odoo_orchestrator") {
         sessions.delete(input.sessionID)
@@ -6353,7 +6975,11 @@ export function createStableDiscoveryGuard(client: OpencodeClient): LoopGuardHoo
       }
       boundedSet(sessions, input.sessionID, {
         intentID: input.messageID ?? output.message.id,
+        generation,
+        workspaceRoot,
+        entryChange: pendingCommand?.changeName || null,
         stopped: false,
+        entryHealth: pendingCommand?.partsDigest === expandedCommandDigest(output.parts) ? "not-run" : "not-required",
         tools: new Map(),
         calls: new Map(),
       }, LOOP_GUARD_MAX_SESSIONS)
@@ -6361,7 +6987,18 @@ export function createStableDiscoveryGuard(client: OpencodeClient): LoopGuardHoo
     "tool.execute.before": async (input, output) => {
       const state = sessions.get(input.sessionID)
       if (!state) return
-      if (state.stopped) throw new Error(LOOP_GUARD_STOP_REASON)
+      if (state.stopped) throw new Error(state.stopReason || LOOP_GUARD_STOP_REASON)
+
+      if (state.entryHealth !== "not-required" && state.entryHealth !== "passed") {
+        if (input.tool === "odf_health" && state.entryHealth === "not-run") {
+          state.entryHealth = "running"
+        } else if (isODFEntryGatedTool(input.tool, output.args)) {
+          state.stopped = true
+          state.stopReason = ODF_ENTRY_HEALTH_REASON
+          await abortSession(input.sessionID)
+          throw new Error(ODF_ENTRY_HEALTH_REASON)
+        }
+      }
 
       const signatureDigest = loopGuardDigest({ tool: input.tool, args: output.args })
       const previous = state.tools.get(input.tool)
@@ -6373,13 +7010,47 @@ export function createStableDiscoveryGuard(client: OpencodeClient): LoopGuardHoo
       if (!previous || previous.signatureDigest !== signatureDigest) {
         boundedSet(state.tools, input.tool, { signatureDigest }, LOOP_GUARD_MAX_TOOLS)
       }
-      boundedSet(state.calls, input.callID, { tool: input.tool, signatureDigest }, LOOP_GUARD_MAX_CALLS)
+      boundedSet(state.calls, input.callID, {
+        tool: input.tool,
+        signatureDigest,
+        intentID: state.intentID,
+        generation: state.generation,
+      }, LOOP_GUARD_MAX_CALLS)
     },
     "tool.execute.after": async (input, output) => {
       const state = sessions.get(input.sessionID)
       const call = state?.calls.get(input.callID)
-      if (!state || !call) return
+      if (!state || !call || call.intentID !== state.intentID || call.generation !== state.generation ||
+        entryGenerations.get(input.sessionID) !== state.generation) return
       state.calls.delete(input.callID)
+      if (call.tool === "odf_health" && state.entryHealth === "running") {
+        let result: unknown = null
+        try {
+          result = typeof output.output === "string" ? JSON.parse(output.output) : null
+        } catch {
+          result = null
+        }
+        if (isSuccessfulODFEntryHealth(result)) {
+          state.entryHealth = "passed"
+          if (state.entryChange) {
+            boundedSet(entryAuthorizations, input.sessionID, {
+              nonce: nodeCrypto.randomUUID(),
+              sessionID: input.sessionID,
+              messageID: state.intentID,
+              generation: state.generation,
+              changeName: state.entryChange,
+              workspaceRoot: state.workspaceRoot,
+              claimed: false,
+            }, LOOP_GUARD_MAX_SESSIONS)
+          }
+        } else {
+          entryAuthorizations.delete(input.sessionID)
+          state.entryHealth = "failed"
+          state.stopped = true
+          state.stopReason = ODF_ENTRY_HEALTH_REASON
+          await abortSession(input.sessionID)
+        }
+      }
       if (state.stopped || call.tool !== input.tool || !LOOP_GUARD_READ_TOOLS.has(input.tool)) return
 
       const signatureDigest = loopGuardDigest({ tool: input.tool, args: input.args })
@@ -6421,7 +7092,7 @@ const ODF_SYSTEM_RULES = `<odf-system>
 - \`odf_parallel_delegate\`: bounded cross-domain IMPLEMENT BUILD with branch-aware join
 - \`odf_workflow_route\`: read-only canonical route selection by work type
 - \`odf_workflow_advance\`: read-only canonical transition validation and next-stage calculation
-- \`odf_workflow_bind\`: explicit route binding; OpenSpec by default or Engram with \`artifact_store: engram\`
+- \`odf_workflow_bind\`: store-aware start/bind; complete preflight initializes canonical state before approved Expectations
 - \`odf_entry_triage\`: read-only deterministic micro/standard/full entry classification and work-type selection for \`/odf-new\`
 - Proof-backed BUILD/VERIFY delegation requires an explicit \`artifact_store\`; the selected store is the single workflow-state authority.
 - Workflow state commits happen after successful inner results and evidence; ARCHIVED remains an explicit archive transition.
@@ -6433,6 +7104,8 @@ const ODF_SYSTEM_RULES = `<odf-system>
 
 ## Non-negotiable invariants
 
+- For exact \`/odf-new\`, call \`odf_health\` as the first ODF operation. Missing, malformed, failed, or blocked health stops before questions, writes, artifact creation, and delegation.
+- Start through one \`odf_workflow_bind\`: missing-state creation requires complete preflight plus same-session exact-command health authorization; persist state before Expectations, reuse identical approved content, and block divergence/tampering.
 - Use \`odf_delegate\` for ODF phase work; inject at most five matching compact skill blocks.
 - Resolve and persist the authoritative Policy Gate before IMPLEMENT/VERIFY; never recompute it.
 - IMPLEMENT closes only when the plugin seal has \`validation.status === "verified"\` from fresh bound evidence; prose never counts.
@@ -6443,9 +7116,14 @@ const ODF_SYSTEM_RULES = `<odf-system>
 - The outer plugin envelope and inner agent \`## ODF Result\` are separate; preserve the agent result and inspect both layers.
 </odf-system>`
 
-export function createODFRuntimeHooks(client: OpencodeClient): LoopGuardHooks & Pick<Hooks, "experimental.chat.system.transform"> {
+export function createODFRuntimeHooks(
+  client: OpencodeClient,
+  entryAuthorizations: ODFEntryAuthorizations = new Map(),
+  entryGenerations: ODFEntryGenerations = new Map(),
+  workspaceDir = process.cwd(),
+): LoopGuardHooks & Pick<Hooks, "experimental.chat.system.transform"> {
   return {
-    ...createStableDiscoveryGuard(client),
+    ...createStableDiscoveryGuard(client, entryAuthorizations, entryGenerations, workspaceDir),
     "experimental.chat.system.transform": async (_input, output) => {
       const combined = [...output.system, ODF_SYSTEM_RULES].join("\n\n---\n\n")
       output.system = [combined]
@@ -6459,7 +7137,9 @@ export function createODFRuntimeHooks(client: OpencodeClient): LoopGuardHooks & 
 
 export const OdfDelegationPlugin: Plugin = async (ctx) => {
   const { directory, client } = ctx
-  const runtimeHooks = createODFRuntimeHooks(client)
+  const entryAuthorizations: ODFEntryAuthorizations = new Map()
+  const entryGenerations: ODFEntryGenerations = new Map()
+  const runtimeHooks = createODFRuntimeHooks(client, entryAuthorizations, entryGenerations, directory)
 
   // Ensure registry exists (log warning if not)
   try {
@@ -6537,7 +7217,7 @@ export const OdfDelegationPlugin: Plugin = async (ctx) => {
       odf_parallel_delegate: createODFParallelDelegate(client, directory),
       odf_workflow_route: createODFWorkflowRoute(),
       odf_workflow_advance: createODFWorkflowAdvance(),
-      odf_workflow_bind: createODFWorkflowBind(),
+      odf_workflow_bind: createODFWorkflowBind(entryAuthorizations, entryGenerations),
       odf_entry_triage: createODFEntryTriage(),
       odf_skill_inject: createODFSkillInject(),
       odf_skill_resolve: createODFSkillResolve(),
