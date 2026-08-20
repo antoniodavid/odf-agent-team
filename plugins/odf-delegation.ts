@@ -102,6 +102,13 @@ function canonicalWorkspaceRoot(cwd = process.cwd()): string {
   return fsSync.realpathSync(resolveWorkspaceRoot(cwd))
 }
 
+// Debug logging: silent by default; enable with ODF_DEBUG=1 to restore the
+// informational [odf-delegation] lines (warnings always print).
+const ODF_DEBUG = process.env.ODF_DEBUG === "1" || process.env.ODF_DEBUG === "true"
+function debugLog(...args: unknown[]): void {
+  if (ODF_DEBUG) console.log("[odf-delegation]", ...args)
+}
+
 function workspaceProjectName(workspaceRoot: string): string {
   try {
     const gitRoot = execFileSync("git", ["rev-parse", "--show-toplevel"], {
@@ -136,7 +143,7 @@ function startRegistryWatcher(): void {
       if (eventType === "change") {
         registryCache = null
         registryCacheTime = 0
-        console.log(`[odf-delegation] Registry changed on disk. Cache invalidated.`)
+        debugLog(`[odf-delegation] Registry changed on disk. Cache invalidated.`)
       }
     })
   } catch {
@@ -2689,7 +2696,7 @@ overwrites it. Best-effort like the policy gate: never blocks the flow.`,
     }
     const merged = mergeReceipt(workspace, receipt)
     const mergedAction = merged.action?.committed || "pending"
-    console.log(`[odf-delegation] odf_receipt: change=${merged.change} phase=${merged.phase} status=${merged.status} cause=${merged.cause} action=${mergedAction}`)
+    debugLog(`[odf-delegation] odf_receipt: change=${merged.change} phase=${merged.phase} status=${merged.status} cause=${merged.cause} action=${mergedAction}`)
     return JSON.stringify(merged, null, 2)
   },
 })
@@ -2743,7 +2750,7 @@ frozen diff ref). The gate documents — the sub-agent applies, never recomputes
         workspaceDir: args.workspace_dir,
         registry,
       })
-      console.log(`[odf-delegation] odf_policy_gate: change=${decision.change} phase=${decision.phase} gate=${decision.gate} tdd=${decision.tdd.effective} tier=${decision.risk_tier}`)
+      debugLog(`[odf-delegation] odf_policy_gate: change=${decision.change} phase=${decision.phase} gate=${decision.gate} tdd=${decision.tdd.effective} tier=${decision.risk_tier}`)
       return JSON.stringify(decision, null, 2)
     },
   })
@@ -3146,7 +3153,7 @@ Use this instead of generic task() for ODF workflow delegation.`,
       // Detect Odoo version from project
       const odooVersion = await detectOdooVersion(workspaceRoot)
       if (odooVersion) {
-        console.log(`[odf-delegation] Detected Odoo version: ${odooVersion}`)
+        debugLog(`[odf-delegation] Detected Odoo version: ${odooVersion}`)
       }
 
       // Match skills (with version filter)
@@ -3164,7 +3171,7 @@ Use this instead of generic task() for ODF workflow delegation.`,
       }
       const profile = await getProfileByPhase(registry, args.phase, args.profile)
       const profileBlock = profile ? formatProfileBlock(profile, args.phase) : ""
-      console.log(`[odf-delegation] odf_delegate: phase=${args.phase} agent=${agentName} skills=${skills.length} version=${odooVersion || "auto"} profile=${profile?.name || "default"}`)
+      debugLog(`[odf-delegation] odf_delegate: phase=${args.phase} agent=${agentName} skills=${skills.length} version=${odooVersion || "auto"} profile=${profile?.name || "default"}`)
 
       if (gatedPhase && args.workflow_advance && !acquiredAttempt) {
         const expectedStage: "BUILD" | "VERIFY" = args.phase === "IMPLEMENT" ? "BUILD" : "VERIFY"
@@ -4335,7 +4342,7 @@ Use this to manually inject standards into a sub-agent prompt when not using odf
         files: args.context_files,
         task: args.task_description,
       })
-      console.log(`[odf-delegation] odf_skill_inject: matched ${skills.length} skills`)
+      debugLog(`[odf-delegation] odf_skill_inject: matched ${skills.length} skills`)
 
       const limit = args.max_skills || 5
       const limited = skills.slice(0, limit)
@@ -4400,7 +4407,7 @@ the sub-agent model before delegation for optimal phase performance.`,
       if (!profile) {
         return `No profile for phase ${args.phase}. Using defaults: model=default, temperature=0.2`
       }
-      console.log(`[odf-delegation] odf_profile_select: phase=${args.phase} model=${profile.model} temp=${profile.temperature}`)
+      debugLog(`[odf-delegation] odf_profile_select: phase=${args.phase} model=${profile.model} temp=${profile.temperature}`)
 
       return `Phase: ${args.phase}
 Model: ${profile.model}
@@ -7154,7 +7161,7 @@ export const OdfDelegationPlugin: Plugin = async (ctx) => {
   // Auto-refresh check (P0.2): compare skills dir vs cache
   const needsRefresh = await hasSkillsChanged()
   if (needsRefresh) {
-    console.log(`[odf-delegation] Skills changed since last refresh. Invalidating registry cache.`)
+    debugLog(`[odf-delegation] Skills changed since last refresh. Invalidating registry cache.`)
     registryCache = null
     registryCacheTime = 0
   }
@@ -7197,7 +7204,7 @@ export const OdfDelegationPlugin: Plugin = async (ctx) => {
     const insights = await learnFromMetrics()
     if (insights.length > 0) {
       const top = insights.slice(0, 3)
-      console.log(`[odf-delegation] Learning: top skills by success rate — ${top.map(i => `${i.skill}(${i.success_rate}%)`).join(", ")}`)
+      debugLog(`[odf-delegation] Learning: top skills by success rate — ${top.map(i => `${i.skill}(${i.success_rate}%)`).join(", ")}`)
     }
 
     // Quick health check
@@ -7205,10 +7212,10 @@ export const OdfDelegationPlugin: Plugin = async (ctx) => {
     healthChecks.push(`skills=${registry.skills.length}`)
     healthChecks.push(`agents=${registry.agents?.length || 0}`)
     healthChecks.push(`profiles=${registry.profiles?.length || 0}`)
-    console.log(`[odf-delegation] Health: ${healthChecks.join(", ")}`)
+    debugLog(`[odf-delegation] Health: ${healthChecks.join(", ")}`)
   }
 
-  console.log(`[odf-delegation] Plugin loaded. Tools: ${ODF_REGISTERED_TOOLS.join(", ")}`)
+  debugLog(`[odf-delegation] Plugin loaded. Tools: ${ODF_REGISTERED_TOOLS.join(", ")}`)
 
   return {
     ...runtimeHooks,
