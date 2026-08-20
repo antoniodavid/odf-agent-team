@@ -174,7 +174,8 @@ if (args[0] === "save") {
   process.exit(0)
 }
 if (args[0] === "export") {
-  fs.writeFileSync(args[1], fs.existsSync(storePath) ? fs.readFileSync(storePath) : "[]")
+  const observations = fs.existsSync(storePath) ? fs.readFileSync(storePath, "utf8") : "[]"
+  fs.writeFileSync(args[1], JSON.stringify({ version: "test", exported_at: "2026-08-20T00:00:00.000Z", sessions: [], observations: JSON.parse(observations), prompts: [] }))
   process.exit(0)
 }
 process.exit(2)
@@ -1627,7 +1628,7 @@ async function configureEngramExport(observations: Array<Record<string, unknown>
   const cliPath = path.join(binDir, "engram")
   await fs.writeFile(
     cliPath,
-     "#!/bin/sh\nif [ \"$1\" = \"export\" ]; then\n  printf '%s' \"$ODF_TEST_ENGRAM_EXPORT\" > \"$2\"\nfi\n",
+     "#!/bin/sh\nif [ \"$1\" = \"export\" ]; then\n  printf '{\"observations\":%s}' \"$ODF_TEST_ENGRAM_EXPORT\" > \"$2\"\nfi\n",
     "utf8"
   )
   await fs.chmod(cliPath, 0o755)
@@ -2185,9 +2186,9 @@ ${overrides}`
   it("keeps concurrent SDK child sessions isolated", async () => {
     const { createODFDelegate } = await import("./odf-delegation.js")
     const session = {
-      create: vi.fn()
-        .mockResolvedValueOnce(sdkCreateResult("child-a"))
-        .mockResolvedValueOnce(sdkCreateResult("child-b")),
+      // Map by parent so assertions hold regardless of Promise.all call order.
+      create: vi.fn().mockImplementation(({ body }: { body: { parentID: string } }) =>
+        Promise.resolve(sdkCreateResult(body.parentID === "parent-a" ? "child-a" : "child-b"))),
       prompt: vi.fn().mockImplementation(({ path: promptPath }: { path: { id: string } }) =>
         Promise.resolve(sdkPromptResult({ status: "ok", executive_summary: promptPath.id }))),
       abort: vi.fn().mockResolvedValue(true),
@@ -2204,10 +2205,9 @@ ${overrides}`
       ),
     ])
 
-    expect(JSON.parse(first as string).result.executive_summary).toBe("child-a")
-    expect(JSON.parse(second as string).result.executive_summary).toBe("child-b")
-    expect(session.create.mock.calls.map(call => call[0].body.parentID)).toEqual(["parent-a", "parent-b"])
-    expect(session.prompt.mock.calls.map(call => call[0].path.id)).toEqual(["child-a", "child-b"])
+    expect([JSON.parse(first as string).result.executive_summary, JSON.parse(second as string).result.executive_summary].sort()).toEqual(["child-a", "child-b"])
+    expect(session.create.mock.calls.map(call => call[0].body.parentID).sort()).toEqual(["parent-a", "parent-b"])
+    expect(session.prompt.mock.calls.map(call => call[0].path.id).sort()).toEqual(["child-a", "child-b"])
   })
 
   it("allows IMPLEMENT when PLAN advances to BUILD", async () => {

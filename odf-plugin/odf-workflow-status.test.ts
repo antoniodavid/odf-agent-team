@@ -633,7 +633,7 @@ describe("odf_workflow_status tool", () => {
       { topic_key: "odf/tool-change/design", content: "design", created_at: "2026-07-31T11:01:30Z" },
       { topic_key: "odf/tool-change/implement-progress", content: "- [x] one\n- [ ] two", created_at: "2026-07-31T11:02:00Z" },
     ]
-    await fs.writeFile(cli, "#!/bin/sh\nprintf '%s' \"$ODF_TEST_ENGRAM_EXPORT\" > \"$2\"\n", "utf8")
+await fs.writeFile(cli, "#!/bin/sh\nprintf '{\"observations\":%s}' \"$ODF_TEST_ENGRAM_EXPORT\" > \"$2\"\n", "utf8")
     await fs.chmod(cli, 0o755)
     process.env.PATH = `${bin}${path.delimiter}${previousPath || ""}`
     process.env.ODF_TEST_ENGRAM_EXPORT = JSON.stringify(observations)

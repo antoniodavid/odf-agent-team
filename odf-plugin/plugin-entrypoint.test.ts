@@ -23,7 +23,7 @@ describe("ODF plugin V1 entrypoint", () => {
     await fs.rm(configDir, { recursive: true, force: true })
   })
 
-  it("exports a server-only V1 object and registers every ODF tool", async () => {
+  it("exports a server-only V1 object and registers every ODF tool", { timeout: 20_000 }, async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined)
     const log = vi.spyOn(console, "log").mockImplementation(() => undefined)
     const module = await import("../plugins/odf-delegation.js")

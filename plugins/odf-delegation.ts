@@ -4879,9 +4879,14 @@ function readEngramObservationsWithError(workspaceRoot: string): EngramObservati
 
   try {
     const raw = fsSync.readFileSync(tmpFile, "utf8")
-    const parsed = JSON.parse(raw)
-    return Array.isArray(parsed)
-      ? { observations: parsed, error: null }
+    const parsed: unknown = JSON.parse(raw)
+    // `engram export` emits { version, exported_at, sessions, observations, prompts };
+    // accept a bare observations array for compatibility with older builds.
+    const observations = Array.isArray(parsed)
+      ? parsed
+      : (parsed as { observations?: unknown } | null)?.observations
+    return Array.isArray(observations)
+      ? { observations, error: null }
       : { observations: null, error: "engram-export-invalid" }
   } catch {
     return { observations: null, error: "engram-export-invalid" }
