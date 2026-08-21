@@ -6840,7 +6840,7 @@ function createODFWorkflowAdvance(): ReturnType<typeof tool> {
 // ==========================================
 
 const LOOP_GUARD_READ_TOOLS = new Set([
-  "read", "glob", "grep", "webfetch", "mgrep",
+  "read", "glob", "grep", "webfetch",
   "list_mcp_resources", "list_mcp_resource_templates", "read_mcp_resource",
   "codegraph_codegraph_explore", "fff_find_files", "fff_grep", "fff_multi_grep",
   "engram_mem_context", "engram_mem_search", "engram_mem_get_observation",

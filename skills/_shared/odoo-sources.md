@@ -7,6 +7,10 @@ codebase questions, use CodeGraph first, then FFF (`fff_find_files` /
 `fff_grep`) for search, then `Read`. Do not assume additional search
 dependencies are installed.
 
+**NEVER use `mgrep` for searches.** It is denied for ODF agents. Use
+`fff_find_files`, `fff_grep`, or `fff_multi_grep` (faster, project-native), and
+CodeGraph for structural questions.
+
 1. **CodeGraph**: repo maps, architecture, call flow, dependencies, symbols, and impact.
 2. **Local codebase**: FFF to search — `fff_find_files` to find paths, `fff_grep` / `fff_multi_grep` for known text patterns, then `Read` for the actual files.
 3. **Local docs**: Obsidian curated knowledge.

@@ -5,6 +5,7 @@ mode: subagent
 temperature: 0.2
 permission:
   read: allow
+  mgrep: deny
   edit: deny
   bash: deny
 ---

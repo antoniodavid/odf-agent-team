@@ -7,6 +7,7 @@ permission:
   read: allow
   glob: allow
   grep: allow
+  mgrep: deny
   edit: ask
   bash: ask
   external_directory: allow
