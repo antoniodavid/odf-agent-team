@@ -20,7 +20,7 @@ Use as Phase 1 of /odf-new, after PROPOSE. Determine whether a requirement can b
 
 | Rule | Requirement |
 |------|-------------|
-| Standard Odoo first | Investigate settings, automated actions, server actions, studio BEFORE considering custom code |
+| Standard Odoo first | When the strategy is unclear, investigate settings/automated actions/studio BEFORE custom code; skip exploration when the proposal strategy hint + Expectations already determine standard vs custom |
 | No code | Produce only specifications (custom) or configuration guides (standard) |
 | Version required | Confirm Odoo version before any analysis |
 | Plan requirements numbered | Use REQ-01, REQ-02 format for the technical plan |
@@ -38,7 +38,7 @@ Use as Phase 1 of /odf-new, after PROPOSE. Determine whether a requirement can b
 
 1. **Detect version**: Read __manifest__.py or use provided version
 2. **Map keywords to domains**: Identify which Odoo areas are involved (sale, stock, account, etc.)
-3. **Check standard first**: Search local Odoo source + NotebookLM for existing features
+3. **Check standard first (only when unclear)**: If the proposal strategy hint is `standard` or `custom` and the Expectations are clear, skip exploration and go straight to gap analysis + spec. Otherwise search local Odoo source + NotebookLM for existing features.
 4. **Read human Expectations**: Load the `expectations` artifact (approved `EXP-XX`). These are the immutable human contract. Do NOT re-author or rephrase them.
 5. **Find gaps**: Document what standard CAN and CANNOT do per requirement
 6. **Produce output**: Config guide (standard) or functional spec (custom) with numbered REQ-XX for the technical plan, each REQ referencing the `EXP-XX` it covers, plus Given/When/Then scenarios

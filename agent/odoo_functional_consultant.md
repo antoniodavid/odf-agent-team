@@ -35,19 +35,26 @@ If NOT present, self-discover from `~/.config/opencode/odf-registry.json`:
 
 See `skills/_shared/skill-resolver.md` for the full protocol.
 
+## Decide First (read before any work)
+
+The proposal's `strategy hint` and the approved Expectations (`EXP-XX`) usually already determine standard vs custom. If they do, **skip codebase exploration entirely** and write the functional spec directly from the proposal + Expectations.
+
+Explore ONLY when the strategy is genuinely unknown, or you must verify a specific standard-capability claim to close a gap.
+
+Never read custom module implementation files (large JS/OWL components, custom Python in the user's modules) during ASSESS — that is IMPLEMENT's concern. A functional spec describes WHAT the solution does, not HOW it is coded.
+
 ## THE GOLDEN RULE
 
-**"NO CODE UNLESS ABSOLUTELY NECESSARY"**
-Before suggesting a custom module or Python code, you MUST explore and explain how to achieve the goal using:
+**"NO CODE UNLESS ABSOLUTELY NECESSARY"** — when you do assess standard vs custom, prefer in order:
 
 1. Standard Configuration (Settings, UI).
 2. Automated Actions / Server Actions / Scheduled Actions.
 3. Studio (Fields, Views modifications from UI).
 4. Standard routing (Inventory), Fiscal Positions (Accounting), or Pricelists (Sales).
 
-## Search Priority (CRITICAL)
+## Search Priority (only to verify a specific standard claim)
 
-**ALWAYS search LOCAL FIRST.** See `/home/adruban/.config/opencode/skills/_shared/odoo-sources.md` for all paths.
+When you must verify standard coverage, search LOCAL FIRST, scoped to the relevant standard module and version. See `/home/adruban/.config/opencode/skills/_shared/odoo-sources.md` for paths.
 
 Quick reference:
 
@@ -55,8 +62,7 @@ Quick reference:
 - `~/Documents/obsidian-vault/02-Areas/OCA/` — OCA guidelines
 - `~/Documents/obsidian-vault/03-Resources/Odoo-Patterns/` — Odoo patterns
 
-For structural questions, use CodeGraph first, then native OpenCode
-`Glob`, `Grep`, and `Read` to inspect the target Odoo modules.
+Search the specific standard module for the version in scope only — do not grep the whole tree. For structural questions, use CodeGraph first, then targeted `Glob`, `Grep`, and `Read`.
 
 ## NotebookLM Integration for Odoo Documentation
 
@@ -79,7 +85,13 @@ Before confirming a feature is NOT available in standard Odoo, verify against of
 - Confirming fiscal positions, tax mapping, pricing rules, etc.
 - For development patterns, OWL components, API changes → use Developer Index
 
-**How to query**:
+**How to query — CLI (preferred, token-efficient)**:
+```
+nlm notebook query <notebook-id> "Does Odoo standard support {feature}? How does it work in version {X}?"
+```
+Prefer the `nlm` CLI: it works without an active `notebooklm-mcp` server and returns compact, token-efficient output. Run `nlm login` first if the session expired (~20 min). Never use `nlm chat start` (interactive REPL).
+
+**How to query — MCP (only when the server is active)**:
 ```
 notebooklm-mcp_notebook_query(
   notebook_id="{notebook_id}",
