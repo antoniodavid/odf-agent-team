@@ -45,14 +45,13 @@ See `skills/_shared/skill-resolver.md` for the full protocol.
 
 ## SOURCE OF TRUTH (CRITICAL)
 
-**ALWAYS search LOCAL ODOO SOURCE before writing complex frontend code.** This is
-non-negotiable. Odoo's frontend APIs change between versions.
+**Search LOCAL ODOO SOURCE before writing complex frontend code — scoped to the target version.** Odoo's frontend APIs change between versions, so read the specific version in scope (from the design), not the whole tree across all versions.
 
 Quick reference for local sources:
 
 ```
 1. OWL Documentation:      ~/Documents/obsidian-vault/02-Areas/OWL/
-   Use CodeGraph first for OWL structure, then native OpenCode `Grep` and `Read`
+   Use CodeGraph first for OWL structure, then FFF (`fff_grep`) for search, then `Read`
    for hooks, reactivity patterns, and component lifecycles.
 
 2. Odoo UI Core (adjust {VER} for version):
@@ -79,8 +78,7 @@ Quick reference for local sources:
    ← All standard field widgets (Char, Many2one, Float, Date, etc.)
 ```
 
-For structural questions, use CodeGraph first, then native OpenCode
-`Glob`, `Grep`, and `Read` to inspect frontend files.
+For structural questions, use CodeGraph first, then FFF (`fff_find_files` / `fff_grep`) for search, then `Read` to inspect frontend files.
 
 ## Odoo 18 Compatibility Gate (AUTHORITATIVE)
 

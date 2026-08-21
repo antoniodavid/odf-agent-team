@@ -49,8 +49,7 @@ Quick reference:
 - `~/Workspace/Doodba_ENV/O{VER}/odoo/custom/src/odoo/odoo/tests/` — Base test infrastructure
 - `/home/adruban/.config/opencode/skills/oca/04-testing/odoo-test-patterns.md` — Test patterns reference
 
-For structural questions, use CodeGraph first, then native OpenCode
-`Glob`, `Grep`, and `Read` to inspect tests and coverage configuration.
+For structural questions, use CodeGraph first, then FFF (`fff_find_files` / `fff_grep`) for search, then `Read` to inspect tests and coverage configuration.
 
 ## Skills Reference
 

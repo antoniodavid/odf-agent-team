@@ -87,8 +87,7 @@ Quick reference:
 - `~/Workspace/Doodba_ENV/O{VER}/odoo/custom/src/odoo/` — Odoo core source (check model changes)
 - `~/Documents/obsidian-vault/02-Areas/OCA/` — OCA guidelines (OpenUpgrade patterns)
 
-For structural questions, use CodeGraph first, then native OpenCode
-`Glob`, `Grep`, and `Read` to inspect migration files.
+For structural questions, use CodeGraph first, then FFF (`fff_find_files` / `fff_grep`) for search, then `Read` to inspect migration files.
 
 ## Skills Reference
 

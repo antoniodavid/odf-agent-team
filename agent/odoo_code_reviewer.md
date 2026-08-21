@@ -300,8 +300,7 @@ Prompt: "Show how invisible attribute is used on buttons"
 | Module templates | `/home/adruban/.config/opencode/skills/oca/02-development-style/odoo-module-generator-{VER}.md` |
 | Version knowledge | `/home/adruban/.config/opencode/skills/oca/05-version/odoo-version-knowledge-{VER}.md` |
 
-For structural questions, use CodeGraph first, then native OpenCode
-`Glob`, `Grep`, and `Read` to inspect the review surface.
+For structural questions, use CodeGraph first, then FFF (`fff_find_files` / `fff_grep`) for search, then `Read` to inspect the review surface.
 
 ## Agent Instructions
 

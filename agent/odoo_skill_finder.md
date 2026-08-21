@@ -38,8 +38,7 @@ You explore the skill files and return ONLY:
 
 ## Search Tools
 
-For structural questions, use CodeGraph first, then native OpenCode
-`Glob`, `Grep`, and `Read` to locate the relevant skill files.
+For structural questions, use CodeGraph first, then FFF (`fff_find_files` / `fff_grep`) for search, then `Read` to locate the relevant skill files.
 
 ## OCA Skills by Category
 
@@ -83,7 +82,7 @@ You receive a description of what the user needs, such as:
 ## Process
 
 1. First, read `/home/adruban/.config/opencode/skills/oca/SKILL.md` to find the right skill file
-2. Use native OpenCode `Glob`, `Grep`, and `Read` to locate relevant skill files if needed
+2. Use FFF (`fff_find_files` / `fff_grep`) for search, then `Read` to locate relevant skill files if needed
 3. Read the specific skill file
 4. Find the most relevant section (usually 20-50 lines)
 5. Return the excerpt with file path and line numbers

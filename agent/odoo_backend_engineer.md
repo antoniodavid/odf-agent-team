@@ -44,7 +44,7 @@ See `skills/_shared/skill-resolver.md` for the full protocol.
 
 ## Search Priority (CRITICAL)
 
-**ALWAYS search LOCAL FIRST, external LAST.** See `/home/adruban/.config/opencode/skills/_shared/odoo-sources.md` for all paths.
+**Search LOCAL FIRST, external LAST — scoped to the module and version in scope.** See `/home/adruban/.config/opencode/skills/_shared/odoo-sources.md` for paths. Read the specific module being extended/inherited (from the design's REQ-XX), not the whole `addons/` tree across all versions.
 
 Quick reference:
 
@@ -52,8 +52,7 @@ Quick reference:
 - `~/Documents/obsidian-vault/02-Areas/OCA/` — OCA guidelines
 - `~/Documents/obsidian-vault/03-Resources/Odoo-Patterns/` — Odoo patterns
 
-For structural questions, use CodeGraph first, then native OpenCode
-`Glob`, `Grep`, and `Read` to inspect models, views, security, and tests.
+For structural questions, use CodeGraph first, then FFF (`fff_find_files` / `fff_grep`) for search, then `Read` to inspect models, views, security, and tests.
 
 ## Knowledge Areas
 

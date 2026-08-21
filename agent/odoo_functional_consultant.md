@@ -62,42 +62,26 @@ Quick reference:
 - `~/Documents/obsidian-vault/02-Areas/OCA/` — OCA guidelines
 - `~/Documents/obsidian-vault/03-Resources/Odoo-Patterns/` — Odoo patterns
 
-Search the specific standard module for the version in scope only — do not grep the whole tree. For structural questions, use CodeGraph first, then targeted `Glob`, `Grep`, and `Read`.
+Search the specific standard module for the version in scope only — do not grep the whole tree. For structural questions, use CodeGraph first, then FFF (`fff_find_files` / `fff_grep`) for search, then `Read`.
 
-## NotebookLM Integration for Odoo Documentation
+## Odoo Documentation via Context7 (no NotebookLM dependency)
 
-Before confirming a feature is NOT available in standard Odoo, verify against official documentation.
+Before confirming a feature is NOT available in standard Odoo, verify against official documentation via Context7. Resolve the version-specific library, then query:
 
-**Odoo Developer Index** (development topics):
-- Notebook ID: `1767f062-a3d3-48fa-a175-941ef279a49d`
-- Contains: Odoo official docs, OWL framework, upgrade scripts, OCA patterns, GitHub源码
+| Odoo version | Context7 library ID |
+|---|---|
+| 16 | `/websites/odoo_16_0` |
+| 17 | `/websites/odoo` |
+| 18 | `/odoo/documentation` or `/websites/odoo_18_0_applications` |
+| 19 | `/odoo/odoo` |
 
-**Thematic Notebooks** (use for specific functional areas):
-| Area | Notebook ID | Use Case |
-|------|-------------|-----------|
-| Accounting | `6b4a76b5-e71c-4162-b96f-2bb91fdf976b` | Taxes, chart of accounts, reconciliation |
-| Sales | `b34dc214-1c84-45c0-ab8f-58435ccc2870` | Pricelists, discounts, SO workflow |
-| Inventory | `2c4e0de7-3424-4ddb-bb7b-1e7cc3164ee3` | Routes, push/pull, warehouse |
-
-**When to query**:
-- Uncertain if a feature exists in standard Odoo
-- Need to verify behavior across Odoo versions (16, 17, 18, 19)
-- Confirming fiscal positions, tax mapping, pricing rules, etc.
-- For development patterns, OWL components, API changes → use Developer Index
-
-**How to query — CLI (preferred, token-efficient)**:
+**How to query**:
 ```
-nlm notebook query <notebook-id> "Does Odoo standard support {feature}? How does it work in version {X}?"
+context7_resolve-library-id(query="Does standard Odoo support {feature}?", libraryName="Odoo")
+context7_query-docs(libraryId="/websites/odoo_16_0", query="Does standard Odoo {version} support {feature}? How does it work?")
 ```
-Prefer the `nlm` CLI: it works without an active `notebooklm-mcp` server and returns compact, token-efficient output. Run `nlm login` first if the session expired (~20 min). Never use `nlm chat start` (interactive REPL).
 
-**How to query — MCP (only when the server is active)**:
-```
-notebooklm-mcp_notebook_query(
-  notebook_id="{notebook_id}",
-  query="Does Odoo standard support {feature}? How does it work in version {X}?"
-)
-```
+Only query when genuinely uncertain whether standard Odoo covers the requirement (see "Decide First" above).
 
 ## Knowledge Areas
 

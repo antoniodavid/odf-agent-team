@@ -3,11 +3,12 @@
 ## Search Priority
 
 Always inspect local Odoo source before external references. For structural or
-codebase questions, use CodeGraph first, then native OpenCode `Glob`, `Grep`,
-and `Read`. Do not assume additional search dependencies are installed.
+codebase questions, use CodeGraph first, then FFF (`fff_find_files` /
+`fff_grep`) for search, then `Read`. Do not assume additional search
+dependencies are installed.
 
 1. **CodeGraph**: repo maps, architecture, call flow, dependencies, symbols, and impact.
-2. **Local codebase**: native `Glob` to find paths, `Grep` for known text patterns, and `Read` for the actual files.
+2. **Local codebase**: FFF to search — `fff_find_files` to find paths, `fff_grep` / `fff_multi_grep` for known text patterns, then `Read` for the actual files.
 3. **Local docs**: Obsidian curated knowledge.
 4. **Context7**: external documentation when local sources are insufficient.
 5. **GitHub API**: OCA repositories for PRs and migration status only.
@@ -39,8 +40,8 @@ and tests.
 ```text
 1. Resolve the target version and local source root.
 2. Use CodeGraph for structural questions when an index is available.
-3. Use Glob to locate modules, manifests, models, views, and tests.
-4. Use Grep for a specific symbol, field, XML ID, or API pattern.
+3. Use `fff_find_files` to locate modules, manifests, models, views, and tests.
+4. Use `fff_grep` / `fff_multi_grep` for a specific symbol, field, XML ID, or API pattern.
 5. Read the manifest, implementation, views, and tests before concluding.
 ```
 

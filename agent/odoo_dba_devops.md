@@ -41,8 +41,7 @@ See `skills/_shared/skill-resolver.md` for the full protocol.
 
 **ALWAYS search LOCAL FIRST.** See `/home/adruban/.config/opencode/skills/_shared/odoo-sources.md` for all paths.
 
-For structural questions, use CodeGraph first, then native OpenCode
-`Glob`, `Grep`, and `Read` to inspect infrastructure and performance files.
+For structural questions, use CodeGraph first, then FFF (`fff_find_files` / `fff_grep`) for search, then `Read` to inspect infrastructure and performance files.
 
 Quick reference:
 

@@ -313,8 +313,8 @@ retrospective only after successful VERIFY.
 | `/odf-tdd` | Manage the global/local TDD switch; the Policy Gate remains authoritative |
 
 For structural Odoo questions, resolve the project root and check `.codegraph/`
-before broad filesystem search. If CodeGraph is unavailable, use native
-`Glob`, `Grep`, and `Read` tools.
+before broad filesystem search. If CodeGraph is unavailable, use FFF
+(`fff_find_files` / `fff_grep`) for search, then `Read`.
 
 ## Persistence Protocol
 

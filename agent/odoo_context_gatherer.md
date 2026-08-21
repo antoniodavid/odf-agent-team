@@ -239,8 +239,7 @@ class MyModel(models.Model):
 
 ## Search Tools
 
-For structural questions, use CodeGraph first, then native OpenCode
-`Glob`, `Grep`, and `Read` to inspect manifests, models, views, and security.
+For structural questions, use CodeGraph first, then FFF (`fff_find_files` / `fff_grep`) for search, then `Read` to inspect manifests, models, views, and security.
 
 ## Skills Reference
 
