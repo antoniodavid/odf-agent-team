@@ -1286,6 +1286,8 @@ const STOP_WORDS = new Set([
   "their", "what", "which", "who", "when", "where", "why", "how", "all", "any",
   "both", "each", "few", "more", "most", "other", "some", "such", "no", "nor",
   "not", "only", "own", "same", "so", "than", "too", "very", "just", "also",
+  // Generic project/product tokens with no agent-domain signal
+  "odoo",
   // Spanish
   "el", "la", "los", "las", "un", "una", "unos", "unas", "y", "o", "pero", "en",
   "de", "con", "por", "para", "desde", "hasta", "entre", "sobre", "bajo", "ante",
@@ -1342,19 +1344,22 @@ function resolveAgent(registry: ODFRegistry, phase: string, taskKeywords: string
     return DEFAULT_AGENTS[phase]
   }
 
-  // Check for custom agents matching phase and keywords
+  // Check for custom agents matching phase and keywords. Score by the number
+  // of matching keywords so a single generic token (e.g. "odoo") cannot
+  // outvote a strongly matching domain agent; ties keep registry order.
+  let best: { name: string; score: number } | null = null
   for (const agent of registry.agents) {
     if (!agent.installed) continue
     if (!agent.phases.includes(phase) && !agent.phases.includes("ANY")) continue
 
-    // Check if agent description matches filtered task keywords
     const descLower = agent.description.toLowerCase()
-    if (filteredKeywords.some(kw => descLower.includes(kw.toLowerCase()))) {
-      return agent.name
+    let score = 0
+    for (const kw of filteredKeywords) {
+      if (descLower.includes(kw.toLowerCase())) score++
     }
+    if (score > 0 && (!best || score > best.score)) best = { name: agent.name, score }
   }
-
-  return DEFAULT_AGENTS[phase]
+  return best?.name || DEFAULT_AGENTS[phase]
 }
 
 // ==========================================

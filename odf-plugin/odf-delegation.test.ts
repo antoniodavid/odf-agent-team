@@ -1158,6 +1158,19 @@ describe("resolveAgent", () => {
     expect(resolveAgent(baseRegistry, "DESIGN", ["lot", "serial", "stock", "tracking"])).toBe("odoo_stock_lot_specialist")
   })
 
+  it("does not route a backend prompt to frontend because of the generic odoo token", () => {
+    expect(resolveAgent(baseRegistry, "DESIGN", ["Odoo", "18", "Python", "ORM", "model"])).toBe("odoo_backend_engineer")
+    expect(resolveAgent(baseRegistry, "IMPLEMENT", ["Odoo", "18", "Python", "ORM", "model"])).toBe("odoo_backend_engineer")
+  })
+
+  it("falls back to the phase default when only generic tokens match", () => {
+    expect(resolveAgent(baseRegistry, "DESIGN", ["Odoo", "18", "module"])).toBe("odoo_backend_engineer")
+  })
+
+  it("still resolves a genuinely frontend prompt to the frontend agent", () => {
+    expect(resolveAgent(baseRegistry, "DESIGN", ["frontend", "OWL", "assets"])).toBe("odoo_frontend_engineer")
+  })
+
   it("falls back to phase default when no custom agent matches", () => {
     expect(resolveAgent(baseRegistry, "ASSESS", ["model", "python", "security"])).toBe("odoo_functional_consultant")
   })

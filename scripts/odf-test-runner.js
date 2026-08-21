@@ -50,6 +50,7 @@ const STOP_WORDS = new Set([
   'is','was','are','were','be','been','being','have','has','had','do','does','did',
   'will','would','could','should','may','might','must','can','shall',
   'this','that','these','those','i','you','he','she','it','we','they',
+  'odoo',
   'el','la','los','las','un','una','y','o','pero','en','de','con','por','para',
 ]);
 
@@ -107,13 +108,20 @@ function resolveAgent(registry, phase, taskKeywords) {
   if (filteredKeywords.length === 0) {
     return defaults[phase];
   }
+  // Score by the number of matching keywords so a single generic token cannot
+  // outvote a strongly matching domain agent; ties keep registry order.
+  let best = null;
   for (const agent of registry.agents || []) {
     if (!agent.installed) continue;
     if (!agent.phases?.includes(phase) && !agent.phases?.includes('ANY')) continue;
     const descLower = agent.description.toLowerCase();
-    if (filteredKeywords.some(kw => descLower.includes(kw.toLowerCase()))) return agent.name;
+    let score = 0;
+    for (const kw of filteredKeywords) {
+      if (descLower.includes(kw.toLowerCase())) score++;
+    }
+    if (score > 0 && (!best || score > best.score)) best = { name: agent.name, score };
   }
-  return defaults[phase];
+  return best ? best.name : defaults[phase];
 }
 
 // ==========================================
