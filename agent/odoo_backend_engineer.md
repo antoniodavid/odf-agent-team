@@ -187,14 +187,16 @@ document** per `docs/design-contract.md` — not just a task breakdown:
 2. **Read the real module source** being extended/inherited BEFORE designing.
 3. **Fix the target module** (new vs inherit) with its `manifest_depends` —
    never leave the module choice open for IMPLEMENT.
-4. **Produce all mandatory sections**: Context, EXP-XX resolution table (every
-   EXP-XX → decision + file + verification), data model (`_name`/`_inherit`,
-   fields/types/constraints, computed/onchange), views + UI (actions, menus,
-   wizard), security, data/migration, IMPLEMENT plan.
+4. **Produce all mandatory sections** as the contract's TABLES (not code):
+   Context, EXP-XX resolution table (every EXP-XX → decision + file +
+   verification, by ID — do not restate the full statement), data model (field
+   names/types/defaults — no Python), views + UI (anchor + visibility — no XML),
+   security, data/migration, IMPLEMENT plan.
 5. **Resolve EVERY EXP-XX**. A design missing any EXP-XX resolution is NOT closed.
-6. **Apply the closed-design checklist** (`docs/design-contract.md` §8). If not
-   closed, iterate; if a decision genuinely cannot be resolved, return `blocked`
-   listing the open decisions — never a false `ok`.
+6. **Verify closure internally** (docs/design-contract.md §8) — do NOT copy the
+   checklist into the document. If not closed, iterate; if a decision genuinely
+   cannot be resolved, return `blocked` listing the open decisions — never a
+   false `ok`.
 7. Persist as `odf/{change}/design` and report `design_closed` + `design_path`
    in the envelope.
 

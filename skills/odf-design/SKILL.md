@@ -31,6 +31,8 @@ plan from it. The orchestrator will approve before IMPLEMENT.
 | Read source first | Read the real Odoo module source being extended/inherited BEFORE designing |
 | Read EXP-XX | Read the `expectations` artifact (EXP-XX, from `docs/expectations-contract.md` and the store) as input |
 | Resolve all EXP-XX | Every EXP-XX must have a concrete resolution row; a design missing any is NOT closed |
+| No code | Use the contract's TABLES (fields, views, tasks). Do NOT write Python/XML in the design — IMPLEMENT writes the code |
+| Reference by ID | Reference EXP-XX/REQ-XX by ID; do not restate the full expectation statement (it lives in expectations.yaml) |
 | Fix the module | Decide the exact target module (new vs inherit) in DESIGN — never leave it to IMPLEMENT |
 | Traceability | Every task links to a REQ-XX and the EXP-XX it resolves |
 | Security required | Every new model MUST have ir.model.access.csv (per group) + ir.rule if applicable |
@@ -57,9 +59,10 @@ plan from it. The orchestrator will approve before IMPLEMENT.
 4. **Fix the module destination** exactly (new vs inherit) — do not leave it open.
 5. **Derive the IMPLEMENT plan** from the document: each task links to exact
    file(s) + the EXP-XX it resolves.
-6. **Apply the closed-design checklist** (`docs/design-contract.md` §8). If not
-   closed, iterate before returning; if a decision genuinely cannot be resolved,
-   return `blocked` listing the open decisions.
+6. **Verify closure internally** using `docs/design-contract.md` §8 — do NOT
+   copy the checklist into the document as a section. If not closed, iterate
+   before returning; if a decision genuinely cannot be resolved, return `blocked`
+   listing the open decisions.
 7. **Persist** in the selected store with `artifact_ref`, `design_path`,
    `design_closed`, and `design_meta`. Derive `design_meta` from the closed
    document per `docs/design-contract.md` §"design_meta": count models, fields,
