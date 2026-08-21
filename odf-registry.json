@@ -1250,11 +1250,21 @@
       "installed": true
     },
     {
+      "name": "odoo_proposer",
+      "mode": "subagent",
+      "description": "ODF PROPOSE agent — business framing, scope, capabilities, risks (300-word proposal only)",
+      "phases": [
+        "PROPOSE"
+      ],
+      "model": null,
+      "path": "agent/odoo_proposer.md",
+      "installed": true
+    },
+    {
       "name": "odoo_functional_consultant",
       "mode": "subagent",
       "description": "Standard vs custom assessment, functional analysis",
       "phases": [
-        "PROPOSE",
         "ASSESS"
       ],
       "model": null,

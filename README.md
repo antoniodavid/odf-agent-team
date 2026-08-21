@@ -142,7 +142,8 @@ Otros comandos públicos (en `command/`) siguen disponibles: `/odf-fix` (diagnos
 | Agente | Rol | Etapas |
 |--------|-----|--------|
 | `odoo_orchestrator` | Coordinador principal | ALL |
-| `odoo_functional_consultant` | Propuesta y análisis standard vs custom | DECIDE (PROPOSE, ASSESS) |
+| `odoo_proposer` | Propuesta (business intent, scope, riesgos) | DECIDE (PROPOSE) |
+| `odoo_functional_consultant` | Análisis standard vs custom | DECIDE (ASSESS) |
 | `odoo_backend_engineer` | Python models, views, security | PLAN, BUILD |
 | `odoo_frontend_engineer` | OWL, JS/TS, SCSS, QWeb | PLAN, BUILD |
 | `odoo_qa_engineer` | Test strategy, coverage | PLAN (lente QA), VERIFY |
@@ -158,9 +159,9 @@ Otros comandos públicos (en `command/`) siguen disponibles: `/odf-fix` (diagnos
 
 ```
 ODF Agent Team
-├── Registry (31 skills, 12 agents, 2 profiles, package metadata)
+├── Registry (31 skills, 13 agents, 2 profiles, package metadata)
 ├── Orchestrator (odoo_orchestrator) — preflight gate + thin-spine state machine
-│   ├── DECIDE    → odoo_functional_consultant (PROPOSE + ASSESS adapters)
+│   ├── DECIDE    → odoo_proposer (PROPOSE) + odoo_functional_consultant (ASSESS)
 │   ├── PLAN      → odoo_qa_engineer + odoo_backend/frontend_engineer (optional)
 │   ├── BUILD     → odoo_backend_engineer (or custom agent)
 │   └── VERIFY    → odoo_qa_engineer + Judgment Day

@@ -88,7 +88,8 @@ replace a default when their phase and triggers match.
 
 | Phase/domain | Default or specialist |
 |---|---|
-| PROPOSE, ASSESS | `odoo_functional_consultant` |
+| PROPOSE | `odoo_proposer` |
+| ASSESS | `odoo_functional_consultant` |
 | ASSESS context | `odoo_context_gatherer` |
 | QA-PLAN, VERIFY | `odoo_qa_engineer` |
 | DESIGN, IMPLEMENT backend | `odoo_backend_engineer` |

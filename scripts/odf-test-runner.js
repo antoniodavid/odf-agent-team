@@ -94,7 +94,7 @@ function matchSkills(registry, _phase, context) {
 function resolveAgent(registry, phase, taskKeywords) {
   const filteredKeywords = filterStopWords(taskKeywords);
   const defaults = {
-    PROPOSE: 'odoo_functional_consultant',
+    PROPOSE: 'odoo_proposer',
     ASSESS: 'odoo_functional_consultant',
     'QA-PLAN': 'odoo_qa_engineer',
     DESIGN: 'odoo_backend_engineer',

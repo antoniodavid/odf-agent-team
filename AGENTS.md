@@ -34,7 +34,7 @@ Each phase is a sub-agent with a defined input/output contract. The orchestrator
 
 | Phase | Agent | Output | Gate |
 |-------|-------|--------|------|
-| **PROPOSE** | `odoo_functional_consultant` | Business intent, scope, capabilities, risks | `question` tool — approve/adjust/cancel |
+| **PROPOSE** | `odoo_proposer` | Business intent, scope, capabilities, risks | `question` tool — approve/adjust/cancel |
 | **ASSESS** | `odoo_functional_consultant` | Strategy (standard vs custom) + functional spec | `question` tool — proceed/adjust/cancel |
 | **QA-PLAN** | `odoo_qa_engineer` | Test plan, scenarios, coverage targets | `question` tool — approve/adjust |
 | **DESIGN** | `odoo_backend_engineer` / `odoo_frontend_engineer` | Technical design + tasks | `question` tool — approve & implement |

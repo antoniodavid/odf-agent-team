@@ -1145,7 +1145,7 @@ describe("ALLOWED_PHASES", () => {
 
 describe("resolveAgent", () => {
   it("returns default agents when keywords are empty", () => {
-    expect(resolveAgent(baseRegistry, "PROPOSE", [])).toBe("odoo_functional_consultant")
+    expect(resolveAgent(baseRegistry, "PROPOSE", [])).toBe("odoo_proposer")
     expect(resolveAgent(baseRegistry, "ASSESS", [])).toBe("odoo_functional_consultant")
     expect(resolveAgent(baseRegistry, "DESIGN", [])).toBe("odoo_backend_engineer")
     expect(resolveAgent(baseRegistry, "IMPLEMENT", [])).toBe("odoo_backend_engineer")
@@ -2079,7 +2079,7 @@ ${overrides}`
     expect(envelope.result).toEqual(taskResult)
     expect(envelope.skills_injected.length).toBeGreaterThanOrEqual(0)
     expect(envelope.profile).toBeDefined()
-    expect(envelope.profile?.model).toBe("opencode-go/deepseek-r1")
+    expect(envelope.profile?.model).toBeNull()
     expect(envelope.workflow_advance).toBeUndefined()
 
     const metrics = getMetricsBuffer()
@@ -4110,12 +4110,12 @@ ${overrides}`
     const envelope = JSON.parse(output as string)
     expect(envelope.status).toBe("delegated")
     expect(envelope.profile).toBeDefined()
-    expect(envelope.profile.model).toBe("opencode-go/kimi-k2.6")
+    expect(envelope.profile.model).toBeNull()
     expect(envelope.profile.temperature).toBe(0.25)
 
     const calledPrompt = taskApi.mock.calls[0][0].prompt
     expect(calledPrompt).toContain("## SDD Profile")
-    expect(calledPrompt).toContain("opencode-go/kimi-k2.6")
+    expect(calledPrompt).toContain("current (inherited)")
     expect(calledPrompt).toContain("Temperature: 0.25")
   })
 
@@ -4135,7 +4135,7 @@ ${overrides}`
     expect(envelope.status).toBe("delegated")
     expect(envelope.profile).toBeDefined()
     expect(envelope.profile.name).toBe("cheap")
-    expect(envelope.profile.model).toBe("opencode-go/kimi-k2.6")
+    expect(envelope.profile.model).toBeNull()
     expect(envelope.profile.reasoning).toBe(false)
   })
 
@@ -4178,7 +4178,7 @@ ${overrides}`
     const envelope = JSON.parse(output as string)
     expect(envelope.status).toBe("delegated")
     expect(envelope.phase).toBe("PROPOSE")
-    expect(envelope.agent).toBe("odoo_functional_consultant")
+    expect(envelope.agent).toBe("odoo_proposer")
     expect(getMetricsBuffer()[0].phase).toBe("PROPOSE")
   })
 

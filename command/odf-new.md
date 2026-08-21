@@ -77,7 +77,7 @@ available for compatibility; they have not disappeared.
 ODF: Iniciando cambio "{change-name}"
 
 Fase: PROPOSE
-Agente: odoo_functional_consultant
+Agente: odoo_proposer
 ...
 
 Evaluación completada:
