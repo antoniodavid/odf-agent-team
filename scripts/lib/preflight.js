@@ -20,9 +20,9 @@ export const PREFLIGHT_FIELDS = {
   },
   execution_mode: {
     type: 'enum',
-    values: ['interactive', 'batch'],
+    values: ['interactive', 'batch', 'auto'],
     default: 'interactive',
-    question: 'Modo de ejecución (interactive | batch):',
+    question: 'Modo de ejecución (interactive | batch | auto):',
   },
   artifact_store: {
     type: 'enum',

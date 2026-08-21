@@ -42,11 +42,13 @@ user disposition.
 |---|---|
 | `interactive` | Run the required question rounds and pause after every phase and IMPLEMENT batch for approval. |
 | `batch` | Skip voluntary question/approval rounds and auto-continue only for inner `ok` or `warning`; stop for `blocked`, `failed`, correction, or product/user disposition. |
+| `auto` | Piloto automático: behaves like `batch` (no voluntary approval pauses) plus full auto-continuation. After each phase, launch the next immediately when the inner result is `ok` or `warning`, no receipt is pending, no correction/disposition is pending, validation evidence is verified (IMPLEMENT/VERIFY), and no product/scope decision is required. NEVER skips the mandatory safety gates. |
 
 - In `interactive`, prefer `question` with one approval envelope: phase, summary, and the ordered choices `approve` -> next phase, `adjust` -> revise/re-run the current phase, `cancel` -> stop.
 - In `batch`, do not ask voluntary approval questions; continue only for inner `ok` or `warning`.
-- If `question` is unavailable, print the identical phase, summary, option labels, values, and order as plain text, then wait; never choose silently. This fallback is identical in both modes whenever input is required.
-- PROPOSE runs its 3-5 business-question round in `interactive`; `batch` skips that voluntary round. Any required product/user disposition still stops both modes.
+- In `auto`, continue automatically under the same conditions as `batch` plus: no pending receipt with `action: null`, no pending correction/disposition, validation evidence verified (IMPLEMENT/VERIFY), and no product/scope decision required. The only stops are: `odf_health`/preflight missing or failed; human Expectations not yet approved (the ONE confirmation at entry — reuse existing approved Expectations when byte-equivalent, otherwise collect+confirm once); inner `blocked`/`failed`; pending receipt with `action: null`; Policy Gate block; missing/invalid validation evidence; candidate digest mismatch; a failed single correction attempt; blocked parallel join; or any explicit product/scope/user disposition.
+- If `question` is unavailable, print the identical phase, summary, option labels, values, and order as plain text, then wait; never choose silently. This fallback is identical in all modes whenever input is required.
+- PROPOSE runs its 3-5 business-question round in `interactive`; `batch` and `auto` skip that voluntary round. Any required product/user disposition still stops every mode.
 
 ### ODF Entry Health Gate
 
@@ -68,6 +70,12 @@ ASSESS, QA-PLAN, and DESIGN. It never skips preflight, the IMPLEMENT approval
 (even in `batch`), the Policy Gate, validation evidence, VERIFY, or failure
 disposition. Inner `blocked`/`failed` results and any correction or
 product/user disposition always stop the run.
+
+`execution_mode: auto` supersedes `--fast` for voluntary gates: autopilot
+auto-continues the phases `--fast` would skip and never asks for those
+approvals. The mandatory gates listed above still apply in `auto` — preflight,
+human Expectations approval, the Policy Gate, validation evidence, VERIFY, and
+failure disposition are never skipped.
 
 ## Sources of Truth
 
@@ -199,7 +207,7 @@ Before any phase, ensure a valid preflight record exists for the change.
 | Field | Allowed values | Default |
 |---|---|---|
 | `change` | kebab-case | from `/odf-new` |
-| `execution_mode` | `interactive`, `batch` | `interactive` |
+| `execution_mode` | `interactive`, `batch`, `auto` | `interactive` |
 | `artifact_store` | `openspec`, `engram`, `hybrid` | `openspec` |
 | `delivery_strategy` | `ask-always \| ask-on-risk \| auto-chain \| single-pr` | `ask-on-risk` |
 | `review_budget_lines` | 100-5000 | 400 |
@@ -237,28 +245,28 @@ comes from `odf_workflow_route`; adapters must not create extra business stages.
 
 ### PROPOSE
 
-- In `interactive`, ask 3-5 business questions before delegation: problem, users, rules, scope, and risks/rollback. In `batch`, skip this voluntary question round.
+- In `interactive`, ask 3-5 business questions before delegation: problem, users, rules, scope, and risks/rollback. In `batch` and `auto`, skip this voluntary question round.
 - **Capture human Expectations**: before delegating, first inspect any existing Expectations artifact. If it is valid, approved, and byte-equivalent in protected content to the intended contract, reuse it without another question, renumbering, or write. If it differs or is invalid/tampered, stop closed. Otherwise distill the USER's intent and expectations from the command description plus ONE clarification round (via `question`), reformulate them as testable `EXP-XX`, and request explicit confirmation. Pass the complete approved document to `odf_workflow_bind`; never persist it directly. Every `EXP` has `owned_by: "human"`.
 - Delegate the proposal; it contains intent, scope, capabilities, approach, affected areas, risks, rollback, and success criteria.
 - No code, functional spec, or configuration guide; keep it under 300 words.
-- Persist `odf/{change}/propose`. In `interactive`, ask whether to approve and assess, adjust scope, or cancel; in `batch`, continue only for inner `ok`/`warning`. `blocked`/`failed` or a product/user disposition stops.
+- Persist `odf/{change}/propose`. In `interactive`, ask whether to approve and assess, adjust scope, or cancel; in `batch` and `auto`, continue only for inner `ok`/`warning`. `blocked`/`failed` or a product/user disposition stops.
 - **Immutability**: once an `EXP` is `approved: true`, no agent may rewrite its `statement`. Only an explicit later human approval (clear `approved`, edit, re-approve) may modify it.
 
 ### ASSESS
 
 - Delegate functional analysis using the approved proposal and project context.
-- Persist `odf/{change}/assess`. In `interactive`, ask whether to continue with the selected strategy, adjust, or cancel; in `batch`, continue only for inner `ok`/`warning`. `blocked`/`failed`, correction, or disposition stops.
+- Persist `odf/{change}/assess`. In `interactive`, ask whether to continue with the selected strategy, adjust, or cancel; in `batch` and `auto`, continue only for inner `ok`/`warning`. `blocked`/`failed`, correction, or disposition stops.
 - If the result is standard coverage, provide the configuration guide and end the custom workflow.
 
 ### QA-PLAN
 
 - Delegate the test plan from ASSESS; persist `odf/{change}/qa-plan`.
-- Treat this as PLAN's optional QA lens, not a mandatory precondition for every BUILD or VERIFY. In `interactive`, ask for approval before DESIGN; in `batch`, continue only for inner `ok`/`warning`. `blocked`/`failed`, correction, or disposition stops.
+- Treat this as PLAN's optional QA lens, not a mandatory precondition for every BUILD or VERIFY. In `interactive`, ask for approval before DESIGN; in `batch` and `auto`, continue only for inner `ok`/`warning`. `blocked`/`failed`, correction, or disposition stops.
 
 ### DESIGN
 
 - Select the domain agent(s), using the ASSESS and QA artifacts plus codebase context.
-- Persist `odf/{change}/design`. In `interactive`, show the task list and ask to approve, adjust, or cancel; in `batch`, continue only for inner `ok`/`warning`. `blocked`/`failed`, correction, or disposition stops.
+- Persist `odf/{change}/design`. In `interactive`, show the task list and ask to approve, adjust, or cancel; in `batch` and `auto`, continue only for inner `ok`/`warning`. `blocked`/`failed`, correction, or disposition stops.
 
 ### IMPLEMENT
 
@@ -267,7 +275,7 @@ comes from `odf_workflow_route`; adapters must not create extra business stages.
 3. For non-cross-domain BUILD, delegate one bounded task batch at a time. On continuation, apply the prior-progress merge instruction; read existing `odf/{change}/implement-progress`, merge new progress, and never overwrite it.
 4. After a sequential batch, read the plugin's `validation` seal. After cross-domain BUILD, read every branch outcome and the aggregate `join`; close BUILD only when `join.status === "complete"`, all branches returned successful delegated envelopes, and every branch `validation.status === "verified"`.
 5. If any validation is `missing` or `invalid`, or any branch fails, do not close BUILD. Use the single aggregate blocked result and receipt for disposition; never start VERIFY.
-6. In `interactive`, show progress and ask whether to continue. In `batch`, auto-continue only when the inner result is `ok`/`warning`, validation is verified, and no correction or disposition is pending. `--fast` still requires IMPLEMENT approval. If route, risk, or work type selects QA review or aggregation, produce that evidence inside BUILD or VERIFY; do not make it a universal pre-VERIFY step.
+6. In `interactive`, show progress and ask whether to continue. In `batch`, auto-continue only when the inner result is `ok`/`warning`, validation is verified, and no correction or disposition is pending. In `auto`, IMPLEMENT starts automatically (the user approved the run at entry) and auto-continues under the same conditions, but the Policy Gate, candidate binding, attempt ledger, and validation evidence remain mandatory. `--fast` still requires IMPLEMENT approval. If route, risk, or work type selects QA review or aggregation, produce that evidence inside BUILD or VERIFY; do not make it a universal pre-VERIFY step.
 7. Persist `odf/{change}/implement-progress`.
 
 ### VERIFY
@@ -277,8 +285,8 @@ comes from `odf_workflow_route`; adapters must not create extra business stages.
 3. Ensure an approved `expectations` artifact exists and forward it to VERIFY as the primary evaluation criterion. If expectations are missing (legacy change), instruct VERIFY to evaluate against the plan/REQ and emit the explicit `missing-expectations` warning.
 4. Verify the real module test suite, lint, OCA compliance, spec coverage, and the frozen candidate against the approved Expectations. Persist `odf/{change}/verify-report` on PASS or PASS WITH WARNINGS only when the required test command actually ran and passed. The test result record MUST include command, explicit database, exit code, and output evidence. A manual browser check is supplementary. Skipped, deferred, unavailable, or unrecorded tests yield `blocked` with `verification-deferred`, never PASS or PASS WITH WARNINGS.
 5. On FAIL, allow one correction attempt within the returned budget and re-verify once against the same frozen ref. An inconclusive frozen-byte inspection does not consume the attempt.
-6. If the inspected re-verification still fails, write `odf_receipt` FIRST with cause/evidence/refs, then stop for exactly one actionable disposition: scope change, re-plan, or abandon. In `interactive`, use `question`; in `batch`, present the same disposition without auto-continuing. Never auto-loop.
-7. Update the receipt with the user's committed action. A successful VERIFY saves a retrospective under `odf-learned/{project}/{change}`.
+6. If the inspected re-verification still fails, write `odf_receipt` FIRST with cause/evidence/refs, then stop for exactly one actionable disposition: scope change, re-plan, or abandon. In `interactive`, use `question`; in `batch` and `auto`, present the same disposition without auto-continuing. Never auto-loop.
+7. Update the receipt with the user's committed action. A successful VERIFY saves a retrospective under `odf-learned/{project}/{change}`. In `auto`, VERIFY runs automatically after IMPLEMENT; PASS or PASS WITH WARNINGS auto-archives, FAIL stops for the single correction attempt and then escalates with a disposition. Archive/delivery remains the terminal gate.
 
 ## Continue and Receipts
 

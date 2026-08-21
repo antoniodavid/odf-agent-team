@@ -22,13 +22,14 @@ and `BUILD = IMPLEMENT`.
 |-----------|-----------|------|-------------|
 | `change-name` | Sí | string | Identificador del cambio en kebab-case. Ej: `sale-discount-field` |
 | `description` | No | string | Descripción corta entre comillas. Si se omite, se usa el nombre del cambio |
-| `--fast` | No | flag | Salta puertas de aprobación intermedias hasta IMPLEMENT |
+| `--fast` | No | flag | Salta puertas de aprobación intermedias hasta IMPLEMENT. Elegir `execution_mode: auto` en el preflight hace las aprobaciones intermedias automáticas sin dejar de aplicar las puertas obligatorias |
 
 ## Ejemplos
 
 - `/odf-new sale-discount-field`
 - `/odf-new sale-discount-field "Add configurable discount per partner category"`
 - `/odf-new pos-custom-receipt --fast`
+- `/odf-new sale-discount-field "Add configurable discount per partner category"` — en el preflight responder `execution_mode: auto` para piloto automático
 
 ## Instrucciones para el orquestador
 
@@ -44,7 +45,7 @@ and `BUILD = IMPLEMENT`.
 10. **Start atomically through `odf_workflow_bind`**: pass `change_name`, `work_type`, the complete preflight, and the exact approved `expectations` document. Missing-state creation is accepted only under the runtime authorization issued for this exact `/odf-new` command/change after health; an ordinary bind cannot create state. Use `artifact_store: openspec` for OpenSpec or hybrid authority and `artifact_store: engram` for Engram-only. For `small-change`/`standard-config`, also pass `terminal_stage: DECIDE`; for all others bind before the first phase. The tool persists canonical state before Expectations. Never persist either artifact directly. Stop on any blocked/failure result.
 11. **Run DECIDE** through `PROPOSE` and `ASSESS` only for non-micro routes. Micro routes use the terminal DECIDE materialized by the bind; `standard-config` ends there.
 12. **Run optional PLAN**, then BUILD and VERIFY according to the resolved route. Do not reintroduce skipped legacy adapters.
-13. If `--fast`, skip voluntary approval gates only where existing compatibility permits; never skip health, preflight, Expectations approval/reuse validation, Policy Gate, validation evidence, route-required VERIFY, or failure disposition.
+13. If `--fast`, skip voluntary approval gates only where existing compatibility permits; never skip health, preflight, Expectations approval/reuse validation, Policy Gate, validation evidence, route-required VERIFY, or failure disposition. If `execution_mode` is `auto`, the voluntary approval gates are skipped automatically under the same rules as `--fast`, and the mandatory gates listed here still apply: health, preflight, Expectations approval/reuse validation, Policy Gate, validation evidence, route-required VERIFY, and failure disposition.
 
 For BUILD (`IMPLEMENT`) and VERIFY starts, pass the persisted `work_type`, exact transition input as `workflow_advance`, explicit authoritative `artifact_store`, and a fresh opaque `attempt_id` for each launch. Reusing an ID or relaunching a completed phase is blocked; an already committed desired state returns `already-committed` without relaunching. `odf_workflow_advance` is read-only and store-independent; the delegate re-reads, validates, and commits only the selected store before settling the attempt. Evidence or persistence failure leaves canonical state unchanged and blocks. A `/odf-new` run without a persisted binding must stop; never forward an unbound caller default. Legacy calls that omit `workflow_advance` are blocked unless `flags.strict_workflow` is explicitly `false` (opt-out); they never auto-commit.
 

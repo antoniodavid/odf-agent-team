@@ -6303,7 +6303,7 @@ only after canonical state exists. Existing state and Expectations are reused on
         .describe("Artifact store for the binding (defaults to openspec)"),
       preflight: tool.schema.object({
         change: tool.schema.string(),
-        execution_mode: tool.schema.enum(["interactive", "batch"]),
+        execution_mode: tool.schema.enum(["interactive", "batch", "auto"]),
         artifact_store: tool.schema.enum(["openspec", "engram", "hybrid"]),
         delivery_strategy: tool.schema.enum(["ask-always", "ask-on-risk", "auto-chain", "single-pr"]),
         review_budget_lines: tool.schema.number(),

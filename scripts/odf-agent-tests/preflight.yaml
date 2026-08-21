@@ -20,6 +20,24 @@ tests:
       normalized_change: "my-feature"
       normalized_odoo_version: 18
 
+  - name: "auto execution mode is valid"
+    input:
+      record:
+        change: "my-feature"
+        execution_mode: "auto"
+        artifact_store: "openspec"
+        delivery_strategy: "ask-on-risk"
+        review_budget_lines: 400
+        odoo_version: 18
+        tdd_mode: false
+        solution_strategy: "custom"
+        chain_strategy: "feature-branch"
+    expected:
+      valid: true
+      errors_count: 0
+      normalized_change: "my-feature"
+      normalized_odoo_version: 18
+
   - name: "missing required fields blocks delegation"
     input:
       record:

@@ -201,7 +201,7 @@ canonical_stage: PLAN            # DECIDE | PLAN | BUILD | VERIFY | ARCHIVED
 legacy_phase: design             # last completed legacy phase for compatibility
 preflight:
   change: my-feature
-  execution_mode: interactive
+  execution_mode: auto
   artifact_store: hybrid
   delivery_strategy: ask-on-risk
   review_budget_lines: 400

@@ -130,7 +130,7 @@ Configurable via preflight `artifact_store` field (engram | openspec | hybrid).
 9 fields required before any phase runs:
 
 - `change` (kebab-case name)
-- `execution_mode` (interactive | batch)
+- `execution_mode` (interactive | batch | auto)
 - `artifact_store` (engram | openspec | hybrid)
 - `delivery_strategy` (ask-always | ask-on-risk | auto-chain | single-pr)
 - `review_budget_lines` (100-5000)

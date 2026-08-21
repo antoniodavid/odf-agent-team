@@ -48,6 +48,13 @@ describe('preflight', () => {
       expect(result.normalized.odoo_version).toBe(18);
     });
 
+    it('accepts a complete valid record with execution_mode auto', () => {
+      const result = validatePreflight({ ...validRecord(), execution_mode: 'auto' });
+      expect(result.valid).toBe(true);
+      expect(result.errors).toHaveLength(0);
+      expect(result.normalized.execution_mode).toBe('auto');
+    });
+
     it('rejects missing required fields', () => {
       const result = validatePreflight({ change: 'x' });
       expect(result.valid).toBe(false);
