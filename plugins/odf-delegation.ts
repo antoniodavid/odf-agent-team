@@ -1390,6 +1390,13 @@ function isEmptyTaskResult(result: unknown): boolean {
     (typeof result === "object" && result !== null && !Array.isArray(result) && Object.keys(result).length === 0)
 }
 
+/** Coerce a boolean-ish inner-result field: true, "true" (any case) → true; anything else → false. */
+function asBoolean(value: unknown): boolean {
+  if (typeof value === "boolean") return value
+  if (typeof value === "string") return value.trim().toLowerCase() === "true"
+  return false
+}
+
 function isCancellation(result: unknown): boolean {
   if (typeof result === "string") return /^(cancelled|canceled|aborted)$/i.test(result.trim())
   if (!result || typeof result !== "object" || Array.isArray(result)) return false
@@ -3356,7 +3363,7 @@ Use this instead of generic task() for ODF workflow delegation.`,
           const designResult = taskResult.result && typeof taskResult.result === "object"
             ? taskResult.result as Record<string, unknown>
             : null
-          if ((args.phase === "DESIGN" || args.phase === "PLAN") && innerDisposition.accepted && designResult?.design_closed !== true) {
+          if ((args.phase === "DESIGN" || args.phase === "PLAN") && innerDisposition.accepted && !asBoolean(designResult?.design_closed)) {
             return settleProofFailure(
               "DESIGN/PLAN must return design_closed: true. Resolve the listed open design decisions and continue DESIGN.",
               "design-not-closed",

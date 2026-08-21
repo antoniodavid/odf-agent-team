@@ -2987,7 +2987,7 @@ ${overrides}`
     expect(result).toMatchObject({ status: "blocked", reason })
   })
 
-  it.each([undefined, false])("blocks DESIGN when design_closed is %s", async designClosed => {
+  it.each([undefined, false, "false", "0"])("blocks DESIGN when design_closed is %s", async designClosed => {
     const { createODFDelegate } = await import("./odf-delegation.js")
     const taskApi = vi.fn().mockResolvedValue({ status: "ok", ...(designClosed === undefined ? {} : { design_closed: designClosed }) })
     const output = JSON.parse(await createODFDelegate(undefined, tempHome).execute({
@@ -3007,6 +3007,17 @@ ${overrides}`
       prompt: "Close the technical design",
       context_files: [],
     }, { sessionID: "design-closed", task: taskApi } as any) as string)
+    expect(output.status).toBe("delegated")
+  })
+
+  it.each(["true", "True", "TRUE"])("delegates DESIGN when design_closed arrives as the string %s", async designClosed => {
+    const { createODFDelegate } = await import("./odf-delegation.js")
+    const taskApi = vi.fn().mockResolvedValue({ status: "ok", design_closed: designClosed, executive_summary: "closed" })
+    const output = JSON.parse(await createODFDelegate(undefined, tempHome).execute({
+      phase: "DESIGN",
+      prompt: "Close the technical design",
+      context_files: [],
+    }, { sessionID: `design-string-${designClosed}`, task: taskApi } as any) as string)
     expect(output.status).toBe("delegated")
   })
 
