@@ -1377,7 +1377,7 @@ const EXECUTOR_BOUNDARY = `## Executor Boundary (non-negotiable)
 - If required evidence, context, or tooling is missing, stop with status: blocked; do not claim success.
 - Never drop, truncate, or reset any database, schema, or table.
 - Never run dropdb, DROP DATABASE, TRUNCATE, or destructive re-initialization without current explicit user consent for that exact database.
-- Test commands must name an isolated database with -d <test_db> and must not drop it automatically.`
+- Test commands must use the exact -d <test_db>; disposable databases are preferred, and a non-isolated development database requires current user authorization for that exact database. State that authorization and warn that tests may mutate module, schema, and test data. This authorization does not authorize destructive operations.`
 
 function isEmptyTaskResult(result: unknown): boolean {
   return result == null ||
@@ -2525,7 +2525,7 @@ export function validateValidationEvidence(opts: {
     }
     if (["odoo-tests", "odoo-test", "pytest-odoo"].includes(cmd.name)) {
       if (typeof cmd.database !== "string" || !cmd.database.trim()) {
-        return { status: "invalid", reason: `command "${cmd.name}" is missing an explicit isolated database`, commands_validated: checked }
+        return { status: "invalid", reason: `command "${cmd.name}" is missing an explicit database; use -d <test_db>`, commands_validated: checked }
       }
       if (!/\s-d\s+\S+/.test(cmd.command)) {
         return { status: "invalid", reason: `command "${cmd.name}" is missing explicit -d <test_db>`, commands_validated: checked }

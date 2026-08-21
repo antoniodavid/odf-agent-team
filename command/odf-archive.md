@@ -50,8 +50,8 @@ or non-terminal, return `workflow-verify-not-terminal` and do not modify state.
    ```
    - If not found: Error "Change not verified. Run /odf-verify first."
    - If found: Continue
-   - The verify report MUST contain a real module test result with the exact `command`, explicit isolated `database`, `exit_code: 0`, and `output_evidence` showing the passing result. Manual browser checks do not satisfy this requirement.
-   - Reject reports whose tests are skipped, deferred, unavailable, unrecorded, or missing an explicit `-d {test_db}`. Treat them as `blocked` with `verification-deferred`; never archive them.
+    - The verify report MUST contain a real module test result with the exact `command`, exact `database`, `exit_code: 0`, and `output_evidence` showing the passing result. If the database is non-isolated, it must also state that it is non-isolated and user-authorized and warn that tests may mutate module, schema, and test data. Manual browser checks do not satisfy this requirement.
+    - Reject reports whose tests are skipped, deferred, unavailable, unrecorded, or missing the exact `-d {test_db}`. Treat them as `blocked` with `verification-deferred`; never archive them. Consent to use a non-isolated database does not authorize `dropdb`, `createdb`/reset/restore, `DROP DATABASE`, `DROP TABLE`, `TRUNCATE`, `DROP SCHEMA`, or destructive re-initialization; those require separate current consent for the exact operation and database and are not test setup.
 
 2. **Collect all artifacts:**
    ```

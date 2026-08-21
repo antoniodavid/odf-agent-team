@@ -31,7 +31,7 @@ Run the quality gate: pre-commit, tests, OCA compliance, spec compliance matrix,
    c. Re-verification passed → proceed to step 8
    d. Re-verification inconclusive (validator could not inspect the frozen diff: tooling failure, corrupted context, network) → does NOT consume the attempt; retry without penalty
    e. Re-verification inspected the bytes and returned FAILED → STOP. Escalate to the user with ONE actionable question (scope change / re-plan / abandon) and evidence of what failed. NEVER auto-loop
-8. **If PASS** (or PASS WITH WARNINGS): only after the real module test command ran and passed with an explicit database, exit code, and output evidence, persist verify-report with `frozen_diff_ref` to the selected store and update runtime state. A manual browser check is supplementary, never a substitute.
+8. **If PASS** (or PASS WITH WARNINGS): only after the real module test command ran and passed with the exact database, exit code, and output evidence, persist verify-report with `frozen_diff_ref` to the selected store and update runtime state. A manual browser check is supplementary, never a substitute.
 
 ## Output
 
@@ -47,7 +47,8 @@ ODF: Verifying "{change-name}"
 
    -- Tests --
    docker compose run --rm odoo odoo -d {test_db} -i {module} --test-enable --stop-after-init: 12 passed, 0 failed
-   Database: {test_db}; exit_code: 0; output_evidence: "12 passed, 0 failed"
+   Database: {test_db}; isolation: disposable | non-isolated; authorization: current-user-approved when non-isolated; exit_code: 0; output_evidence: "12 passed, 0 failed"
+   Warning when non-isolated: tests may mutate module, schema, and test data.
    (use the project's testing.test_command from odf-init/{project}; substitute {module} only)
 
   -- OCA Compliance --
@@ -74,12 +75,18 @@ fall back to REQ-XX. If expectations exist but are not approved, or an
 approved statement was rewritten, block with `expectations-not-approved` /
 `expectations-tampered`.
 
-If the test command cannot run, is skipped, deferred, unavailable, lacks an
-explicit `-d {test_db}`, or has no result record with command, database,
-exit_code, and output evidence, return `blocked` with
-`verification-deferred`. Ask for the exact disposable database instead of
-guessing one. Never run or generate `dropdb`, `DROP DATABASE`, `TRUNCATE`, or
-destructive re-initialization as automatic setup.
+If the test command cannot run, is skipped, deferred, unavailable, lacks the
+exact `-d {test_db}`, or has no result record with command, database, exit_code,
+and output evidence, return `blocked` with `verification-deferred`. Disposable
+databases are preferred. A named non-isolated development database is allowed
+only when the current user-approved scope names that exact database and
+authorizes its use; the result/evidence must state that status and warn that
+tests may mutate module, schema, and test data. Ask for the exact database and
+authorization instead of guessing. Consent to use it does not authorize
+`dropdb`, `createdb`/reset/restore, `DROP DATABASE`, `DROP TABLE`, `TRUNCATE`,
+`DROP SCHEMA`, or destructive re-initialization; those require separate current
+consent for the exact operation and database and must not be generated or run
+for this test.
 
 The receipt must also include `candidate_digest`, `executor`, and
 `test_identity` (from the injected Policy Gate decision) or the harness

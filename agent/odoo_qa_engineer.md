@@ -71,8 +71,8 @@ For structural questions, use CodeGraph first, then FFF (`fff_find_files` / `fff
 - **HttpCase**: For full HTTP testing with browser
 - **Form helper**: From `odoo.tests.common` for onchange testing
 - Test tags: `@tagged('post_install', '-at_install')`
-- Running: use the project's `testing.test_command` from `odf-init/{project}` (substitute `{module}`). Docker Compose: `docker compose run --rm odoo odoo -d {test_db} -i {module} --test-enable --stop-after-init`; local: `odoo-bin -d {test_db} -i {module} --test-enable --stop-after-init`. A command without explicit `-d {test_db}` is invalid for Odoo DB tests. If the project config is missing, look for `docker-compose.yml`/`compose.yml` first — a Docker project must run tests through compose, never a bare `odoo-bin`.
-- **NEVER drop, truncate, or reset any database.** If no disposable `{test_db}` name/config is detected, return `blocked` with `verification-deferred` and ask the user rather than guessing. Never generate `dropdb`, `DROP DATABASE`, `TRUNCATE`, or destructive re-initialization as an automatic setup step.
+- Running: use the project's `testing.test_command` from `odf-init/{project}` (substitute `{module}`). Docker Compose: `docker compose run --rm odoo odoo -d {test_db} -i {module} --test-enable --stop-after-init`; local: `odoo-bin -d {test_db} -i {module} --test-enable --stop-after-init`. A command without the exact `-d {test_db}` is invalid for Odoo DB tests. Disposable databases are preferred; a named non-isolated development database is allowed only for the current run when the current user-approved scope names that exact database and authorizes its use. State the non-isolated/user-authorized status and warn that tests may mutate module, schema, and test data. If the exact database or authorization is missing, return `blocked` with `verification-deferred`. If the project config is missing, look for `docker-compose.yml`/`compose.yml` first — a Docker project must run tests through compose, never a bare `odoo-bin`.
+- **NEVER drop, truncate, or reset any database.** Consent to use a non-isolated test database does not authorize `dropdb`, `createdb`/reset/restore, `DROP DATABASE`, `DROP TABLE`, `TRUNCATE`, `DROP SCHEMA`, or destructive re-initialization. Those operations require separate current consent for the exact operation and database and are never automatic test setup.
 
 ### 2. Test Strategy
 
@@ -129,7 +129,7 @@ For structural questions, use CodeGraph first, then FFF (`fff_find_files` / `fff
 3. Identify untested code paths
 4. Map gaps to Expectations (EXP-XX) — primary, and REQ-XX as technical context
 5. Ensure all EXP-XX have corresponding tests
-6. Record the real module test command, explicit database, exit code, and output evidence. Manual browser checks are supplementary only.
+6. Record the real module test command, exact database, exit code, and output evidence. For a non-isolated database, also record that it is non-isolated and user-authorized plus the warning that tests may mutate module, schema, and test data. Manual browser checks are supplementary only.
 ```
 
 ## Coverage Thresholds

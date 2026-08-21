@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "last_updated": "2026-08-19T00:00:00Z",
+  "last_updated": "2026-08-21T00:00:00Z",
   "package": {
     "name": "odf-agent-team",
     "version": "1.1.0",
@@ -609,7 +609,7 @@
         "develop",
         "build"
       ],
-      "compact_rules": "Implement assigned tasks in batches following spec + closed design.\n- Read REQ-XX from assess before implementing each task\n- If design_closed is not true, block and reopen DESIGN; never improvise\n- Follow design decisions. If wrong: NOTE IT, don't silently deviate\n- Tests with code: same commit as behavior they verify\n- Odoo DB tests require explicit -d {test_db}; Docker: docker compose run --rm odoo odoo -d {test_db} -i {module} --test-enable --stop-after-init\n- If no disposable test database is detected, block and ask; never guess or run destructive database setup\n- Smoke tests per batch: pre-commit + pylint-odoo on changed files\n- Mark tasks [x] as you go. If blocked: status: blocked",
+      "compact_rules": "Implement assigned tasks in batches following spec + closed design.\n- Read REQ-XX from assess before implementing each task\n- If design_closed is not true, block and reopen DESIGN; never improvise\n- Follow design decisions. If wrong: NOTE IT, don't silently deviate\n- Tests with code: same commit as behavior they verify\n- Odoo DB tests require exact -d {test_db}; Docker: docker compose run --rm odoo odoo -d {test_db} -i {module} --test-enable --stop-after-init\n- Disposable test databases are preferred; a named non-isolated development DB is allowed only for the current run when the user-approved scope names and authorizes that exact DB\n- State non-isolated/user-authorized status and warn tests may mutate module, schema, and test data\n- Consent to use the DB does not authorize destructive setup; separate current consent is required for the exact operation/database\n- Smoke tests per batch: pre-commit + pylint-odoo on changed files\n- Mark tasks [x] as you go. If blocked: status: blocked",
       "path": "skills/odf-implement/SKILL.md",
       "odoo_versions": [
         14,
@@ -620,8 +620,13 @@
         19
       ],
       "sdd_phase": "IMPLEMENT",
-      "version": "2.1",
+      "version": "2.2",
       "changelog": [
+        {
+          "version": "2.2",
+          "date": "2026-08-21",
+          "change": "Allow current-run user-authorized non-isolated development databases while preserving destructive-operation gates"
+        },
         {
           "version": "2.1",
           "date": "2026-08-19",
@@ -638,7 +643,7 @@
           "change": "Initial implementation flow"
         }
       ],
-      "last_updated": "2026-05-14"
+      "last_updated": "2026-08-21"
     },
     {
       "name": "odf-verify",
@@ -650,7 +655,7 @@
         "qa gate",
         "quality"
       ],
-      "compact_rules": "Quality gate: evidence-based risk tiers + lens review + single-attempt correction budget.\n- Classify tier from the FROZEN diff (never diff size): HIGH (security/perms/raw SQL/money/data-loss/subprocess/public endpoints → 4 lenses risk/resilience/readability/reliability), MEDIUM (1 lens, default readability), LOW (0 lenses: structural readback + native tools, no reviewers)\n- Judgment Day 3-pass review runs ONLY for HIGH tier\n- Run the real module test suite with explicit -d {test_db}; record command, database, exit_code, and output evidence\n- Static analysis and manual browser checks never substitute for module tests\n- Skipped, deferred, unavailable, or unrecorded tests → blocked with verification-deferred; never PASS or PASS WITH WARNINGS\n- Every REQ-XX must have a PASSING test (COMPLIANT) or it's UNTESTED (CRITICAL)\n- Correction budget: min(200, ceil(original_changed_lines/2)) lines, ONE attempt, re-verify once against same frozen diff (frozen_diff_ref); inconclusive validator doesn't consume the attempt; failed → escalate to user, never auto-loop\n- Never fix issues \u2014 only report. Orchestrator decides",
+      "compact_rules": "Quality gate: evidence-based risk tiers + lens review + single-attempt correction budget.\n- Classify tier from the FROZEN diff (never diff size): HIGH (security/perms/raw SQL/money/data-loss/subprocess/public endpoints → 4 lenses risk/resilience/readability/reliability), MEDIUM (1 lens, default readability), LOW (0 lenses: structural readback + native tools, no reviewers)\n- Judgment Day 3-pass review runs ONLY for HIGH tier\n- Run the real module test suite with exact -d {test_db}; record command, exact database, exit_code, and output evidence\n- Disposable databases are preferred; a named non-isolated development DB is allowed only for the current run when the user-approved scope names and authorizes that exact DB\n- State non-isolated/user-authorized status and warn tests may mutate module, schema, and test data\n- Consent to use the DB does not authorize destructive setup; separate current consent is required for the exact operation/database\n- Static analysis and manual browser checks never substitute for module tests\n- Skipped, deferred, unavailable, or unrecorded tests → blocked with verification-deferred; never PASS or PASS WITH WARNINGS\n- Every REQ-XX must have a PASSING test (COMPLIANT) or it's UNTESTED (CRITICAL)\n- Correction budget: min(200, ceil(original_changed_lines/2)) lines, ONE attempt, re-verify once against same frozen diff (frozen_diff_ref); inconclusive validator doesn't consume the attempt; failed → escalate to user, never auto-loop\n- Never fix issues \u2014 only report. Orchestrator decides",
       "path": "skills/odf-verify/SKILL.md",
       "odoo_versions": [
         14,
@@ -661,8 +666,13 @@
         19
       ],
       "sdd_phase": "VERIFY",
-      "version": "3.0",
+      "version": "3.1",
       "changelog": [
+        {
+          "version": "3.1",
+          "date": "2026-08-21",
+          "change": "Allow current-run user-authorized non-isolated development databases with explicit mutation warnings"
+        },
         {
           "version": "3.0",
           "date": "2026-08-19",
@@ -679,7 +689,7 @@
           "change": "Initial verification flow"
         }
       ],
-      "last_updated": "2026-05-14"
+      "last_updated": "2026-08-21"
     },
     {
       "name": "skill-resolver",
@@ -887,7 +897,7 @@
         "detect",
         "project context"
       ],
-      "compact_rules": "Detect + persist Odoo project context to Engram.\n- Version: __manifest__.py \u2192 odoo-bin \u2192 Dockerfile \u2192 ask\n- Modules: find __manifest__.py, classify (custom/oca)\n- Test runner: Docker Compose or local odoo-bin with explicit -d {test_db} -i {module} --test-enable --stop-after-init\n- If no disposable test database name/config is detected, block and ask; never guess\n- Never generate dropdb, DROP DATABASE, TRUNCATE, or destructive re-initialization as automatic setup\n- Persist YAML even partial. Upsert via topic_key",
+      "compact_rules": "Detect + persist Odoo project context to Engram.\n- Version: __manifest__.py \u2192 odoo-bin \u2192 Dockerfile \u2192 ask\n- Modules: find __manifest__.py, classify (custom/oca)\n- Test runner: Docker Compose or local odoo-bin with exact -d {test_db} -i {module} --test-enable --stop-after-init\n- Disposable DB preferred; a named non-isolated development DB is allowed only for the current run when the user-approved scope names and authorizes that exact DB\n- State non-isolated/user-authorized status and warn tests may mutate module, schema, and test data\n- If exact DB or current authorization is missing, block and ask; never guess\n- Never generate destructive database setup; separate current consent is required for the exact operation/database\n- Persist YAML even partial. Upsert via topic_key",
       "path": "skills/odf-init/SKILL.md",
       "odoo_versions": [
         14,
@@ -898,8 +908,13 @@
         19
       ],
       "sdd_phase": null,
-      "version": "2.1",
+      "version": "2.2",
       "changelog": [
+        {
+          "version": "2.2",
+          "date": "2026-08-21",
+          "change": "Allow current-run user-authorized non-isolated development databases while preserving destructive-operation gates"
+        },
         {
           "version": "2.0",
           "date": "2026-05-14",
@@ -911,7 +926,7 @@
           "change": "Initial project init"
         }
       ],
-      "last_updated": "2026-05-14"
+      "last_updated": "2026-08-21"
     },
     {
       "name": "odf-qa",

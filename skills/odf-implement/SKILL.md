@@ -4,7 +4,7 @@ description: "Implement Odoo tasks from design artifact. Write code following sp
 license: MIT
 metadata:
   author: adruban
-  version: "2.1"
+  version: "2.2"
 ---
 
 ## Activation Contract
@@ -49,7 +49,7 @@ Use after DESIGN returns approved task breakdown. Implement assigned tasks in ba
    - **LOW**: ≥ 1 — e.g. `git diff --check` (+ AST parse of changed `.py`, or `xmllint --noout` when only views changed)
    - **MEDIUM**: ≥ 2 — LOW + module lint (pre-commit `--files` or pylint-odoo) + module tests (`test_command`)
    - **HIGH**: ≥ 3 — MEDIUM + `pre-commit run -a` + automated security scan (grep for `env.cr.execute` with interpolation, `eval(`, `subprocess` with `shell=True`)
-    - **Running module tests**: use the project's `testing.test_command` from `odf-init/{project}` and substitute `{module}` only. The persisted Docker template is `docker compose run --rm odoo odoo -d {test_db} -i {module} --test-enable --stop-after-init`; the local template is `odoo-bin -d {test_db} -i {module} --test-enable --stop-after-init`. A command without explicit `-d {test_db}` is invalid for Odoo DB tests. If no disposable test database name/config is detected, block and ask the user rather than guessing. Never run or document `dropdb`, `DROP DATABASE`, `TRUNCATE`, or destructive re-initialization as automatic setup.
+     - **Running module tests**: use the project's `testing.test_command` from `odf-init/{project}` and substitute `{module}` only. The persisted Docker template is `docker compose run --rm odoo odoo -d {test_db} -i {module} --test-enable --stop-after-init`; the local template is `odoo-bin -d {test_db} -i {module} --test-enable --stop-after-init`. A command without the exact `-d {test_db}` is invalid for Odoo DB tests. Disposable databases remain preferred. A named non-isolated development database is allowed only for the current run when the current user-approved scope names that exact database and authorizes its use. State that status in the phase result/evidence and warn that tests may mutate module, schema, and test data. If the exact database or authorization is missing, block and ask rather than guessing. Consent to use it does not authorize `dropdb`, `createdb`/reset/restore, `DROP DATABASE`, `DROP TABLE`, `TRUNCATE`, `DROP SCHEMA`, or destructive re-initialization; those require separate current consent for the exact operation and database and are not automatic test setup.
    - Evidence format:
    ```json
    {
@@ -61,8 +61,9 @@ Use after DESIGN returns approved task breakdown. Implement assigned tasks in ba
        { "name": "git-diff-check", "command": "git diff --check", "exit_code": 0, "output_tail": "..." },
         { "name": "odoo-tests", "command": "docker compose run --rm odoo odoo -d {test_db} -i {module} --test-enable --stop-after-init", "database": "{test_db}", "exit_code": 0, "output_tail": "... 0 failed ..." }
      ]
-   }
-   ```
+    }
+    ```
+    - When `{test_db}` is non-isolated, include the non-isolated/user-authorized statement and mutation warning in the ODF Result and evidence.
    - Evidence is smoke for THIS batch — the compliance matrix, review lenses, and correction budget remain in VERIFY. Do not grow this into a parallel VERIFY.
 6. **Persist progress** in the selected store with its canonical `artifact_ref`.
    Update the selected task/design artifact with [x] marks as applicable.

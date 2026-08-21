@@ -4,7 +4,7 @@ description: "Detect + persist Odoo project context: version, modules, test runn
 license: MIT
 metadata:
   author: adruban
-  version: "2.1"
+  version: "2.2"
 ---
 
 ## Activation Contract
@@ -33,9 +33,9 @@ Use when entering a new Odoo project, or when project tooling changes (new test 
 | Version in prompt | Use it directly |
 | No version in prompt | Try: __manifest__.py → odoo-bin --version → Dockerfile → ask user |
 | Test runner found via detection | Use detected command template with {module} placeholder |
-| Docker Compose present (docker-compose.yml / compose.yml / compose.yaml with an odoo service) | Build template `docker compose run --rm <service> odoo -d {test_db} -i {module} --test-enable --stop-after-init`; require an explicit disposable `{test_db}` |
-| Local odoo-bin found with a disposable database detected | Build template `odoo-bin -d {test_db} -i {module} --test-enable --stop-after-init` |
-| No disposable test database name/config detected | Block and ask the user; never guess a database or use a developer/production database |
+| Docker Compose present (docker-compose.yml / compose.yml / compose.yaml with an odoo service) | Build template `docker compose run --rm <service> odoo -d {test_db} -i {module} --test-enable --stop-after-init`; disposable `{test_db}` is preferred |
+| Local odoo-bin found with a named database | Build template `odoo-bin -d {test_db} -i {module} --test-enable --stop-after-init`; a non-isolated development database is allowed only for this run when the current user-approved scope names that exact `{test_db}` and authorizes its use |
+| No exact database or current authorization for a non-isolated database | Block and ask the user; never guess a database or use a developer/production database without current authorization |
 | No test runner detected | Flag WARNING, set runner: none |
 
 ## Execution Steps
@@ -48,18 +48,18 @@ Use when entering a new Odoo project, or when project tooling changes (new test 
       docker compose run --rm odoo odoo -d {test_db} -i {module} --test-enable --stop-after-init
      ```
      Replace `{module}` with the module under test and `odoo` with the real service name if it differs. This is the `test_command` to persist — do NOT persist a bare `odoo-bin` invocation for a Docker Compose project.
-    - **Local odoo-bin**: if a local `odoo-bin` is on PATH (or in the repo) and a disposable database name/config is detected, persist `odoo-bin -d {test_db} -i {module} --test-enable --stop-after-init`.
-    - **Database safety**: a test command without explicit `-d {test_db}` is invalid for Odoo DB tests. Never document or generate `dropdb`, `DROP DATABASE`, `TRUNCATE`, or destructive re-initialization as automatic setup. If no disposable test database can be detected, return `blocked` and ask the user for the exact isolated database.
+     - **Local odoo-bin**: if a local `odoo-bin` is on PATH (or in the repo) and a disposable or explicitly authorized named database is detected, persist `odoo-bin -d {test_db} -i {module} --test-enable --stop-after-init`.
+     - **Database safety**: a test command without the exact `-d {test_db}` is invalid for Odoo DB tests. Disposable databases remain preferred. A non-isolated development database is allowed only when the current user-approved scope names that exact database and authorizes its use. The phase result/evidence must state `database: {test_db}`, `database_isolation: non-isolated`, `database_authorization: current-user-approved`, and warn that tests may mutate module, schema, and test data. Consent to use the database does not authorize `dropdb`, `createdb`/reset/restore, `DROP DATABASE`, `DROP TABLE`, `TRUNCATE`, `DROP SCHEMA`, or destructive re-initialization; those require separate current consent for the exact operation and database and are not test setup. If the exact database or authorization is absent, return `blocked` and ask the user.
    - **pytest-odoo**: only when a `pytest.ini`/`setup.cfg` configures pytest-odoo.
 4. **Detect linting**: pre-commit config, pylint-odoo availability, OCA compliance flags
 5. **Detect conventions**: Module prefix patterns, git workflow, CI platform, README conventions
 6. **Build config**: Assemble YAML with project_name, odoo_version, modules[], environment{}, testing{}, linting{}, flags{}, conventions{}
 7. **Persist** the config in the selected store and return its canonical `artifact_ref`.
-    - Persist the resolved command under `testing.test_command` with literal `{test_db}` and `{module}` placeholders so IMPLEMENT/VERIFY can substitute the exact isolated database and module under test.
+     - Persist the resolved command under `testing.test_command` with literal `{test_db}` and `{module}` placeholders so IMPLEMENT/VERIFY can substitute the exact authorized database and module under test.
 
 ## Output Contract
 
-Return ODF Result envelope with: status (ok|warning|blocked), executive_summary ("{project}: Odoo {ver}, {N} modules, {env}, {runner} tests"), artifacts_saved, risks (missing tooling warnings), odoo_version, modules_affected. Use `blocked` when no disposable test database name/config can be detected for DB tests.
+Return ODF Result envelope with: status (ok|warning|blocked), executive_summary ("{project}: Odoo {ver}, {N} modules, {env}, {runner} tests"), artifacts_saved, risks (missing tooling warnings), odoo_version, modules_affected. For a non-isolated database, include its exact name, `database_isolation: non-isolated`, `database_authorization: current-user-approved`, and the warning that tests may mutate module, schema, and test data. Use `blocked` when the exact database or required current authorization is missing.
 
 ## References
 

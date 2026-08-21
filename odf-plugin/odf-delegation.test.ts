@@ -4829,7 +4829,8 @@ describe("validateValidationEvidence", () => {
     ] }))
     const verdict = validateValidationEvidence({ workspaceDir: tmp, change: "ev-change", tier: "MEDIUM", frozenDiffRef: null, now })
     expect(verdict.status).toBe("invalid")
-    expect(verdict.reason).toContain("explicit isolated database")
+    expect(verdict.reason).toContain("explicit database")
+    expect(verdict.reason).not.toContain("isolated")
   })
 
   it("returns missing when the evidence file does not exist", () => {

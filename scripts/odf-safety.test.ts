@@ -16,7 +16,7 @@ const MANDATORY_DATABASE_GUARD =
   "You must NOT drop, truncate, or reset any database, schema, or table. " +
   "Never run dropdb, DROP DATABASE, TRUNCATE, or destructive re-initialization " +
   "without current explicit user consent for that exact database. " +
-  "Test commands must use an isolated -d <test_db> and must not drop it automatically."
+"Test commands must use the exact -d <test_db>; disposable databases are preferred, and a non-isolated development database requires current user authorization for that exact database."
 
 describe("blocks-destructive-command", () => {
   it.each(["dropdb mydb", "DROP DATABASE mydb;", "TRUNCATE TABLE orders;"])(
