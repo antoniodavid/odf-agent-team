@@ -11,6 +11,13 @@ import {
 const block = (arg: string, extra: { authorized_roots?: string[] } = {}): SafetyInspectionResult =>
   inspectToolArgs({ tool: "bash", args: arg, ...extra })
 
+const MANDATORY_DATABASE_GUARD =
+  "You must NOT delegate or ask whether to proceed. Return a complete ODF Result. " +
+  "You must NOT drop, truncate, or reset any database, schema, or table. " +
+  "Never run dropdb, DROP DATABASE, TRUNCATE, or destructive re-initialization " +
+  "without current explicit user consent for that exact database. " +
+  "Test commands must use an isolated -d <test_db> and must not drop it automatically."
+
 describe("blocks-destructive-command", () => {
   it.each(["dropdb mydb", "DROP DATABASE mydb;", "TRUNCATE TABLE orders;"])(
     "blocks %s",
@@ -19,6 +26,29 @@ describe("blocks-destructive-command", () => {
       expect(r.blocked).toBe(true)
       expect(r.classes).toContain("destructive")
       expect(r.safe_continuation!.length).toBeGreaterThan(0)
+    },
+  )
+})
+
+describe("allows-destructive-protection-text", () => {
+  it("allows the mandatory executor database guard", () => {
+    const r = block(MANDATORY_DATABASE_GUARD)
+    expect(r.blocked).toBe(false)
+    expect(r.decision).toBe("allow")
+  })
+
+  it("does not suppress a positive command after the guard", () => {
+    const r = block(`${MANDATORY_DATABASE_GUARD}\nRun DROP DATABASE mydb;`)
+    expect(r.blocked).toBe(true)
+    expect(r.classes).toContain("destructive")
+  })
+
+  it.each(["Run DROP DATABASE mydb;", "TRUNCATE TABLE orders;", "DROP TABLE orders;"])(
+    "still blocks a positive destructive command: %s",
+    (arg) => {
+      const r = block(arg)
+      expect(r.blocked).toBe(true)
+      expect(r.classes).toContain("destructive")
     },
   )
 })

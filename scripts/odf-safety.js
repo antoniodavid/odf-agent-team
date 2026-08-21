@@ -23,6 +23,11 @@ const DESTRUCTIVE = [
   /rm\s+(-[a-z]*r|-r[a-z]*)?\s*\/|rm\s+-rf\s+(\/|~)/i,
 ]
 
+// Prompts may repeat destructive terms in explicit executor prohibitions.
+// Strip only those sentence-bounded clauses; positive commands stay visible.
+const DESTRUCTIVE_PROTECTION =
+  /\b(?:you\s+)?(?:must\s+not|mustn't|never|do\s+not|don't)\b[^.!?;\n]*(?:dropdb|drop\s+database|drop\s+table|truncate)[^.!?;\n]*(?:[.!?;]|$)/gi
+
 const PATH_ESCAPE = [
   /(^|[^\w./-])\.\.\/|(^|[^\w./-])\.\.\\/,
   /\.\.%2[fF]/,
@@ -153,9 +158,11 @@ export function inspectToolArgs({ tool: toolName, args, authorized_roots = [] })
 
   const matched = new Set()
   const classes = new Set()
+  const destructiveHaystack = haystack.replace(DESTRUCTIVE_PROTECTION, "")
   for (const rule of SAFETY_RULES) {
     for (const re of rule.patterns) {
-      if (re.test(haystack)) {
+      const source = rule.class === "destructive" ? destructiveHaystack : haystack
+      if (re.test(source)) {
         matched.add(rule.id)
         classes.add(rule.class)
       }
