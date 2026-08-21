@@ -1664,7 +1664,7 @@ async function invokeTask(
   agentName: string,
   prompt: string,
   contextFiles?: string[],
-  timeoutMs = 300_000,
+  timeoutMs = 600_000,
   abortSignal?: AbortSignal,
 ): Promise<{ status: string; result: unknown }> {
   const taskPromise = taskApi({ agent: agentName, prompt, context_files: contextFiles })
@@ -2796,7 +2796,7 @@ Use this instead of generic task() for ODF workflow delegation.`,
       timeout_ms: tool.schema
         .number()
         .optional()
-        .describe("Task timeout in milliseconds (default: 300000)"),
+        .describe("Task timeout in milliseconds (default: 600000)"),
       attempt_id: tool.schema
         .string()
         .optional()
@@ -3271,7 +3271,7 @@ Use this instead of generic task() for ODF workflow delegation.`,
 
       if (taskApiInfo) {
         try {
-          const timeoutMs = args.timeout_ms ?? 300_000
+          const timeoutMs = args.timeout_ms ?? 600_000
           const taskResult = await invokeTask(taskApiInfo.taskApi, agentName, delegationPrompt, contextValidation.paths, timeoutMs, toolCtx.abort)
           // Stop-validation seal (slice 2): after an IMPLEMENT delegation, stamp
           // the envelope with the deterministic evidence verdict. The sub-agent
