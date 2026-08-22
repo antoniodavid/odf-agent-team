@@ -393,6 +393,7 @@ reinstall the pack (`install.sh` / `/odf-registry-refresh`) and stop.
 - `node "$PACK/scripts/odf-toolkit.js" result --result '<envelope-json>' --root <root> --phase <PHASE>` — normalize a phase result (status mapping, `design_closed` coercion, artifact_ref existence check) once, instead of re-interpreting raw results and looping on type mismatches.
 - `node "$PACK/scripts/odf-toolkit.js" resolve --phase <PHASE> --task "<task>"` — preview agent + skills + profile (mirror of `odf_skill_resolve`).
 - `node "$PACK/scripts/odf-toolkit.js" metrics [--days 14] [--json]` — delegation dashboard (calls/status/avg duration per phase) from the plugin JSONL.
+- `node "$PACK/scripts/odf-toolkit.js" manual-evidence --change <c> --command "<cmd with -d db>" --database <db> --output-file <path> --root <root>` — record USER-run test evidence for VERIFY (validated, `executor: user-manual`). Use when the user runs the suite themselves; the QA agent then consumes the file instead of re-running.
 
 All subcommands are read-only; authorization-bearing operations (bind,
 advance, attempt acquire, policy gate write) stay plugin-side.

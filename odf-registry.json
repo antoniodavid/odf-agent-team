@@ -655,7 +655,7 @@
         "qa gate",
         "quality"
       ],
-      "compact_rules": "Quality gate: evidence-based risk tiers + lens review + single-attempt correction budget.\n- Classify tier from the FROZEN diff (never diff size): HIGH (security/perms/raw SQL/money/data-loss/subprocess/public endpoints → 4 lenses risk/resilience/readability/reliability), MEDIUM (1 lens, default readability), LOW (0 lenses: structural readback + native tools, no reviewers)\n- Judgment Day 3-pass review runs ONLY for HIGH tier\n- Run the real module test suite with exact -d {test_db}; record command, exact database, exit_code, and output evidence\n- Disposable databases are preferred; a named non-isolated development DB is allowed only for the current run when the user-approved scope names and authorizes that exact DB\n- State non-isolated/user-authorized status and warn tests may mutate module, schema, and test data\n- Consent to use the DB does not authorize destructive setup; separate current consent is required for the exact operation/database\n- Static analysis and manual browser checks never substitute for module tests\n- Skipped, deferred, unavailable, or unrecorded tests → blocked with verification-deferred; never PASS or PASS WITH WARNINGS\n- Every REQ-XX must have a PASSING test (COMPLIANT) or it's UNTESTED (CRITICAL)\n- Correction budget: min(200, ceil(original_changed_lines/2)) lines, ONE attempt, re-verify once against same frozen diff (frozen_diff_ref); inconclusive validator doesn't consume the attempt; failed → escalate to user, never auto-loop\n- Never fix issues \u2014 only report. Orchestrator decides",
+      "compact_rules": "Quality gate: evidence-based risk tiers + lens review + single-attempt correction budget.\n- Classify tier from the FROZEN diff (never diff size): HIGH (security/perms/raw SQL/money/data-loss/subprocess/public endpoints → 4 lenses risk/resilience/readability/reliability), MEDIUM (1 lens, default readability), LOW (0 lenses: structural readback + native tools, no reviewers)\n- Judgment Day 3-pass review runs ONLY for HIGH tier\n- Run the real module test suite with exact -d {test_db}; record command, exact database, exit_code, and output evidence\n- Disposable databases are preferred; a named non-isolated development DB is allowed only for the current run when the user-approved scope names and authorizes that exact DB\n- State non-isolated/user-authorized status and warn tests may mutate module, schema, and test data\n- Consent to use the DB does not authorize destructive setup; separate current consent is required for the exact operation/database\n- Static analysis and manual browser checks never substitute for module tests\n- User-run test evidence is valid: record via odf-toolkit manual-evidence (executor user-manual); never re-run or fabricate\n- Skipped, deferred, unavailable, or unrecorded tests → blocked with verification-deferred; never PASS or PASS WITH WARNINGS\n- Every REQ-XX must have a PASSING test (COMPLIANT) or it's UNTESTED (CRITICAL)\n- Correction budget: min(200, ceil(original_changed_lines/2)) lines, ONE attempt, re-verify once against same frozen diff (frozen_diff_ref); inconclusive validator doesn't consume the attempt; failed → escalate to user, never auto-loop\n- Never fix issues \u2014 only report. Orchestrator decides",
       "path": "skills/odf-verify/SKILL.md",
       "odoo_versions": [
         14,
@@ -666,8 +666,13 @@
         19
       ],
       "sdd_phase": "VERIFY",
-      "version": "3.1",
+      "version": "3.2",
       "changelog": [
+        {
+          "version": "3.2",
+          "date": "2026-08-22",
+          "change": "Manual test execution: user-run evidence via odf-toolkit manual-evidence (executor user-manual) is valid VERIFY evidence"
+        },
         {
           "version": "3.1",
           "date": "2026-08-21",

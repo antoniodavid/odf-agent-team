@@ -315,6 +315,41 @@ function renderMetrics(summary) {
 }
 
 // ==========================================
+// manual-evidence — record user-run test evidence for VERIFY
+// ==========================================
+
+export function buildManualEvidence({ change, command, database, output, exitCode = 0, testIdentity, root }) {
+  const problems = []
+  if (!change) problems.push("change is required")
+  if (!command || !/\s-d\s+\S+/.test(command)) problems.push("command must include an explicit -d <test_db>")
+  if (!database) problems.push("database is required")
+  if (!output || !/0 failed/i.test(output)) problems.push("output must show a passing result (contains '0 failed')")
+  if (exitCode !== 0) problems.push(`exit code must be 0, got ${exitCode}`)
+  const gate = root ? readJson(path.join(root, ".odf", `policy-gate-${change}.json`)) : null
+  const evidence = {
+    change,
+    phase: "VERIFY",
+    batch: 1,
+    risk_tier: gate?.risk_tier ?? "MEDIUM",
+    frozen_diff_ref: gate?.frozen_diff_ref ?? null,
+    candidate_digest: gate?.candidate_digest ?? null,
+    executor: "user-manual",
+    test_identity: testIdentity || `${change} test suite (manual)`,
+    resolved_at: new Date().toISOString(),
+    commands: [{
+      name: "odoo-tests",
+      command,
+      database,
+      exit_code: exitCode,
+      output_tail: String(output).slice(-2000),
+      output_evidence: String(output).slice(-2000),
+    }],
+  }
+  if (gate && !gate.candidate_digest) problems.push("policy gate has no candidate_digest; the evidence may be rejected at commit")
+  return { problems, evidence }
+}
+
+// ==========================================
 // CLI dispatch
 // ==========================================
 
@@ -373,6 +408,40 @@ function main(argv) {
       }
       break
     }
+    case "manual-evidence": {
+      const change = argValue(argv, "--change")
+      const command = argValue(argv, "--command")
+      const database = argValue(argv, "--database")
+      const root = argValue(argv, "--root")
+      const outputFile = argValue(argv, "--output-file")
+      const outputText = argValue(argv, "--output")
+      if (!change || !command || !database || (!outputFile && outputText === null)) {
+        return usage("manual-evidence --change <name> --command \"<cmd with -d db>\" --database <db> --output-file <path>|--output \"<text>\" [--root <dir>] [--exit-code 0] [--test-identity <id>]")
+      }
+      let output
+      if (outputFile) {
+        try { output = fs.readFileSync(path.resolve(root || process.cwd(), outputFile), "utf8") }
+        catch { return usage(`manual-evidence: cannot read output file ${outputFile}`) }
+      } else {
+        output = outputText
+      }
+      const built = buildManualEvidence({
+        change, command, database, output,
+        exitCode: Number(argValue(argv, "--exit-code")) || 0,
+        testIdentity: argValue(argv, "--test-identity") || undefined,
+        root: root ? path.resolve(root) : undefined,
+      })
+      if (built.problems.length) {
+        process.stderr.write(`manual-evidence rejected:\n- ${built.problems.join("\n- ")}\n`)
+        process.exit(1)
+      }
+      const odfDir = path.join(root ? path.resolve(root) : process.cwd(), ".odf")
+      fs.mkdirSync(odfDir, { recursive: true })
+      const evidencePath = path.join(odfDir, `validation-evidence-${change}.json`)
+      fs.writeFileSync(evidencePath, JSON.stringify(built.evidence, null, 2))
+      result = { status: "written", path: evidencePath, evidence: built.evidence }
+      break
+    }
     default:
       return usage()
   }
@@ -384,7 +453,7 @@ function main(argv) {
 }
 
 function usage(detail = "") {
-  console.error(detail ? `Usage: odf-toolkit ${detail}` : "Usage: odf-toolkit <result|resolve|state|evidence|context|metrics> [options]")
+  console.error(detail ? `Usage: odf-toolkit ${detail}` : "Usage: odf-toolkit <result|resolve|state|evidence|context|metrics|manual-evidence> [options]")
   process.exit(2)
 }
 

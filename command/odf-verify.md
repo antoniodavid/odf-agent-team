@@ -91,3 +91,20 @@ for this test.
 The receipt must also include `candidate_digest`, `executor`, and
 `test_identity` (from the injected Policy Gate decision) or the harness
 rejects it before the workflow can advance.
+
+### Ejecución manual de tests (mejora)
+
+The user MAY run the module test suite themselves instead of the agent. The
+orchestrator then records the user-run evidence deterministically and VERIFY
+proceeds with it:
+
+```bash
+PACK="${ODF_CONFIG_DIR:-$HOME/.config/opencode}"
+node "$PACK/scripts/odf-toolkit.js" manual-evidence \
+  --change <change> --command "<exact command with -d <test_db>>" \
+  --database <test_db> --output-file <path-to-test-output> --root <worktree>
+```
+
+- The CLI validates the same rules as the harness validator: explicit `-d <test_db>`, `exit_code 0`, output containing `0 failed` — and rejects anything else (never fabricate output).
+- It reads `candidate_digest`/`frozen_diff_ref` from the persisted Policy Gate and writes `<worktree>/.odf/validation-evidence-{change}.json` with `executor: "user-manual"`.
+- After recording, VERIFY uses that evidence file; the agent must NOT re-run the suite (the evidence is fresh for the 60-minute window) and must NOT invent output.

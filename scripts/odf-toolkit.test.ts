@@ -3,7 +3,7 @@ import * as fs from "node:fs/promises"
 import * as path from "node:path"
 import * as os from "node:os"
 import { execFileSync } from "node:child_process"
-import { asBoolean, evidencePack, loadRegistry, matchSkills, metricsSummary, normalizeResult, resolveAgent, stateBundle } from "./odf-toolkit.js"
+import { asBoolean, buildManualEvidence, evidencePack, loadRegistry, matchSkills, metricsSummary, normalizeResult, resolveAgent, stateBundle } from "./odf-toolkit.js"
 
 describe("odf-toolkit result", () => {
   it("normalizes design_closed as string or boolean and flags missing on DESIGN/PLAN", () => {
@@ -117,6 +117,37 @@ describe("odf-toolkit metrics", () => {
       else process.env.ODF_CONFIG_DIR = previous
       await fs.rm(configDir, { recursive: true, force: true })
     }
+  })
+})
+
+describe("odf-toolkit manual-evidence", () => {
+  it("builds valid VERIFY evidence from a user-run test and reads the policy gate", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "odf-manual-"))
+    try {
+      await fs.mkdir(path.join(root, ".odf"), { recursive: true })
+      await fs.writeFile(path.join(root, ".odf", "policy-gate-chg.json"), JSON.stringify({
+        risk_tier: "MEDIUM", frozen_diff_ref: "abc123", candidate_digest: "d" + "0".repeat(63),
+      }))
+      const built = buildManualEvidence({
+        change: "chg", command: "odoo-bin -d devel_test -i mod --test-enable --stop-after-init", database: "devel_test",
+        output: "12 passed, 0 failed", root,
+      })
+      expect(built.problems).toEqual([])
+      expect(built.evidence.executor).toBe("user-manual")
+      expect(built.evidence.candidate_digest).toBe("d" + "0".repeat(63))
+      expect(built.evidence.frozen_diff_ref).toBe("abc123")
+      expect(built.evidence.commands[0]).toMatchObject({ name: "odoo-tests", database: "devel_test", exit_code: 0 })
+    } finally {
+      await fs.rm(root, { recursive: true, force: true })
+    }
+  })
+
+  it("rejects evidence without an explicit -d, a passing pattern, or exit code 0", () => {
+    const base = { change: "chg", command: "odoo-bin --test-enable", database: "devel_test", output: "0 failed" }
+    expect(buildManualEvidence(base).problems.some(p => p.includes("-d"))).toBe(true)
+    expect(buildManualEvidence({ ...base, command: "odoo-bin -d devel_test --test-enable", output: "3 failed" }).problems.some(p => p.includes("0 failed"))).toBe(true)
+    expect(buildManualEvidence({ ...base, command: "odoo-bin -d devel_test --test-enable", exitCode: 1 }).problems.some(p => p.includes("exit code"))).toBe(true)
+    expect(buildManualEvidence({ ...base, command: "odoo-bin -d devel_test --test-enable" }).problems).toEqual([])
   })
 })
 

@@ -67,6 +67,29 @@ export interface MetricsSummary {
   }>
 }
 
+export interface ManualEvidence {
+  change: string
+  phase: "VERIFY"
+  batch: number
+  risk_tier: string
+  frozen_diff_ref: string | null
+  candidate_digest: string | null
+  executor: "user-manual"
+  test_identity: string
+  resolved_at: string
+  commands: Array<{ name: string; command: string; database: string; exit_code: number; output_tail: string; output_evidence: string }>
+}
+
+export function buildManualEvidence(opts: {
+  change: string
+  command: string
+  database: string
+  output: string
+  exitCode?: number
+  testIdentity?: string
+  root?: string
+}): { problems: string[]; evidence: ManualEvidence }
+
 export function asBoolean(value: unknown): boolean
 export function normalizeResult(raw: unknown, opts?: { root?: string; phase?: string }): NormalizedResult
 export function resolveAgent(registry: { agents?: unknown[] }, phase: string, taskKeywords: string[]): string | null
@@ -76,3 +99,12 @@ export function stateBundle(root: string, change: string): StateBundle
 export function evidencePack(repoDir: string): EvidencePack
 export function contextPack(repoDir: string, task: string, maxFiles?: number): ContextPack
 export function metricsSummary(days?: number): MetricsSummary
+export function buildManualEvidence(opts: {
+  change: string
+  command: string
+  database: string
+  output: string
+  exitCode?: number
+  testIdentity?: string
+  root?: string
+}): { problems: string[]; evidence: ManualEvidence }
