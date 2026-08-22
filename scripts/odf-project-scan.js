@@ -104,20 +104,24 @@ function findCompose(workspaceRoot) {
   return null
 }
 
-function detectLinting(repoDir) {
-  const has = (name) => fileExists(repoDir, name)
+function detectLinting(repoDir, workspaceRoot) {
+  const has = (dir, name) => fileExists(dir, name)
+  const roots = workspaceRoot && workspaceRoot !== repoDir ? [repoDir, workspaceRoot] : [repoDir]
+  const any = (name) => roots.some(dir => has(dir, name))
   const linting = {
-    pre_commit: has(".pre-commit-config.yaml"),
-    ruff: has(".ruff.toml") || has("ruff.toml"),
-    pylint_odoo: has(".pylintrc") || has(".pylintrc-mandatory"),
-    eslint: has(".eslintrc.yml") || has(".eslintrc.json") || has(".eslintrc.js"),
-    prettier: has(".prettierrc.yml") || has(".prettierrc.json") || has(".prettierrc"),
+    pre_commit: any(".pre-commit-config.yaml"),
+    ruff: any(".ruff.toml") || any("ruff.toml"),
+    pylint_odoo: any(".pylintrc") || any(".pylintrc-mandatory"),
+    eslint: any(".eslintrc.yml") || any(".eslintrc.json") || any(".eslintrc.js"),
+    prettier: any(".prettierrc.yml") || any(".prettierrc.json") || any(".prettierrc"),
   }
   let ocaMode = false
-  try {
-    const copier = fs.readFileSync(path.join(repoDir, ".copier-answers.yml"), "utf8")
-    ocaMode = /oca-addons-repo|oca\.github\.io/i.test(copier)
-  } catch { /* not OCA */ }
+  for (const dir of roots) {
+    try {
+      const copier = fs.readFileSync(path.join(dir, ".copier-answers.yml"), "utf8")
+      if (/oca-addons-repo|oca\.github\.io/i.test(copier)) { ocaMode = true; break }
+    } catch { /* not OCA */ }
+  }
   return { linting, oca_mode: ocaMode }
 }
 
@@ -177,7 +181,7 @@ function scanInputs(workspaceRoot, repoDir, env) {
 export function buildConfig(workspaceRoot, repoDir, opts = {}) {
   const env = detectEnv(workspaceRoot, repoDir)
   const compose = findCompose(workspaceRoot)
-  const linting = detectLinting(repoDir)
+  const linting = detectLinting(repoDir, workspaceRoot)
   const git = gitState(repoDir)
   const codegraph = codegraphState(repoDir)
   const odooVersion = opts.odooVersion ?? detectOdooVersion(repoDir, workspaceRoot)
@@ -316,6 +320,14 @@ function persistConfig(config) {
   }
 }
 
+/** Resolve --repo: absolute as-is; relative against the Doodba src dir (or the root). */
+export function resolveRepoArg(root, repoArg) {
+  if (path.isAbsolute(repoArg)) return path.resolve(repoArg)
+  const srcBase = path.join(root, "odoo", "custom", "src")
+  const base = fs.existsSync(srcBase) ? srcBase : root
+  return path.resolve(base, repoArg)
+}
+
 function main(argv) {
   const args = { root: null, repo: null, format: "summary", persist: false, fresh: false, diff: false, codegraph: false, odooVersion: null, dockerContainer: null }
   for (let i = 0; i < argv.length; i++) {
@@ -334,7 +346,9 @@ function main(argv) {
     process.exit(2)
   }
   const root = path.resolve(args.root)
-  const repo = path.resolve(args.repo)
+  // Resolve a relative --repo against the Doodba src dir (not the CWD) so a
+  // bare repo name never produces a degraded scan of the wrong directory.
+  const repo = resolveRepoArg(root, args.repo)
   const project = projectName(repo)
   const cached = args.diff || !args.fresh ? readPersistedConfig(project) : null
 
@@ -360,6 +374,11 @@ function main(argv) {
     else lines.push("No changes detected.")
   }
   if (args.persist) {
+    // Guard: never let a degraded scan (0 modules) overwrite a valid config.
+    if (config.modules.length === 0 && cached && (cached.modules || []).length > 0) {
+      console.error("scan-degraded: 0 modules detected while a valid config exists. Pass an absolute --repo (or a repo path relative to --root) and retry; nothing was persisted.")
+      process.exit(2)
+    }
     const error = persistConfig(config)
     if (error) {
       lines.push(`persist error: ${error}`)

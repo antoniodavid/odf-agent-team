@@ -3,7 +3,7 @@ import * as fs from "node:fs/promises"
 import * as path from "node:path"
 import * as os from "node:os"
 import { execFileSync } from "node:child_process"
-import { buildConfig, classifyExit, computeChecksum, diffConfigs } from "./odf-project-scan.js"
+import { buildConfig, classifyExit, computeChecksum, diffConfigs, resolveRepoArg } from "./odf-project-scan.js"
 import YAML from "yaml"
 
 async function writeFile(dir: string, rel: string, content: string): Promise<void> {
@@ -87,6 +87,21 @@ describe("odf-project-scan", () => {
     const roundTrip = YAML.parse(YAML.stringify(config))
     expect(roundTrip.project_name).toBe("myrepo")
     expect(roundTrip.environment.sources.active).toEqual(["repo-a"])
+  })
+
+  it("detects linting from the workspace root when the repo has no configs", async () => {
+    await fs.rm(path.join(root, "myrepo", ".pre-commit-config.yaml"))
+    await writeFile(root, ".pylintrc", "")
+    await writeFile(root, ".copier-answers.yml", "template: oca-addons-repo\n")
+    const config = buildConfig(root, repo)
+    expect(config.linting.pre_commit).toBe(false)
+    expect(config.linting.pylint_odoo).toBe(true)
+    expect(config.flags.oca_mode).toBe(true)
+  })
+
+  it("resolves a relative --repo against the Doodba src dir, not the CWD", () => {
+    expect(resolveRepoArg(root, "myrepo")).toBe(path.join(root, "odoo", "custom", "src", "myrepo"))
+    expect(resolveRepoArg(root, path.join(root, "elsewhere"))).toBe(path.join(root, "elsewhere"))
   })
 
   it("empty environment blocks and warns instead of throwing", () => {
