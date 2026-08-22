@@ -153,6 +153,32 @@ function codegraphState(repoDir) {
   return { indexed, cli_available: cliAvailable }
 }
 
+function defaultCodegraphRunner(dir) {
+  try {
+    if (fs.existsSync(path.join(dir, ".codegraph"))) {
+      execFileSync("codegraph", ["sync", dir], { stdio: "ignore", timeout: 300_000 })
+    } else {
+      execFileSync("codegraph", ["init", dir], { stdio: "ignore", timeout: 600_000 })
+    }
+    return "ok"
+  } catch (error) {
+    return String(error?.message || "failed").slice(0, 120)
+  }
+}
+
+/** --deep: index every active source repo with CodeGraph (bounded, opt-in). */
+export function indexActiveSources(config, workspaceRoot, runner = defaultCodegraphRunner) {
+  const srcBase = path.join(workspaceRoot, "odoo", "custom", "src")
+  const indexed = []
+  const errors = []
+  for (const activeRepo of config.environment?.sources?.active_repos || []) {
+    const outcome = runner(path.join(srcBase, activeRepo.name))
+    if (outcome === "ok") indexed.push(activeRepo.name)
+    else errors.push(`${activeRepo.name}: ${outcome}`)
+  }
+  return { indexed, errors }
+}
+
 export function computeChecksum(inputs) {
   const hash = createHash("sha256")
   for (const input of inputs) hash.update(input)
@@ -213,7 +239,7 @@ export function buildConfig(workspaceRoot, repoDir, opts = {}) {
     linting: linting.linting,
     flags: { oca_mode: linting.oca_mode },
     conventions: { git_branch: git.branch, git_remote: git.remote, git_dirty: git.dirty },
-    codegraph: { indexed: codegraph.indexed, cli_available: codegraph.cli_available, root: repoDir, last_sync: null },
+    codegraph: { indexed: codegraph.indexed, cli_available: codegraph.cli_available, root: repoDir, paths: [], last_sync: null },
     dependency_matrix: env.dependency_matrix,
     warnings: env.warnings,
     scan_checksum: computeChecksum(scanInputs(workspaceRoot, repoDir, env)),
@@ -329,7 +355,7 @@ export function resolveRepoArg(root, repoArg) {
 }
 
 function main(argv) {
-  const args = { root: null, repo: null, format: "summary", persist: false, fresh: false, diff: false, codegraph: false, odooVersion: null, dockerContainer: null }
+  const args = { root: null, repo: null, format: "summary", persist: false, fresh: false, diff: false, codegraph: false, deep: false, odooVersion: null, dockerContainer: null }
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === "--root") args.root = argv[++i]
     else if (argv[i] === "--repo") args.repo = argv[++i]
@@ -338,11 +364,12 @@ function main(argv) {
     else if (argv[i] === "--fresh") args.fresh = true
     else if (argv[i] === "--diff") args.diff = true
     else if (argv[i] === "--codegraph") args.codegraph = true
+    else if (argv[i] === "--deep") args.deep = true
     else if (argv[i] === "--odoo-version") args.odooVersion = Number(argv[++i]) || null
     else if (argv[i] === "--docker-container") args.dockerContainer = argv[++i]
   }
   if (!args.root || !args.repo) {
-    console.error("Usage: node scripts/odf-project-scan.js --root <doodba-root> --repo <repo-dir> [--format summary|json|yaml|markdown] [--persist] [--fresh] [--diff] [--codegraph] [--odoo-version N] [--docker-container NAME]")
+    console.error("Usage: node scripts/odf-project-scan.js --root <doodba-root> --repo <repo-dir> [--format summary|json|yaml|markdown] [--persist] [--fresh] [--diff] [--codegraph] [--deep] [--odoo-version N] [--docker-container NAME]")
     process.exit(2)
   }
   const root = path.resolve(args.root)
@@ -364,6 +391,15 @@ function main(argv) {
     } catch {
       config.warnings.push("codegraph init failed.")
     }
+  }
+  if (args.deep && config.environment?.sources?.active_repos?.length && config.codegraph.cli_available) {
+    process.stdout.write("deep: indexing active source repos with CodeGraph (can take minutes)...\n")
+    const deep = indexActiveSources(config, root)
+    config.codegraph.paths = [repo, ...deep.indexed.map(name => path.join(root, "odoo", "custom", "src", name))]
+    for (const error of deep.errors) config.warnings.push(`codegraph deep failed: ${error}`)
+    if (deep.indexed.length) config.codegraph.last_sync = new Date().toISOString()
+  } else if (args.deep) {
+    config.warnings.push("--deep requested but codegraph CLI is unavailable.")
   }
 
   let exit = classifyExit(config)

@@ -3,7 +3,7 @@ import * as fs from "node:fs/promises"
 import * as path from "node:path"
 import * as os from "node:os"
 import { execFileSync } from "node:child_process"
-import { asBoolean, evidencePack, loadRegistry, matchSkills, normalizeResult, resolveAgent, stateBundle } from "./odf-toolkit.js"
+import { asBoolean, evidencePack, loadRegistry, matchSkills, metricsSummary, normalizeResult, resolveAgent, stateBundle } from "./odf-toolkit.js"
 
 describe("odf-toolkit result", () => {
   it("normalizes design_closed as string or boolean and flags missing on DESIGN/PLAN", () => {
@@ -91,6 +91,31 @@ describe("odf-toolkit state", () => {
       expect(bundle.policy_gate).toBeNull()
     } finally {
       await fs.rm(root, { recursive: true, force: true })
+    }
+  })
+})
+
+describe("odf-toolkit metrics", () => {
+  it("aggregates delegation records by phase and status", async () => {
+    const configDir = await fs.mkdtemp(path.join(os.tmpdir(), "odf-metrics-"))
+    const previous = process.env.ODF_CONFIG_DIR
+    process.env.ODF_CONFIG_DIR = configDir
+    try {
+      await fs.mkdir(path.join(configDir, "metrics"), { recursive: true })
+      await fs.writeFile(path.join(configDir, "metrics", "delegations-2026-08-22.jsonl"), [
+        JSON.stringify({ phase: "DESIGN", status: "ok", duration_ms: 120_000 }),
+        JSON.stringify({ phase: "DESIGN", status: "timeout", duration_ms: 300_000 }),
+        JSON.stringify({ phase: "VERIFY", status: "ok", duration_ms: 60_000 }),
+      ].join("\n"), "utf8")
+      const summary = metricsSummary(1)
+      expect(summary.records).toBe(3)
+      expect(summary.by_phase.DESIGN).toMatchObject({ calls: 2, ok: 1, timeout: 1 })
+      expect(summary.by_phase.DESIGN.avg_duration_ms).toBe(210_000)
+      expect(summary.by_phase.VERIFY).toMatchObject({ calls: 1, ok: 1 })
+    } finally {
+      if (previous === undefined) delete process.env.ODF_CONFIG_DIR
+      else process.env.ODF_CONFIG_DIR = previous
+      await fs.rm(configDir, { recursive: true, force: true })
     }
   })
 })

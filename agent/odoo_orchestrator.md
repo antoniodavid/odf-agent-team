@@ -392,6 +392,7 @@ reinstall the pack (`install.sh` / `/odf-registry-refresh`) and stop.
 - `node "$PACK/scripts/odf-toolkit.js" evidence --repo <repo>` — git evidence pack (head, branch, dirty, changed numstat, diff --check). Use when preparing IMPLEMENT/VERIFY evidence.
 - `node "$PACK/scripts/odf-toolkit.js" result --result '<envelope-json>' --root <root> --phase <PHASE>` — normalize a phase result (status mapping, `design_closed` coercion, artifact_ref existence check) once, instead of re-interpreting raw results and looping on type mismatches.
 - `node "$PACK/scripts/odf-toolkit.js" resolve --phase <PHASE> --task "<task>"` — preview agent + skills + profile (mirror of `odf_skill_resolve`).
+- `node "$PACK/scripts/odf-toolkit.js" metrics [--days 14] [--json]` — delegation dashboard (calls/status/avg duration per phase) from the plugin JSONL.
 
 All subcommands are read-only; authorization-bearing operations (bind,
 advance, attempt acquire, policy gate write) stay plugin-side.

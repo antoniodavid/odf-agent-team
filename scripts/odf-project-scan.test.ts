@@ -3,7 +3,7 @@ import * as fs from "node:fs/promises"
 import * as path from "node:path"
 import * as os from "node:os"
 import { execFileSync } from "node:child_process"
-import { buildConfig, classifyExit, computeChecksum, diffConfigs, resolveRepoArg } from "./odf-project-scan.js"
+import { buildConfig, classifyExit, computeChecksum, diffConfigs, indexActiveSources, resolveRepoArg } from "./odf-project-scan.js"
 import YAML from "yaml"
 
 async function writeFile(dir: string, rel: string, content: string): Promise<void> {
@@ -102,6 +102,18 @@ describe("odf-project-scan", () => {
   it("resolves a relative --repo against the Doodba src dir, not the CWD", () => {
     expect(resolveRepoArg(root, "myrepo")).toBe(path.join(root, "odoo", "custom", "src", "myrepo"))
     expect(resolveRepoArg(root, path.join(root, "elsewhere"))).toBe(path.join(root, "elsewhere"))
+  })
+
+  it("indexes active source repos with --deep through the injected runner", () => {
+    const config = buildConfig(root, repo)
+    const calls: string[] = []
+    const fakeRunner = (dir: string) => { calls.push(dir); return "ok" }
+    const deep = indexActiveSources(config, root, fakeRunner)
+    expect(calls).toEqual([path.join(root, "odoo", "custom", "src", "repo-a")])
+    expect(deep.indexed).toEqual(["repo-a"])
+    expect(deep.errors).toEqual([])
+    const failing = indexActiveSources(config, root, () => "boom")
+    expect(failing.errors).toEqual(["repo-a: boom"])
   })
 
   it("empty environment blocks and warns instead of throwing", () => {

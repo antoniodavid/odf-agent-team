@@ -53,6 +53,20 @@ export interface ContextPack {
   hint?: string
 }
 
+export interface MetricsSummary {
+  days: number
+  records: number
+  by_phase: Record<string, {
+    calls: number
+    ok: number
+    blocked: number
+    error: number
+    timeout: number
+    total_duration_ms: number
+    avg_duration_ms: number
+  }>
+}
+
 export function asBoolean(value: unknown): boolean
 export function normalizeResult(raw: unknown, opts?: { root?: string; phase?: string }): NormalizedResult
 export function resolveAgent(registry: { agents?: unknown[] }, phase: string, taskKeywords: string[]): string | null
@@ -61,3 +75,4 @@ export function loadRegistry(): Record<string, unknown> | null
 export function stateBundle(root: string, change: string): StateBundle
 export function evidencePack(repoDir: string): EvidencePack
 export function contextPack(repoDir: string, task: string, maxFiles?: number): ContextPack
+export function metricsSummary(days?: number): MetricsSummary

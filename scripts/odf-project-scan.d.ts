@@ -23,7 +23,7 @@ export interface ScanConfig {
   linting: { pre_commit: boolean; ruff: boolean; pylint_odoo: boolean; eslint: boolean; prettier: boolean }
   flags: { oca_mode: boolean }
   conventions: { git_branch: string | null; git_remote: string | null; git_dirty: boolean | null }
-  codegraph: { indexed: boolean; cli_available: boolean; root: string; last_sync: string | null }
+  codegraph: { indexed: boolean; cli_available: boolean; root: string; paths: string[]; last_sync: string | null }
   dependency_matrix: EnvDetection["dependency_matrix"]
   warnings: string[]
   scan_checksum: string
@@ -32,6 +32,7 @@ export interface ScanConfig {
 
 export function computeChecksum(inputs: string[]): string
 export function resolveRepoArg(root: string, repoArg: string): string
+export function indexActiveSources(config: ScanConfig, workspaceRoot: string, runner?: (dir: string) => string): { indexed: string[]; errors: string[] }
 export function buildConfig(workspaceRoot: string, repoDir: string, opts?: { odooVersion?: number | null }): ScanConfig
 export function classifyExit(config: ScanConfig): 0 | 1 | 2
 export function diffConfigs(cached: ScanConfig | null, fresh: ScanConfig): string[]

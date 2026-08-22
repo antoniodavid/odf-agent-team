@@ -24,6 +24,7 @@ import { execFileSync } from "node:child_process"
 import { createHash } from "node:crypto"
 import { pathToFileURL } from "node:url"
 import YAML from "yaml"
+import { collectDelegations, resolveMetricsDir } from "./odf-metrics.js"
 
 const CONFIG_DIR = process.env.ODF_CONFIG_DIR || path.join(os.homedir(), ".config", "opencode")
 const REGISTRY_PATH = path.join(CONFIG_DIR, "odf-registry.json")
@@ -284,6 +285,36 @@ export function contextPack(repoDir, task, maxFiles = 8) {
 }
 
 // ==========================================
+// metrics — delegation dashboard summary
+// ==========================================
+
+export function metricsSummary(days = 14) {
+  const dir = resolveMetricsDir()
+  const records = collectDelegations(dir, days)
+  const byPhase = {}
+  for (const record of records) {
+    const key = record.phase || "?"
+    byPhase[key] ??= { calls: 0, ok: 0, blocked: 0, error: 0, timeout: 0, total_duration_ms: 0, avg_duration_ms: 0 }
+    const bucket = byPhase[key]
+    bucket.calls++
+    if (record.status && record.status in bucket) bucket[record.status]++
+    bucket.total_duration_ms += Number(record.duration_ms) || 0
+  }
+  for (const bucket of Object.values(byPhase)) {
+    bucket.avg_duration_ms = bucket.calls ? Math.round(bucket.total_duration_ms / bucket.calls) : 0
+  }
+  return { days, records: records.length, by_phase: byPhase }
+}
+
+function renderMetrics(summary) {
+  const lines = [`metrics: ${summary.records} records in the last ${summary.days} days`]
+  for (const [phase, bucket] of Object.entries(summary.by_phase)) {
+    lines.push(`  ${phase}: ${bucket.calls} calls (ok ${bucket.ok}, blocked ${bucket.blocked}, error ${bucket.error}, timeout ${bucket.timeout}) avg ${bucket.avg_duration_ms}ms`)
+  }
+  return lines.join("\n")
+}
+
+// ==========================================
 // CLI dispatch
 // ==========================================
 
@@ -334,6 +365,14 @@ function main(argv) {
       result = contextPack(path.resolve(repo), task, Number(argValue(argv, "--max-files")) || 8)
       break
     }
+    case "metrics": {
+      result = metricsSummary(Number(argValue(argv, "--days")) || 14)
+      if (!json) {
+        process.stdout.write(renderMetrics(result) + "\n")
+        process.exit(0)
+      }
+      break
+    }
     default:
       return usage()
   }
@@ -345,7 +384,7 @@ function main(argv) {
 }
 
 function usage(detail = "") {
-  console.error(detail ? `Usage: odf-toolkit ${detail}` : "Usage: odf-toolkit <result|resolve|state|evidence|context> [options]")
+  console.error(detail ? `Usage: odf-toolkit ${detail}` : "Usage: odf-toolkit <result|resolve|state|evidence|context|metrics> [options]")
   process.exit(2)
 }
 
