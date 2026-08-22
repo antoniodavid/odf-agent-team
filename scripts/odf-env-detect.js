@@ -209,6 +209,6 @@ function main(argv) {
   process.stdout.write(args.json ? JSON.stringify(env, null, 2) + "\n" : renderSummary(env) + "\n")
 }
 
-if (import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   main(process.argv.slice(2))
 }

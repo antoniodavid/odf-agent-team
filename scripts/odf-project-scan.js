@@ -321,7 +321,9 @@ export function readPersistedConfig(project) {
     const parsed = JSON.parse(raw)
     const observations = Array.isArray(parsed) ? parsed : parsed?.observations
     const topicKey = `odf-init/${project}`
-    const obs = (observations || []).find(o => o.topic_key === topicKey)
+    // Latest observation wins (export may list oldest first); the plugin uses the same .at(-1) rule.
+    const matches = (observations || []).filter(o => o.topic_key === topicKey)
+    const obs = matches.at(-1)
     return obs?.content ? YAML.parse(obs.content) : null
   } catch {
     return null
@@ -330,10 +332,26 @@ export function readPersistedConfig(project) {
   }
 }
 
+/** Compact the persisted copy: per-repo module lists are huge in Doodba and
+ * the Engram store truncates content around 50KB. Keep essential context and
+ * per-repo module counts; the full lists are re-derivable deterministically. */
+export function compactForPersist(config) {
+  const sources = config.environment?.sources
+  return {
+    ...config,
+    environment: {
+      ...config.environment,
+      sources: sources
+        ? { ...sources, active_repos: (sources.active_repos || []).map(r => ({ name: r.name, branch: r.branch, module_count: r.modules.length })) }
+        : sources,
+    },
+  }
+}
+
 function persistConfig(config) {
   const project = config.project_name
   const topicKey = `odf-init/${project}`
-  const yaml = YAML.stringify(config)
+  const yaml = YAML.stringify(compactForPersist(config))
   try {
     execFileSync("engram", [
       "save", topicKey, yaml,
@@ -354,7 +372,7 @@ export function resolveRepoArg(root, repoArg) {
   return path.resolve(base, repoArg)
 }
 
-function main(argv) {
+async function main(argv) {
   const args = { root: null, repo: null, format: "summary", persist: false, fresh: false, diff: false, codegraph: false, deep: false, odooVersion: null, dockerContainer: null }
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === "--root") args.root = argv[++i]
@@ -420,8 +438,21 @@ function main(argv) {
       lines.push(`persist error: ${error}`)
       exit = Math.max(exit, 1)
     } else {
-      lines.push(`persisted to Engram topic odf-init/${project}`)
-      if (cached && cached.scan_checksum === config.scan_checksum) lines.push("cached: no environment changes since last scan.")
+      // Readback verification: the canonical topic must now expose THIS scan.
+      // engram export may lag the save by a few hundred ms; poll briefly.
+      let verified = null
+      for (let attempt = 0; attempt < 5 && !(verified && verified.scan_checksum === config.scan_checksum); attempt++) {
+        const sleepMs = new Promise(resolve => setTimeout(resolve, 200))
+        await sleepMs
+        verified = readPersistedConfig(project)
+      }
+      if (verified && verified.scan_checksum === config.scan_checksum) {
+        lines.push(`persisted to Engram topic odf-init/${project} (verified)`)
+        if (cached && cached.scan_checksum === config.scan_checksum) lines.push("cached: no environment changes since last scan.")
+      } else {
+        lines.push(`persist error: readback mismatch for topic odf-init/${project} — the CLI persist did not land. Reinstall the pack or check the engram CLI.`)
+        exit = Math.max(exit, 1)
+      }
     }
   }
 
@@ -432,6 +463,9 @@ function main(argv) {
   process.exit(exit)
 }
 
-if (import.meta.url === pathToFileURL(process.argv[1]).href) {
-  main(process.argv.slice(2))
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  main(process.argv.slice(2)).catch(error => {
+    console.error(String(error?.message || error))
+    process.exit(2)
+  })
 }

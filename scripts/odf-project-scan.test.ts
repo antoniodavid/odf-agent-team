@@ -3,7 +3,7 @@ import * as fs from "node:fs/promises"
 import * as path from "node:path"
 import * as os from "node:os"
 import { execFileSync } from "node:child_process"
-import { buildConfig, classifyExit, computeChecksum, diffConfigs, indexActiveSources, resolveRepoArg } from "./odf-project-scan.js"
+import { buildConfig, classifyExit, compactForPersist, computeChecksum, diffConfigs, indexActiveSources, readPersistedConfig, resolveRepoArg } from "./odf-project-scan.js"
 import YAML from "yaml"
 
 async function writeFile(dir: string, rel: string, content: string): Promise<void> {
@@ -114,6 +114,43 @@ describe("odf-project-scan", () => {
     expect(deep.errors).toEqual([])
     const failing = indexActiveSources(config, root, () => "boom")
     expect(failing.errors).toEqual(["repo-a: boom"])
+  })
+
+  it("compactForPersist strips per-repo module lists but keeps the checksum and counts", () => {
+    const config = buildConfig(root, repo)
+    const compact = compactForPersist(config)
+    expect(compact.scan_checksum).toBe(config.scan_checksum)
+    expect(compact.environment.sources.active_repos[0]).toEqual({ name: "repo-a", branch: null, module_count: 1 })
+    expect(compact.modules).toEqual(config.modules)
+    expect(YAML.stringify(compact).length).toBeLessThan(YAML.stringify(config).length)
+  })
+
+  it("readPersistedConfig returns the LATEST observation for a topic, not the first", async () => {
+    const bin = await fs.mkdtemp(path.join(os.tmpdir(), "odf-engram-bin-"))
+    const previousPath = process.env.PATH
+    const previousExport = process.env.ODF_TEST_ENGRAM_EXPORT
+    await fs.writeFile(path.join(bin, "engram"), "#!/bin/sh\nprintf '%s' \"$ODF_TEST_ENGRAM_EXPORT\" > \"$2\"\n", "utf8")
+    await fs.chmod(path.join(bin, "engram"), 0o755)
+    process.env.PATH = `${bin}${path.delimiter}${previousPath || ""}`
+    try {
+      const oldConfig = YAML.stringify({ project_name: "proj", odoo_version: null, modules: [] })
+      const newConfig = YAML.stringify({ project_name: "proj", odoo_version: 19, modules: [{ name: "m1" }], testing: { test_command: "cmd" } })
+      process.env.ODF_TEST_ENGRAM_EXPORT = JSON.stringify({
+        observations: [
+          { topic_key: "odf-init/proj", content: oldConfig },
+          { topic_key: "odf-init/proj", content: newConfig },
+        ],
+      })
+      const config = readPersistedConfig("proj")
+      expect(config?.odoo_version).toBe(19)
+      expect(config?.modules).toEqual([{ name: "m1" }])
+      expect(config?.testing.test_command).toBe("cmd")
+    } finally {
+      process.env.PATH = previousPath
+      if (previousExport === undefined) delete process.env.ODF_TEST_ENGRAM_EXPORT
+      else process.env.ODF_TEST_ENGRAM_EXPORT = previousExport
+      await fs.rm(bin, { recursive: true, force: true })
+    }
   })
 
   it("empty environment blocks and warns instead of throwing", () => {

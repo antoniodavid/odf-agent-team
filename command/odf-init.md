@@ -33,6 +33,7 @@ read it without re-detecting.
    ```
    - Add `--diff` when re-detecting (shows changes vs the persisted config), `--fresh` to bypass the checksum cache, and pass user overrides as flags (`--odoo-version 18`, `--docker-container odoo`, `--codegraph`).
    - Exit codes: `0` ok; `1` warnings — show them; `2` blocked — fall back to manual detection (read `skills/odf-init/SKILL.md` steps) or ask the user for the missing values; never guess.
+   - **Success requires the CLI output to include `persisted to Engram topic odf-init/{project} (verified)`.** If that line is absent (no `--persist`, persist error, or readback mismatch), the project is NOT initialized: stop and report, do not claim success, do not fall back to manual persistence.
    - If the CLI cannot run, read `skills/odf-init/SKILL.md` and run detection manually.
 
 3. **Show results** to user:
