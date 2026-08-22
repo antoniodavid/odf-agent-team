@@ -897,7 +897,7 @@
         "detect",
         "project context"
       ],
-      "compact_rules": "Detect + persist Odoo project context to Engram.\n- Version: __manifest__.py \u2192 odoo-bin \u2192 Dockerfile \u2192 ask\n- Modules: find __manifest__.py, classify (custom/oca)\n- Test runner: Docker Compose or local odoo-bin with exact -d {test_db} -i {module} --test-enable --stop-after-init\n- Disposable DB preferred; a named non-isolated development DB is allowed only for the current run when the user-approved scope names and authorizes that exact DB\n- State non-isolated/user-authorized status and warn tests may mutate module, schema, and test data\n- If exact DB or current authorization is missing, block and ask; never guess\n- Never generate destructive database setup; separate current consent is required for the exact operation/database\n- Persist YAML even partial. Upsert via topic_key",
+      "compact_rules": "Detect + persist Odoo project context to Engram.\n- Version: __manifest__.py \u2192 odoo-bin \u2192 Dockerfile \u2192 ask\n- Modules: find __manifest__.py, classify (custom/oca)\n- Test runner: Docker Compose or local odoo-bin with exact -d {test_db} -i {module} --test-enable --stop-after-init\n- Disposable DB preferred; a named non-isolated development DB is allowed only for the current run when the user-approved scope names and authorizes that exact DB\n- State non-isolated/user-authorized status and warn tests may mutate module, schema, and test data\n- If exact DB or current authorization is missing, block and ask; never guess\n- Never generate destructive database setup; separate current consent is required for the exact operation/database\n- Parse Doodba addons.yaml: active/commented/declared-absent/undeclared sources\n- Resolve module depends against active sources; core addons come from the Docker image\n- Init/sync CodeGraph for the project repo (--deep indexes active sources, opt-in)\n- Deterministic scan CLI: odf-project-scan --persist (summary/json/yaml/markdown, exit codes, checksum cache, --diff)\n- Persist YAML even partial. Upsert via topic_key",
       "path": "skills/odf-init/SKILL.md",
       "odoo_versions": [
         14,
@@ -908,8 +908,18 @@
         19
       ],
       "sdd_phase": null,
-      "version": "2.2",
+      "version": "3.1",
       "changelog": [
+        {
+          "version": "3.1",
+          "date": "2026-08-21",
+          "change": "Deterministic odf-project-scan CLI: full config assembly, Engram persistence, checksum cache, diff, exit codes"
+        },
+        {
+          "version": "3.0",
+          "date": "2026-08-21",
+          "change": "Doodba addons.yaml sources, module dependency matrix, and CodeGraph init/sync"
+        },
         {
           "version": "2.2",
           "date": "2026-08-21",

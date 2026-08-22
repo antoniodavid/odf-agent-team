@@ -9,6 +9,7 @@ description: "Initialize ODF project context. Detects Odoo version, modules, tes
 Examples:
 - `/odf-init` -- Detect and persist project context
 - `/odf-init --force` -- Re-detect even if config already exists
+- `/odf-init --deep` -- Also index active Doodba source repos with CodeGraph
 
 ## What This Does
 
@@ -26,9 +27,13 @@ read it without re-detecting.
    - If found AND `--force`: Proceed to re-detect
    - If not found: Proceed to detect
 
-2. **Launch detection**: Read `/home/adruban/.config/opencode/skills/odf-init/SKILL.md` and run detection
-   - This is a direct orchestrator task (no sub-agent delegation needed)
-   - The orchestrator itself performs the detection since it has filesystem access
+2. **Launch deterministic scan**: run the CLI (preferred; no manual re-derivation):
+   ```
+   node <pack>/scripts/odf-project-scan.js --root <doodba-workspace-root> --repo <repo-dir> --persist --format summary
+   ```
+   - Add `--diff` when re-detecting (shows changes vs the persisted config), `--fresh` to bypass the checksum cache, and pass user overrides as flags (`--odoo-version 18`, `--docker-container odoo`, `--codegraph`).
+   - Exit codes: `0` ok; `1` warnings — show them; `2` blocked — fall back to manual detection (read `skills/odf-init/SKILL.md` steps) or ask the user for the missing values; never guess.
+   - If the CLI cannot run, read `skills/odf-init/SKILL.md` and run detection manually.
 
 3. **Show results** to user:
    ```
@@ -40,9 +45,11 @@ read it without re-detecting.
      Tests: {runner} ({command preview})
      Linting: {pre-commit yes/no}, {pylint-odoo yes/no}
      OCA mode: {yes/no}
-
+     Environment: {sources active} sources, {declared-absent} declared-absent, {undeclared} undeclared
+     CodeGraph: {indexed yes/no} ({root})
      Config saved to Engram. All ODF commands will use this context.
    ```
+   Show warnings when `declared_absent` or `undeclared` sources exist, when a project module depends on an unresolved non-core module, or when the CodeGraph index is missing.
 
 4. **Warnings**: If any critical detection failed (no Odoo version, no test runner):
    ```

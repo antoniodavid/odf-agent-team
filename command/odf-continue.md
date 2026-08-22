@@ -45,7 +45,7 @@ Reanuda el flujo ODF desde la última etapa completada del cambio activo más re
    - `QA-PLAN` + `DESIGN` → `PLAN`
    - `IMPLEMENT` → `BUILD`
    - `VERIFY` → `VERIFY`
-9. **Redescubrir el receipt pendiente** en `<worktree>/.odf/receipt-{change}.json` o mediante el estado adaptado. Si `receipt.state` es `pending`, detenerse y volver a presentar su disposición con la evidencia; nunca reanudar aunque el artefacto OpenSpec/Engram sugiera una etapa pendiente.
+9. **Redescubrir el receipt pendiente** en `<worktree>/.odf/receipt-{change}.json` o mediante el estado adaptado. Prefer the read-only bundle: `node <pack>/scripts/odf-toolkit.js state --root <root> --change <change>` (state + receipts + gates in one compact JSON). Si `receipt.state` es `pending`, detenerse y volver a presentar su disposición con la evidencia; nunca reanudar aunque el artefacto OpenSpec/Engram sugiera una etapa pendiente.
 10. **Seleccionar la primera etapa canónica pendiente**. No inventar una fase, no repetir trabajo ya completado y no relanzar un adaptador cuyo artefacto ya esté confirmado.
 11. **Delegar** la siguiente etapa mediante `odf_delegate`; usar el adaptador legacy solo para ejecutar o leer contratos históricos.
 12. **Mostrar la puerta de aprobación** después de la etapa cuando el modo de interacción la requiera. Con `execution_mode: auto`, la continuación auto-ejecuta la fase pendiente y luego auto-lanza las fases siguientes bajo las mismas condiciones de parada (resultado interno `ok`/`warning`, sin receipt pendiente, sin corrección/disposición pendiente, evidencia de validación verificada y sin decisión de producto/alcance requerida).
