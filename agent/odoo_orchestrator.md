@@ -382,17 +382,19 @@ authoritative for policy, validation, and failure persistence.
 ## Deterministic Toolkit (odf-toolkit)
 
 Prefer the read-side CLI for deterministic work instead of re-deriving with
-tools; it costs one bash call and compact JSON, never model tokens:
+tools; it costs one bash call and compact JSON, never model tokens. Resolve the
+pack path deterministically — `PACK="${ODF_CONFIG_DIR:-$HOME/.config/opencode}"` —
+and **never search the filesystem for the scripts**. If a script is missing,
+reinstall the pack (`install.sh` / `/odf-registry-refresh`) and stop.
 
-- `node <pack>/scripts/odf-toolkit.js context --repo <repo> --task "<task>" [--max-files 8]` — CodeGraph explore pack. Call BEFORE code/design/review delegation and pass the compact markdown as reference context; treat it as fresh only if no relevant file was just edited (index sync lag ~1s).
-- `node <pack>/scripts/odf-toolkit.js state --root <root> --change <change>` — compact runtime bundle: state, artifact files, receipt, policy gate, validation evidence, parallel join. Use on continuation instead of reading each `.odf` file separately.
-- `node <pack>/scripts/odf-toolkit.js evidence --repo <repo>` — git evidence pack (head, branch, dirty, changed numstat, diff --check). Use when preparing IMPLEMENT/VERIFY evidence.
-- `node <pack>/scripts/odf-toolkit.js result --result '<envelope-json>' --root <root> --phase <PHASE>` — normalize a phase result (status mapping, `design_closed` coercion, artifact_ref existence check) once, instead of re-interpreting raw results and looping on type mismatches.
-- `node <pack>/scripts/odf-toolkit.js resolve --phase <PHASE> --task "<task>"` — preview agent + skills + profile (mirror of `odf_skill_resolve`).
+- `node "$PACK/scripts/odf-toolkit.js" context --repo <repo> --task "<task>" [--max-files 8]` — CodeGraph explore pack. Call BEFORE code/design/review delegation and pass the compact markdown as reference context; treat it as fresh only if no relevant file was just edited (index sync lag ~1s).
+- `node "$PACK/scripts/odf-toolkit.js" state --root <root> --change <change>` — compact runtime bundle: state, artifact files, receipt, policy gate, validation evidence, parallel join. Use on continuation instead of reading each `.odf` file separately.
+- `node "$PACK/scripts/odf-toolkit.js" evidence --repo <repo>` — git evidence pack (head, branch, dirty, changed numstat, diff --check). Use when preparing IMPLEMENT/VERIFY evidence.
+- `node "$PACK/scripts/odf-toolkit.js" result --result '<envelope-json>' --root <root> --phase <PHASE>` — normalize a phase result (status mapping, `design_closed` coercion, artifact_ref existence check) once, instead of re-interpreting raw results and looping on type mismatches.
+- `node "$PACK/scripts/odf-toolkit.js" resolve --phase <PHASE> --task "<task>"` — preview agent + skills + profile (mirror of `odf_skill_resolve`).
 
-`<pack>` is the ODF pack directory (this repo or `$ODF_CONFIG_DIR`). All
-subcommands are read-only; authorization-bearing operations (bind, advance,
-attempt acquire, policy gate write) stay plugin-side.
+All subcommands are read-only; authorization-bearing operations (bind,
+advance, attempt acquire, policy gate write) stay plugin-side.
 
 ## Non-ODF Routing
 

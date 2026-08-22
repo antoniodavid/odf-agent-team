@@ -27,9 +27,9 @@ read it without re-detecting.
    - If found AND `--force`: Proceed to re-detect
    - If not found: Proceed to detect
 
-2. **Launch deterministic scan**: run the CLI (preferred; no manual re-derivation):
+2. **Launch deterministic scan**: run the CLI (preferred; no manual re-derivation). Resolve the pack path deterministically — `PACK="${ODF_CONFIG_DIR:-$HOME/.config/opencode}"`; never search the filesystem. If the script is missing, reinstall the pack and stop:
    ```
-   node <pack>/scripts/odf-project-scan.js --root <doodba-workspace-root> --repo <repo-dir> --persist --format summary
+   node "$PACK/scripts/odf-project-scan.js" --root <doodba-workspace-root> --repo <repo-dir> --persist --format summary
    ```
    - Add `--diff` when re-detecting (shows changes vs the persisted config), `--fresh` to bypass the checksum cache, and pass user overrides as flags (`--odoo-version 18`, `--docker-container odoo`, `--codegraph`).
    - Exit codes: `0` ok; `1` warnings — show them; `2` blocked — fall back to manual detection (read `skills/odf-init/SKILL.md` steps) or ask the user for the missing values; never guess.
