@@ -162,6 +162,22 @@ describe("workflow status adapter", () => {
     expect(complete.legacy_phase).toBe("VERIFY")
   })
 
+  it("requires recovery for a canonical state without a work_type and blocks a pending binding", () => {
+    const missingWorkType = deriveWorkflowStatus({
+      change: "no-work-type",
+      state: "canonical_stage: PLAN\ncompleted_canonical_stages: [DECIDE]\n",
+    })
+    expect(missingWorkType.state_kind).toBe("canonical")
+    expect(missingWorkType.recovery_work_type_required).toBe(true)
+
+    const pendingBinding = deriveWorkflowStatus({
+      change: "pending-binding",
+      state: "work_type: feature\nbinding_pending: true\ncanonical_stage: PLAN\n",
+    })
+    expect(pendingBinding.resumable).toBe(false)
+    expect(pendingBinding.warnings.some(w => w.includes("binding"))).toBe(true)
+  })
+
   it("does not invent resumable state for empty or QA-only evidence", () => {
     for (const status of [
       deriveWorkflowStatus({ change: "empty" }),
@@ -513,7 +529,7 @@ describe("odf_workflow_status tool", () => {
   it("reads OpenSpec state and artifacts as the primary source", async () => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), "odf-openspec-tool-"))
     const cleanup = await configureEngramExport([])
-    await writeOpenSpec(root, "openspec-change", "canonical_stage: PLAN\ndecide_completed: true\nplan_completed: false\n", {
+    await writeOpenSpec(root, "openspec-change", "work_type: feature\ncanonical_stage: PLAN\ndecide_completed: true\nplan_completed: false\n", {
       "decision.yaml": "status: passed\n",
       "plan.yaml": "status: pending\n",
     })

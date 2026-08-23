@@ -232,6 +232,7 @@ const ODF_REGISTERED_TOOLS = [
   "odf_parallel_delegate",
   "odf_workflow_route",
   "odf_workflow_advance",
+  "odf_workflow_override",
   "odf_workflow_bind",
   "odf_entry_triage",
   "odf_skill_inject",
@@ -3371,6 +3372,36 @@ Use this instead of generic task() for ODF workflow delegation.`,
             )
           }
 
+          // Artifact-ref enforcement: claimed OpenSpec refs must exist on disk.
+          // Engram topics cannot be verified here (warning only); a result with
+          // no claimed refs is a warning, not a blocker (legacy agents).
+          if (innerDisposition.accepted && designResult) {
+            const rawRefs = Array.isArray(designResult.artifacts_saved) ? designResult.artifacts_saved
+              : Array.isArray(designResult.artifact_refs) ? designResult.artifact_refs : []
+            const refs = rawRefs
+              .map((entry: unknown): string | null => {
+                if (typeof entry === "string") return entry
+                if (entry && typeof entry === "object" && !Array.isArray(entry)) {
+                  const record = entry as Record<string, unknown>
+                  const ref = (record.artifact_ref as Record<string, unknown> | undefined)?.ref ?? record.ref
+                  return typeof ref === "string" ? ref : null
+                }
+                return null
+              })
+              .filter((ref: string | null): ref is string => Boolean(ref))
+            const missingOpenSpec = refs.filter(ref =>
+              ref.startsWith("openspec/") && !fsSync.existsSync(path.join(workspaceRoot, ref)))
+            if (missingOpenSpec.length > 0) {
+              return settleProofFailure(
+                `Claimed artifact_ref(s) do not exist on disk: ${missingOpenSpec.join(", ")}. Persist the phase artifact in the selected store and retry.`,
+                "artifact-ref-missing",
+              )
+            }
+            if (refs.length === 0 && ["PROPOSE", "ASSESS", "QA-PLAN", "DESIGN", "IMPLEMENT"].includes(args.phase)) {
+              phaseWarnings.push("missing-artifact-refs")
+            }
+          }
+
           if (!innerDisposition.accepted && !proofBacked && policyGate && !executionOptions.suppress_failure_receipt) {
             persistWorkflowFailureReceipt(
               workspaceRoot,
@@ -6343,6 +6374,7 @@ only after canonical state exists. Existing state and Expectations are reused on
         tdd_mode: tool.schema.boolean(),
         solution_strategy: tool.schema.enum(["standard", "custom", "pending"]),
         chain_strategy: tool.schema.enum(["none", "chained", "feature-branch"]),
+        validation_mode: tool.schema.enum(["automated", "manual-acceptance"]).optional().describe("Validation preference: automated (default) or manual-acceptance (user-run evidence; risk/EXP gates still apply)"),
         persisted_at: tool.schema.string().optional(),
       }).optional().describe("Complete preflight used to initialize a missing workflow state"),
       expectations: tool.schema.object({
@@ -6449,7 +6481,7 @@ only after canonical state exists. Existing state and Expectations are reused on
       }
       if (capabilityMatches) authorization!.claimed = true
       const claimedCapability = capabilityMatches ? authorization! : null
-      const prepareState = (content: string, existed: boolean): {
+      const prepareState = (content: string, existed: boolean, expectationsPending: boolean): {
         document?: ReturnType<typeof parseDocument>
         action?: "created" | "updated" | "reused"
         preflightMirrored?: boolean
@@ -6507,6 +6539,11 @@ only after canonical state exists. Existing state and Expectations are reused on
           if (preflight) document.set("phase", "preflight")
           if (preflight) document.set("canonical_stage", route.entry)
           if (preflight) document.set("completed_canonical_stages", [])
+        }
+        if (expectationsPending) {
+          // The state lands before the Expectations artifact; mark the binding
+          // pending so status/continuation are not resumable until they persist.
+          document.set("binding_pending", true)
         }
         if (terminalStage) {
           document.set("canonical_stage", terminalStage)
@@ -6580,7 +6617,7 @@ only after canonical state exists. Existing state and Expectations are reused on
           if (terminalAction === "terminal-artifact-conflict") {
             return blocked(terminalAction, "The existing terminal artifact conflicts with this idempotent binding.")
           }
-          const prepared = prepareState(stateObservation?.content || "{}", Boolean(stateObservation))
+          const prepared = prepareState(stateObservation?.content || "{}", Boolean(stateObservation), expectationsAction === "persisted")
           if (!prepared.document || prepared.error) return blocked(prepared.error || "malformed-state", "Engram workflow state is malformed or conflicts with this binding.")
           const project = workspaceProjectName(workspaceRoot)
           if (prepared.action !== "reused") {
@@ -6590,6 +6627,12 @@ only after canonical state exists. Existing state and Expectations are reused on
           if (expectationsAction === "persisted") {
             const expectationsError = saveEngramTopic(workspaceRoot, project, expectationsKey, JSON.stringify(expectations))
             if (expectationsError) return blocked(expectationsError, "State exists, but approved Expectations could not be persisted.")
+            // Expectations landed; clear the binding-pending marker.
+            const cleared = parseStateDocument(JSON.stringify(prepared.document.toJSON()))
+            if (cleared) {
+              cleared.document.delete("binding_pending")
+              saveEngramTopic(workspaceRoot, project, stateKey, JSON.stringify(cleared.document.toJSON()))
+            }
           }
           if (terminalStage && terminalAction === "persisted") {
             const artifactType = terminalStage === "DECIDE" ? "decision" : "fix"
@@ -6652,7 +6695,7 @@ only after canonical state exists. Existing state and Expectations are reused on
         if (terminalAction === "terminal-artifact-conflict") {
           return blocked(terminalAction, "The existing terminal artifact conflicts with this idempotent binding.")
         }
-        const prepared = prepareState(stateContent, stateExists)
+        const prepared = prepareState(stateContent, stateExists, expectationsAction === "persisted")
         if (!prepared.document || prepared.error) return blocked(prepared.error || "malformed-state", "OpenSpec workflow state is malformed or conflicts with this binding.")
         if (!await safeDirectoryPath(realWorkspace, changeDir, true)) return blocked("unsafe-change-path", "The OpenSpec change path could not be created safely.")
         if (prepared.action !== "reused") {
@@ -6662,6 +6705,14 @@ only after canonical state exists. Existing state and Expectations are reused on
         }
         if (expectationsAction === "persisted" && !await writeAtomicFile(expectationsPath, stringify(expectations))) {
           return blocked("expectations-write-failed", "Canonical state exists, but approved Expectations could not be persisted.")
+        }
+        if (expectationsAction === "persisted") {
+          // Expectations landed; clear the binding-pending marker.
+          const cleared = parseStateDocument(await fs.readFile(statePath, "utf8"))
+          if (cleared) {
+            cleared.document.delete("binding_pending")
+            await writeAtomicFile(statePath, cleared.document.toString())
+          }
         }
         if (terminalStage && terminalAction === "persisted") {
           const artifact = terminalStage === "DECIDE" ? {
@@ -6798,8 +6849,190 @@ is true, ask one grouped question for the missing facts and re-run.`,
   })
 }
 
-function createODFWorkflowAdvance(): ReturnType<typeof tool> {
+/**
+ * Audited phase override: skip (DECIDE/PLAN only), re-enter, or re-plan (with
+ * an approved Expectations revision). Requires an explicit human-approved
+ * reason; BUILD/VERIFY can never be skipped and keep their evidence gates.
+ * Every override is appended to `<worktree>/.odf/override-{change}.jsonl`.
+ */
+function createODFWorkflowOverride(): ReturnType<typeof tool> {
   return tool({
+    description: `Audited phase override for an existing ODF change.
+
+Actions:
+- skip: mark the pending DECIDE/PLAN stage completed (BUILD/VERIFY can never be skipped; they keep validation and evidence gates).
+- re-enter: move back to a completed stage; later completed stages are invalidated and must be re-run.
+- re-plan: like re-enter, plus persist a human-approved Expectations revision (revision > current, supersedes = digest of the previous artifact).
+
+Requires a human-approved reason (>=20 chars). Every call is appended to the override audit log.`,
+    args: {
+      change_name: tool.schema.string().describe("Change name (kebab-case)"),
+      artifact_store: tool.schema.enum(["openspec", "engram", "hybrid"]).describe("Authoritative workflow store"),
+      action: tool.schema.enum(["skip", "re-enter", "re-plan"]).describe("Override action"),
+      target_stage: tool.schema.enum(["DECIDE", "PLAN", "BUILD", "VERIFY"]).describe("Canonical stage to skip/re-enter/re-plan from"),
+      reason: tool.schema.string().describe("Human-approved reason (>=20 chars)"),
+      expectations_revision: tool.schema.object({
+        change: tool.schema.string(),
+        intent: tool.schema.string(),
+        expectations: tool.schema.array(tool.schema.object({
+          id: tool.schema.string(),
+          statement: tool.schema.string(),
+          testable: tool.schema.boolean(),
+          owned_by: tool.schema.enum(["human"]),
+        })),
+        approved: tool.schema.boolean(),
+        approved_by: tool.schema.string(),
+        approved_at: tool.schema.string(),
+        immutable_since: tool.schema.string(),
+        revision: tool.schema.number(),
+        supersedes: tool.schema.string(),
+        replan_from: tool.schema.string(),
+      }).optional().describe("Approved Expectations revision (required for re-plan)"),
+      workspace_dir: tool.schema.string().optional().describe("Project directory (defaults to cwd)"),
+    },
+    async execute(args: {
+      change_name: string
+      artifact_store: "openspec" | "engram" | "hybrid"
+      action: "skip" | "re-enter" | "re-plan"
+      target_stage: "DECIDE" | "PLAN" | "BUILD" | "VERIFY"
+      reason: string
+      expectations_revision?: Record<string, unknown>
+      workspace_dir?: string
+    }): Promise<string> {
+      const blocked = (reason: string, message: string): string => JSON.stringify({ status: "blocked", reason, message }, null, 2)
+      const changeName = canonicalChangeName(args.change_name)
+      if (!changeName) return blocked("unsafe-change-path", "The change name is not a safe OpenSpec path segment.")
+      let workspaceRoot: string
+      try {
+        workspaceRoot = canonicalWorkspaceRoot(args.workspace_dir || process.cwd())
+      } catch {
+        return blocked("unsafe-workspace-path", "The workspace directory does not resolve to a safe existing root.")
+      }
+      const reason = (args.reason || "").trim()
+      if (reason.length < 20) return blocked("override-reason-required", "A human-approved reason of at least 20 characters is required for any override.")
+
+      const locked = await withWorkflowLock(workspaceRoot, changeName, async (): Promise<string> => {
+        const read = await readSelectedWorkflowState(workspaceRoot, changeName, args.artifact_store)
+        if (!read.snapshot) return blocked(read.error || "workflow-state-unavailable", "The selected workflow state could not be read safely.")
+        const workType = read.snapshot.status.work_type || read.snapshot.state.work_type
+        if (!workType || !WORK_TYPES.includes(workType as WorkType)) {
+          return blocked("override-work-type-missing", "The persisted state has no valid work_type; resolve it first (bind with --work-type).")
+        }
+        const route = resolveWorkflowRoute(workType as WorkType)
+        const target = args.target_stage.toUpperCase() as CanonicalStage
+        if (!route.stages.includes(target)) return blocked("override-target-invalid", `${target} is not part of the ${route.work_type} route.`)
+        const completed = persistedCompletedStages(read.snapshot, route)
+        const pending = route.stages.find(stage => !completed.includes(stage)) || null
+
+        let newCompleted: CanonicalStage[]
+        let newStage: CanonicalStage
+        if (args.action === "skip") {
+          if (target === "BUILD" || target === "VERIFY") {
+            return blocked("override-skip-gated", "BUILD and VERIFY cannot be skipped; they keep validation and evidence gates.")
+          }
+          if (target !== pending) {
+            return blocked("override-skip-not-pending", `Only the pending stage can be skipped; ${target} is not pending (${pending || "none"}).`)
+          }
+          newCompleted = [...completed, target]
+          newStage = target
+        } else {
+          // re-enter / re-plan: target must be a completed stage (or the entry)
+          if (target !== route.stages[0] && !completed.includes(target)) {
+            return blocked("override-target-not-completed", `${target} is not completed; only completed stages can be re-entered/re-planned.`)
+          }
+          newCompleted = route.stages.filter(stage => route.stages.indexOf(stage) < route.stages.indexOf(target))
+          newStage = target
+        }
+
+        // Expectations revision for re-plan
+        let expectationsRevision = args.expectations_revision
+        if (args.action === "re-plan") {
+          if (!expectationsRevision) return blocked("override-revision-required", "re-plan requires an approved expectations_revision document.")
+          const verdict = validateExpectations({
+            change: changeName,
+            artifacts: [{ key: `odf/${changeName}/expectations`, content: expectationsRevision }],
+          })
+          if (verdict.status !== "approved") return blocked("override-revision-invalid", "The expectations_revision is not a valid approved human contract.")
+          const currentArtifact = read.snapshot.artifacts.find(a => normalizeArtifactKey(a.key).type === "expectations")
+          if (currentArtifact) {
+            const currentDigest = nodeCrypto.createHash("sha256").update(currentArtifact.content).digest("hex")
+            if (expectationsRevision.supersedes !== currentDigest) {
+              return blocked("override-revision-supersedes-mismatch", "expectations_revision.supersedes must equal the digest of the current Expectations artifact.")
+            }
+          }
+        }
+
+        // Write the state
+        const parsed = parseStateDocument(read.snapshot.stateContent)
+        if (!parsed) return blocked("malformed-state", "The persisted workflow state is malformed.")
+        parsed.document.set("canonical_stage", newStage)
+        parsed.document.set("completed_canonical_stages", newCompleted)
+        const newStateContent = parsed.document.toString()
+        // Write the overridden state directly (the commit helpers force their own
+        // canonical_stage; the override sets it explicitly).
+        const writeState = async (content: string): Promise<string | null> => {
+          const statePath = path.join(workspaceRoot, "openspec", "changes", changeName, "state.yaml")
+          if (!isWithinRoot(statePath, path.resolve(workspaceRoot))) return "unsafe-state-path"
+          if (args.artifact_store === "openspec") return await writeAtomicFile(statePath, content) ? null : "state-write-failed"
+          if (args.artifact_store === "engram") {
+            return saveEngramTopic(workspaceRoot, workspaceProjectName(workspaceRoot), `odf/${changeName}/state`, content)
+          }
+          const openSpecError = await writeAtomicFile(statePath, content) ? null : "state-write-failed"
+          if (openSpecError) return openSpecError
+          return saveEngramTopic(workspaceRoot, workspaceProjectName(workspaceRoot), `odf/${changeName}/state`, content)
+        }
+        const writeError = await writeState(newStateContent)
+        if (writeError) return blocked(writeError, "The overridden state could not be persisted.")
+
+        // Persist the Expectations revision (re-plan)
+        if (args.action === "re-plan" && expectationsRevision) {
+          const project = workspaceProjectName(workspaceRoot)
+          if (args.artifact_store === "engram") {
+            const err = saveEngramTopic(workspaceRoot, project, `odf/${changeName}/expectations`, JSON.stringify(expectationsRevision))
+            if (err) return blocked(err, "The Expectations revision could not be persisted to Engram.")
+          } else {
+            const expectationsPath = path.join(workspaceRoot, "openspec", "changes", changeName, "expectations.yaml")
+            if (!isWithinRoot(expectationsPath, path.resolve(workspaceRoot))) return blocked("unsafe-change-path", "The Expectations path is unsafe.")
+            if (!await writeAtomicFile(expectationsPath, JSON.stringify(expectationsRevision, null, 2))) {
+              return blocked("expectations-write-failed", "The Expectations revision could not be persisted.")
+            }
+          }
+        }
+
+        // Audit log
+        const audit = {
+          at: new Date().toISOString(),
+          action: args.action,
+          target_stage: target,
+          reason,
+          work_type: workType,
+          completed_before: completed,
+          completed_after: newCompleted,
+          expectations_revision: args.action === "re-plan" ? Number(expectationsRevision?.revision) || null : null,
+        }
+        try {
+          fsSync.appendFileSync(path.join(workspaceRoot, ".odf", `override-${changeName}.jsonl`), JSON.stringify(audit) + "\n")
+        } catch { /* audit is best-effort */ }
+
+        return JSON.stringify({
+          status: "overridden",
+          change_name: changeName,
+          action: args.action,
+          target_stage: target,
+          canonical_stage: newStage,
+          completed_stages: newCompleted,
+          store: args.artifact_store,
+          audit_ref: `.odf/override-${changeName}.jsonl`,
+        }, null, 2)
+      })
+      return locked.locked
+        ? locked.value
+        : blocked(locked.error || "workflow-lock-failed", "The workflow override could not acquire the lock.")
+    },
+  })
+}
+
+function createODFWorkflowAdvance(): ReturnType<typeof tool> {  return tool({
     description: "Advance a canonical ODF workflow without writing state, receipts, artifacts, or files.",
     args: {
       work_type: tool.schema
@@ -7282,6 +7515,7 @@ export const OdfDelegationPlugin: Plugin = async (ctx) => {
       odf_parallel_delegate: createODFParallelDelegate(client, directory),
       odf_workflow_route: createODFWorkflowRoute(),
       odf_workflow_advance: createODFWorkflowAdvance(),
+      odf_workflow_override: createODFWorkflowOverride(),
       odf_workflow_bind: createODFWorkflowBind(entryAuthorizations, entryGenerations),
       odf_entry_triage: createODFEntryTriage(),
       odf_skill_inject: createODFSkillInject(),
@@ -7318,6 +7552,7 @@ export {
   createODFParallelDelegate,
   createODFWorkflowRoute,
   createODFWorkflowAdvance,
+  createODFWorkflowOverride,
   createODFWorkflowBind,
   createODFEntryTriage,
   createODFWorkflowStatus,

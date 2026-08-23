@@ -66,6 +66,13 @@ export const PREFLIGHT_FIELDS = {
     default: 'none',
     question: 'Estrategia de encadenamiento de PRs (none | chained | feature-branch):',
   },
+  validation_mode: {
+    type: 'enum',
+    values: ['automated', 'manual-acceptance'],
+    default: 'automated',
+    required: false,
+    question: 'Modo de validación (automated | manual-acceptance):',
+  },
   persisted_at: {
     type: 'string',
     required: false,

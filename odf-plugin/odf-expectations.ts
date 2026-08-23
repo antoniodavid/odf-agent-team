@@ -16,6 +16,10 @@ interface ExpectationsDocument {
   approved_by?: unknown
   approved_at?: unknown
   immutable_since?: unknown
+  /** Revision metadata (optional for compatibility): versioned supersession. */
+  revision?: unknown
+  supersedes?: unknown
+  replan_from?: unknown
 }
 
 export interface ExpectationsValidationInput {
@@ -76,7 +80,10 @@ function validDocument(document: ExpectationsDocument | null, change: string): b
       typeof item.testable === "boolean" && item.owned_by === "human"
   }) && new Set(expectationIds(document)).size === entries.length &&
     document.approved === true && typeof document.approved_by === "string" && document.approved_by.trim() !== "" &&
-    validDate(document.approved_at) && validDate(document.immutable_since)
+    validDate(document.approved_at) && validDate(document.immutable_since) &&
+    (document.revision === undefined || (typeof document.revision === "number" && Number.isInteger(document.revision) && document.revision >= 1)) &&
+    (document.supersedes === undefined || typeof document.supersedes === "string") &&
+    (document.replan_from === undefined || typeof document.replan_from === "string")
 }
 
 function protectedExpectations(document: ExpectationsDocument | null): string {

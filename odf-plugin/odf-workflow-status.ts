@@ -164,7 +164,7 @@ const STATE_SCALAR_KEYS = new Set([
   "decide_completed", "decision_completed", "decide_done", "decision_done", "plan_completed", "plan_done",
   "build_completed", "build_done", "implement_completed", "implement_done", "implement_progress", "verify_completed", "verify_done",
   "explore_completed", "explore_done", "fix_completed", "fix_done",
-  "completed_canonical_stages", "completed_stages",
+  "completed_canonical_stages", "completed_stages", "binding_pending",
 ])
 const STATE_SECTIONS = new Set(["artifacts", "timestamps"])
 export interface ParsedWorkflowState {
@@ -544,6 +544,8 @@ export function deriveWorkflowStatus(input: WorkflowStatusInput): WorkflowStatus
   const declaredArtifacts = typeof input.source === "object" && Array.isArray(input.source.artifacts)
     ? input.source.artifacts.filter((artifact): artifact is string => typeof artifact === "string")
     : null
+  const bindingPending = parsedState.state?.binding_pending === true
+  if (bindingPending) warnings.push("Workflow binding is pending: approved Expectations are not fully persisted. Re-run the bind with the exact approved Expectations.")
   return {
     change: input.change,
     canonical_stage: stateKind === "none" || expectationsOnly ? "INIT" : canonicalStage,
@@ -555,8 +557,8 @@ export function deriveWorkflowStatus(input: WorkflowStatusInput): WorkflowStatus
     receipt,
     state_present: statePresent,
     state_kind: stateKind,
-    recovery_work_type_required: stateKind === "legacy-artifacts" && workType === null,
-    resumable: (stateKind === "canonical" || stateKind === "legacy-artifacts") && !archived && !signals.abandoned &&
+    recovery_work_type_required: (stateKind === "legacy-artifacts" || statePresent) && workType === null,
+    resumable: (stateKind === "canonical" || stateKind === "legacy-artifacts") && !bindingPending && !archived && !signals.abandoned &&
       receipt.state !== "pending" && (receipt.action === null || receipt.action === "retry") && pendingStage !== null,
     work_type: workType,
     source: { state: source, artifacts: declaredArtifacts || Object.values(artifactRefs).flat() },

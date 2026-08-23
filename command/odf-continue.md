@@ -8,6 +8,8 @@ agent: odoo_orchestrator
 
 Reanuda el flujo ODF desde la última etapa completada del cambio activo más reciente o de un cambio nombrado. La ruta canónica es `DECIDE -> optional PLAN -> BUILD -> VERIFY`; las fases legacy solo se leen mediante su adaptador.
 
+Cuando el usuario cambia intencionalmente el alcance (omitir PLAN, repetir una etapa, o replanificar con Expectations nuevas), usar `odf_workflow_override` (skip/re-enter/re-plan) tras aprobación explícita del usuario; nunca alterar el estado a mano.
+
 ## Uso
 
 ```

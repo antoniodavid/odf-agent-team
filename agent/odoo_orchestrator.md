@@ -216,6 +216,7 @@ Before any phase, ensure a valid preflight record exists for the change.
 | `tdd_mode` | true, false | false |
 | `solution_strategy` | `standard`, `custom`, `pending` | `pending` |
 | `chain_strategy` | `none \| chained \| feature-branch` | `none` |
+| `validation_mode` | `automated`, `manual-acceptance` | `automated` |
 
 Flow:
 
@@ -284,7 +285,7 @@ comes from `odf_workflow_route`; adapters must not create extra business stages.
 1. Call `odf_policy_gate(change, phase="VERIFY")` before delegation. Pass through its `frozen_diff_ref`, `risk_tier`, `changed_lines`, `correction_budget_lines`, and effective TDD; never recompute them. Forward strict TDD only when `tdd.effective === "on"`.
 2. The risk tier is evidence-based: changed-path and content signals may escalate to HIGH, never downgrade. Use the tier to select lenses: HIGH four, MEDIUM one, LOW zero.
 3. Ensure an approved `expectations` artifact exists and forward it to VERIFY as the primary evaluation criterion. If expectations are missing (legacy change), instruct VERIFY to evaluate against the plan/REQ and emit the explicit `missing-expectations` warning.
-4. Verify the real module test suite, lint, OCA compliance, spec coverage, and the frozen candidate against the approved Expectations. Persist `odf/{change}/verify-report` on PASS or PASS WITH WARNINGS only when the required test command actually ran and passed. The test result record MUST include command, explicit database, exit code, and output evidence. A manual browser check is supplementary. Skipped, deferred, unavailable, or unrecorded tests yield `blocked` with `verification-deferred`, never PASS or PASS WITH WARNINGS.
+4. Verify the real module test suite, lint, OCA compliance, spec coverage, and the frozen candidate against the approved Expectations. Persist `odf/{change}/verify-report` on PASS or PASS WITH WARNINGS only when the required test command actually ran and passed. The test result record MUST include command, explicit database, exit code, and output evidence. A manual browser check is supplementary. Skipped, deferred, unavailable, or unrecorded tests yield `blocked` with `verification-deferred`, never PASS or PASS WITH WARNINGS. When preflight `validation_mode` is `manual-acceptance`, prefer user-run evidence recorded via `odf-toolkit manual-evidence`; the risk tier and Expectations gates still apply.
 5. On FAIL, allow one correction attempt within the returned budget and re-verify once against the same frozen ref. An inconclusive frozen-byte inspection does not consume the attempt.
 6. If the inspected re-verification still fails, write `odf_receipt` FIRST with cause/evidence/refs, then stop for exactly one actionable disposition: scope change, re-plan, or abandon. In `interactive`, use `question`; in `batch` and `auto`, present the same disposition without auto-continuing. Never auto-loop.
 7. Update the receipt with the user's committed action. A successful VERIFY saves a retrospective under `odf-learned/{project}/{change}`. In `auto`, VERIFY runs automatically after IMPLEMENT; PASS or PASS WITH WARNINGS auto-archives, FAIL stops for the single correction attempt and then escalates with a disposition. Archive/delivery remains the terminal gate.
@@ -402,6 +403,23 @@ reinstall the pack (`install.sh` / `/odf-registry-refresh`) and stop.
 
 All subcommands are read-only; authorization-bearing operations (bind,
 advance, attempt acquire, policy gate write) stay plugin-side.
+
+## Phase Override (odf_workflow_override)
+
+Use ONLY after explicit user approval. `odf_workflow_override` takes
+`change_name`, `artifact_store`, `action`, `target_stage`, and a human-approved
+`reason` (>=20 chars); every call is appended to `.odf/override-{change}.jsonl`.
+
+- `skip` — mark the pending DECIDE/PLAN stage completed. **BUILD and VERIFY can
+  never be skipped**; they keep validation and evidence gates.
+- `re-enter` — move back to a completed stage; later completed stages are
+  invalidated and must be re-run with fresh artifacts.
+- `re-plan` — like re-enter, plus persist a human-approved Expectations
+  revision (`revision > current`, `supersedes` = digest of the previous
+  artifact, `replan_from` = target stage).
+
+The default flow stays strict; the override is the audited escape hatch when
+the user intentionally changes scope.
 
 ## Non-ODF Routing
 

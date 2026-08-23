@@ -284,6 +284,105 @@ function sdkCreateResult(id: string): Record<string, unknown> {
   return { data: { id }, request: {}, response: {} }
 }
 
+describe("createODFWorkflowOverride", () => {
+  let root: string
+
+  beforeEach(async () => {
+    root = await fs.mkdtemp(path.join(os.tmpdir(), "odf-override-"))
+  })
+
+  afterEach(async () => {
+    await fs.rm(root, { recursive: true, force: true })
+  })
+
+  async function seedState(stage: string, completed: string[], expectations = false) {
+    const changeDir = path.join(root, "openspec", "changes", "ov-change")
+    await fs.mkdir(changeDir, { recursive: true })
+    await fs.writeFile(path.join(changeDir, "state.yaml"), [
+      "work_type: feature",
+      `canonical_stage: ${stage}`,
+      `completed_canonical_stages: [${completed.join(", ")}]`,
+      "",
+    ].join("\n"), "utf8")
+    if (expectations) {
+      await fs.writeFile(path.join(changeDir, "expectations.yaml"), JSON.stringify({
+        change: "ov-change", intent: "i", expectations: [{ id: "EXP-01", statement: "s", testable: true, owned_by: "human" }],
+        approved: true, approved_by: "user", approved_at: "2026-08-22T00:00:00.000Z", immutable_since: "2026-08-22T00:00:00.000Z",
+      }), "utf8")
+    }
+    const { createODFWorkflowOverride } = await import("./odf-delegation.js")
+    return createODFWorkflowOverride()
+  }
+
+  const baseArgs = (overrides: Record<string, unknown> = {}) => ({
+    change_name: "ov-change",
+    artifact_store: "openspec",
+    action: "skip",
+    target_stage: "PLAN",
+    reason: "El usuario aprobó omitir el plan de diseño para este cambio urgente.",
+    workspace_dir: root,
+    ...overrides,
+  })
+
+  it("skips the pending PLAN stage and advances to BUILD", async () => {
+    const tool = await seedState("DECIDE", ["DECIDE"])
+    const output = JSON.parse(await tool.execute(baseArgs(), {} as any) as string)
+    expect(output).toMatchObject({ status: "overridden", action: "skip", target_stage: "PLAN", completed_stages: ["DECIDE", "PLAN"] })
+    expect(YAML.parse(await fs.readFile(path.join(root, "openspec", "changes", "ov-change", "state.yaml"), "utf8"))).toMatchObject({
+      canonical_stage: "PLAN",
+      completed_canonical_stages: ["DECIDE", "PLAN"],
+    })
+    expect(await fs.readFile(path.join(root, ".odf", "override-ov-change.jsonl"), "utf8")).toContain('"action":"skip"')
+  })
+
+  it("refuses to skip BUILD or VERIFY", async () => {
+    const tool = await seedState("PLAN", ["DECIDE", "PLAN"])
+    const build = JSON.parse(await tool.execute(baseArgs({ target_stage: "BUILD" }), {} as any) as string)
+    expect(build).toMatchObject({ status: "blocked", reason: "override-skip-gated" })
+    const verify = JSON.parse(await tool.execute(baseArgs({ target_stage: "VERIFY" }), {} as any) as string)
+    expect(verify).toMatchObject({ status: "blocked", reason: "override-skip-gated" })
+  })
+
+  it("re-enters a completed stage and invalidates later completed stages", async () => {
+    const tool = await seedState("BUILD", ["DECIDE", "PLAN", "BUILD"])
+    const output = JSON.parse(await tool.execute(baseArgs({ action: "re-enter", target_stage: "PLAN" }), {} as any) as string)
+    expect(output).toMatchObject({ status: "overridden", action: "re-enter", target_stage: "PLAN", completed_stages: ["DECIDE"] })
+  })
+
+  it("re-plans from DECIDE with an approved Expectations revision", async () => {
+    const tool = await seedState("PLAN", ["DECIDE", "PLAN"], true)
+    const current = await fs.readFile(path.join(root, "openspec", "changes", "ov-change", "expectations.yaml"), "utf8")
+    const { createHash } = await import("node:crypto")
+    const supersedes = createHash("sha256").update(current).digest("hex")
+    const revision = {
+      change: "ov-change", intent: "i2",
+      expectations: [{ id: "EXP-01", statement: "s2", testable: true, owned_by: "human" }],
+      approved: true, approved_by: "user", approved_at: "2026-08-22T01:00:00.000Z", immutable_since: "2026-08-22T01:00:00.000Z",
+      revision: 2, supersedes, replan_from: "DECIDE",
+    }
+    const output = JSON.parse(await tool.execute(baseArgs({ action: "re-plan", target_stage: "DECIDE", expectations_revision: revision }), {} as any) as string)
+    expect(output).toMatchObject({ status: "overridden", action: "re-plan", target_stage: "DECIDE", completed_stages: [] })
+    const persisted = JSON.parse(await fs.readFile(path.join(root, "openspec", "changes", "ov-change", "expectations.yaml"), "utf8"))
+    expect(persisted.revision).toBe(2)
+    expect(persisted.supersedes).toBe(supersedes)
+  })
+
+  it("requires a human-approved reason and rejects a wrong supersedes digest", async () => {
+    const tool = await seedState("PLAN", ["DECIDE", "PLAN"], true)
+    const short = JSON.parse(await tool.execute(baseArgs({ reason: "corto" }), {} as any) as string)
+    expect(short).toMatchObject({ status: "blocked", reason: "override-reason-required" })
+    const bad = JSON.parse(await tool.execute(baseArgs({
+      action: "re-plan", target_stage: "DECIDE",
+      expectations_revision: {
+        change: "ov-change", intent: "i", expectations: [{ id: "EXP-01", statement: "s", testable: true, owned_by: "human" }],
+        approved: true, approved_by: "user", approved_at: "2026-08-22T00:00:00.000Z", immutable_since: "2026-08-22T00:00:00.000Z",
+        revision: 2, supersedes: "deadbeef", replan_from: "DECIDE",
+      },
+    }), {} as any) as string)
+    expect(bad).toMatchObject({ status: "blocked", reason: "override-revision-supersedes-mismatch" })
+  })
+})
+
 describe("createODFWorkflowAdvance", () => {
   it("registers a read-only tool that resolves and advances a route", async () => {
     const output = await createODFWorkflowAdvance().execute({
@@ -886,16 +985,19 @@ describe("createODFWorkflowBind", () => {
       const first = JSON.parse(await bind.execute(args, context) as string)
       expect(first).toMatchObject({ status: "bound", state_action: "created", expectations_action: "persisted" })
       let calls = JSON.parse(await fs.readFile(fake.logPath, "utf8")) as string[][]
+      // state (with binding_pending) → expectations → state (marker cleared)
       expect(calls.filter(call => call[0] === "save").map(call => call[1])).toEqual([
         `odf/${change}/state`,
         `odf/${change}/expectations`,
+        `odf/${change}/state`,
       ])
       expect(fsSync.existsSync(path.join(root, "openspec"))).toBe(false)
 
       const retry = JSON.parse(await bind.execute(args, context) as string)
       expect(retry).toMatchObject({ status: "bound", state_action: "reused", expectations_action: "reused" })
       calls = JSON.parse(await fs.readFile(fake.logPath, "utf8")) as string[][]
-      expect(calls.filter(call => call[0] === "save")).toHaveLength(2)
+      // Retry adds no saves (state + expectations already present).
+      expect(calls.filter(call => call[0] === "save")).toHaveLength(3)
 
       const status = JSON.parse(await createODFWorkflowStatus().execute({ change_name: change, workspace_dir: root }, {} as any) as string)
       expect(status).toMatchObject({ status: "found", state_present: true, work_type: "feature", resumable: true })
@@ -974,7 +1076,8 @@ describe("createODFWorkflowBind", () => {
       const retry = JSON.parse(await bind.execute(args, context) as string)
       expect(retry).toMatchObject({ status: "bound", state_action: "reused", expectations_action: "persisted" })
       const calls = JSON.parse(await fs.readFile(fake.logPath, "utf8")) as string[][]
-      expect(calls.filter(call => call[0] === "save" && call[1] === `odf/${change}/state`)).toHaveLength(1)
+      // First attempt: state save. Retry: expectations save + state save (marker cleared).
+      expect(calls.filter(call => call[0] === "save" && call[1] === `odf/${change}/state`)).toHaveLength(2)
       const completeStatus = JSON.parse(await createODFWorkflowStatus().execute({ change_name: change, workspace_dir: root }, {} as any) as string)
       expect(completeStatus).toMatchObject({ state_present: true, work_type: "feature", artifacts: { expectations: "done" } })
     } finally {
@@ -3018,6 +3121,31 @@ ${overrides}`
       prompt: "Close the technical design",
       context_files: [],
     }, { sessionID: `design-string-${designClosed}`, task: taskApi } as any) as string)
+    expect(output.status).toBe("delegated")
+  })
+
+  it("blocks a DESIGN result that claims an artifact_ref missing on disk", async () => {
+    const { createODFDelegate } = await import("./odf-delegation.js")
+    const taskApi = vi.fn().mockResolvedValue({
+      status: "ok", design_closed: true, executive_summary: "closed",
+      artifacts_saved: [{ name: "design", artifact_ref: { store: "openspec", ref: "openspec/changes/chg/design.md" } }],
+    })
+    const output = JSON.parse(await createODFDelegate(undefined, tempHome).execute({
+      phase: "DESIGN",
+      prompt: "Close the technical design",
+      context_files: [],
+    }, { sessionID: "design-ref-missing", task: taskApi } as any) as string)
+    expect(output).toMatchObject({ status: "blocked", reason: "artifact-ref-missing" })
+  })
+
+  it("delegates a DESIGN result with no claimed artifact refs (warning, not blocker)", async () => {
+    const { createODFDelegate } = await import("./odf-delegation.js")
+    const taskApi = vi.fn().mockResolvedValue({ status: "ok", design_closed: true, executive_summary: "closed" })
+    const output = JSON.parse(await createODFDelegate(undefined, tempHome).execute({
+      phase: "DESIGN",
+      prompt: "Close the technical design",
+      context_files: [],
+    }, { sessionID: "design-no-refs", task: taskApi } as any) as string)
     expect(output.status).toBe("delegated")
   })
 
