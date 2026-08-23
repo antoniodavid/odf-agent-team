@@ -7,7 +7,7 @@ tests:
     expected:
       package_present: true
       package_name: odf-agent-team
-      package_version: '1.2.0'
+      package_version: '1.2.1'
 
   - name: relative skill paths resolve inside config dir
     input:

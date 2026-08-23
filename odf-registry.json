@@ -3,7 +3,7 @@
   "last_updated": "2026-08-21T00:00:00Z",
   "package": {
     "name": "odf-agent-team",
-    "version": "1.2.0",
+    "version": "1.2.1",
     "description": "OpenCode skill/agent pack for structured Odoo development workflows",
     "repository": "https://github.com/antoniodavid/odf-agent-team",
     "dependencies": {

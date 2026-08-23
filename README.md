@@ -1,214 +1,102 @@
 # ODF Agent Team
 
-> Tu equipo de desarrollo Odoo con IA — skills, agentes y workflow OCA-compliant para OpenCode.
+> Sistema de agentes y skills para desarrollo **Odoo** con OpenCode — pipeline spec-driven, CLIs deterministas y gates de precisión.
 
-**ODF (Odoo Development Framework)** es un sistema de agentes AI especializados en desarrollo Odoo. Incluye 31 skills, 12 agentes, 21 comandos, pipeline thin-spine de desarrollo (`preflight → DECIDE → optional PLAN → BUILD → VERIFY → archived`), orquestador conversacional con preflight gate, e instalador idempotente.
+**ODF (Odoo Development Framework)** orquesta el desarrollo de módulos Odoo con una pipeline de fases delegadas a agentes especializados, respaldada por **lógica determinista en CLIs** (scan del entorno, lookup de IDs, evidencia de tests) para que los agentes encuentren el codebase en vez de inventarlo.
 
-## Quick Install
+## Estado honesto
 
-```bash
-# Latest (main)
-curl -fsSL https://raw.githubusercontent.com/antoniodavid/odf-agent-team/main/install.sh | bash
-# Release-pinned (install exactly the tagged version)
-curl -fsSL https://raw.githubusercontent.com/antoniodavid/odf-agent-team/v1.2.0/install.sh | BRANCH=v1.2.0 bash
-```
+- **Maduro y testeado**: 619 tests Vitest + 150 escenarios YAML + smoke integral del harness (`npm run test:harness`). Cada release se verifica de punta a punta.
+- **Portable**: se instala en cualquier entorno de OpenCode (Linux/macOS/Windows vía Git Bash/WSL), con resolución `XDG_CONFIG_HOME` y reescritura de paths al destino.
+- **Limitaciones conocidas**:
+  - El entrypoint del plugin (`plugins/odf-delegation.ts`, ~6k líneas) sigue siendo un monolito para el núcleo de delegación/workflow; las secciones autocontenidas ya viven en módulos (`odf-plugin/odf-delegation-{shared,metrics,health,policy,loopguard}.ts`).
+  - El store `engram` requiere el **MCP de Engram** (o el CLI para estado); sin él, los flujos OpenSpec funcionan y los Engram-only bloquean temprano con mensaje claro.
+  - `codegraph`/`fff`/`context7` son **opcionales**: degradan a búsqueda nativa/FFF con warnings (ver matriz abajo).
+  - El modelo de fases es estricto por diseño; el escape hatch es `odf_workflow_override` (skip/re-enter/re-plan auditado), no el bypass.
 
-O con más control:
-
-```bash
-# Descarga el instalador
-./install.sh --yes          # Instalación no interactiva
-./install.sh --dry-run      # Ver qué haría sin modificar nada
-./install.sh --force        # Sobrescribir sin preguntar
-```
-
-Variables de entorno útiles:
-
-- `ODF_DIR` — destino de la instalación (por defecto `~/.config/opencode`)
-- `ODF_SOURCE_DIR` — instalar desde una copia local del repo
-- `ODF_INSTALL_NONINTERACTIVE=1` — equivalente a `--yes`
-- `ODF_SKIP_NPM=1` — omitir `npm install` durante la instalación
-- `ODF_SKIP_SELFTEST=1` — omitir el self-test tras instalar
-
-## Requisitos
-
-- **OpenCode** v1.15+ (sistema de agentes AI)
-- **Python** 3.8+
-- **Node.js** 18+
-- **Odoo** 16, 17, 18 o 19
-
-## Qué Incluye
-
-| Componente | Cantidad | Descripción |
-|------------|----------|-------------|
-| **Skills** | 31 | Patrones de desarrollo, OCA compliance, PR workflow, TDD, chained PRs |
-| **Agentes** | 12 | Especialistas: backend, frontend, QA, functional, DBA, APIs, migraciones |
-| **Comandos** | 21 | Definiciones de slash commands en `command/` |
-| **Comandos nativos** | 4 | `/odf-new`, `/odf-continue`, `/odf-status`, `/odf-explore` registrados en el orchestrator |
-| **Plugin** | 1 | `odf-delegation.ts` — delegación real vía `task()`, inyección de skills, métricas y bloqueos seguros |
-| **Perfiles** | 2 | `default` y `cheap` — ambas heredan el modelo de sesión actual (sin override) |
-| **Tests** | 307 | 188 unit tests (Vitest) + 119 aserciones de escenarios YAML |
-
-## Uso Rápido
+## Instalación
 
 ```bash
-# 1. Abre OpenCode en tu proyecto Odoo
-# 2. Inicializa el proyecto
-/odf-init
+# Release-pinned (recomendado)
+curl -fsSL https://raw.githubusercontent.com/antoniodavid/odf-agent-team/v1.2.1/install.sh | BRANCH=v1.2.1 bash
+# O con flags: --yes (no interactivo) --force --with-codegraph --configure-mcp
 
-# 3. Verifica que todo funciona
-/odf-health --full
+# TUI interactiva (modo, componentes, perfil, MCP)
+./install.sh --tui
 
-# 4. Arranca un cambio nuevo con preflight gate
-/odf-new mi-feature
-
-# 5. Continúa el último cambio activo
-/odf-continue
-
-# 6. Revisa el estado de los cambios activos
-/odf-status
-
-# 7. Investiga un tema sin crear un cambio formal
-/odf-explore "cómo funciona el stock.move.line"
-
-# 8. Corrige un bug rápido
-/odf-fix sale-tax-rounding
-
-# 9. Cambia de perfil de modelos
-/odf-profile list
-/odf-profile switch cheap
-
-# 10. Crea un backup
-/odf-backup create
-
-# 11. Revisa métricas de los agentes
-/odf-metrics --days 7
+# Desde el repo
+./install.sh --yes --force
 ```
 
-## Preflight y Orchestrator
+Variables útiles: `ODF_DIR` / `ODF_CONFIG_DIR` / `XDG_CONFIG_HOME` (destino), `ODF_SOURCE_DIR` (instalación local), `ODF_SKIP_NPM=1`, `ODF_SKIP_SELFTEST=1`, `BRANCH=<tag>` (pinned).
 
-ODF ahora incluye un **preflight gate** que captura las decisiones del proyecto antes de delegar fases:
+### Dependencias y degradación
 
-- Modo de ejecución (`interactive` / `batch`)
-- Almacén de artefactos (`openspec` / `engram` / `hybrid`)
-- Estrategia de entrega (`ask-always`, `ask-on-risk`, `auto-chain`, `single-pr`)
-- Presupuesto de líneas por PR (por defecto 400)
-- Versión de Odoo (16, 17, 18, 19)
-- Modo TDD (`true` / `false`)
-- Estrategia de solución (`standard` / `custom` / `pending`)
-- Estrategia de cadena de PRs (`none` / `chained` / `feature-branch`)
+| Dependencia | Falta | Impacto |
+|---|---|---|
+| Node.js 18+ | — | El pack no corre |
+| `engram` (CLI) | OpenSpec OK; Engram-only bloquea con `engram-cli-unavailable` | Opcional |
+| `engram` (MCP) | Store=engram bloquea temprano (instalar MCP o usar `openspec`) | Opcional |
+| `codegraph` | Context packs desactivados → FFF/nativo | Opcional |
+| `fff` / `context7` | Fallback a búsqueda nativa / fuentes locales | Opcional |
+| `git` / `docker` | Digests/evidence o test-command desactivados | Recomendado |
 
-El **orchestrator** (`agent/odoo_orchestrator.md`) coordina el flujo thin-spine:
+Ver la matriz completa con: `node <pack>/scripts/odf-toolkit.js deps`
+
+## Pipeline
 
 ```
 init → preflight → DECIDE → optional PLAN → BUILD → VERIFY → archived
 ```
 
-Las fases legacy siguen funcionando como adaptadores compatibles:
+- `execution_mode`: `interactive` · `batch` · **`auto`** (piloto automático: fases encadenadas, gates obligatorios intactos).
+- Fases legacy = adaptadores: `DECIDE`=PROPOSE+ASSESS, `PLAN`=QA-PLAN+DESIGN, `BUILD`=IMPLEMENT, `VERIFY` independiente.
+- **Override auditado**: `odf_workflow_override` — skip (solo DECIDE/PLAN), re-enter (invalida etapas posteriores), re-plan (con revisiones de Expectations `revision/supersedes/replan_from`). Cada llamada se registra en `.odf/override-{change}.jsonl`.
+- **Preflight**: `artifact_store` (openspec/engram/hybrid), `delivery_strategy`, `review_budget_lines`, `validation_mode` (automated/manual-acceptance), `odoo_version`, TDD, chain strategy.
 
-- `DECIDE` = `PROPOSE` + `ASSESS`
-- `PLAN` = `QA-PLAN` + `DESIGN` (opcional; ver ejemplos de enrutado)
-- `BUILD` = `IMPLEMENT`
-- `VERIFY` se mantiene como etapa independiente
+## CLIs deterministas (el "cerebro" fuera del LLM)
 
-`QA-PLAN`/`QA-REVIEW`/`QA-AGGREGATE`/`QA-REPORT` son lentes de QA anidadas en `PLAN`, `BUILD` y `VERIFY`, no etapas canónicas obligatorias. La ruta concreta se decide por tipo de trabajo (config estándar, cambio pequeño, normal, cross-domain, migración, bugfix, investigación).
+| CLI | Subcomandos |
+|---|---|
+| `odf-project-scan` | Scan completo del entorno Doodba (addons.yaml sources, compose, linting, git, CodeGraph, matriz de dependencias) + persist verificado, checksum, `--diff`, `--deep`, exit codes |
+| `odf-toolkit` | `context` (CodeGraph explore) · `state` · `result` · `resolve` · `evidence` · `metrics` · `manual-evidence` · `redundancy` · `deps` · **`lookup`** · **`verify-refs`** |
 
-Cada fase se delega al agente especializado a través del plugin `odf_delegate`, que invoca la API nativa `task()` de OpenCode y devuelve un resultado estructurado. Si `task()` no está disponible, el plugin devuelve un envelope `blocked` con una instrucción accionable para reiniciar OpenCode; nunca devuelve un prompt ejecutable como si la delegación hubiera ocurrido.
+### Gate de precisión (nunca inventar IDs)
 
-## Comandos Nativos
+```bash
+# Encontrar un XML ID / modelo / campo en el source local (file:line)
+odf-toolkit lookup --source <odoo-src-root> [--repos <src-dir>] --id <xmlid> | --model <model>
 
-| Comando | Uso | Descripción |
-|---------|-----|-------------|
-| `/odf-new` | `/odf-new <nombre> ["descripción"] [--fast]` | Inicia un cambio con preflight y orquestador |
-| `/odf-continue` | `/odf-continue [nombre]` | Reanuda el cambio activo más reciente o uno nombrado |
-| `/odf-status` | `/odf-status [nombre]` | Lista cambios activos o muestra detalle de uno |
-| `/odf-explore` | `/odf-explore <tema> [--version N] [--module M]` | Investigación profunda sin crear un cambio formal |
-
-Otros comandos públicos (en `command/`) siguen disponibles: `/odf-fix` (diagnose → BUILD → VERIFY), `/odf-apply` (alias de BUILD vía adaptador IMPLEMENT), `/odf-verify` (ejecuta VERIFY), `/odf-qa` (lente de QA), `/odf-archive`, `/odf-profile`, `/odf-tdd-toggle`, `/odf-health`, `/odf-metrics`, etc.
-
-## Skills Destacados
-
-| Skill | Propósito |
-|-------|-----------|
-| `oca-commit-messages` | Formato OCA para commits (`[FIX] module: desc`) |
-| `oca-work-unit-commits` | Commits como unidades revisables |
-| `oca-pr-workflow` | PR checklist + workflow OCA |
-| `oca-chained-pr` | Split de PRs >400 líneas |
-| `oca-cognitive-doc-design` | Documentos con baja carga cognitiva |
-| `oca-comment-writer` | Comentarios humanos en PRs |
-| `odf-tdd` | Strict TDD mode (opt-in) |
-| `odf-fix` | Bugfix rápido 3-step |
-| `odf-verify` | Quality gate + Judgment Day adversarial review |
-
-## Agentes
-
-| Agente | Rol | Etapas |
-|--------|-----|--------|
-| `odoo_orchestrator` | Coordinador principal | ALL |
-| `odoo_proposer` | Propuesta (business intent, scope, riesgos) | DECIDE (PROPOSE) |
-| `odoo_functional_consultant` | Análisis standard vs custom | DECIDE (ASSESS) |
-| `odoo_backend_engineer` | Python models, views, security | PLAN, BUILD |
-| `odoo_frontend_engineer` | OWL, JS/TS, SCSS, QWeb | PLAN, BUILD |
-| `odoo_qa_engineer` | Test strategy, coverage | PLAN (lente QA), VERIFY |
-| `odoo_api_integrator` | HTTP controllers, webhooks | PLAN, BUILD |
-| `odoo_dba_devops` | PostgreSQL, Docker, performance | ANY |
-| `odoo_upgrade_migrator` | OpenUpgrade, migrations | ANY |
-| `odoo_code_reviewer` | Code review | VERIFY |
-| `odoo_context_gatherer` | Pattern discovery | DECIDE |
-| `odoo_skill_finder` | Skill lookup fallback | PLAN, BUILD |
-| `odoo_stock_lot_specialist` | Lot/serial, FEFO, traceability | PLAN, BUILD |
-
-## Arquitectura
-
+# VERIFY: cada ref=/model= del módulo debe resolverse (exit 1 si no)
+odf-toolkit verify-refs --repo <module-dir> --source <odoo-src-root> [--repos <src-dir>]
 ```
-ODF Agent Team
-├── Registry (31 skills, 13 agents, 2 profiles, package metadata)
-├── Orchestrator (odoo_orchestrator) — preflight gate + thin-spine state machine
-│   ├── DECIDE    → odoo_proposer (PROPOSE) + odoo_functional_consultant (ASSESS)
-│   ├── PLAN      → odoo_qa_engineer + odoo_backend/frontend_engineer (optional)
-│   ├── BUILD     → odoo_backend_engineer (or custom agent)
-│   └── VERIFY    → odoo_qa_engineer + Judgment Day
-├── Plugin (odf-delegation.ts: task() invocation, skill injection, metrics, safe blocking)
-│   ├── odf_workflow_route — canonical thin-spine routing
-│   ├── odf_workflow_status — OpenSpec-first status adapter (read-only)
-│   ├── odf_policy_gate / odf_receipt — TDD gate + failure receipts
-│   └── odf_status — legacy Engram status fallback
-├── Commands (21 slash commands, 4 nativos en registry)
-├── Installer (idempotent install.sh + package.json)
-└── Observatory (metrics, tests, health checks)
-```
+
+Diseño e implementación **deben** verificar cada ID de vista, modelo y `_inherit` contra el source local; un ID sin resolver es una decisión abierta, nunca un guess.
+
+## Qué incluye
+
+- **32 skills** (OCA governance/style, patrones Odoo, fases ODF, convenciones compartidas), **13 agentes** especializados (backend, frontend, QA, functional, DBA, APIs, migraciones, stock-lot, proposer, etc.), comandos `/odf-*`.
+- **Plugin** (`plugins/odf-delegation.ts` + 5 módulos en `odf-plugin/`): delegación vía `task()`, policy gate, evidence seal, receipts, override, bind, loop guard.
+- **Instalador** idempotente con backup, TUI, `--configure-mcp`, probe de dependencias.
+- **Tests**: `npm test` (Vitest + escenarios YAML), `npm run test:harness` (smoke integral), `node scripts/odf-registry-validate.js`.
 
 ## Desarrollo
 
 ```bash
-# Correr todos los tests
-npm test
-
-# Solo unit tests
-npm run test:unit
-
-# Solo escenarios YAML
-npm run test:yaml
-
-# Type check
-npm run typecheck
-
-# Validar el registry
-node scripts/odf-registry-validate.js
-
-# Refresh registry después de cambios
-/odf-registry-refresh
-
-# Ver health
-/odf-health --full
+npm test                 # 619 vitest + 150 escenarios
+npm run test:harness     # smoke integral del harness
+npm run typecheck        # tsc --noEmit
+node scripts/odf-registry-validate.js   # paths del registry
 ```
 
-## Documentación
+Versión: `VERSION` + `odf-registry.json` + `CHANGELOG.md` deben ir sincronizados. Releases: tag semver + `gh release create`.
 
-- `docs/intended-usage.md` — modelo mental de uso de ODF
-- `docs/architecture.md` — mapa de componentes e interacciones
-- `docs/skill-style-guide.md` — reglas de autoría de skills ODF
+## Repositorio
 
-## Licencia
-
-MIT — ver [LICENSE](LICENSE) para detalles.
+- `agent/` — instrucciones de los agentes.
+- `skills/` — skills (OCA + ODF + compartidas).
+- `command/` — slash commands.
+- `odf-plugin/` — módulos deterministas (workflow, status, triage, expectations, candidate-manifest, delegation-*).
+- `scripts/` — CLIs y tests.
+- `plugins/odf-delegation.ts` — entrypoint del plugin.
+- `docs/` — arquitectura, contratos de diseño/expectations.

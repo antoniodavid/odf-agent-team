@@ -29,7 +29,7 @@ fi
 ODF_SOURCE_DIR="${ODF_SOURCE_DIR:-}"
 REPO="${REPO:-https://github.com/antoniodavid/odf-agent-team}"
 BRANCH="${BRANCH:-main}"
-VERSION="1.2.0"
+VERSION="1.2.1"
 
 BACKUP_DIR="${ODF_DIR}/backups/install-$(date +%Y%m%d_%H%M%S)"
 PLUGIN_ENTRYPOINT="${ODF_DIR}/plugins/odf-delegation.ts"
@@ -110,7 +110,7 @@ for arg in "$@"; do
       echo "  REPO, BRANCH                Git repo to pull from (default: odf-agent-team main)"
       echo ""
       echo "  Release-pinned install:"
-      echo "    curl -fsSL https://raw.githubusercontent.com/antoniodavid/odf-agent-team/v1.2.0/install.sh | BRANCH=v1.2.0 bash"
+      echo "    curl -fsSL https://raw.githubusercontent.com/antoniodavid/odf-agent-team/v1.2.1/install.sh | BRANCH=v1.2.1 bash"
       exit 0
       ;;
     *)

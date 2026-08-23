@@ -1,6 +1,17 @@
 # Changelog — ODF Agent Team
 
+## 1.2.1 (2026-08-23)
+
+### Added
+- Gate de precisión: `odf-toolkit lookup` (IDs de vista/modelos/campos en el source local con file:line) y `verify-refs` (cada ref=/model= del módulo debe resolverse; exit 1 si no). Reglas "nunca inventar IDs" en odoo-sources, odf-design, odf-implement y backend engineer; el orquestador reenvía `odoo_source_root`.
+- README reescrito: estado honesto, matriz de dependencias/degradación, pipeline, CLIs y gate de precisión.
+
+### Fixed
+- TUI: Enter en `(Y/n)` confirmaba en vez de cancelar; listener raw que se tragaba el Enter siguiente; guard no-TTY con hint de automatización.
+
 ## 1.2.0 (2026-08-22)
+
+
 
 ### Added
 - `execution_mode: auto` (piloto automático): auto-continuación de fases en `ok`/`warning`, deteniéndose solo en gates obligatorios (health, preflight, Expectations, Policy Gate, evidencia, VERIFY, receipts)
