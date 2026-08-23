@@ -329,7 +329,11 @@ before broad filesystem search. If CodeGraph is unavailable, use FFF
 
 - After meaningful decisions, bugs, or discoveries, use project Engram `mem_save`.
 - Preserve phase artifacts in the selected `openspec`, `engram`, or `hybrid` store.
-- End sessions with project Engram `mem_session_summary`.
+- End sessions with project Engram `mem_session_summary` in the handoff shape:
+  `Goal / Instructions / Discoveries / Accomplished / Next Steps / Suggested Skills / Relevant Files`.
+  Reference artifacts by their canonical `artifact_ref` (path/topic) — never duplicate
+  artifact content into the summary. Redact secrets and PII. Name the skills the next
+  session should load under `Suggested Skills`.
 - Keep this compact; do not copy full global memory documents into the orchestrator.
 
 ## Persistence and Result Contracts
@@ -394,6 +398,7 @@ reinstall the pack (`install.sh` / `/odf-registry-refresh`) and stop.
 - `node "$PACK/scripts/odf-toolkit.js" resolve --phase <PHASE> --task "<task>"` — preview agent + skills + profile (mirror of `odf_skill_resolve`).
 - `node "$PACK/scripts/odf-toolkit.js" metrics [--days 14] [--json]` — delegation dashboard (calls/status/avg duration per phase) from the plugin JSONL.
 - `node "$PACK/scripts/odf-toolkit.js" manual-evidence --change <c> --command "<cmd with -d db>" --database <db> --output-file <path> --root <root>` — record USER-run test evidence for VERIFY (validated, `executor: user-manual`). Use when the user runs the suite themselves; the QA agent then consumes the file instead of re-running.
+- `node "$PACK/scripts/odf-toolkit.js" redundancy --repo <repo> --terms "<términos>" --project <name>` — pre-check for existing implementations + prior learnings (`odf-learned/{project}`) before PROPOSE; surface matches to the user, never decide alone.
 
 All subcommands are read-only; authorization-bearing operations (bind,
 advance, attempt acquire, policy gate write) stay plugin-side.

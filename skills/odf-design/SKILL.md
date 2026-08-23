@@ -72,6 +72,16 @@ plan from it. The orchestrator will approve before IMPLEMENT.
    (empty document / no data), return `design_meta: null` with `reason` — never
    invent values.
 
+## Completion Criteria
+
+The design is DONE (closed) only when ALL hold:
+
+- Every EXP-XX is resolved by exact file/line references; none is restated in full (reference by ID).
+- The contract tables (fields, views, tasks) are complete and contain NO Python/XML code blocks.
+- Every task in the breakdown maps to at least one EXP-XX, and no task depends on an open decision.
+- `design_closed` is reported as a boolean `true` (never the string `"true"`).
+- The closed-design checklist passes internally and is NOT copied into the document.
+
 ## Output Contract
 
 Return ODF Result envelope with: status (ok), executive_summary ("N modules, M

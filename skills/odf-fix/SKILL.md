@@ -38,11 +38,19 @@ Use odf-fix for targeted bugs where the problem is known and scope is small (1-3
 
 ## Execution Steps
 
-1. **DIAGNOSE**: Reproduce the bug, find root cause. Check logs, trace the error path, identify the exact file + line.
+0. **Build a tight feedback loop FIRST** (this is the skill; everything else is mechanical). Get a fast, deterministic pass/fail signal that goes red on THIS bug before touching code: failing test at the right seam → curl/HTTP script → CLI with fixture diffed against a known-good snapshot → headless browser script → replay a captured trace → throwaway harness → property/fuzz loop → `git bisect run` harness → differential loop (old vs new) → HITL bash script as last resort. Then tighten it (faster, sharper, more deterministic). No loop → no confident fix.
+1. **DIAGNOSE**: Reproduce the bug through the loop, find root cause. Check logs, trace the error path, identify the exact file + line.
 2. **FIX**: Write the fix + a test that fails without it. Follow OCA standards.
-3. **VERIFY**: Run pre-commit on changed files, run module tests, confirm the fix works.
+3. **VERIFY**: Run pre-commit on changed files, run module tests, confirm the loop goes green.
 4. **Persist** diagnosis, fix progress, verification evidence, learning, and any
    receipt in the selected store; return canonical `artifact_ref` values.
+
+## Redaction
+
+When showing commands, outputs, or captured artifacts, **redact every secret
+first** (`<REDACTED>`): API keys, passwords, tokens, auth headers, PII. Keep
+credentials in environment variables, never in what you display or persist.
+If the redacted output is insufficient to diagnose, say so and ask.
 
 ## Output Contract
 

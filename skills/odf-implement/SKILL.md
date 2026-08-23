@@ -68,6 +68,24 @@ Use after DESIGN returns approved task breakdown. Implement assigned tasks in ba
 6. **Persist progress** in the selected store with its canonical `artifact_ref`.
    Update the selected task/design artifact with [x] marks as applicable.
 
+## Test Discipline
+
+- **Confirm seams first**: before writing any test, state the public seams under test and get the user's confirmation. No test is written at an unconfirmed seam. Prefer the highest seam; the fewer seams across the codebase the better.
+- **Anti-patterns to avoid**:
+  - *Tautological*: the assertion recomputes the expected value the same way the code does — it can never disagree. Expected values come from an independent source (known-good literal, worked example, spec).
+  - *Horizontal slicing*: all tests first, then all implementation. Work in vertical slices: one test → one implementation → repeat.
+  - *Implementation-coupled*: mocks internal collaborators or tests private methods; the test breaks when behavior doesn't change.
+
+## Completion Criteria
+
+A task is DONE only when ALL hold:
+
+- The behavior is verified: a test that fails without the change passes with it (or, for user-run/manual acceptance, recorded evidence exists) — never "it compiles, so it works".
+- No task is marked `[x]` without its verification evidence; no `[ ]` task is claimed as done.
+- Pre-commit and pylint-odoo pass on the changed files (auto-fixable failures fixed, not suppressed).
+- Progress is merged with the existing `implement-progress` artifact (never overwritten).
+- Tests live with the code they verify in the same commit unit.
+
 ## Output Contract
 
 Return ODF Result envelope with: status (ok|warning|blocked), executive_summary ("N/M tasks done. Smoke: pass/warn."), batch_summary (completed tasks, files changed, deviations from design, smoke test results), artifacts_saved, next_recommended (["implement"] or ["verify"]), risks, modules_affected, validation_evidence (path to the evidence file + command/exit_code summary — REQUIRED for IMPLEMENT batches).

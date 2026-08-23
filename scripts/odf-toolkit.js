@@ -350,6 +350,74 @@ export function buildManualEvidence({ change, command, database, output, exitCod
 }
 
 // ==========================================
+// redundancy — pre-check for existing implementation + prior learnings
+// ==========================================
+
+const REDUNDANCY_DIRS = ["models", "views", "static/src", "controllers", "data", "tests", "wizard"]
+const REDUNDANCY_MAX_FILES = 400
+const REDUNDANCY_MAX_MATCHES = 20
+const REDUNDANCY_MAX_FILE_BYTES = 64 * 1024
+
+/** Bounded search for existing implementations of the given domain terms. */
+export function redundancyCheck(repoDir, terms) {
+  const normalized = terms.map(t => String(t).trim().toLowerCase()).filter(Boolean)
+  if (normalized.length === 0) return { terms: [], matches: [] }
+  const matches = []
+  let scanned = 0
+  for (const dir of REDUNDANCY_DIRS) {
+    const abs = path.join(repoDir, dir)
+    if (!fs.existsSync(abs)) continue
+    const walk = (current, rel) => {
+      if (scanned >= REDUNDANCY_MAX_FILES || matches.length >= REDUNDANCY_MAX_MATCHES) return
+      let entries
+      try { entries = fs.readdirSync(current, { withFileTypes: true }) } catch { return }
+      for (const entry of entries) {
+        if (scanned >= REDUNDANCY_MAX_FILES || matches.length >= REDUNDANCY_MAX_MATCHES) return
+        if (entry.name.startsWith(".")) continue
+        const entryPath = path.join(current, entry.name)
+        if (entry.isDirectory()) walk(entryPath, path.join(rel, entry.name))
+        else if (entry.isFile() && /\.(py|xml|js|ts|scss)$/.test(entry.name)) {
+          scanned++
+          let content
+          try {
+            const stat = fs.statSync(entryPath)
+            if (stat.size > REDUNDANCY_MAX_FILE_BYTES) continue
+            content = fs.readFileSync(entryPath, "utf8").toLowerCase()
+          } catch { continue }
+          const lines = content.split("\n")
+          for (const term of normalized) {
+            if (!content.includes(term)) continue
+            const lineNo = lines.findIndex(l => l.includes(term)) + 1
+            matches.push({ file: path.join(rel, entry.name), term, line: lineNo })
+            if (matches.length >= REDUNDANCY_MAX_MATCHES) break
+          }
+        }
+      }
+    }
+    walk(abs, dir)
+  }
+  return { terms: normalized, matches }
+}
+
+/** Prior learnings/rejections from Engram topics `odf-learned/{project}*`. */
+export function priorLearnings(project) {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "odf-learned-"))
+  const tmpFile = path.join(tmpDir, "export.json")
+  try {
+    execFileSync("engram", ["export", tmpFile], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], timeout: 15_000 })
+    const raw = JSON.parse(fs.readFileSync(tmpFile, "utf8"))
+    const observations = Array.isArray(raw) ? raw : raw?.observations
+    return (observations || [])
+      .filter(o => String(o.topic_key || "").startsWith(`odf-learned/${project}`))
+      .map(o => ({ topic: o.topic_key, title: String(o.content || "").slice(0, 80) }))
+  } catch {
+    return []
+  } finally {
+    try { fs.rmSync(tmpDir, { recursive: true, force: true }) } catch { /* best effort */ }
+  }
+}
+
+// ==========================================
 // CLI dispatch
 // ==========================================
 
@@ -408,6 +476,18 @@ function main(argv) {
       }
       break
     }
+    case "redundancy": {
+      const repo = argValue(argv, "--repo")
+      const terms = (argValue(argv, "--terms") || "").split(",")
+      const project = argValue(argv, "--project")
+      if (!repo || terms.length === 0 || terms.every(t => !t.trim())) {
+        return usage("redundancy --repo <dir> --terms \"term1,term2\" [--project <name>]")
+      }
+      const check = redundancyCheck(path.resolve(repo), terms)
+      const learnings = project ? priorLearnings(project) : []
+      result = { ...check, prior_learnings: learnings }
+      break
+    }
     case "manual-evidence": {
       const change = argValue(argv, "--change")
       const command = argValue(argv, "--command")
@@ -453,7 +533,7 @@ function main(argv) {
 }
 
 function usage(detail = "") {
-  console.error(detail ? `Usage: odf-toolkit ${detail}` : "Usage: odf-toolkit <result|resolve|state|evidence|context|metrics|manual-evidence> [options]")
+  console.error(detail ? `Usage: odf-toolkit ${detail}` : "Usage: odf-toolkit <result|resolve|state|evidence|context|metrics|manual-evidence|redundancy> [options]")
   process.exit(2)
 }
 

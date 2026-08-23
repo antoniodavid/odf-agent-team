@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { classifyEntryTriage, detectRiskSignals, type EntryTriageInput } from "./entry-triage.js"
+import { classifyEntryTriage, contextRiskSignals, descriptionClarity, detectRiskSignals, type EntryTriageInput } from "./entry-triage.js"
 
 const base = (overrides: Partial<EntryTriageInput> = {}): EntryTriageInput => ({
   command: "odf-new",
@@ -154,11 +154,71 @@ describe("detectRiskSignals", () => {
     ["payment", "Handle money in the payment flow"],
     ["public-api", "Expose a public API webhook endpoint"],
     ["data-loss", "Purge and unlink old records"],
+    ["pii", "Store personal data of partners with privacy constraints"],
   ])("detects %s signals", (signal, description) => {
     expect(detectRiskSignals(description)).toEqual([signal])
   })
 
   it("returns nothing for a clean description", () => {
     expect(detectRiskSignals("Add a computed discount field.")).toEqual([])
+  })
+})
+
+describe("ICE triage improvements", () => {
+  it("routes a standard-config wording to the cheap DECIDE-only route without facts", () => {
+    const r = classifyEntryTriage(base({ description: "Install and configure l10n_mx_edi on the instance." }))
+    expect(r.level).toBe("micro")
+    expect(r.work_type).toBe("standard-config")
+    expect(r.needs_question).toBe(false)
+  })
+
+  it("asks an ICE question when the intent is not concrete", () => {
+    const r = classifyEntryTriage(base({ description: "Make it better" }))
+    expect(r.needs_question).toBe(true)
+    expect(r.clarity).toBe("unclear")
+    expect(r.question).toMatch(/resultado esper/)
+    expect(r.question).toContain("comportamiento actual")
+  })
+
+  it("detects risk signals from the affected module name", () => {
+    const r = classifyEntryTriage(base({ module: "payment-gateway", domain: "sales" }))
+    expect(r.level).toBe("full")
+    expect(r.work_type).toBe("feature")
+    expect(r.signals).toContain("payment")
+  })
+
+  it("flags an unknown module from the project sources as a warning", () => {
+    const r = classifyEntryTriage(base({
+      module: "ghost_module",
+      domain: "sales",
+      expected_files: 2,
+      expectations_clear: true,
+      known_modules: ["sale", "stock"],
+    }))
+    expect(r.work_type).toBe("small-change")
+    expect(r.warnings?.some(w => w.includes("ghost_module"))).toBe(true)
+  })
+
+  it("carries signals and clarity in every result for auditability", () => {
+    const r = classifyEntryTriage(base({ module: "sale", domain: "sales", expected_files: 2, expectations_clear: true }))
+    expect(r.signals).toEqual([])
+    expect(r.clarity).toBe("clear")
+    const risky = classifyEntryTriage(base({ description: "Expose a public API webhook endpoint." }))
+    expect(risky.signals).toEqual(["public-api"])
+  })
+})
+
+describe("contextRiskSignals + descriptionClarity", () => {
+  it("maps conservative module/domain words to signals", () => {
+    expect(contextRiskSignals("sale", "sales")).toEqual([])
+    expect(contextRiskSignals("payment_gateway", "pos")).toEqual(["payment"])
+    expect(contextRiskSignals("ir.rule", "security")).toEqual(["security"])
+    expect(contextRiskSignals("migration_utils", "technical")).toEqual(["migration"])
+  })
+
+  it("requires a verb or object noun and enough words to be clear", () => {
+    expect(descriptionClarity("Add a field")).toBe("unclear")
+    expect(descriptionClarity("Add a computed discount field to sale.order.")).toBe("clear")
+    expect(descriptionClarity("Some generic text about improving things around here")).toBe("unclear")
   })
 })

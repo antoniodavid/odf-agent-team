@@ -73,6 +73,7 @@ The tier is decided by the EVIDENCE in the frozen diff, NEVER by the number of l
     - **HIGH** → 4 lenses: risk, resilience, readability, reliability via Judgment Day 3-pass (reviewer → maintainer → attacker); the risk lens covers the attacker perspective
     - **MEDIUM** → 1 focused lens (default readability, focus configurable)
     - **LOW** → structural readback + native tool verification only — do NOT launch reviewers
+    - The readability lens uses the fixed smell baseline from `skills/_shared/code-smells.md` (repo standards override; skip what tooling enforces).
 11. **Persist** the verify report in the selected store with its canonical
     `artifact_ref` (see Correction Budget & Single Attempt)
 
@@ -84,6 +85,16 @@ The tier is decided by the EVIDENCE in the frozen diff, NEVER by the number of l
 - If the single attempt fails → DO NOT re-launch. Escalate to the user with ONE actionable question (scope change / re-plan / abandon) with evidence of what failed.
 - **Inconclusive validator does not consume the attempt**: if re-verification could not inspect the frozen diff (tooling failure, corrupted context, network), it does NOT count as the only attempt — retry without penalty. ONLY a re-verification that actually inspected the bytes and returned `failed` consumes the attempt.
 - The verify report MUST link the frozen diff: save `frozen_diff_ref` so re-verification compares against the SAME bytes.
+
+## Completion Criteria
+
+VERIFY is DONE only when ALL hold:
+
+- The evidence file is fresh (60-min window) with `command`, explicit `database`, `exit_code: 0`, and `output_evidence` (automated or `user-manual`); nothing is invented.
+- Every EXP-XX is COMPLIANT (passing test or recorded manual evidence) — an UNTESTED EXP is a CRITICAL, not a warning.
+- The compliance matrix is complete: every requirement maps to a result row.
+- Lint/OCA checks ran and their outcomes are recorded, not assumed.
+- The verdict is one of PASS / PASS WITH WARNINGS / FAIL / BLOCKED (`verification-deferred`) — never a fuzzy summary.
 
 ## Output Contract
 

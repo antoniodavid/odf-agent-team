@@ -45,6 +45,16 @@ Use as Phase 1 of /odf-new, after PROPOSE. Determine whether a requirement can b
 7. **Persist**: Save the full assessment in the selected store and return its
    canonical `artifact_ref`; do not require `mem_*`.
 
+## Completion Criteria
+
+The phase is DONE only when ALL hold (checkable, not vibes):
+
+- Every REQ-XX has a numbered RFC 2119 requirement with a Given/When/Then scenario; no requirement is left as prose.
+- Strategy is decided (`standard | custom | migration | integration`) and the standard-vs-custom reasoning names the exact standard modules/fields considered.
+- For `standard`: the configuration guide covers every REQ. For `custom`: the functional spec has no open questions.
+- Every non-core dependency of the affected module is resolved against the active sources or flagged (see odf-init dependency_matrix).
+- The artifact is persisted in the selected store with a canonical `artifact_ref` in the ODF Result.
+
 ## Output Contract
 
 Return ODF Result envelope with: status (ok), executive_summary, strategy (standard|custom), artifacts_saved, next_recommended (["design"] or []), risks, odoo_version, modules_affected.

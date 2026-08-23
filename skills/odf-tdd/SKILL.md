@@ -48,9 +48,14 @@ Active when the EFFECTIVE TDD mode is ON. Effective mode = two-source kill switc
 4. **IMPLEMENT**: For each pair: write test (T-N) → run the focused test and persist non-zero red evidence for the intended behavior → implement (I-N) → confirm the same test passes. A claimed red state without command, exit code, and output is not evidence; block if red cannot be demonstrated.
 5. **VERIFY**: Check that every REQ-XX has a PASSING test. If code exists without test → FAIL.
 
-## Output Contract
+## Test Discipline
 
-When enforcing: return `status: blocked` with `reason: "Strict TDD: REQ-XX has no test. Write test before implementing."` and `tdd_effective: on`.
+- **Confirm seams first**: state the public seams under test and confirm with the user before writing tests; prefer the highest seam; the fewer seams the better. No test at an unconfirmed seam.
+- **Vertical slices**: one test → one minimal implementation → repeat. Never write all tests first (horizontal slicing tests imagined behavior).
+- **Anti-patterns**: *tautological* assertions (expected value recomputed the same way as the code — can never disagree), *implementation-coupled* tests (mock internals/private methods), *snapshot-by-hand* values.
+- **Red before green**: the failing test is written first; red evidence is command + exit code + output, never a claim.
+
+## Output ContractWhen enforcing: return `status: blocked` with `reason: "Strict TDD: REQ-XX has no test. Write test before implementing."` and `tdd_effective: on`.
 When not enforcing (any source off): include `tdd_effective: off`.
 When passing: include `tdd: compliant` in the result.
 

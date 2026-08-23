@@ -3,7 +3,7 @@ import * as fs from "node:fs/promises"
 import * as path from "node:path"
 import * as os from "node:os"
 import { execFileSync } from "node:child_process"
-import { asBoolean, buildManualEvidence, evidencePack, loadRegistry, matchSkills, metricsSummary, normalizeResult, resolveAgent, stateBundle } from "./odf-toolkit.js"
+import { asBoolean, buildManualEvidence, evidencePack, loadRegistry, matchSkills, metricsSummary, normalizeResult, redundancyCheck, resolveAgent, stateBundle } from "./odf-toolkit.js"
 
 describe("odf-toolkit result", () => {
   it("normalizes design_closed as string or boolean and flags missing on DESIGN/PLAN", () => {
@@ -102,7 +102,8 @@ describe("odf-toolkit metrics", () => {
     process.env.ODF_CONFIG_DIR = configDir
     try {
       await fs.mkdir(path.join(configDir, "metrics"), { recursive: true })
-      await fs.writeFile(path.join(configDir, "metrics", "delegations-2026-08-22.jsonl"), [
+      const utcDay = new Date().toISOString().split("T")[0]
+      await fs.writeFile(path.join(configDir, "metrics", `delegations-${utcDay}.jsonl`), [
         JSON.stringify({ phase: "DESIGN", status: "ok", duration_ms: 120_000 }),
         JSON.stringify({ phase: "DESIGN", status: "timeout", duration_ms: 300_000 }),
         JSON.stringify({ phase: "VERIFY", status: "ok", duration_ms: 60_000 }),
@@ -148,6 +149,34 @@ describe("odf-toolkit manual-evidence", () => {
     expect(buildManualEvidence({ ...base, command: "odoo-bin -d devel_test --test-enable", output: "3 failed" }).problems.some(p => p.includes("0 failed"))).toBe(true)
     expect(buildManualEvidence({ ...base, command: "odoo-bin -d devel_test --test-enable", exitCode: 1 }).problems.some(p => p.includes("exit code"))).toBe(true)
     expect(buildManualEvidence({ ...base, command: "odoo-bin -d devel_test --test-enable" }).problems).toEqual([])
+  })
+})
+
+describe("odf-toolkit redundancy", () => {
+  it("finds existing implementations of domain terms in bounded code dirs", async () => {
+    const repo = await fs.mkdtemp(path.join(os.tmpdir(), "odf-redundancy-"))
+    try {
+      await fs.mkdir(path.join(repo, "models"), { recursive: true })
+      await fs.mkdir(path.join(repo, "static", "src"), { recursive: true })
+      await fs.writeFile(path.join(repo, "models", "stock_picking.py"), "# purchase origin field\norigin = fields.Char()\n", "utf8")
+      await fs.writeFile(path.join(repo, "static", "src", "screen.js"), "// barcode screen\n", "utf8")
+      const check = redundancyCheck(repo, ["purchase origin", "barcode screen", "nonexistent_thing"])
+      expect(check.matches.some(m => m.file === "models/stock_picking.py" && m.term === "purchase origin")).toBe(true)
+      expect(check.matches.some(m => m.file === "static/src/screen.js" && m.term === "barcode screen")).toBe(true)
+      expect(check.matches.some(m => m.term === "nonexistent_thing")).toBe(false)
+    } finally {
+      await fs.rm(repo, { recursive: true, force: true })
+    }
+  })
+
+  it("returns no matches for empty terms or a repo without code dirs", async () => {
+    const repo = await fs.mkdtemp(path.join(os.tmpdir(), "odf-redundancy-empty-"))
+    try {
+      expect(redundancyCheck(repo, ["", "  "]).matches).toEqual([])
+      expect(redundancyCheck(repo, ["term"]).matches).toEqual([])
+    } finally {
+      await fs.rm(repo, { recursive: true, force: true })
+    }
   })
 })
 

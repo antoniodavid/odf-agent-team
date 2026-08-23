@@ -99,6 +99,8 @@ export function stateBundle(root: string, change: string): StateBundle
 export function evidencePack(repoDir: string): EvidencePack
 export function contextPack(repoDir: string, task: string, maxFiles?: number): ContextPack
 export function metricsSummary(days?: number): MetricsSummary
+export function redundancyCheck(repoDir: string, terms: string[]): { terms: string[]; matches: Array<{ file: string; term: string; line: number }> }
+export function priorLearnings(project: string): Array<{ topic: string; title: string }>
 export function buildManualEvidence(opts: {
   change: string
   command: string

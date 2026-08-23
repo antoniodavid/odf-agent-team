@@ -6749,7 +6749,11 @@ is true, ask one grouped question for the missing facts and re-run.`,
       risk_signals: tool.schema
         .array(tool.schema.string())
         .optional()
-        .describe("Risk signals detected by the caller (security, migration, payment, public-api, data-loss)"),
+        .describe("Risk signals detected by the caller (security, migration, payment, public-api, data-loss, pii)"),
+      known_modules: tool.schema
+        .array(tool.schema.string())
+        .optional()
+        .describe("Project module names from odf-init/{project}; unknown modules are flagged as warnings"),
     },
     async execute(args: Omit<EntryTriageInput, "change"> & { change?: string }): Promise<string> {
       const result = classifyEntryTriage({
@@ -6762,6 +6766,7 @@ is true, ask one grouped question for the missing facts and re-run.`,
         expected_files: args.expected_files,
         expectations_clear: args.expectations_clear,
         risk_signals: args.risk_signals,
+        known_modules: args.known_modules,
       })
       return JSON.stringify(result, null, 2)
     },

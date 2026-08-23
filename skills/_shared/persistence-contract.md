@@ -33,6 +33,13 @@ The selected store applies equally to all ODF artifacts: immutable human
 the design library, learning/retrospectives, receipts, and `artifacts_saved`.
 Preserve their semantics and references when moving between stores.
 
+## Prior Decisions / Out-of-Scope Base
+
+`odf-learned/{project}` is the durable base of prior outcomes: retrospectives,
+rejected ideas, and "already implemented" findings. The `/odf-new` redundancy
+pre-check (`odf-toolkit redundancy --project <name>`) consults it BEFORE
+PROPOSE; surface relevant learnings to the user, never decide alone.
+
 ## State Persistence (Orchestrator)
 
 The orchestrator persists canonical workflow state after each proof-backed BUILD
