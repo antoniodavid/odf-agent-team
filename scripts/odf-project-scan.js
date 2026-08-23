@@ -24,6 +24,7 @@ import { createHash } from "node:crypto"
 import { pathToFileURL } from "node:url"
 import YAML from "yaml"
 import { detectEnv } from "./odf-env-detect.js"
+import { dependencyProbe } from "./lib/dependencies.js"
 
 const COMPOSE_FILES = ["docker-compose.yml", "docker-compose.yaml", "compose.yml", "compose.yaml", "devel.yaml"]
 
@@ -241,6 +242,7 @@ export function buildConfig(workspaceRoot, repoDir, opts = {}) {
     conventions: { git_branch: git.branch, git_remote: git.remote, git_dirty: git.dirty },
     codegraph: { indexed: codegraph.indexed, cli_available: codegraph.cli_available, root: repoDir, paths: [], last_sync: null },
     dependency_matrix: env.dependency_matrix,
+    dependencies: dependencyProbe(),
     warnings: env.warnings,
     scan_checksum: computeChecksum(scanInputs(workspaceRoot, repoDir, env)),
     scanned_at: new Date().toISOString(),

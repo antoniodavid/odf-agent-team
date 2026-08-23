@@ -99,6 +99,15 @@ export function stateBundle(root: string, change: string): StateBundle
 export function evidencePack(repoDir: string): EvidencePack
 export function contextPack(repoDir: string, task: string, maxFiles?: number): ContextPack
 export function metricsSummary(days?: number): MetricsSummary
+export interface DependencyProbe {
+  engram_cli: "available" | "missing"
+  codegraph_cli: "available" | "missing"
+  git: "available" | "missing"
+  node: "available" | "missing"
+  docker: "available" | "missing"
+  python3: "available" | "missing"
+}
+export function dependencyProbe(): DependencyProbe
 export function redundancyCheck(repoDir: string, terms: string[]): { terms: string[]; matches: Array<{ file: string; term: string; line: number }> }
 export function priorLearnings(project: string): Array<{ topic: string; title: string }>
 export function buildManualEvidence(opts: {

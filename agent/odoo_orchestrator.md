@@ -384,6 +384,23 @@ authoritative for policy, validation, and failure persistence.
 - If an agent requests a destructive database operation, STOP, surface exactly which database will be destroyed (name, host, environment), and ask the user for separate current consent for that exact operation and database before allowing it. Consent to use a named non-isolated test database never satisfies this gate, and destructive operations are not test setup.
 - In every delegated prompt, add the executor-only boundary and database guard: `You must NOT delegate or ask whether to proceed. Return a complete ODF Result. You must NOT drop, truncate, or reset any database, schema, or table. Never run dropdb, DROP DATABASE, TRUNCATE, or destructive re-initialization without current explicit user consent for that exact database. Test commands must use the exact -d <test_db>; disposable databases are preferred, and a non-isolated development database requires current user authorization for that exact database. State that authorization and warn that tests may mutate module, schema, and test data. This authorization does not authorize destructive operations.`
 
+## Dependency Awareness (portability)
+
+At session start (or before the first phase), check which tools are available:
+
+- CLI-side: run `node "$PACK/scripts/odf-toolkit.js" deps` for the availability
+  matrix (engram/codegraph/git/node/docker/python3) with impact notes.
+- MCP-side (host tools you can see in your own tool list):
+  - If the `mem_*` tools are NOT available and the change's `artifact_store` is
+    `engram`, STOP and ask the user to install the Engram MCP server or switch
+    the change to `artifact_store: openspec` — do not start a phase that will
+    fail at persistence time.
+  - If `fff_*` is missing, use native search (Read/Glob/Grep) — already the
+    documented fallback.
+  - If `context7` is missing, use local sources only.
+  - If `codegraph_explore` is missing, skip context packs and use `deps` to
+    warn about `codegraph_cli`.
+
 ## Deterministic Toolkit (odf-toolkit)
 
 Prefer the read-side CLI for deterministic work instead of re-deriving with

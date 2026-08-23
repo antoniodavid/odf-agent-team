@@ -379,6 +379,30 @@ export function priorLearnings(project) {
 }
 
 // ==========================================
+// deps — environment dependency probe (portability matrix)
+// ==========================================
+
+import { dependencyProbe as sharedDependencyProbe } from "./lib/dependencies.js"
+export { dependencyProbe } from "./lib/dependencies.js"
+
+const DEP_IMPACT = {
+  engram_cli: "Engram-only workflows block with engram-cli-unavailable; OpenSpec workflows work",
+  codegraph_cli: "CodeGraph context packs unavailable (fall back to FFF/native search)",
+  git: "Candidate digest, evidence, and git-based gates unavailable",
+  node: "CLIs and the plugin host require Node 18+",
+  docker: "Odoo test command is not detected (compose runner)",
+  python3: "Install summary counts degrade; nothing else breaks",
+}
+
+function renderDeps(deps) {
+  const lines = ["dependencies:"]
+  for (const [tool, status] of Object.entries(deps)) {
+    lines.push(`  ${status === "available" ? "✓" : "✗"} ${tool}: ${DEP_IMPACT[tool] || ""}`)
+  }
+  return lines.join("\n")
+}
+
+// ==========================================
 // CLI dispatch
 // ==========================================
 
@@ -427,6 +451,14 @@ function main(argv) {
       const task = argValue(argv, "--task")
       if (!repo || !task) return usage("context --repo <dir> --task \"<query>\" [--max-files 8]")
       result = contextPack(path.resolve(repo), task, Number(argValue(argv, "--max-files")) || 8)
+      break
+    }
+    case "deps": {
+      result = dependencyProbe()
+      if (!json) {
+        process.stdout.write(renderDeps(result) + "\n")
+        process.exit(0)
+      }
       break
     }
     case "metrics": {
@@ -494,7 +526,7 @@ function main(argv) {
 }
 
 function usage(detail = "") {
-  console.error(detail ? `Usage: odf-toolkit ${detail}` : "Usage: odf-toolkit <result|resolve|state|evidence|context|metrics|manual-evidence|redundancy> [options]")
+  console.error(detail ? `Usage: odf-toolkit ${detail}` : "Usage: odf-toolkit <result|resolve|state|evidence|context|metrics|manual-evidence|redundancy|deps> [options]")
   process.exit(2)
 }
 

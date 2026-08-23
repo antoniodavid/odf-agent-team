@@ -67,3 +67,28 @@ tests:
       files_not_contain:
         - path: .config/opencode/skills/odf-init/SKILL.md
           text: '/home/adruban'
+
+  - name: reports environment dependency probes after install
+    input:
+      args: ['--yes', '--force']
+      env:
+        ODF_SKIP_NPM: '1'
+        ODF_SKIP_SELFTEST: '1'
+    expected:
+      exit_code: 0
+      stdout_contains:
+        - 'Environment dependencies:'
+        - 'node'
+
+  - name: configure-mcp merges context7 and backs up opencode.json
+    input:
+      args: ['--yes', '--force', '--configure-mcp']
+      env:
+        ODF_SKIP_NPM: '1'
+        ODF_SKIP_SELFTEST: '1'
+    expected:
+      exit_code: 0
+      stdout_contains:
+        - 'context7 MCP entry merged'
+      files_exist:
+        - .config/opencode/opencode.json

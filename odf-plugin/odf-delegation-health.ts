@@ -235,6 +235,7 @@ export async function inspectODFHealth(toolCtx: ToolContext, client: OpencodeCli
   command: { command: string; path: string; status: HealthFileStatus }
   task_api: { source: DelegationMetrics["task_api_source"]; function_present: boolean; usability: "unverified" | "unavailable"; probe: "not-run" }
   engram: EngramHealth
+  tooling: { codegraph: "available" | "unavailable"; docker: "available" | "unavailable"; git: "available" | "unavailable"; node: "available" | "unavailable" }
   warnings: string[]
 }> {
   const configDir = getOdfConfigDir()
@@ -257,6 +258,21 @@ export async function inspectODFHealth(toolCtx: ToolContext, client: OpencodeCli
     ? "task-api-unverified: task usability was not probed because probing executes a task"
     : "task-api-unavailable"
   const engramInspection = inspectEngramHealth(io)
+  const probeCli = (command: string): "available" | "unavailable" => {
+    try {
+      io.locateExecutable(command)
+      execFileSync(command, ["--version"], { stdio: "ignore", timeout: 5_000 })
+      return "available"
+    } catch {
+      return "unavailable"
+    }
+  }
+  const tooling = {
+    codegraph: probeCli("codegraph"),
+    docker: probeCli("docker"),
+    git: probeCli("git"),
+    node: probeCli("node"),
+  }
   const warnings = [
     ...registryInspection.warnings,
     ...(pluginFile.status !== "readable" ? [`plugin-file-${pluginFile.status}: ${pluginPath}`] : []),
@@ -288,6 +304,7 @@ export async function inspectODFHealth(toolCtx: ToolContext, client: OpencodeCli
     command: { command: "/odf-health", path: commandPath, status: commandFile.status },
     task_api: taskApiHealth,
     engram: engramInspection.engram,
+    tooling,
     warnings: Array.from(new Set(warnings)),
   }
 }

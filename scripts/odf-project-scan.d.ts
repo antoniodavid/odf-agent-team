@@ -25,6 +25,7 @@ export interface ScanConfig {
   conventions: { git_branch: string | null; git_remote: string | null; git_dirty: boolean | null }
   codegraph: { indexed: boolean; cli_available: boolean; root: string; paths: string[]; last_sync: string | null }
   dependency_matrix: EnvDetection["dependency_matrix"]
+  dependencies: import("./lib/dependencies.js").DependencyProbe
   warnings: string[]
   scan_checksum: string
   scanned_at: string

@@ -71,6 +71,7 @@ INSTALL_UPDATE=false
 INSTALL_TUI=false
 
 INSTALL_CODEGRAPH=false
+INSTALL_CONFIGURE_MCP=false
 
 for arg in "$@"; do
   case "$arg" in
@@ -80,6 +81,7 @@ for arg in "$@"; do
     --update) INSTALL_UPDATE=true ;;
     --tui|--interactive) INSTALL_TUI=true ;;
     --with-codegraph) INSTALL_CODEGRAPH=true ;;
+    --configure-mcp) INSTALL_CONFIGURE_MCP=true ;;
     -h|--help)
       echo "Usage: $0 [--yes] [--dry-run] [--force] [--update] [--tui] [--with-codegraph]"
       echo ""
@@ -93,6 +95,7 @@ for arg in "$@"; do
       echo ""
       echo "Options:"
       echo "  --with-codegraph   Install CodeGraph (npm package) after ODF files"
+      echo "  --configure-mcp    Merge known-good MCP servers (context7, engram) into opencode.json (backup first)"
       echo ""
       echo "Performance tip: set OPENCODE_EXPERIMENTAL_BACKGROUND_SUBAGENTS=true in your"
       echo "  OpenCode process environment to enable parallel sub-agent exploration."
@@ -362,6 +365,63 @@ run_self_test() {
   fi
 }
 
+
+probe_environment() {
+  log_warn "🔍 Environment dependencies:"
+  for tool in engram codegraph git node docker python3; do
+    if command -v "$tool" >/dev/null 2>&1; then
+      log_ok "  ✓ ${tool}"
+    else
+      log_warn "  ✗ ${tool} (missing — see impact below)"
+    fi
+  done
+  log_warn "  Impact: engram missing blocks Engram-only workflows (OpenSpec OK); codegraph missing disables context packs (FFF fallback); docker missing disables test-command detection."
+}
+
+configure_mcp() {
+  local cfg="${ODF_DIR}/opencode.json"
+  if [[ ! -f "$cfg" ]]; then
+    log_info "    No existing opencode.json; creating a fresh one with MCP entries."
+    printf '{\n  "$schema": "https://opencode.ai/config.json"\n}\n' > "$cfg"
+  else
+    cp "$cfg" "${ODF_DIR}/backups/opencode.json.$(date +%Y%m%d_%H%M%S)"
+    log_info "    Backed up opencode.json before merging MCP entries."
+  fi
+  export ODF_MCP_ENGRAM=0
+  if command -v engram >/dev/null 2>&1 && engram mcp --help >/dev/null 2>&1; then
+    ODF_MCP_ENGRAM=1
+    log_ok "    ✓ engram MCP entry (verified \"engram mcp\")"
+  else
+    log_warn "    ✗ engram MCP entry skipped (\"engram mcp\" not available on this host)"
+  fi
+  node -e '
+    const fs = require("fs");
+    const p = process.argv[1];
+    const cfg = JSON.parse(fs.readFileSync(p, "utf8"));
+    cfg.mcp = cfg.mcp || {};
+    cfg.mcp.context7 = { type: "remote", url: "https://mcp.context7.com/mcp", enabled: true };
+    if (process.env.ODF_MCP_ENGRAM === "1") {
+      cfg.mcp.engram = { type: "local", command: ["engram", "mcp"], enabled: true };
+    }
+    fs.writeFileSync(p, JSON.stringify(cfg, null, 2) + "\n");
+  ' "$cfg"
+  log_ok "    ✓ context7 MCP entry merged"
+  log_warn "  Manual checklist (not auto-configured): codegraph MCP and fff MCP — add their server entries to opencode.json per their docs."
+}
+
+
+probe_environment() {
+  log_warn "🔍 Environment dependencies:"
+  for tool in engram codegraph git node docker python3; do
+    if command -v "$tool" >/dev/null 2>&1; then
+      log_ok "  ✓ ${tool}"
+    else
+      log_warn "  ✗ ${tool} (missing — see impact below)"
+    fi
+  done
+  log_warn "  Impact: engram missing blocks Engram-only workflows (OpenSpec OK); codegraph missing disables context packs (FFF fallback); docker missing disables test-command detection."
+}
+
 print_summary() {
   local status="$1"
   local existing_status="$2"
@@ -531,7 +591,12 @@ main() {
   if [[ "$INSTALL_DRY_RUN" == true ]]; then
     print_summary "dry-run" "$existing_status"
   else
-    print_summary "installed" "$existing_status"
+    probe_environment
+  if [[ "$INSTALL_CONFIGURE_MCP" == true ]]; then
+    log_warn "🔌 Configuring MCP servers (--configure-mcp)..."
+    configure_mcp
+  fi
+  print_summary "installed" "$existing_status"
   fi
 }
 
