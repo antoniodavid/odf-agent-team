@@ -16,7 +16,8 @@
     "test:yaml": "node scripts/odf-test-runner.js",
     "test:unit": "vitest run --exclude backups/** --exclude **/backups/** --exclude **/.cache/** --exclude **/coverage/**",
     "typecheck": "tsc --noEmit",
-    "engram:maintenance": "node scripts/odf-engram-maintenance.js"
+    "engram:maintenance": "node scripts/odf-engram-maintenance.js",
+    "test:harness": "vitest run scripts/odf-harness.test.ts"
   },
   "dependencies": {
     "yaml": "^2.7.0"

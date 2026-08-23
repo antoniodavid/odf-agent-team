@@ -172,6 +172,9 @@ runner:
 - `odf-metrics.js`, `odf-estimator.js`, `odf-design-library.js`,
   `odf-learning-bridge.js`, `odf-engram-maintenance.js` — observability and
   learning helpers.
+- `odf-harness.test.ts` (`npm run test:harness`) — integral smoke test: real
+  registry, triage/workflow/status/expectations/resolve, every CLI subcommand
+  end-to-end, safety inspection, and registry path integrity.
 
 ### `agent/odoo_orchestrator.md`
 

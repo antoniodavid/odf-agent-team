@@ -8,6 +8,10 @@ import * as fsSync from "node:fs"
 import * as os from "node:os"
 import * as path from "node:path"
 import { execFileSync } from "node:child_process"
+import type { createOpencodeClient } from "@opencode-ai/sdk"
+import { sanitizeChangeName } from "../scripts/lib/preflight.js"
+
+export const CHANGE_NAME_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]*$/
 
 // CONFIGURATION / SAFE PATHS
 // ==========================================
@@ -206,3 +210,21 @@ export const ODF_REGISTERED_TOOLS = [
   "odf_receipt",
   "odf_health",
 ] as const
+
+export type OpencodeClient = ReturnType<typeof createOpencodeClient>
+export interface ODFEntryAuthorization {
+  nonce: string
+  sessionID: string
+  messageID: string
+  generation: number
+  changeName: string
+  workspaceRoot: string
+  claimed: boolean
+}
+export type ODFEntryAuthorizations = Map<string, ODFEntryAuthorization>
+export type ODFEntryGenerations = Map<string, number>
+
+export function canonicalChangeName(value: unknown): string {
+  const raw = typeof value === "string" ? value.trim() : ""
+  return CHANGE_NAME_PATTERN.test(raw) ? sanitizeChangeName(raw) : ""
+}

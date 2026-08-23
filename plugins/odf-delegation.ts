@@ -21,10 +21,15 @@ import { type Hooks, type Plugin, type ToolContext, tool } from "@opencode-ai/pl
 import { execFileSync, execSync } from "node:child_process"
 import { filterStopWords, resolveAgent } from "../scripts/lib/agent-resolve.js"
 import {
+  canonicalChangeName,
   canonicalWorkspaceRoot,
+  CHANGE_NAME_PATTERN,
   debugLog,
   getOdfConfigDir,
+  type ODFEntryAuthorizations,
+  type ODFEntryGenerations,
   isWithinRoot,
+  type OpencodeClient,
   ODF_REGISTERED_TOOLS,
   resolvePath,
   resolveWorkspaceRoot,
@@ -57,6 +62,19 @@ import {
   type HealthIo,
   type TaskApi,
 } from "../odf-plugin/odf-delegation-health.js"
+import {
+  classifyRiskTier,
+  classifyRiskTierWithContent,
+  computePolicyGate,
+  gitHead,
+  savePolicyGateJson,
+  type PolicyGateDecision,
+} from "../odf-plugin/odf-delegation-policy.js"
+import {
+  canonicalLoopGuardValue,
+  createStableDiscoveryGuard,
+  type LoopGuardHooks,
+} from "../odf-plugin/odf-delegation-loopguard.js"
 import type { createOpencodeClient } from "@opencode-ai/sdk"
 import { isMap, parseDocument, stringify } from "yaml"
 import {
@@ -91,7 +109,6 @@ import { validateExpectations, validDate } from "../odf-plugin/odf-expectations.
 import { sanitizeChangeName, validatePreflight, type PreflightRecord } from "../scripts/lib/preflight.js"
 import { inspectToolArgs } from "../scripts/odf-safety.js"
 
-export type OpencodeClient = ReturnType<typeof createOpencodeClient>
 
 // ==========================================
 // ==========================================
@@ -1002,285 +1019,6 @@ function settleAttempt(
 }
 
 // ==========================================
-// POLICY GATE (slice 1)
-// ==========================================
-
-export interface PolicyGateDecision {
-  change: string
-  phase: "IMPLEMENT" | "VERIFY"
-  gate: "allow" | "block"
-  reason: string
-  tdd: {
-    global: boolean
-    local_readable: boolean
-    local_off: boolean
-    effective: "on" | "off"
-  }
-  risk_tier: "LOW" | "MEDIUM" | "HIGH"
-  frozen_diff_ref: string | null
-  candidate_digest: string | null
-  base_head: string | null
-  changed_lines: number | null
-  correction_budget_lines: number | null
-  changed_paths: string[]
-  resolved_at: string
-}
-
-/**
- * Classify the risk tier of a change from its changed paths.
- * HIGH: security files, CSV access rules, ir.model.access.
- * LOW: passive byte-proven files (views/data XML, docs, po, demo yml, manifest).
- * Everything else (models, controllers, raw Python) → MEDIUM.
- */
-export function classifyRiskTier(changedPaths: string[]): "LOW" | "MEDIUM" | "HIGH" {
-  // ponytail: filename-first tier, escalate-only content scan in classifyRiskTierWithContent
-  const HIGH_PATTERNS = [
-    /security\//i,
-    /ir\.model\.access/i,
-    /\.csv$/i,
-    /groups=/i,
-    /_security/i,
-  ]
-  const LOW_PATTERNS = [
-    /views\/[^/]+\.xml$/i,
-    /data\/[^/]+\.xml$/i,
-    /\.ya?ml$/i,
-    /\.md$/i,
-    /\.po$/i,
-    /\.pot$/i,
-    /__manifest__\.py$/i,
-  ]
-
-  for (const p of changedPaths) {
-    if (HIGH_PATTERNS.some(rx => rx.test(p))) return "HIGH"
-  }
-  if (changedPaths.length === 0) return "MEDIUM"
-  return changedPaths.every(p => LOW_PATTERNS.some(rx => rx.test(p))) ? "LOW" : "MEDIUM"
-}
-
-/**
- * Content-aware tier escalation (slice 5). Filename-only classification misses
- * security signals inside otherwise innocent-looking files (raw SQL with
- * interpolation, eval, subprocess, record rules). This scan can ONLY escalate
- * to HIGH — never downgrade — and reads at most MAX bytes per changed file,
- * skipping unreadable or missing ones.
- */
-const HIGH_CONTENT_PATTERNS = [
-  /env\.cr\s*\.\s*execute|cr\s*\.\s*execute\s*\(/i, // raw SQL
-  /\beval\s*\(/i, // eval()
-  /\bexec\s*\(/i, // exec()
-  /subprocess\s*\.|os\.system\s*\(|shell\s*=\s*True/i, // shell escape
-  /model\s*=\s*["']ir\.(?:rule|model\.access)["']/i, // security record in XML
-  /groups\s*=\s*["'][^"']*["']/i, // group assignment in data/views
-]
-const HIGH_CONTENT_MAX_BYTES = 64 * 1024
-
-export function classifyRiskTierWithContent(changedPaths: string[], workspaceDir: string): "LOW" | "MEDIUM" | "HIGH" {
-  const byName = classifyRiskTier(changedPaths)
-  if (byName === "HIGH") return "HIGH"
-
-  for (const p of changedPaths) {
-    let fd: number | null = null
-    try {
-      const abs = path.resolve(workspaceDir, p)
-      fd = fsSync.openSync(abs, "r")
-      const buf = Buffer.alloc(HIGH_CONTENT_MAX_BYTES)
-      const bytes = fsSync.readSync(fd, buf, 0, HIGH_CONTENT_MAX_BYTES, 0)
-      const content = buf.subarray(0, bytes).toString("utf8")
-      if (HIGH_CONTENT_PATTERNS.some(rx => rx.test(content))) return "HIGH"
-    } catch {
-      // Unreadable or missing file — skip; filename tier stands.
-    } finally {
-      if (fd !== null) {
-        try { fsSync.closeSync(fd) } catch { /* best-effort */ }
-      }
-    }
-  }
-  return byName
-}
-
-export function gitHead(workspaceDir: string): string | null {
-  try {
-    return execSync("git rev-parse HEAD", {
-      cwd: workspaceDir,
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "ignore"],
-    }).trim() || null
-  } catch {
-    return null
-  }
-}
-
-/**
- * Effective TDD = global `flags.strict_tdd` (registry) AND absence of the
- * local marker `<worktree>/.odf/tdd.off`. Any off → effective OFF; an
- * unreadable local source (anything but ENOENT) → fail-closed OFF.
- */
-function resolveTddEffective(
-  registry: ODFRegistry,
-  workspaceDir: string
-): { global: boolean; local_readable: boolean; local_off: boolean; effective: "on" | "off" } {
-  const global = registry.flags?.strict_tdd === true
-  const marker = path.join(workspaceDir, ".odf", "tdd.off")
-  let localReadable = false
-  let localOff = false
-  try {
-    fsSync.readFileSync(marker, "utf8")
-    localOff = true
-    localReadable = true
-  } catch (err) {
-    localOff = false
-    localReadable = (err as NodeJS.ErrnoException).code === "ENOENT"
-  }
-  const effective = global && localReadable && !localOff ? "on" : "off"
-  return { global, local_readable: localReadable, local_off: localOff, effective }
-}
-
-export function savePolicyGateJson(workspaceDir: string, decision: PolicyGateDecision): void {
-  try {
-    const dir = path.join(workspaceDir, ".odf")
-    fsSync.mkdirSync(dir, { recursive: true })
-    fsSync.writeFileSync(
-      path.join(dir, `policy-gate-${decision.change}.json`),
-      JSON.stringify(decision, null, 2),
-      "utf8"
-    )
-  } catch (err) {
-    console.warn(`[odf-delegation] Failed to persist policy gate for ${decision.change}: ${err}`)
-  }
-}
-
-/**
- * Resolve and persist the Policy Gate for a change before IMPLEMENT/VERIFY.
- * Resolves effective TDD and, for VERIFY, freezes the diff ref, counts changed
- * lines, classifies the risk tier, and computes the correction budget.
- *
- * The gate DOCUMENTS the decision — it does not analyze code. `gate` stays
- * "allow" except for hard conditions (missing change name). Idempotent: reuses
- * a persisted decision with the same phase + frozen diff ref (no re-freeze).
- */
-export function computePolicyGate(opts: {
-  change: string
-  phase: "IMPLEMENT" | "VERIFY"
-  workspaceDir?: string
-  registry: ODFRegistry
-}): PolicyGateDecision {
-  const workspace = resolveWorkspaceRoot(opts.workspaceDir || process.cwd())
-  const tdd = resolveTddEffective(opts.registry, workspace)
-
-  if (!opts.change || !opts.change.trim()) {
-    return {
-      change: opts.change || "",
-      phase: opts.phase,
-      gate: "block",
-      reason: "missing change name — cannot persist a policy gate",
-      tdd,
-      risk_tier: "MEDIUM",
-      frozen_diff_ref: null,
-      candidate_digest: null,
-      base_head: null,
-      changed_lines: null,
-      correction_budget_lines: null,
-      changed_paths: [],
-      resolved_at: new Date().toISOString(),
-    }
-  }
-
-  const gatePath = path.join(workspace, ".odf", `policy-gate-${opts.change}.json`)
-  const manifest = buildCandidateManifest(workspace)
-  const head = manifest.base_head
-
-  // Idempotency: reuse a frozen decision for the same change + phase only when
-  // the candidate bytes are unchanged (digest match), not merely when HEAD is.
-  try {
-    const existing = JSON.parse(fsSync.readFileSync(gatePath, "utf8")) as PolicyGateDecision
-    if (
-      existing.phase === opts.phase &&
-      head !== null &&
-      existing.candidate_digest != null &&
-      existing.candidate_digest === computeCandidateDigest(manifest)
-    ) {
-      return existing
-    }
-  } catch {
-    // No prior gate, stale, or unreadable → recompute.
-  }
-
-  let frozenDiffRef: string | null = null
-  let candidateDigest: string | null = null
-  let baseHead: string | null = null
-  let changedLines: number | null = null
-  let changedPaths: string[] = []
-  let riskTier: "LOW" | "MEDIUM" | "HIGH" = "MEDIUM"
-  let correctionBudget: number | null = null
-
-  if (opts.phase === "VERIFY") {
-    frozenDiffRef = head
-    baseHead = head
-    if (head !== null) {
-      candidateDigest = computeCandidateDigest(manifest)
-      try {
-        const numstat = execSync("git diff --numstat HEAD", { cwd: workspace, encoding: "utf8" }).trim()
-        changedLines = numstat
-          .split("\n")
-          .filter(Boolean)
-          .reduce((sum, line) => {
-            const [add, del] = line.split("\t")
-            const a = parseInt(add, 10)
-            const d = parseInt(del, 10)
-            return sum + (Number.isFinite(a) ? a : 0) + (Number.isFinite(d) ? d : 0)
-          }, 0)
-      } catch {
-        changedLines = null
-      }
-      changedPaths = extractChangedPaths(manifest)
-      riskTier = classifyRiskTierWithContent(changedPaths, workspace)
-      correctionBudget = changedLines != null ? Math.min(200, Math.ceil(changedLines / 2)) : null
-    } else {
-      // git unavailable → fail-closed for VERIFY: no reproducible candidate
-      // means verification cannot be bound to anything, so the delegation must
-      // not run. The user must make the candidate reproducible first.
-      return {
-        change: opts.change,
-        phase: opts.phase,
-        gate: "block",
-        reason: "verification-unavailable: initialize a git repository or provide candidate discovery; verification cannot proceed without a reproducible candidate",
-        tdd,
-        risk_tier: "MEDIUM",
-        frozen_diff_ref: null,
-        candidate_digest: null,
-        base_head: null,
-        changed_lines: null,
-        correction_budget_lines: null,
-        changed_paths: [],
-        resolved_at: new Date().toISOString(),
-      }
-    }
-  }
-
-  const decision: PolicyGateDecision = {
-    change: opts.change,
-    phase: opts.phase,
-    gate: "allow",
-    reason:
-      opts.phase === "VERIFY"
-        ? "policy gate documented — sub-agent verifies against the frozen diff ref"
-        : "policy gate documented — TDD enforcement lives in the odf-tdd skill",
-    tdd,
-    risk_tier: riskTier,
-    frozen_diff_ref: frozenDiffRef,
-    candidate_digest: candidateDigest,
-    base_head: baseHead,
-    changed_lines: changedLines,
-    correction_budget_lines: correctionBudget,
-    changed_paths: changedPaths,
-    resolved_at: new Date().toISOString(),
-  }
-
-  savePolicyGateJson(workspace, decision)
-  return decision
-}
-
 function extractChangeName(prompt: string): string | null {
   const match = prompt.match(/[Cc]hange\s+name\s*[:=]\s*([A-Za-z0-9][A-Za-z0-9_-]*)/)
   return match ? match[1] : null
@@ -3749,7 +3487,6 @@ interface OpenSpecSnapshot {
   warnings: string[]
 }
 
-const CHANGE_NAME_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]*$/
 const OPEN_SPEC_ARTIFACT_STEMS = new Set([
   "decision", "plan", "build", "verify", "proposal", "propose", "assess", "spec", "qa-plan", "design",
   "tasks", "apply-progress", "implement-progress", "archive-report", "expectations",
@@ -5165,23 +4902,6 @@ interface WorkflowBindArgs {
   regression?: string
 }
 
-interface ODFEntryAuthorization {
-  nonce: string
-  sessionID: string
-  messageID: string
-  generation: number
-  changeName: string
-  workspaceRoot: string
-  claimed: boolean
-}
-type ODFEntryAuthorizations = Map<string, ODFEntryAuthorization>
-type ODFEntryGenerations = Map<string, number>
-
-function canonicalChangeName(value: unknown): string {
-  const raw = typeof value === "string" ? value.trim() : ""
-  return CHANGE_NAME_PATTERN.test(raw) ? sanitizeChangeName(raw) : ""
-}
-
 function canonicalWorkflowValue(value: unknown): string {
   return JSON.stringify(canonicalLoopGuardValue(value))
 }
@@ -6025,277 +5745,6 @@ function createODFWorkflowAdvance(): ReturnType<typeof tool> {  return tool({
 }
 
 // ==========================================
-// STABLE DISCOVERY LOOP GUARD
-// ==========================================
-
-const LOOP_GUARD_READ_TOOLS = new Set([
-  "read", "glob", "grep", "webfetch",
-  "list_mcp_resources", "list_mcp_resource_templates", "read_mcp_resource",
-  "codegraph_codegraph_explore", "fff_find_files", "fff_grep", "fff_multi_grep",
-  "engram_mem_context", "engram_mem_search", "engram_mem_get_observation",
-  "engram_mem_current_project", "engram_mem_doctor",
-  "odf_workflow_route", "odf_workflow_advance", "odf_entry_triage",
-  "odf_skill_inject", "odf_skill_resolve", "odf_registry_read", "odf_notebooklm_lookup",
-  "odf_profile_select", "odf_community_tool_detect", "odf_status", "odf_workflow_status", "odf_health",
-])
-const LOOP_GUARD_MAX_SESSIONS = 128
-const LOOP_GUARD_MAX_TOOLS = 64
-const LOOP_GUARD_MAX_CALLS = 128
-const LOOP_GUARD_STOP_REASON = "ODF runtime loop guard stopped this session: the same stable discovery call returned the same result twice for one user intent. Review the existing result or send a new request."
-const LOOP_GUARD_WRITE_REASON = "ODF runtime loop guard blocked a duplicate write-capable or unclassified tool call in the same user intent. Send a new explicit request to retry it."
-const ODF_ENTRY_HEALTH_REASON = "ODF entry health gate blocked this session: /odf-new requires a successful odf_health call as its first ODF operation, before questions, writes, or delegation."
-const ENGRAM_READ_ONLY_TOOLS = new Set([
-  "engram_mem_context", "engram_mem_search", "engram_mem_get_observation",
-  "engram_mem_current_project", "engram_mem_doctor",
-])
-
-type LoopGuardHooks = Pick<Hooks, "dispose" | "event" | "chat.message" | "command.execute.before" | "tool.execute.before" | "tool.execute.after">
-type LoopGuardState = {
-  intentID: string
-  generation: number
-  workspaceRoot: string
-  entryChange: string | null
-  stopped: boolean
-  stopReason?: string
-  entryHealth: "not-required" | "not-run" | "running" | "passed" | "failed"
-  tools: Map<string, { signatureDigest: string; resultDigest?: string }>
-  calls: Map<string, { tool: string; signatureDigest: string; intentID: string; generation: number }>
-}
-
-function isReadOnlyEngramTool(toolName: string, args: unknown): boolean {
-  if (ENGRAM_READ_ONLY_TOOLS.has(toolName)) return true
-  return toolName === "engram_mem_review" && Boolean(args && typeof args === "object" && (args as Record<string, unknown>).action === "list")
-}
-
-function isODFEntryGatedTool(toolName: string, args: unknown): boolean {
-  return toolName.startsWith("odf_") || (toolName.startsWith("engram_mem_") && !isReadOnlyEngramTool(toolName, args)) ||
-    ["question", "task", "bash", "write", "edit", "apply_patch"].includes(toolName)
-}
-
-function isSuccessfulODFEntryHealth(value: unknown): boolean {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return false
-  const result = value as Record<string, any>
-  return result.schema_version === 1 && (result.status === "ok" || result.status === "warning") &&
-    result.registry?.status === "valid" && Array.isArray(result.registry?.skills?.missing) && result.registry.skills.missing.length === 0 &&
-    Array.isArray(result.registry?.agents?.missing) && result.registry.agents.missing.length === 0 &&
-    result.plugin?.loaded === true && result.plugin?.file_status === "readable" &&
-    result.command?.status === "readable" && result.task_api?.function_present === true
-}
-
-function canonicalLoopGuardValue(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(canonicalLoopGuardValue)
-  if (value && typeof value === "object") {
-    return Object.fromEntries(
-      Object.entries(value as Record<string, unknown>)
-        .sort(([left], [right]) => left.localeCompare(right))
-        .map(([key, item]) => [key, canonicalLoopGuardValue(item)]),
-    )
-  }
-  return value
-}
-
-function loopGuardDigest(value: unknown): string {
-  return nodeCrypto.createHash("sha256")
-    .update(JSON.stringify(canonicalLoopGuardValue(value)) ?? "null")
-    .digest("hex")
-}
-
-function expandedCommandDigest(parts: unknown[]): string {
-  return loopGuardDigest(parts.map(part => {
-    if (!part || typeof part !== "object" || Array.isArray(part)) return part
-    const value = part as Record<string, unknown>
-    return { type: value.type, text: value.text, filename: value.filename, url: value.url }
-  }))
-}
-
-export function createStableDiscoveryGuard(
-  client: OpencodeClient,
-  entryAuthorizations: ODFEntryAuthorizations = new Map(),
-  entryGenerations: ODFEntryGenerations = new Map(),
-  workspaceDir = process.cwd(),
-): LoopGuardHooks {
-  const sessions = new Map<string, LoopGuardState>()
-  const pendingCommands = new Map<string, { partsDigest: string; changeName: string; generation: number }>()
-  const workspaceRoot = canonicalWorkspaceRoot(workspaceDir)
-  const abortSession = async (sessionID: string): Promise<void> => {
-    try {
-      await client.session.abort({ path: { id: sessionID } })
-    } catch {
-      // The hook still fails closed even if the host abort endpoint is unavailable.
-    }
-  }
-  const boundedSet = <K, V>(map: Map<K, V>, key: K, value: V, limit: number): void => {
-    map.delete(key)
-    if (!map.has(key) && map.size >= limit) map.delete(map.keys().next().value!)
-    map.set(key, value)
-  }
-  const nextGeneration = (sessionID: string): number => {
-    const generation = (entryGenerations.get(sessionID) || 0) + 1
-    boundedSet(entryGenerations, sessionID, generation, LOOP_GUARD_MAX_SESSIONS)
-    return generation
-  }
-  const clearSession = (sessionID: string, clearGeneration: boolean): void => {
-    sessions.delete(sessionID)
-    pendingCommands.delete(sessionID)
-    entryAuthorizations.delete(sessionID)
-    if (clearGeneration) entryGenerations.delete(sessionID)
-  }
-
-  return {
-    dispose: async () => {
-      sessions.clear()
-      pendingCommands.clear()
-      entryAuthorizations.clear()
-      entryGenerations.clear()
-    },
-    event: async ({ event }) => {
-      if (event.type === "server.instance.disposed") {
-        sessions.clear()
-        pendingCommands.clear()
-        entryAuthorizations.clear()
-        entryGenerations.clear()
-      }
-      if (event.type === "session.deleted") {
-        const deletedID = event.properties?.info?.id
-        if (deletedID) clearSession(deletedID, true)
-        return
-      }
-      // session.idle and session.error clear the transient loop-guard state but preserve the
-      // entry authorization so a resumed session can still complete a legitimate bind.
-      const sessionID = event.type === "session.idle" || event.type === "session.error"
-        ? event.properties.sessionID
-        : null
-      if (sessionID) {
-        sessions.delete(sessionID)
-        pendingCommands.delete(sessionID)
-      }
-    },
-    "command.execute.before": async (input, output) => {
-      clearSession(input.sessionID, false)
-      const generation = nextGeneration(input.sessionID)
-      const changeName = canonicalChangeName(input.arguments.trim().split(/\s+/, 1)[0])
-      if (/^\/?odf-new$/.test(input.command) && changeName) {
-        boundedSet(pendingCommands, input.sessionID, {
-          partsDigest: expandedCommandDigest(output.parts),
-          changeName,
-          generation,
-        }, LOOP_GUARD_MAX_SESSIONS)
-      }
-    },
-    "chat.message": async (input, output) => {
-      const synthetic = output.parts.length > 0 && output.parts.every(part => "synthetic" in part && part.synthetic === true)
-      if (synthetic) return
-      const pendingCommand = pendingCommands.get(input.sessionID)
-      pendingCommands.delete(input.sessionID)
-      // Do NOT revoke the entry authorization here. It is single-use and scoped to change +
-      // workspace, so letting it survive intervening messages keeps a legitimate /odf-new flow
-      // resilient to rate-limit aborts and retries. It is superseded by a new command and
-      // consumed by a successful bind.
-      const generation = pendingCommand?.generation ?? nextGeneration(input.sessionID)
-      const agent = input.agent ?? output.message.agent
-      if (agent !== "odoo_orchestrator") {
-        sessions.delete(input.sessionID)
-        return
-      }
-      boundedSet(sessions, input.sessionID, {
-        intentID: input.messageID ?? output.message.id,
-        generation,
-        workspaceRoot,
-        entryChange: pendingCommand?.changeName || null,
-        stopped: false,
-        entryHealth: pendingCommand?.partsDigest === expandedCommandDigest(output.parts) ? "not-run" : "not-required",
-        tools: new Map(),
-        calls: new Map(),
-      }, LOOP_GUARD_MAX_SESSIONS)
-    },
-    "tool.execute.before": async (input, output) => {
-      const state = sessions.get(input.sessionID)
-      if (!state) return
-      if (state.stopped) throw new Error(state.stopReason || LOOP_GUARD_STOP_REASON)
-
-      if (state.entryHealth !== "not-required" && state.entryHealth !== "passed") {
-        if (input.tool === "odf_health" && state.entryHealth === "not-run") {
-          state.entryHealth = "running"
-        } else if (isODFEntryGatedTool(input.tool, output.args)) {
-          state.stopped = true
-          state.stopReason = ODF_ENTRY_HEALTH_REASON
-          await abortSession(input.sessionID)
-          throw new Error(ODF_ENTRY_HEALTH_REASON)
-        }
-      }
-
-      const signatureDigest = loopGuardDigest({ tool: input.tool, args: output.args })
-      const previous = state.tools.get(input.tool)
-      if (previous?.signatureDigest === signatureDigest && !LOOP_GUARD_READ_TOOLS.has(input.tool)) {
-        state.stopped = true
-        await abortSession(input.sessionID)
-        throw new Error(LOOP_GUARD_WRITE_REASON)
-      }
-      if (!previous || previous.signatureDigest !== signatureDigest) {
-        boundedSet(state.tools, input.tool, { signatureDigest }, LOOP_GUARD_MAX_TOOLS)
-      }
-      boundedSet(state.calls, input.callID, {
-        tool: input.tool,
-        signatureDigest,
-        intentID: state.intentID,
-        generation: state.generation,
-      }, LOOP_GUARD_MAX_CALLS)
-    },
-    "tool.execute.after": async (input, output) => {
-      const state = sessions.get(input.sessionID)
-      const call = state?.calls.get(input.callID)
-      if (!state || !call || call.intentID !== state.intentID || call.generation !== state.generation ||
-        entryGenerations.get(input.sessionID) !== state.generation) return
-      state.calls.delete(input.callID)
-      if (call.tool === "odf_health" && state.entryHealth === "running") {
-        let result: unknown = null
-        try {
-          result = typeof output.output === "string" ? JSON.parse(output.output) : null
-        } catch {
-          result = null
-        }
-        if (isSuccessfulODFEntryHealth(result)) {
-          state.entryHealth = "passed"
-          if (state.entryChange) {
-            boundedSet(entryAuthorizations, input.sessionID, {
-              nonce: nodeCrypto.randomUUID(),
-              sessionID: input.sessionID,
-              messageID: state.intentID,
-              generation: state.generation,
-              changeName: state.entryChange,
-              workspaceRoot: state.workspaceRoot,
-              claimed: false,
-            }, LOOP_GUARD_MAX_SESSIONS)
-          }
-        } else {
-          entryAuthorizations.delete(input.sessionID)
-          state.entryHealth = "failed"
-          state.stopped = true
-          state.stopReason = ODF_ENTRY_HEALTH_REASON
-          await abortSession(input.sessionID)
-        }
-      }
-      if (state.stopped || call.tool !== input.tool || !LOOP_GUARD_READ_TOOLS.has(input.tool)) return
-
-      const signatureDigest = loopGuardDigest({ tool: input.tool, args: input.args })
-      const entry = state.tools.get(input.tool)
-      if (!entry || entry.signatureDigest !== signatureDigest || call.signatureDigest !== signatureDigest) return
-      const resultDigest = loopGuardDigest(output.output)
-      if (entry.resultDigest === undefined || entry.resultDigest !== resultDigest) {
-        entry.resultDigest = resultDigest
-        return
-      }
-
-      state.stopped = true
-      output.title = "ODF stable discovery loop stopped"
-      output.output = LOOP_GUARD_STOP_REASON
-      output.metadata = { odf_loop_guard: { status: "stopped", reason: "stable-discovery-repeat" } }
-      await abortSession(input.sessionID)
-    },
-  }
-}
-
-// ==========================================
 // SYSTEM PROMPT INJECTION
 // ==========================================
 
@@ -6489,6 +5938,13 @@ export {
   recordMetrics,
   ALLOWED_PHASES,
   createODFPolicyGate,
+  classifyRiskTier,
+  classifyRiskTierWithContent,
+  computePolicyGate,
+  gitHead,
+  savePolicyGateJson,
+  createStableDiscoveryGuard,
+  type PolicyGateDecision,
   ODF_REGISTERED_TOOLS,
   type ODFRegistry,
   type ODFSkill,
