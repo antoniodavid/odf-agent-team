@@ -108,6 +108,7 @@ const COMPONENTS = [
   { name: 'docs',        label: 'Contracts',         desc: 'Design + expectations contracts', default: true },
   { name: 'openspec',    label: 'OpenSpec',          desc: 'Spec/config templates', default: false },
   { name: 'codegraph',   label: 'CodeGraph',         desc: 'Community: code graph indexer', default: false },
+  { name: 'mcp',         label: 'Configure MCP',     desc: 'Merge context7 + engram into opencode.json (backup first)', default: false },
 ];
 
 const PROFILES = [
@@ -127,6 +128,16 @@ const MANAGED_SCRIPT_PATHS = [
   'scripts/odf-evaluation.d.ts',
   'scripts/odf-engram-maintenance.js',
   'scripts/odf-engram-maintenance.d.ts',
+  'scripts/odf-env-detect.js',
+  'scripts/odf-env-detect.d.ts',
+  'scripts/odf-env-detect.test.ts',
+  'scripts/odf-project-scan.js',
+  'scripts/odf-project-scan.d.ts',
+  'scripts/odf-project-scan.test.ts',
+  'scripts/odf-toolkit.js',
+  'scripts/odf-toolkit.d.ts',
+  'scripts/odf-toolkit.test.ts',
+  'scripts/odf-harness.test.ts',
   'scripts/fixtures',
   'scripts/lib',
   'scripts/odf-agent-tests',
@@ -265,7 +276,7 @@ function installFiles(srcDir, components) {
 
   let count = 0;
   for (const comp of components) {
-    if (comp === 'codegraph') continue; // handled separately
+    if (comp === 'codegraph' || comp === 'mcp') continue; // handled separately
     const m = mapping[comp];
     if (!m) continue;
     const fullSrc = path.join(srcDir, m.src);
@@ -285,6 +296,7 @@ function installFiles(srcDir, components) {
     }
     count++;
   }
+  rewriteConfigPaths();
   return count;
 }
 
@@ -438,6 +450,68 @@ async function profileSelection() {
   return await selectFromList(items, 'Model Profile', false);
 }
 
+
+// ─── Environment probe + MCP configuration ─────────────────────────────────
+function probeEnvironment() {
+  const probe = (cmd) => {
+    try { execSync(`${cmd} --version`, { stdio: 'ignore', timeout: 5000 }); return true; }
+    catch { return false; }
+  };
+  return {
+    engram: probe('engram'),
+    codegraph: probe('codegraph'),
+    git: probe('git'),
+    node: probe('node'),
+    docker: probe('docker'),
+    python3: probe('python3'),
+  };
+}
+
+async function environmentScreen() {
+  clearScreen();
+  showLogo();
+  console.log(`  ${header('Environment Dependencies')}\n`);
+  const deps = probeEnvironment();
+  for (const [tool, ok] of Object.entries(deps)) {
+    console.log(`  ${ok ? fg.green + '✓' : fg.yellow + '✗'} ${RESET}${tool}`);
+  }
+  console.log(`\n  ${DIM}Impact: engram missing blocks Engram-only workflows (OpenSpec OK);`);
+  console.log(`  codegraph missing disables context packs (FFF fallback);`);
+  console.log(`  docker missing disables test-command detection.${RESET}\n`);
+  return await confirmPrompt('Continue?');
+}
+
+function rewriteConfigPaths() {
+  const oldPath = '/home/adruban/.config/opencode';
+  const walk = (dir) => {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) walk(full);
+      else if (/\.(md|ts|json|js)$/.test(entry.name)) {
+        const content = fs.readFileSync(full, 'utf8');
+        if (content.includes(oldPath)) {
+          fs.writeFileSync(full, content.split(oldPath).join(CONFIG_DIR));
+        }
+      }
+    }
+  };
+  walk(CONFIG_DIR);
+}
+
+function configureMCP() {
+  const cfg = path.join(CONFIG_DIR, 'opencode.json');
+  if (!fs.existsSync(cfg)) fs.writeFileSync(cfg, '{\n  "$schema": "https://opencode.ai/config.json"\n}\n');
+  else fs.copyFileSync(cfg, `${cfg}.${Date.now()}.bak`);
+  const data = JSON.parse(fs.readFileSync(cfg, 'utf8'));
+  data.mcp = data.mcp || {};
+  data.mcp.context7 = { type: 'remote', url: 'https://mcp.context7.com/mcp', enabled: true };
+  try {
+    execSync('engram mcp --help', { stdio: 'ignore', timeout: 5000 });
+    data.mcp.engram = { type: 'local', command: ['engram', 'mcp'], enabled: true };
+  } catch { /* engram MCP not available */ }
+  fs.writeFileSync(cfg, JSON.stringify(data, null, 2) + '\n');
+}
+
 async function showSummary(mode, components, profile) {
   clearScreen();
   showLogo();
@@ -577,6 +651,7 @@ async function uninstallFlow() {
 }
 
 async function installFlow(mode) {
+  await environmentScreen();
   const components = await componentSelection(mode);
   if (components.length === 0) {
     console.log(`\n  ${fg.yellow}No components selected. Aborting.${RESET}`);
@@ -592,6 +667,15 @@ async function installFlow(mode) {
   }
 
   const backupDir = await installProgress(components);
+  if (components.includes('mcp')) {
+    try {
+      configureMCP();
+      console.log(`  ${fg.green}✓ MCP entries merged (context7${fs.existsSync(path.join(CONFIG_DIR, 'opencode.json')) ? '' : ''})${RESET}`);
+      console.log(`  ${DIM}  Manual: codegraph MCP and fff MCP per their docs.${RESET}`);
+    } catch (err) {
+      console.log(`  ${fg.yellow}⚠ MCP configuration skipped: ${String(err.message || err).slice(0, 80)}${RESET}`);
+    }
+  }
   await showResult(mode, backupDir);
 }
 
