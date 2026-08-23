@@ -103,12 +103,18 @@ Rol: utilidad de informe opcional; VERIFY sigue siendo el gate de calidad indepe
 
 ### 4. Persist QA Artifacts
 
+Persist each QA artifact through the **selected store** (per the persistence
+contract — never hardcode `mem_save`):
+
 ```
-QA-PLAN:  mem_save("odf/{change}/qa-plan")
-QA-REVIEW: mem_save("odf/{change}/qa-review")
-QA-AGGREGATE: mem_save("odf/{change}/qa-aggregate")
-QA-REPORT: mem_save("odf/{change}/qa-report")
+QA-PLAN:      openspec → openspec/changes/{change}/qa-plan/plan.md | engram → odf/{change}/qa-plan
+QA-REVIEW:    openspec → openspec/changes/{change}/qa-review.md   | engram → odf/{change}/qa-review
+QA-AGGREGATE: openspec → openspec/changes/{change}/qa-aggregate.md| engram → odf/{change}/qa-aggregate
+QA-REPORT:    openspec → openspec/changes/{change}/qa-report.md   | engram → odf/{change}/qa-report
 ```
+
+Return the canonical `artifact_ref: {store, ref}` for each artifact in the ODF
+Result; `engram_topic_key` is compatibility-only.
 
 ## Output Format
 

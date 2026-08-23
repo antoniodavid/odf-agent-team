@@ -1,5 +1,26 @@
 # Changelog — ODF Agent Team
 
+## 1.2.0 (2026-08-22)
+
+### Added
+- `execution_mode: auto` (piloto automático): auto-continuación de fases en `ok`/`warning`, deteniéndose solo en gates obligatorios (health, preflight, Expectations, Policy Gate, evidencia, VERIFY, receipts)
+- CLIs deterministas: `odf-project-scan` (config completa del entorno Doodba: addons.yaml sources, compose, linting, git, CodeGraph, matriz de dependencias; persist verificado con checksum/diff/exit codes; `--deep` indexa repos activos) y `odf-toolkit` (context/state/result/resolve/evidence/metrics/manual-evidence/redundancy)
+- Triage mejorado (ICE): señales de riesgo desde module/domain + `pii`, claridad de intent con pregunta agrupada, `standard-config` sin hechos, `known_modules` desde odf-init, signals/clarity auditables
+- Redundancy pre-check en `/odf-new` (implementaciones existentes + `odf-learned/{project}` como base de rechazos)
+- Ejecución manual de tests en VERIFY (`manual-evidence`, `executor: user-manual`)
+- Completion criteria en odf-assess/design/implement/verify; smell baseline Fowler para el lens de readability; seams-first y anti-patrones de tests en implement/tdd; feedback-loop-first + redacción en odf-fix; handoff con Suggested Skills
+- Descubrimiento de artefactos OpenSpec anidados (`design/design.md`, `qa-plan/plan.md`, ...)
+
+### Fixed
+- Agente DESIGN/PLAN bloqueado por `design_closed: "true"` (string): coerción `asBoolean` en el validador
+- Resolver de agentes elegía frontend por el token genérico "odoo": scoring por coincidencias + stop word
+- `odf-init` colgado buscando el pack: ruta determinista `$ODF_CONFIG_DIR` sin filesystem search
+- Scan degradado con `--repo` relativo (resolución contra `odoo/custom/src`) + guarda anti-sobrescritura
+- Persist de config truncado por el límite de ~50KB de Engram: persist compacto + readback verificado
+- Falso positivo de seguridad con el guard obligatorio de base de datos (masking de prohibiciones)
+- Hybrid BUILD/VERIFY escribía solo Engram: ahora escribe OpenSpec (autoridad) + espejo Engram
+- `odf-qa` hardcodeaba `mem_save`: ahora persiste en el store seleccionado con `artifact_ref`
+
 ## 1.1.0 (2026-06-18)
 
 ### Added

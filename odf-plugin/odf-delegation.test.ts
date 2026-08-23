@@ -3082,6 +3082,40 @@ ${overrides}`
     expect(await fs.readFile(statePath, "utf8")).toBe(committed)
   })
 
+  it("commits a Hybrid BUILD to BOTH OpenSpec and the Engram mirror", async () => {
+    const change = "hybrid-build-commit"
+    const changeDir = path.join(tempHome, "openspec", "changes", change)
+    await fs.mkdir(changeDir, { recursive: true })
+    await fs.writeFile(path.join(changeDir, "state.yaml"), "work_type: feature\ncanonical_stage: BUILD\ncompleted_canonical_stages: [DECIDE, PLAN]\nresumable: true\n", "utf8")
+    await fs.writeFile(path.join(changeDir, "implement-progress.md"), "- [x] implementation\n", "utf8")
+    const proof = workflowAdvance("IMPLEMENT")
+    const recomputed = advanceWorkflow({ route: resolveWorkflowRoute(proof.work_type), ...proof })
+    const bin = await fs.mkdtemp(path.join(os.tmpdir(), "odf-fake-engram-"))
+    const saveLog = path.join(bin, "saves.log")
+    const previousPath = process.env.PATH
+    await fs.writeFile(path.join(bin, "engram"),
+      "#!/bin/sh\nif [ \"$1\" = \"export\" ]; then printf '%s' \"$ODF_TEST_ENGRAM_EXPORT\" > \"$2\"; exit 0; fi\nif [ \"$1\" = \"save\" ]; then printf '%s\\n' \"$2|$3\" >> \"$ODF_TEST_ENGRAM_SAVE_LOG\"; exit 0; fi\nexit 0\n", "utf8")
+    await fs.chmod(path.join(bin, "engram"), 0o755)
+    process.env.PATH = `${bin}${path.delimiter}${previousPath || ""}`
+    process.env.ODF_TEST_ENGRAM_SAVE_LOG = saveLog
+    try {
+      const result = await commitWorkflowTransition({
+        workspaceRoot: tempHome, changeName: change, artifactStore: "hybrid" as const, proof,
+        expectedStage: "BUILD" as const, callerResult: recomputed,
+        phaseResultStatus: "warning" as const, validationStatus: "verified" as const,
+        validation: { status: "verified" as const, reason: "focused test evidence", commands_validated: 2 },
+      })
+      expect(result).toMatchObject({ status: "committed", store: "hybrid", canonical_stage: "BUILD" })
+      expect(YAML.parse(await fs.readFile(path.join(changeDir, "state.yaml"), "utf8"))).toMatchObject({ canonical_stage: "BUILD" })
+      const saved = await fs.readFile(saveLog, "utf8")
+      expect(saved).toContain(`odf/${change}/state`)
+    } finally {
+      process.env.PATH = previousPath
+      delete process.env.ODF_TEST_ENGRAM_SAVE_LOG
+      await fs.rm(bin, { recursive: true, force: true })
+    }
+  })
+
   it("commits VERIFY only when the validation-evidence receipt passes the blind artifact rules", async () => {
     const change = "direct-verify-commit"
     const repo = path.join(tempHome, "repo-verify-commit")

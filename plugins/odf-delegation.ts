@@ -13,6 +13,7 @@
 
 import * as fs from "node:fs/promises"
 import * as fsSync from "node:fs"
+import type { Dirent } from "node:fs"
 import * as path from "node:path"
 import * as os from "node:os"
 import * as nodeCrypto from "node:crypto"
@@ -4849,13 +4850,32 @@ export async function loadOpenSpecStatus(workspaceRoot: string, changeName: stri
     warnings.push("OpenSpec state was not read; status is derived from Engram artifacts.")
   }
 
-  const entries = await fs.readdir(changeDir, { withFileTypes: true })
-  const artifacts: StatusArtifact[] = []
-  for (const entry of entries.sort((a, b) => a.name.localeCompare(b.name))) {
-    if (!entry.isFile() || entry.name === "state.yaml" || !isOpenSpecArtifact(entry.name)) continue
-    const artifact = await readOpenSpecFile(changeName, changeDir, entry.name)
-    if (artifact) artifacts.push(artifact)
+  /** Recursive bounded scan: files directly in the change dir plus ONE level
+   * of artifact subdirectories (design/design.md, qa-plan/plan.md, ...).
+   * Symlinks are skipped (Dirent.isDirectory()/isFile() are false for them),
+   * so the scan cannot escape the change dir. */
+  const scanChangeDir = async (rel = ""): Promise<StatusArtifact[]> => {
+    const artifacts: StatusArtifact[] = []
+    let entries: Dirent[] = []
+    try {
+      entries = await fs.readdir(path.join(changeDir, rel), { withFileTypes: true })
+    } catch {
+      return artifacts
+    }
+    for (const entry of entries.sort((a, b) => a.name.localeCompare(b.name))) {
+      if (rel === "" && entry.name === "state.yaml") continue
+      if (entry.isDirectory() && rel === "") {
+        artifacts.push(...await scanChangeDir(entry.name))
+      } else if (entry.isFile() && isOpenSpecArtifact(entry.name)) {
+        const relPath = rel ? path.join(rel, entry.name) : entry.name
+        const artifact = await readOpenSpecFile(changeName, changeDir, relPath)
+        if (artifact) artifacts.push(artifact)
+      }
+    }
+    return artifacts
   }
+
+  const artifacts = await scanChangeDir()
   return { change: changeName, state, artifacts, warnings: Array.from(new Set(warnings)) }
 }
 
@@ -5767,9 +5787,14 @@ export async function commitWorkflowTransition(opts: {
       )
     }
 
+    // OpenSpec is the hybrid authority; Engram is an idempotent recovery mirror.
+    // Both stores must be written for hybrid, matching writeArchiveWorkflow.
     const writeError = opts.artifactStore === "openspec"
       ? writeOpenSpecWorkflowState(opts.workspaceRoot, opts.changeName, read.snapshot.stateContent, opts.proof.work_type, opts.expectedStage, postResult.completed_stages)
-      : writeEngramWorkflowState(opts.workspaceRoot, opts.changeName, read.snapshot.stateContent, opts.proof.work_type, opts.expectedStage, postResult.completed_stages)
+      : opts.artifactStore === "engram"
+        ? writeEngramWorkflowState(opts.workspaceRoot, opts.changeName, read.snapshot.stateContent, opts.proof.work_type, opts.expectedStage, postResult.completed_stages)
+        : writeOpenSpecWorkflowState(opts.workspaceRoot, opts.changeName, read.snapshot.stateContent, opts.proof.work_type, opts.expectedStage, postResult.completed_stages)
+          ?? writeEngramWorkflowState(opts.workspaceRoot, opts.changeName, read.snapshot.stateContent, opts.proof.work_type, opts.expectedStage, postResult.completed_stages)
     if (writeError) {
       return makeResult(
         "blocked",
