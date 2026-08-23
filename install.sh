@@ -105,6 +105,9 @@ for arg in "$@"; do
       echo "  ODF_SKIP_SELFTEST=1         Skip self-test after install"
       echo "  ODF_INSTALL_NONINTERACTIVE=1 Auto-confirm (same as --yes)"
       echo "  REPO, BRANCH                Git repo to pull from (default: odf-agent-team main)"
+      echo ""
+      echo "  Release-pinned install:"
+      echo "    curl -fsSL https://raw.githubusercontent.com/antoniodavid/odf-agent-team/v1.2.0/install.sh | BRANCH=v1.2.0 bash"
       exit 0
       ;;
     *)

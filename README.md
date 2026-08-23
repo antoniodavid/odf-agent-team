@@ -7,7 +7,10 @@
 ## Quick Install
 
 ```bash
+# Latest (main)
 curl -fsSL https://raw.githubusercontent.com/antoniodavid/odf-agent-team/main/install.sh | bash
+# Release-pinned (install exactly the tagged version)
+curl -fsSL https://raw.githubusercontent.com/antoniodavid/odf-agent-team/v1.2.0/install.sh | BRANCH=v1.2.0 bash
 ```
 
 O con más control:
