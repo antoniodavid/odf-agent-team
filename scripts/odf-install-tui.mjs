@@ -329,7 +329,13 @@ async function confirmPrompt(msg) {
   return answer.toLowerCase() !== 'n' && answer !== '';
 }
 
+
 async function selectFromList(items, title, multi = false) {
+  if (!process.stdin.isTTY) {
+    process.stdout.write(`\n  ${fg.yellow}⚠ TUI requires an interactive terminal.${RESET}\n`);
+    process.stdout.write(`  ${DIM}For automation use: install.sh --yes [--force] [--with-codegraph] [--configure-mcp]${RESET}\n\n`);
+    process.exit(1);
+  }
   clearScreen();
   showLogo();
   console.log(`  ${header(title)}\n`);
@@ -346,7 +352,7 @@ async function selectFromList(items, title, multi = false) {
     const input = process.stdin;
     const rawMode = input.isRaw;
 
-    input.setRawMode(true);
+    if (typeof input.setRawMode === 'function') input.setRawMode(true);
     input.resume();
     input.setEncoding('utf-8');
 
@@ -379,8 +385,11 @@ async function selectFromList(items, title, multi = false) {
         redraw();
         return;
       } else if (key === '\r' || key === '\n') {
-        input.setRawMode(rawMode);
-        input.pause();
+        if (typeof input.setRawMode === 'function') input.setRawMode(rawMode);
+        // Detach this listener so it cannot swallow the next Enter meant for
+        // a readline prompt (confirmPrompt/ask) — pausing stdin would also
+        // starve readline.
+        input.off('data', onData);
         process.stdout.write('\n');
         if (multi) {
           resolve(items.filter(i => i.selected).map(i => i.name));
