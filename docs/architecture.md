@@ -107,6 +107,19 @@ The ODF delegation engine and plugin entrypoint. Exposes tools such as
 `odf_profile_select`, `odf_notebooklm_lookup`, `odf_policy_gate`,
 `odf_receipt`, and `odf_status`.
 
+The entrypoint stays a monolith for the delegation/workflow core but its
+self-contained sections live in cohesive modules under `odf-plugin/`:
+
+- `odf-delegation-shared.ts` — safe paths, registry path resolution, the
+  registry type model, `ODF_REGISTERED_TOOLS`.
+- `odf-delegation-metrics.ts` — telemetry records, flush loop, token
+  estimation.
+- `odf-delegation-health.ts` — read-only health inspection, the `task()`
+  API adapters (toolCtx/session), result normalization helpers.
+
+The entrypoint re-exports their public names, so imports and tests keep
+working unchanged.
+
 `odf_delegate` does the following:
 
 1. Loads the registry.
