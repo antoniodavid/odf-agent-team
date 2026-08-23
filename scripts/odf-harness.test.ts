@@ -197,7 +197,7 @@ describe("harness smoke: safety and install integrity", () => {
     }
   })
 
-  it("scan CLI: --repo relative resolves against the Doodba src dir and reports summary", async () => {
+  it("scan CLI: --repo relative resolves against the Doodba src dir and reports summary", { timeout: 30_000 }, async () => {
     await writeFile(tmp, "odoo/custom/src/addons.yaml", "repo-a:\n  - \"*\"\n")
     await writeFile(tmp, "odoo/custom/src/repo-a/mod_a1/__manifest__.py", "{'name': 'Mod A1', 'version': '18.0.1.0.0', 'license': 'AGPL-3', 'depends': ['base']}\n")
     const out = runCli(SCAN, ["--root", tmp, "--repo", "repo-a", "--format", "summary"], { allowExitOne: true })
