@@ -326,7 +326,8 @@ function showFooter(commands) {
 
 async function confirmPrompt(msg) {
   const answer = await ask(`\n  ${fg.yellow}?${RESET} ${BOLD}${msg}${RESET} ${DIM}(Y/n)${RESET} `);
-  return answer.toLowerCase() !== 'n' && answer !== '';
+  // Enter (empty) = YES, the default; only n/no cancels.
+  return !/^n(o)?$/i.test(answer);
 }
 
 
