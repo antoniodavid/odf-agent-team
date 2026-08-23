@@ -10,11 +10,26 @@ set -euo pipefail
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
-ODF_DIR="${ODF_DIR:-${ODF_CONFIG_DIR:-${HOME}/.config/opencode}}"
+# Portable config dir resolution for ANY OpenCode environment:
+#   ODF_DIR -> ODF_CONFIG_DIR -> $XDG_CONFIG_HOME/opencode -> ~/.config/opencode
+#   (falls back to %USERPROFILE%/.config/opencode on Windows/Git Bash)
+if [[ -n "${ODF_DIR:-}" ]]; then
+  ODF_DIR="$ODF_DIR"
+elif [[ -n "${ODF_CONFIG_DIR:-}" ]]; then
+  ODF_DIR="$ODF_CONFIG_DIR"
+elif [[ -n "${XDG_CONFIG_HOME:-}" ]]; then
+  ODF_DIR="${XDG_CONFIG_HOME}/opencode"
+elif [[ -n "${HOME:-}" ]]; then
+  ODF_DIR="${HOME}/.config/opencode"
+elif [[ -n "${USERPROFILE:-}" ]]; then
+  ODF_DIR="${USERPROFILE}/.config/opencode"
+else
+  ODF_DIR="${HOME}/.config/opencode"
+fi
 ODF_SOURCE_DIR="${ODF_SOURCE_DIR:-}"
 REPO="${REPO:-https://github.com/antoniodavid/odf-agent-team}"
 BRANCH="${BRANCH:-main}"
-VERSION="1.1.0"
+VERSION="1.2.0"
 
 BACKUP_DIR="${ODF_DIR}/backups/install-$(date +%Y%m%d_%H%M%S)"
 PLUGIN_ENTRYPOINT="${ODF_DIR}/plugins/odf-delegation.ts"
@@ -83,9 +98,10 @@ for arg in "$@"; do
       echo "  OpenCode process environment to enable parallel sub-agent exploration."
       echo ""
       echo "Environment:"
-      echo "  ODF_DIR, ODF_CONFIG_DIR     Config directory (default: ~/.config/opencode)"
+      echo "  ODF_DIR, ODF_CONFIG_DIR     Config directory (default: \$XDG_CONFIG_HOME/opencode or ~/.config/opencode)"
       echo "  ODF_SOURCE_DIR              Local repo source for offline install"
       echo "  ODF_SKIP_NPM=1              Skip npm install"
+  echo "  XDG_CONFIG_HOME              Base for the config dir (any platform)"
       echo "  ODF_SKIP_SELFTEST=1         Skip self-test after install"
       echo "  ODF_INSTALL_NONINTERACTIVE=1 Auto-confirm (same as --yes)"
       echo "  REPO, BRANCH                Git repo to pull from (default: odf-agent-team main)"
@@ -140,14 +156,14 @@ check_prerequisites() {
   log_info "🔍 Checking prerequisites..."
 
   if ! command -v python3 &> /dev/null; then
-    die "❌ python3 required but not installed. Install: apt install python3 | brew install python3"
+    log_warn "⚠️  python3 not found; the install summary will not count skills/agents. Install python3 or ignore this warning."
   fi
 
   if ! command -v curl &> /dev/null && ! command -v wget &> /dev/null; then
     die "❌ curl or wget required but neither is installed."
   fi
 
-  log_ok "✅ python3 $(python3 --version | cut -d' ' -f2)"
+  if command -v python3 &> /dev/null; then log_ok "✅ python3 $(python3 --version | cut -d' ' -f2)"; fi
   log_ok "✅ $(curl --version 2>/dev/null | head -1 | cut -d' ' -f1-2 || echo 'wget available')"
 }
 
@@ -254,6 +270,17 @@ install_files() {
   log_info "    Cleanup:           known stale ODF helpers/tests in ${ODF_DIR}/plugins"
   cleanup_stale_odf_plugins
 
+  # Rewrite the author's absolute config path to THIS environment's ODF_DIR so
+  # the installed pack works on any machine. The repo keeps its original paths.
+  rewrite_config_paths() {
+    local old_path="/home/adruban/.config/opencode"
+    local f
+    while IFS= read -r -d '' f; do
+      sed -i "s|${old_path}|${ODF_DIR}|g" "$f"
+    done < <(find "$ODF_DIR" -type f \( -name '*.md' -o -name '*.ts' -o -name '*.json' -o -name '*.js' \) -print0 2>/dev/null)
+    log_info "    Rewrote config paths to ${ODF_DIR}"
+  }
+
   # Copy installer itself so self-test can find it
   [[ -f "$src_dir/install.sh" ]] && copy_dir "$src_dir/install.sh" "$ODF_DIR/install.sh"
 
@@ -272,6 +299,10 @@ install_files() {
 
   if [[ -f "$src_dir/package.json" ]]; then
     copy_dir "$src_dir/package.json" "$ODF_DIR/package.json"
+  fi
+
+  if [[ "$INSTALL_DRY_RUN" != true ]]; then
+    rewrite_config_paths
   fi
 }
 

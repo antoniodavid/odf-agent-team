@@ -378,7 +378,7 @@ function runInstallerSuite(suite) {
 
     const sourceDir = tc.input.env?.ODF_SOURCE_DIR || path.join(__dirname, '..');
     // Do not let the caller's installed config redirect an isolated temp HOME.
-    const { ODF_CONFIG_DIR: _inheritedConfigDir, ODF_DIR: _inheritedOdfDir, ...baseEnv } = process.env;
+    const { ODF_CONFIG_DIR: _inheritedConfigDir, ODF_DIR: _inheritedOdfDir, XDG_CONFIG_HOME: _inheritedXdg, ...baseEnv } = process.env;
     const env = { ...baseEnv, HOME: tempHome, ODF_SOURCE_DIR: sourceDir, ...(tc.input.env || {}) };
     const runs = tc.input.runs || 1;
     let lastResult;
@@ -412,6 +412,17 @@ function runInstallerSuite(suite) {
       for (const rel of tc.expected.files_exist) {
         test(`file exists: ${rel}`, () => {
           return fs.existsSync(path.join(tempHome, rel));
+        });
+      }
+    }
+
+    if (tc.expected.files_not_contain) {
+      for (const entry of tc.expected.files_not_contain) {
+        test(`file does not contain ${entry.text}: ${entry.path}`, () => {
+          const full = path.join(tempHome, entry.path);
+          if (!fs.existsSync(full)) return false;
+          const content = fs.readFileSync(full, 'utf8');
+          return !content.includes(entry.text);
         });
       }
     }

@@ -3,7 +3,7 @@
   "last_updated": "2026-08-21T00:00:00Z",
   "package": {
     "name": "odf-agent-team",
-    "version": "1.1.0",
+    "version": "1.2.0",
     "description": "OpenCode skill/agent pack for structured Odoo development workflows",
     "repository": "https://github.com/antoniodavid/odf-agent-team",
     "dependencies": {
@@ -527,7 +527,7 @@
         "feasibility",
         "specification"
       ],
-      "compact_rules": "Standard vs custom decision. Version MUST be confirmed before analysis.\n- Standard Odoo first: settings, automation, server actions, studio\n- REQ-XX numbered requirements with RFC 2119 (MUST/SHALL/SHOULD)\n- Given/When/Then scenarios per requirement\n- strategy: standard \u2192 config guide. strategy: custom \u2192 functional spec only\n- NEVER write code \u2014 only specs or guides",
+      "compact_rules": "Standard vs custom decision. Version MUST be confirmed before analysis.\n- Standard Odoo first: settings, automation, server actions, studio\n- REQ-XX numbered requirements with RFC 2119 (MUST/SHALL/SHOULD)\n- Given/When/Then scenarios per requirement\n- strategy: standard → config guide. strategy: custom → functional spec only\n- NEVER write code — only specs or guides",
       "path": "skills/odf-assess/SKILL.md",
       "odoo_versions": [
         14,
@@ -543,7 +543,7 @@
         {
           "version": "2.0",
           "date": "2026-05-14",
-          "change": "Restructured: 249\u219250 lines, Output Contract, Decision Gates for standard vs custom"
+          "change": "Restructured: 249→50 lines, Output Contract, Decision Gates for standard vs custom"
         },
         {
           "version": "1.0",
@@ -562,7 +562,7 @@
         "architecture",
         "task breakdown"
       ],
-      "compact_rules": "Produce a CLOSED design document (docs/design-contract.md).\n- Read ASSESS REQ-XX + human EXPECTATIONS EXP-XX BEFORE designing\n- Fix the target module (new vs inherited) \u2014 IMPLEMENT must not decide it\n- Resolve every EXP-XX into concrete fields/models/views/security/archives\n- Data model: _name/_inherit + fields (type, required, index, relation, default)\n- Views: type + action + domain + menu parent. Security: ir.model.access.csv by group + ir.rule\n- Derive IMPLEMENT tasks: each task references exact file(s) + EXP-XX\n- Apply the closed-design checklist; if not closed -> iterate, never return ok\n- IMPLEMENT consumes the design; missing decision -> reopen DESIGN, never improvise",
+      "compact_rules": "Produce a CLOSED design document (docs/design-contract.md).\n- Read ASSESS REQ-XX + human EXPECTATIONS EXP-XX BEFORE designing\n- Fix the target module (new vs inherited) — IMPLEMENT must not decide it\n- Resolve every EXP-XX into concrete fields/models/views/security/archives\n- Data model: _name/_inherit + fields (type, required, index, relation, default)\n- Views: type + action + domain + menu parent. Security: ir.model.access.csv by group + ir.rule\n- Derive IMPLEMENT tasks: each task references exact file(s) + EXP-XX\n- Apply the closed-design checklist; if not closed -> iterate, never return ok\n- IMPLEMENT consumes the design; missing decision -> reopen DESIGN, never improvise",
       "path": "skills/odf-design/SKILL.md",
       "odoo_versions": [
         14,
@@ -588,7 +588,7 @@
         {
           "version": "2.0",
           "date": "2026-05-14",
-          "change": "Restructured: 248\u219249 lines, architecture decisions table"
+          "change": "Restructured: 248→49 lines, architecture decisions table"
         },
         {
           "version": "1.0",
@@ -635,7 +635,7 @@
         {
           "version": "2.0",
           "date": "2026-05-14",
-          "change": "Restructured: 266\u219253 lines, smoke tests per batch"
+          "change": "Restructured: 266→53 lines, smoke tests per batch"
         },
         {
           "version": "1.0",
@@ -655,7 +655,7 @@
         "qa gate",
         "quality"
       ],
-      "compact_rules": "Quality gate: evidence-based risk tiers + lens review + single-attempt correction budget.\n- Classify tier from the FROZEN diff (never diff size): HIGH (security/perms/raw SQL/money/data-loss/subprocess/public endpoints → 4 lenses risk/resilience/readability/reliability), MEDIUM (1 lens, default readability), LOW (0 lenses: structural readback + native tools, no reviewers)\n- Judgment Day 3-pass review runs ONLY for HIGH tier\n- Run the real module test suite with exact -d {test_db}; record command, exact database, exit_code, and output evidence\n- Disposable databases are preferred; a named non-isolated development DB is allowed only for the current run when the user-approved scope names and authorizes that exact DB\n- State non-isolated/user-authorized status and warn tests may mutate module, schema, and test data\n- Consent to use the DB does not authorize destructive setup; separate current consent is required for the exact operation/database\n- Static analysis and manual browser checks never substitute for module tests\n- User-run test evidence is valid: record via odf-toolkit manual-evidence (executor user-manual); never re-run or fabricate\n- Skipped, deferred, unavailable, or unrecorded tests → blocked with verification-deferred; never PASS or PASS WITH WARNINGS\n- Every REQ-XX must have a PASSING test (COMPLIANT) or it's UNTESTED (CRITICAL)\n- Correction budget: min(200, ceil(original_changed_lines/2)) lines, ONE attempt, re-verify once against same frozen diff (frozen_diff_ref); inconclusive validator doesn't consume the attempt; failed → escalate to user, never auto-loop\n- Never fix issues \u2014 only report. Orchestrator decides",
+      "compact_rules": "Quality gate: evidence-based risk tiers + lens review + single-attempt correction budget.\n- Classify tier from the FROZEN diff (never diff size): HIGH (security/perms/raw SQL/money/data-loss/subprocess/public endpoints → 4 lenses risk/resilience/readability/reliability), MEDIUM (1 lens, default readability), LOW (0 lenses: structural readback + native tools, no reviewers)\n- Judgment Day 3-pass review runs ONLY for HIGH tier\n- Run the real module test suite with exact -d {test_db}; record command, exact database, exit_code, and output evidence\n- Disposable databases are preferred; a named non-isolated development DB is allowed only for the current run when the user-approved scope names and authorizes that exact DB\n- State non-isolated/user-authorized status and warn tests may mutate module, schema, and test data\n- Consent to use the DB does not authorize destructive setup; separate current consent is required for the exact operation/database\n- Static analysis and manual browser checks never substitute for module tests\n- User-run test evidence is valid: record via odf-toolkit manual-evidence (executor user-manual); never re-run or fabricate\n- Skipped, deferred, unavailable, or unrecorded tests → blocked with verification-deferred; never PASS or PASS WITH WARNINGS\n- Every REQ-XX must have a PASSING test (COMPLIANT) or it's UNTESTED (CRITICAL)\n- Correction budget: min(200, ceil(original_changed_lines/2)) lines, ONE attempt, re-verify once against same frozen diff (frozen_diff_ref); inconclusive validator doesn't consume the attempt; failed → escalate to user, never auto-loop\n- Never fix issues — only report. Orchestrator decides",
       "path": "skills/odf-verify/SKILL.md",
       "odoo_versions": [
         14,
@@ -760,7 +760,7 @@
         {
           "version": "2.0",
           "date": "2026-05-14",
-          "change": "Restructured: 222\u219260 lines, added frontmatter + Decision Gates"
+          "change": "Restructured: 222→60 lines, added frontmatter + Decision Gates"
         },
         {
           "version": "1.0",
@@ -785,7 +785,7 @@
         "picking",
         "inventory"
       ],
-      "compact_rules": "\\n- Require target Odoo version, local source verification, and approved EXP-XX before imposing inventory rules\\n- Do not impose lot/serial, expiration, uniqueness, or reservation behavior universally\\n- Require approved EXP-XX and a regression test for reservation or validation changes\\n- Mark version-specific models, fields, strategies, and Command usage as verify-local until proven\\n- Use `stock.quant` for lot/location availability checks\\n- Handle `stock.move.line` correctly for lot/serial assignments\\n- Follow OCA style: `_()` for user-facing strings, proper field naming\\n- NEVER modify core Odoo files \u2014 only custom modules\\n",
+      "compact_rules": "\\n- Require target Odoo version, local source verification, and approved EXP-XX before imposing inventory rules\\n- Do not impose lot/serial, expiration, uniqueness, or reservation behavior universally\\n- Require approved EXP-XX and a regression test for reservation or validation changes\\n- Mark version-specific models, fields, strategies, and Command usage as verify-local until proven\\n- Use `stock.quant` for lot/location availability checks\\n- Handle `stock.move.line` correctly for lot/serial assignments\\n- Follow OCA style: `_()` for user-facing strings, proper field naming\\n- NEVER modify core Odoo files — only custom modules\\n",
       "path": "skills/odoo-stock-lot-specialist/SKILL.md",
       "odoo_versions": [
         16,
@@ -820,7 +820,7 @@
         "broken",
         "hotfix"
       ],
-      "compact_rules": "3-step: DIAGNOSE \u2192 FIX \u2192 VERIFY without human phase-approval pauses. Policy/evidence/VERIFY/risk gates remain mandatory.\n- Root cause first: identify before modifying code\n- Include test that fails without the fix\n- Scope >3 files or needs arch change: stop, suggest /odf-new\n- One fix per invocation. Security/data issues: CRITICAL flag",
+      "compact_rules": "3-step: DIAGNOSE → FIX → VERIFY without human phase-approval pauses. Policy/evidence/VERIFY/risk gates remain mandatory.\n- Root cause first: identify before modifying code\n- Include test that fails without the fix\n- Scope >3 files or needs arch change: stop, suggest /odf-new\n- One fix per invocation. Security/data issues: CRITICAL flag",
       "path": "skills/odf-fix/SKILL.md",
       "odoo_versions": [
         14,
@@ -841,12 +841,12 @@
         {
           "version": "2.0",
           "date": "2026-05-14",
-          "change": "Restructured: Activation Contract \u2192 Hard Rules \u2192 Decision Gates \u2192 Execution Steps \u2192 Output Contract"
+          "change": "Restructured: Activation Contract → Hard Rules → Decision Gates → Execution Steps → Output Contract"
         },
         {
           "version": "1.0",
           "date": "2026-04-01",
-          "change": "Initial 3-step DIAGNOSE\u2192FIX\u2192VERIFY flow"
+          "change": "Initial 3-step DIAGNOSE→FIX→VERIFY flow"
         }
       ],
       "last_updated": "2026-05-14"
@@ -882,7 +882,7 @@
         {
           "version": "2.0",
           "date": "2026-05-14",
-          "change": "Restructured: 235\u219243 lines, Output Contract, fff/fff_grep instructions"
+          "change": "Restructured: 235→43 lines, Output Contract, fff/fff_grep instructions"
         },
         {
           "version": "1.0",
@@ -902,7 +902,7 @@
         "detect",
         "project context"
       ],
-      "compact_rules": "Detect + persist Odoo project context to Engram.\n- Version: __manifest__.py \u2192 odoo-bin \u2192 Dockerfile \u2192 ask\n- Modules: find __manifest__.py, classify (custom/oca)\n- Test runner: Docker Compose or local odoo-bin with exact -d {test_db} -i {module} --test-enable --stop-after-init\n- Disposable DB preferred; a named non-isolated development DB is allowed only for the current run when the user-approved scope names and authorizes that exact DB\n- State non-isolated/user-authorized status and warn tests may mutate module, schema, and test data\n- If exact DB or current authorization is missing, block and ask; never guess\n- Never generate destructive database setup; separate current consent is required for the exact operation/database\n- Parse Doodba addons.yaml: active/commented/declared-absent/undeclared sources\n- Resolve module depends against active sources; core addons come from the Docker image\n- Init/sync CodeGraph for the project repo (--deep indexes active sources, opt-in)\n- Deterministic scan CLI: odf-project-scan --persist (summary/json/yaml/markdown, exit codes, checksum cache, --diff)\n- Persist YAML even partial. Upsert via topic_key",
+      "compact_rules": "Detect + persist Odoo project context to Engram.\n- Version: __manifest__.py → odoo-bin → Dockerfile → ask\n- Modules: find __manifest__.py, classify (custom/oca)\n- Test runner: Docker Compose or local odoo-bin with exact -d {test_db} -i {module} --test-enable --stop-after-init\n- Disposable DB preferred; a named non-isolated development DB is allowed only for the current run when the user-approved scope names and authorizes that exact DB\n- State non-isolated/user-authorized status and warn tests may mutate module, schema, and test data\n- If exact DB or current authorization is missing, block and ask; never guess\n- Never generate destructive database setup; separate current consent is required for the exact operation/database\n- Parse Doodba addons.yaml: active/commented/declared-absent/undeclared sources\n- Resolve module depends against active sources; core addons come from the Docker image\n- Init/sync CodeGraph for the project repo (--deep indexes active sources, opt-in)\n- Deterministic scan CLI: odf-project-scan --persist (summary/json/yaml/markdown, exit codes, checksum cache, --diff)\n- Persist YAML even partial. Upsert via topic_key",
       "path": "skills/odf-init/SKILL.md",
       "odoo_versions": [
         14,
@@ -933,7 +933,7 @@
         {
           "version": "2.0",
           "date": "2026-05-14",
-          "change": "Restructured: 274\u219250 lines, decision gates for detection"
+          "change": "Restructured: 274→50 lines, decision gates for detection"
         },
         {
           "version": "1.0",
@@ -953,7 +953,7 @@
         "coverage",
         "quality"
       ],
-      "compact_rules": "4 phases: QA-PLAN \u2192 QA-REVIEW \u2192 QA-AGGREGATE \u2192 QA-REPORT.\n- Read approved EXP-XX first, then map REQ-XX to tests\n- Choose the narrowest valid test class per behavior; never require TransactionCase universally\n- Run actual coverage tools, don't estimate\n- Quality gates: use project policy; do not invent universal percentages",
+      "compact_rules": "4 phases: QA-PLAN → QA-REVIEW → QA-AGGREGATE → QA-REPORT.\n- Read approved EXP-XX first, then map REQ-XX to tests\n- Choose the narrowest valid test class per behavior; never require TransactionCase universally\n- Run actual coverage tools, don't estimate\n- Quality gates: use project policy; do not invent universal percentages",
       "path": "skills/odf-qa/SKILL.md",
       "odoo_versions": [
         14,
@@ -969,7 +969,7 @@
         {
           "version": "2.0",
           "date": "2026-05-14",
-          "change": "Restructured: 311\u219255 lines, 4-phase QA workflow"
+          "change": "Restructured: 311→55 lines, 4-phase QA workflow"
         },
         {
           "version": "1.0",
@@ -990,7 +990,7 @@
         "work unit",
         "pr split"
       ],
-      "compact_rules": "OCA commit format: [TAG] module: desc (\u226450 chars). Replaces conventional-commits for OCA.\n- Tags: FIX, ADD, IMP, REF, REM, MIG, MOV, DOC, TEST, SEC, PERF\n- Imperative mood. Body: WHY not WHAT\n- One work unit per commit: tests+docs with code\n- >400 lines: split or chained PRs\n- Closes #N. No Co-Authored-By",
+      "compact_rules": "OCA commit format: [TAG] module: desc (≤50 chars). Replaces conventional-commits for OCA.\n- Tags: FIX, ADD, IMP, REF, REM, MIG, MOV, DOC, TEST, SEC, PERF\n- Imperative mood. Body: WHY not WHAT\n- One work unit per commit: tests+docs with code\n- >400 lines: split or chained PRs\n- Closes #N. No Co-Authored-By",
       "path": "skills/oca/01-oca-governance/oca-work-unit-commits.md",
       "odoo_versions": [
         14,
@@ -1027,7 +1027,7 @@
         "pr description",
         "documentation"
       ],
-      "compact_rules": "Design docs that reduce reviewer cognitive load.\n- Lead with answer: outcome/decision/action first, context after\n- Progressive disclosure: happy path \u2192 details \u2192 edge cases\n- Chunking: small sections, short lists\n- Tables+checklists > prose\n- Spec: Business Need \u2192 Coverage \u2192 Reqs \u2192 Out of Scope. Design: ADRs \u2192 Data Model \u2192 Views \u2192 Tasks",
+      "compact_rules": "Design docs that reduce reviewer cognitive load.\n- Lead with answer: outcome/decision/action first, context after\n- Progressive disclosure: happy path → details → edge cases\n- Chunking: small sections, short lists\n- Tables+checklists > prose\n- Spec: Business Need → Coverage → Reqs → Out of Scope. Design: ADRs → Data Model → Views → Tasks",
       "path": "skills/oca/02-development-style/oca-cognitive-doc-design.md",
       "odoo_versions": [
         14,
@@ -1058,7 +1058,7 @@
         "pr comment",
         "issue reply"
       ],
-      "compact_rules": "Write warm, direct collaboration comments for OCA PRs.\n- Start with actionable point. Don't recap the whole PR.\n- Warm and direct: sound like a teammate, not a bot\n- Keep it short: 1-3 paragraphs or bullet list\n- Explain WHY when requesting changes\n- Request change: observation \u2192 why matters \u2192 next action\n- Approve: positive assessment \u2192 optional suggestion",
+      "compact_rules": "Write warm, direct collaboration comments for OCA PRs.\n- Start with actionable point. Don't recap the whole PR.\n- Warm and direct: sound like a teammate, not a bot\n- Keep it short: 1-3 paragraphs or bullet list\n- Explain WHY when requesting changes\n- Request change: observation → why matters → next action\n- Approve: positive assessment → optional suggestion",
       "path": "skills/oca/02-development-style/oca-comment-writer.md",
       "odoo_versions": [
         14,
@@ -1093,7 +1093,10 @@
       "compact_rules": "Phase 0: business proposal before ASSESS.\n- Interactive: 3-5 business questions; batch skips voluntary question rounds\n- Include intent, scope, capabilities, approach, risks, rollback, and success criteria\n- No code/spec/config; keep under 300 words\n- Return blocked while awaiting input, ok only after approval/handoff to ASSESS, failed only on execution error",
       "path": "skills/odf-propose/SKILL.md",
       "odoo_versions": [
-        16, 17, 18, 19
+        16,
+        17,
+        18,
+        19
       ],
       "sdd_phase": "PROPOSE",
       "version": "1.1",
@@ -1153,7 +1156,7 @@
         "review slice",
         "size exception"
       ],
-      "compact_rules": "Split PRs >400 lines into reviewable chained PRs.\n- PR >400 lines \u2192 must split unless size:exception\n- Each PR: \u226460min review, tests+docs with unit\n- State boundaries: start, end, deps, follow-up, out-of-scope\n- Strategies: \u2264400\u2192single, stacked to main, feature branch chain\n- Dependency diagram with \ud83d\udccd on current PR",
+      "compact_rules": "Split PRs >400 lines into reviewable chained PRs.\n- PR >400 lines → must split unless size:exception\n- Each PR: ≤60min review, tests+docs with unit\n- State boundaries: start, end, deps, follow-up, out-of-scope\n- Strategies: ≤400→single, stacked to main, feature branch chain\n- Dependency diagram with 📍 on current PR",
       "path": "skills/oca/01-oca-governance/oca-chained-pr.md",
       "odoo_versions": [
         14,
@@ -1271,7 +1274,7 @@
     {
       "name": "odoo_orchestrator",
       "mode": "primary",
-      "description": "ODF Orchestrator \u2014 coordinates sub-agents, never writes code",
+      "description": "ODF Orchestrator — coordinates sub-agents, never writes code",
       "phases": [
         "ALL"
       ],
@@ -1411,7 +1414,7 @@
     {
       "name": "odoo_stock_lot_specialist",
       "mode": "subagent",
-      "description": "Odoo Stock Lot/Serial Specialist \u2014 Lot tracking, traceability, FEFO, expiration management",
+      "description": "Odoo Stock Lot/Serial Specialist — Lot tracking, traceability, FEFO, expiration management",
       "phases": [
         "DESIGN",
         "IMPLEMENT"
@@ -1451,25 +1454,33 @@
       "name": "odf-new",
       "description": "Inicia un nuevo cambio ODF con preflight y flujo de trabajo completo",
       "path": "command/odf-new.md",
-      "triggers": ["/odf-new"]
+      "triggers": [
+        "/odf-new"
+      ]
     },
     {
       "name": "odf-continue",
       "description": "Reanuda el cambio ODF activo más reciente o uno nombrado",
       "path": "command/odf-continue.md",
-      "triggers": ["/odf-continue"]
+      "triggers": [
+        "/odf-continue"
+      ]
     },
     {
       "name": "odf-status",
       "description": "Muestra el estado de los cambios ODF activos o el detalle de uno",
       "path": "command/odf-status.md",
-      "triggers": ["/odf-status"]
+      "triggers": [
+        "/odf-status"
+      ]
     },
     {
       "name": "odf-explore",
       "description": "Investigación profunda del código o funcionalidad de Odoo",
       "path": "command/odf-explore.md",
-      "triggers": ["/odf-explore"]
+      "triggers": [
+        "/odf-explore"
+      ]
     }
   ]
 }
