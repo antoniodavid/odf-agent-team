@@ -100,19 +100,65 @@ Relative paths are resolved against the directory containing `odf-registry.json`
 
 ### `plugins/odf-delegation.ts`
 
-The ODF-specific delegation engine. Exposes tools such as `odf_delegate`, `odf_workflow_route`, `odf_workflow_status`, `odf_skill_inject`, `odf_skill_resolve`, `odf_registry_read`, `odf_profile_select`, `odf_notebooklm_lookup`, `odf_policy_gate`, `odf_receipt`, and `odf_status`.
+The ODF delegation engine and plugin entrypoint. Exposes tools such as
+`odf_delegate`, `odf_workflow_route`, `odf_workflow_status`,
+`odf_workflow_override`, `odf_workflow_bind`, `odf_entry_triage`,
+`odf_skill_inject`, `odf_skill_resolve`, `odf_registry_read`,
+`odf_profile_select`, `odf_notebooklm_lookup`, `odf_policy_gate`,
+`odf_receipt`, and `odf_status`.
 
 `odf_delegate` does the following:
 
 1. Loads the registry.
-2. Resolves the target agent from the phase and task keywords.
+2. Resolves the target agent from the phase and task keywords (shared logic in
+   `scripts/lib/agent-resolve.js` — single source of truth also used by the
+   test runner and `odf-toolkit`; `matchSkills` stays per-consumer because the
+   plugin uses a phase-aware canonical variant).
 3. Matches up to 5 relevant skills.
 4. Injects compact rules and the active SDD profile into the prompt.
-5. Enforces the authoritative TDD Policy Gate for IMPLEMENT/VERIFY and the stop-validation evidence seal.
+5. Enforces the authoritative TDD Policy Gate for IMPLEMENT/VERIFY, the
+   stop-validation evidence seal, `design_closed` coercion, and claimed
+   `artifact_ref` existence.
 6. Invokes OpenCode's native `task()` API.
-7. Returns a result envelope with `status` (`delegated`, `blocked`, `error`, `timeout`), `agent`, `skills`, and `result`; unavailable task APIs block without an executable fallback prompt, and task failures auto-seal a receipt.
+7. Returns a result envelope with `status` (`delegated`, `blocked`, `error`,
+   `timeout`), `agent`, `skills`, and `result`; unavailable task APIs block
+   without an executable fallback prompt, and task failures auto-seal a
+   receipt.
 
-`odf_workflow_route` resolves the canonical thin-spine route for a work type; `odf_workflow_status` derives canonical status (read-only) from OpenSpec/Engram/`.odf` with OpenSpec as authority.
+`odf_workflow_route` resolves the canonical thin-spine route for a work type;
+`odf_workflow_status` derives canonical status (read-only) from
+OpenSpec/Engram/`.odf` with OpenSpec as authority, including nested OpenSpec
+artifact discovery, the `binding_pending` marker, and `recovery_work_type_required`
+for canonical states without a work type. `odf_workflow_override` is the
+audited escape hatch (skip DECIDE/PLAN, re-enter, re-plan with Expectations
+revisions); BUILD/VERIFY can never be skipped.
+
+### `scripts/lib/`
+
+Shared deterministic libraries consumed by the plugin, the CLIs, and the test
+runner:
+
+- `preflight.js` — preflight validation/defaults (including `validation_mode`).
+- `agent-resolve.js` — STOP_WORDS, filterStopWords, and score-based
+  `resolveAgent` (single source of truth; the scoring fix lives in exactly
+  one place).
+- `orchestrator.js` — legacy state-machine helpers for the YAML scenario
+  runner.
+
+### Deterministic CLIs (`scripts/`)
+
+- `odf-project-scan.js` — full Doodba environment scan (addons.yaml sources,
+  compose, linting, git, CodeGraph, dependency matrix), verified persistence,
+  checksum cache, `--diff`, `--deep`, exit codes.
+- `odf-toolkit.js` — read-side subcommands: `context` (CodeGraph explore),
+  `state`, `result`, `resolve`, `evidence`, `metrics`, `manual-evidence`,
+  `redundancy`.
+- `odf-env-detect.js` — Doodba addons.yaml parser + dependency matrix (lib
+  used by the scan).
+- `odf-safety.js` — pre-tool safety inspection.
+- `odf-metrics.js`, `odf-estimator.js`, `odf-design-library.js`,
+  `odf-learning-bridge.js`, `odf-engram-maintenance.js` — observability and
+  learning helpers.
 
 ### `agent/odoo_orchestrator.md`
 

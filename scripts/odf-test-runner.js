@@ -18,6 +18,7 @@ import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
 import * as preflight from './lib/preflight.js';
 import * as orchestrator from './lib/orchestrator.js';
+import { resolveAgent as sharedResolveAgent } from './lib/agent-resolve.js';
 import * as cli from './odf-cli.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -43,25 +44,6 @@ function loadRegistry() {
   } catch {
     return null;
   }
-}
-
-const STOP_WORDS = new Set([
-  'a','an','the','and','or','but','in','on','at','to','for','of','with','by','from','as',
-  'is','was','are','were','be','been','being','have','has','had','do','does','did',
-  'will','would','could','should','may','might','must','can','shall',
-  'this','that','these','those','i','you','he','she','it','we','they',
-  'odoo',
-  'el','la','los','las','un','una','y','o','pero','en','de','con','por','para',
-]);
-
-function filterStopWords(keywords) {
-  return keywords.filter(kw => {
-    const lower = kw.toLowerCase().trim();
-    if (!lower || lower.length < 3) return false;
-    if (STOP_WORDS.has(lower)) return false;
-    if (/^\d+$/.test(lower)) return false;
-    return true;
-  });
 }
 
 function matchSkills(registry, _phase, context) {
@@ -93,35 +75,7 @@ function matchSkills(registry, _phase, context) {
 }
 
 function resolveAgent(registry, phase, taskKeywords) {
-  const filteredKeywords = filterStopWords(taskKeywords);
-  const defaults = {
-    PROPOSE: 'odoo_proposer',
-    ASSESS: 'odoo_functional_consultant',
-    'QA-PLAN': 'odoo_qa_engineer',
-    DESIGN: 'odoo_backend_engineer',
-    IMPLEMENT: 'odoo_backend_engineer',
-    VERIFY: 'odoo_qa_engineer',
-    EXPLORE: 'odoo_functional_consultant',
-  };
-  if (!Object.prototype.hasOwnProperty.call(defaults, phase)) return null;
-
-  if (filteredKeywords.length === 0) {
-    return defaults[phase];
-  }
-  // Score by the number of matching keywords so a single generic token cannot
-  // outvote a strongly matching domain agent; ties keep registry order.
-  let best = null;
-  for (const agent of registry.agents || []) {
-    if (!agent.installed) continue;
-    if (!agent.phases?.includes(phase) && !agent.phases?.includes('ANY')) continue;
-    const descLower = agent.description.toLowerCase();
-    let score = 0;
-    for (const kw of filteredKeywords) {
-      if (descLower.includes(kw.toLowerCase())) score++;
-    }
-    if (score > 0 && (!best || score > best.score)) best = { name: agent.name, score };
-  }
-  return best ? best.name : defaults[phase];
+  return sharedResolveAgent(registry, phase, taskKeywords);
 }
 
 // ==========================================

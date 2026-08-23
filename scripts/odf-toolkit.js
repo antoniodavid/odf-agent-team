@@ -116,49 +116,10 @@ export function normalizeResult(raw, opts = {}) {
 // resolve — agent + skills + profile preview
 // ==========================================
 
-const STOP_WORDS = new Set([
-  "a", "an", "the", "and", "or", "but", "in", "on", "at", "to", "for", "of", "with", "by", "from", "as",
-  "is", "was", "are", "were", "be", "been", "being", "have", "has", "had", "do", "does", "did",
-  "will", "would", "could", "should", "may", "might", "must", "can", "shall", "this", "that", "these", "those",
-  "i", "you", "he", "she", "it", "we", "they", "me", "him", "her", "us", "them", "my", "your", "his", "its", "our", "their",
-  "what", "which", "who", "when", "where", "why", "how", "all", "any", "both", "each", "few", "more", "most", "other", "some", "such",
-  "no", "nor", "not", "only", "own", "same", "so", "than", "too", "very", "just", "also", "odoo",
-  "el", "la", "los", "las", "un", "una", "y", "o", "pero", "en", "de", "con", "por", "para",
-])
-
-const DEFAULT_AGENTS = {
-  PROPOSE: "odoo_proposer",
-  ASSESS: "odoo_functional_consultant",
-  "QA-PLAN": "odoo_qa_engineer",
-  DESIGN: "odoo_backend_engineer",
-  IMPLEMENT: "odoo_backend_engineer",
-  VERIFY: "odoo_qa_engineer",
-  EXPLORE: "odoo_functional_consultant",
-  FIX: "odoo_backend_engineer",
-}
-
-function filterStopWords(keywords) {
-  return keywords.filter(kw => {
-    const lower = kw.toLowerCase().trim()
-    return Boolean(lower) && lower.length >= 3 && !STOP_WORDS.has(lower) && !/^\d+$/.test(lower)
-  })
-}
-
-export function resolveAgent(registry, phase, taskKeywords) {
-  if (!Object.prototype.hasOwnProperty.call(DEFAULT_AGENTS, phase)) return null
-  const filtered = filterStopWords(taskKeywords)
-  if (filtered.length === 0) return DEFAULT_AGENTS[phase]
-  let best = null
-  for (const agent of registry.agents || []) {
-    if (!agent.installed) continue
-    if (!agent.phases?.includes(phase) && !agent.phases?.includes("ANY")) continue
-    const descLower = String(agent.description || "").toLowerCase()
-    let score = 0
-    for (const kw of filtered) if (descLower.includes(kw.toLowerCase())) score++
-    if (score > 0 && (!best || score > best.score)) best = { name: agent.name, score }
-  }
-  return best ? best.name : DEFAULT_AGENTS[phase]
-}
+// Agent resolution is shared with the plugin and the test runner
+// (scripts/lib/agent-resolve.js is the single source of truth).
+import { resolveAgent } from "./lib/agent-resolve.js"
+export { resolveAgent, filterStopWords } from "./lib/agent-resolve.js"
 
 export function matchSkills(registry, phase, context) {
   const taskLower = String(context.task || "").toLowerCase()

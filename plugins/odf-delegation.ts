@@ -19,6 +19,7 @@ import * as os from "node:os"
 import * as nodeCrypto from "node:crypto"
 import { type Hooks, type Plugin, type ToolContext, tool } from "@opencode-ai/plugin"
 import { execFileSync, execSync } from "node:child_process"
+import { filterStopWords, resolveAgent } from "../scripts/lib/agent-resolve.js"
 import type { createOpencodeClient } from "@opencode-ai/sdk"
 import { isMap, parseDocument, stringify } from "yaml"
 import {
@@ -1277,96 +1278,17 @@ function formatCompactRules(skills: ODFSkill[]): string {
 // ==========================================
 // AGENT RESOLUTION
 // ==========================================
+// AGENT RESOLUTION
+// ==========================================
 
-const STOP_WORDS = new Set([
-  // English
-  "a", "an", "the", "and", "or", "but", "in", "on", "at", "to", "for", "of", "with", "by",
-  "from", "as", "is", "was", "are", "were", "be", "been", "being", "have", "has", "had",
-  "do", "does", "did", "will", "would", "could", "should", "may", "might", "must",
-  "can", "shall", "this", "that", "these", "those", "i", "you", "he", "she", "it",
-  "we", "they", "me", "him", "her", "us", "them", "my", "your", "his", "its", "our",
-  "their", "what", "which", "who", "when", "where", "why", "how", "all", "any",
-  "both", "each", "few", "more", "most", "other", "some", "such", "no", "nor",
-  "not", "only", "own", "same", "so", "than", "too", "very", "just", "also",
-  // Generic project/product tokens with no agent-domain signal
-  "odoo",
-  // Spanish
-  "el", "la", "los", "las", "un", "una", "unos", "unas", "y", "o", "pero", "en",
-  "de", "con", "por", "para", "desde", "hasta", "entre", "sobre", "bajo", "ante",
-  "sin", "según", "durante", "mediante", "excepto", "salvo", "hacia", "a", "al",
-  "del", "lo", "le", "les", "se", "es", "son", "está", "están", "fue", "fueron",
-  "ser", "sido", "siendo", "haber", "han", "había", "tener", "tiene", "tienen",
-  "tuvo", "hacer", "hace", "hacen", "hizo", "este", "esta", "estos", "estas",
-  "ese", "esa", "esos", "esas", "aquel", "aquella", "aquellos", "aquellas",
-  "yo", "tú", "él", "ella", "nosotros", "nosotras", "vosotros", "vosotras",
-  "ellos", "ellas", "mí", "ti", "sí", "conmigo", "contigo", "mío", "mía",
-  "míos", "mías", "tuyo", "tuya", "suyo", "suya", "nuestro", "nuestra",
-  "qué", "cuál", "cuáles", "quién", "quiénes", "cuándo", "dónde", "cómo",
-  "porqué", "cuánto", "cuánta", "cuántos", "cuántas", "todo", "toda",
-  "todos", "todas", "cada", "alguno", "alguna", "algunos", "algunas",
-  "ninguno", "ninguna", "otro", "otra", "otros", "otras", "mismo", "misma",
-  "mismos", "mismas", "tal", "tales", "tan", "tanto", "tanta", "tantos",
-  "tantas", "muy", "poco", "poca", "pocos", "pocas", "más", "menos",
-  "mucho", "mucha", "muchos", "muchas", "demasiado", "demasiada",
-  "sólo", "solo", "solamente", "ya", "aún", "todavía", "siempre",
-  "nunca", "jamás", "ahora", "antes", "después", "luego", "pronto",
-  "tarde", "temprano", "ayer", "hoy", "mañana", "aquí", "ahí", "allí",
-  "donde", "cuando", "como", "que", "quien", "cuyo", "cuya", "cuyos",
-  "cuyas", "cual", "cuales", "cuanto", "cuanta", "cuantos", "cuantas"
-])
-
-function filterStopWords(keywords: string[]): string[] {
-  return keywords.filter(kw => {
-    const lower = kw.toLowerCase().trim()
-    // Filter out: empty, stop words, shorter than 3 chars, pure numbers
-    if (!lower || lower.length < 3) return false
-    if (STOP_WORDS.has(lower)) return false
-    if (/^\d+$/.test(lower)) return false
-    return true
-  })
-}
-
-const DEFAULT_AGENTS: Record<string, string> = {
-  PROPOSE: "odoo_proposer",
-  ASSESS: "odoo_functional_consultant",
-  "QA-PLAN": "odoo_qa_engineer",
-  DESIGN: "odoo_backend_engineer",
-  IMPLEMENT: "odoo_backend_engineer",
-  VERIFY: "odoo_qa_engineer",
-  EXPLORE: "odoo_functional_consultant",
-  FIX: "odoo_backend_engineer",
-}
-
-function resolveAgent(registry: ODFRegistry, phase: string, taskKeywords: string[]): string | null {
-  if (!Object.prototype.hasOwnProperty.call(DEFAULT_AGENTS, phase)) return null
-
-  // Filter out stop words before matching
-  const filteredKeywords = filterStopWords(taskKeywords)
-  if (filteredKeywords.length === 0) {
-    return DEFAULT_AGENTS[phase]
-  }
-
-  // Check for custom agents matching phase and keywords. Score by the number
-  // of matching keywords so a single generic token (e.g. "odoo") cannot
-  // outvote a strongly matching domain agent; ties keep registry order.
-  let best: { name: string; score: number } | null = null
-  for (const agent of registry.agents) {
-    if (!agent.installed) continue
-    if (!agent.phases.includes(phase) && !agent.phases.includes("ANY")) continue
-
-    const descLower = agent.description.toLowerCase()
-    let score = 0
-    for (const kw of filteredKeywords) {
-      if (descLower.includes(kw.toLowerCase())) score++
-    }
-    if (score > 0 && (!best || score > best.score)) best = { name: agent.name, score }
-  }
-  return best?.name || DEFAULT_AGENTS[phase]
-}
+// STOP_WORDS / filterStopWords / resolveAgent live in
+// scripts/lib/agent-resolve.js (single source of truth shared with the
+// test runner and the toolkit).
 
 // ==========================================
 // TASK INVOCATION
 // ==========================================
+
 
 type TaskApiInput = {
   agent: string
