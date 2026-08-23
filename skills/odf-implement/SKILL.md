@@ -85,6 +85,7 @@ A task is DONE only when ALL hold:
 - Pre-commit and pylint-odoo pass on the changed files (auto-fixable failures fixed, not suppressed).
 - Progress is merged with the existing `implement-progress` artifact (never overwritten).
 - Tests live with the code they verify in the same commit unit.
+- Every XML ID/model written in the code resolves in the local source (run `odf-toolkit verify-refs` on the module before closing the batch); invented IDs are a BLOCKER.
 
 ## Output Contract
 

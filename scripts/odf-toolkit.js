@@ -403,6 +403,113 @@ function renderDeps(deps) {
 }
 
 // ==========================================
+// lookup + verify-refs — Odoo source precision (never invent IDs/models)
+// ==========================================
+
+const LOOKUP_MAX_FILES = 6000
+const LOOKUP_MAX_FILE_BYTES = 128 * 1024
+const LOOKUP_MAX_MATCHES = 15
+const LOOKUP_SKIP_DIRS = new Set(["node_modules", ".git", ".codegraph", "__pycache__", ".mypy_cache"])
+
+function collectSourceFiles(root, exts) {
+  const files = []
+  const walk = (dir) => {
+    let entries
+    try { entries = fs.readdirSync(dir, { withFileTypes: true }) } catch { return }
+    entries.sort((a, b) => a.name.localeCompare(b.name))
+    for (const entry of entries) {
+      if (LOOKUP_SKIP_DIRS.has(entry.name) || entry.name.startsWith(".")) continue
+      const full = path.join(dir, entry.name)
+      if (files.length >= LOOKUP_MAX_FILES) return
+      if (entry.isDirectory()) walk(full)
+      else if (exts.some(ext => entry.name.endsWith(ext))) files.push(full)
+    }
+  }
+  walk(root)
+  return files
+}
+
+function findMatches(root, exts, predicate) {
+  const results = []
+  for (const file of collectSourceFiles(root, exts)) {
+    if (results.length >= LOOKUP_MAX_MATCHES) break
+    let content
+    try {
+      const stat = fs.statSync(file)
+      if (stat.size > LOOKUP_MAX_FILE_BYTES) continue
+      content = fs.readFileSync(file, "utf8")
+    } catch { continue }
+    const lines = content.split("\n")
+    for (let i = 0; i < lines.length; i++) {
+      if (results.length >= LOOKUP_MAX_MATCHES) break
+      if (predicate(lines[i])) {
+        results.push({ file: path.relative(root, file), line: i + 1, snippet: lines[i].trim().slice(0, 160) })
+      }
+    }
+  }
+  return results
+}
+
+/** Find XML IDs / models / fields in the local Odoo source and repos. */
+export function sourceLookup(opts) {
+  const roots = [opts.source, ...(opts.repos ? [opts.repos] : [])].filter(Boolean)
+  const results = []
+  const terms = []
+  if (opts.id) {
+    terms.push(`id="${opts.id}"`, `ref="${opts.id}"`)
+    if (opts.module) terms.push(`ref="${opts.module}.${opts.id}"`)
+  }
+  if (opts.model) terms.push(`model="${opts.model}"`, `_name = '${opts.model}'`, `_name = "${opts.model}"`, `_inherit = '${opts.model}'`, `_inherit = "${opts.model}"`)
+  if (opts.field) terms.push(`${opts.field} = fields.`)
+  for (const root of roots) {
+    if (!fs.existsSync(root)) continue
+    for (const term of terms) {
+      const found = findMatches(root, [".xml", ".py"], line => line.includes(term))
+      for (const match of found) results.push({ ...match, term })
+    }
+  }
+  return { query: { id: opts.id, model: opts.model, field: opts.field }, results }
+}
+
+/** Scan a module's XML for refs/models and verify each against the source. */
+export function verifyRefs(opts) {
+  const xmlFiles = collectSourceFiles(opts.repo, [".xml"])
+  const refs = new Set()
+  const models = new Set()
+  const refRe = /ref="([^"]+)"/g
+  const modelRe = /model="([^"]+)"/g
+  for (const file of xmlFiles) {
+    let content
+    try {
+      const stat = fs.statSync(file)
+      if (stat.size > LOOKUP_MAX_FILE_BYTES) continue
+      content = fs.readFileSync(file, "utf8")
+    } catch { continue }
+    for (const m of content.matchAll(refRe)) refs.add({ ref: m[1], file: path.relative(opts.repo, file) })
+    for (const m of content.matchAll(modelRe)) models.add(m[1])
+  }
+  const missingRefs = []
+  const missingModels = []
+  for (const { ref, file } of refs) {
+    const [module, id] = ref.split(".")
+    if (!id) continue // relative refs are intra-file; skip
+    const found = sourceLookup({ source: opts.source, repos: opts.repos, id, module }).results.length > 0
+    if (!found) missingRefs.push({ ref, file })
+  }
+  for (const model of models) {
+    const found = sourceLookup({ source: opts.source, repos: opts.repos, model }).results.length > 0
+    if (!found) missingModels.push({ model })
+  }
+  return {
+    refs_checked: refs.size,
+    models_checked: models.size,
+    missing_refs: missingRefs.slice(0, 20),
+    missing_models: missingModels.slice(0, 20),
+    ok: missingRefs.length === 0 && missingModels.length === 0,
+  }
+}
+
+// ==========================================
 // CLI dispatch
 // ==========================================
 
@@ -458,6 +565,38 @@ function main(argv) {
       if (!json) {
         process.stdout.write(renderDeps(result) + "\n")
         process.exit(0)
+      }
+      break
+    }
+    case "lookup": {
+      const source = argValue(argv, "--source")
+      const repos = argValue(argv, "--repos")
+      const id = argValue(argv, "--id")
+      const model = argValue(argv, "--model")
+      const field = argValue(argv, "--field")
+      const module = argValue(argv, "--module")
+      if (!source || (!id && !model && !field)) {
+        return usage("lookup --source <odoo-src-root> [--repos <src-dir>] --id <xmlid> | --model <model> | --field <field> [--module <prefix>]")
+      }
+      result = sourceLookup({ source: path.resolve(source), repos: repos ? path.resolve(repos) : undefined, id, model, field, module })
+      break
+    }
+    case "verify-refs": {
+      const repo = argValue(argv, "--repo")
+      const source = argValue(argv, "--source")
+      const repos = argValue(argv, "--repos")
+      if (!repo || !source) {
+        return usage("verify-refs --repo <module-dir> --source <odoo-src-root> [--repos <src-dir>]")
+      }
+      const verdict = verifyRefs({ repo: path.resolve(repo), source: path.resolve(source), repos: repos ? path.resolve(repos) : undefined })
+      result = verdict
+      if (!json) {
+        const lines = [`refs checked: ${verdict.refs_checked}, models checked: ${verdict.models_checked}`]
+        for (const m of verdict.missing_refs) lines.push(`  ✗ missing ref: ${m.ref} (${m.file})`)
+        for (const m of verdict.missing_models) lines.push(`  ✗ missing model: ${m.model}`)
+        if (verdict.ok) lines.push("  ✓ all refs and models resolve in the source")
+        process.stdout.write(lines.join("\n") + "\n")
+        process.exit(verdict.ok ? 0 : 1)
       }
       break
     }
@@ -526,7 +665,7 @@ function main(argv) {
 }
 
 function usage(detail = "") {
-  console.error(detail ? `Usage: odf-toolkit ${detail}` : "Usage: odf-toolkit <result|resolve|state|evidence|context|metrics|manual-evidence|redundancy|deps> [options]")
+  console.error(detail ? `Usage: odf-toolkit ${detail}` : "Usage: odf-toolkit <result|resolve|state|evidence|context|metrics|manual-evidence|redundancy|deps|lookup|verify-refs> [options]")
   process.exit(2)
 }
 

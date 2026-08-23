@@ -175,7 +175,11 @@ version, affected modules and paths, relevant `context_files`, references to
 prior artifacts, expected output artifact, and current user-approved scope.
 For IMPLEMENT/VERIFY, also forward the project's `testing.test_command` from
 `odf-init/{project}` (with `{module}` substituted), so BUILD/VERIFY run the
-real command instead of guessing a runner. The persisted Docker template MUST
+real command instead of guessing a runner. For DESIGN/IMPLEMENT, ALSO forward
+the exact `odoo_source_root` (from `odf-init/{project}`: `<workspace_root>/odoo/custom/src/odoo`
+when present, plus the active repos dir `odoo/custom/src`) and require the agent
+to verify every view XML ID / model / `_inherit` against it with
+`odf-toolkit lookup` — never invent IDs from memory. The persisted Docker template MUST
 be `docker compose run --rm odoo odoo -d {test_db} -i {module} --test-enable --stop-after-init`; the local template is `odoo-bin -d {test_db} -i {module} --test-enable --stop-after-init`. A command without the exact `-d {test_db}` is invalid. Disposable databases are preferred; a named non-isolated development database is allowed only for the current run when the current user-approved scope explicitly names that exact database and authorizes its use. The phase result/evidence must state the database is non-isolated and user-authorized and warn that tests may mutate module, schema, and test data. If the exact database or authorization is absent, block and ask; never guess.
 
 - For IMPLEMENT/VERIFY, forward strict TDD only when the authoritative Policy
@@ -416,6 +420,8 @@ reinstall the pack (`install.sh` / `/odf-registry-refresh`) and stop.
 - `node "$PACK/scripts/odf-toolkit.js" resolve --phase <PHASE> --task "<task>"` — preview agent + skills + profile (mirror of `odf_skill_resolve`).
 - `node "$PACK/scripts/odf-toolkit.js" metrics [--days 14] [--json]` — delegation dashboard (calls/status/avg duration per phase) from the plugin JSONL.
 - `node "$PACK/scripts/odf-toolkit.js" manual-evidence --change <c> --command "<cmd with -d db>" --database <db> --output-file <path> --root <root>` — record USER-run test evidence for VERIFY (validated, `executor: user-manual`). Use when the user runs the suite themselves; the QA agent then consumes the file instead of re-running.
+- `node "$PACK/scripts/odf-toolkit.js" lookup --source <odoo-src-root> [--repos <src-dir>] --id <xmlid> | --model <model>` — find view XML IDs / models / fields in the LOCAL source (defining file:line). Mandatory before DESIGN/IMPLEMENT writes any ID or `_inherit`.
+- `node "$PACK/scripts/odf-toolkit.js" verify-refs --repo <module-dir> --source <odoo-src-root> [--repos <src-dir>]` — VERIFY gate: every `ref=` and `model=` in the module's XML must resolve; a missing ref is a blocker (exit 1).
 - `node "$PACK/scripts/odf-toolkit.js" redundancy --repo <repo> --terms "<términos>" --project <name>` — pre-check for existing implementations + prior learnings (`odf-learned/{project}`) before PROPOSE; surface matches to the user, never decide alone.
 
 All subcommands are read-only; authorization-bearing operations (bind,

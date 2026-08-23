@@ -3,7 +3,13 @@ import * as fs from "node:fs/promises"
 import * as path from "node:path"
 import * as os from "node:os"
 import { execFileSync } from "node:child_process"
-import { asBoolean, buildManualEvidence, evidencePack, loadRegistry, matchSkills, metricsSummary, normalizeResult, redundancyCheck, resolveAgent, stateBundle } from "./odf-toolkit.js"
+async function writeFile(dir: string, rel: string, content: string): Promise<void> {
+  const file = path.join(dir, rel)
+  await fs.mkdir(path.dirname(file), { recursive: true })
+  await fs.writeFile(file, content, "utf8")
+}
+
+import { asBoolean, buildManualEvidence, evidencePack, loadRegistry, matchSkills, metricsSummary, normalizeResult, redundancyCheck, resolveAgent, sourceLookup, stateBundle, verifyRefs } from "./odf-toolkit.js"
 
 describe("odf-toolkit result", () => {
   it("normalizes design_closed as string or boolean and flags missing on DESIGN/PLAN", () => {
@@ -198,5 +204,34 @@ describe("odf-toolkit evidence", () => {
     } finally {
       await fs.rm(repo, { recursive: true, force: true })
     }
+  })
+})
+
+describe("odf-toolkit source precision", () => {
+  let root: string
+
+  beforeEach(async () => {
+    root = await fs.mkdtemp(path.join(os.tmpdir(), "odf-source-"))
+  })
+
+  afterEach(async () => {
+    await fs.rm(root, { recursive: true, force: true })
+  })
+
+  it("lookup finds XML ID definitions and refs in the source tree", async () => {
+    await writeFile(root, "addons/account/views/account_move_views.xml", `<record id="view_account_move_filter" model="ir.ui.view">\n  <field name="name">filter</field>\n</record>\n`)
+    const found = sourceLookup({ source: root, id: "view_account_move_filter" })
+    expect(found.results.some(r => r.file.includes("account_move_views.xml") && r.term.includes('id="view_account_move_filter"'))).toBe(true)
+    const model = sourceLookup({ source: root, model: "ir.ui.view" })
+    expect(model.results.length).toBeGreaterThan(0)
+  })
+
+  it("verify-refs flags refs that do not resolve in the source", async () => {
+    await writeFile(root, "addons/account/views/views.xml", `<record id="real_view" model="ir.ui.view"/>\n`)
+    await writeFile(root, "mymodule/views/v.xml", `<record id="x" model="ir.ui.view"><field name="inherit_id" ref="account.real_view"/></record>\n<record id="y" model="ir.ui.view"><field name="inherit_id" ref="account.ghost_view"/></record>\n`)
+    const verdict = verifyRefs({ repo: path.join(root, "mymodule"), source: path.join(root, "addons") })
+    expect(verdict.ok).toBe(false)
+    expect(verdict.missing_refs.some(m => m.ref === "account.ghost_view")).toBe(true)
+    expect(verdict.missing_refs.some(m => m.ref === "account.real_view")).toBe(false)
   })
 })

@@ -108,6 +108,15 @@ export interface DependencyProbe {
   python3: "available" | "missing"
 }
 export function dependencyProbe(): DependencyProbe
+export interface LookupMatch { file: string; line: number; snippet: string; term: string }
+export function sourceLookup(opts: { source: string; repos?: string; id?: string; model?: string; field?: string; module?: string }): { query: Record<string, string | undefined>; results: LookupMatch[] }
+export function verifyRefs(opts: { repo: string; source: string; repos?: string }): {
+  refs_checked: number
+  models_checked: number
+  missing_refs: Array<{ ref: string; file: string }>
+  missing_models: Array<{ model: string }>
+  ok: boolean
+}
 export function redundancyCheck(repoDir: string, terms: string[]): { terms: string[]; matches: Array<{ file: string; term: string; line: number }> }
 export function priorLearnings(project: string): Array<{ topic: string; title: string }>
 export function buildManualEvidence(opts: {

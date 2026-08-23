@@ -7,6 +7,14 @@ codebase questions, use CodeGraph first, then FFF (`fff_find_files` /
 `fff_grep`) for search, then `Read`. Do not assume additional search
 dependencies are installed.
 
+**VERIFY before you write (precision gate)**: every view XML ID (`inherit_id ref="module.id"`), model name, and `_inherit` used in design or code MUST be found in the local source first — never written from memory. Run:
+```
+PACK="${ODF_CONFIG_DIR:-$HOME/.config/opencode}"
+node "$PACK/scripts/odf-toolkit.js" lookup --source <odoo-src-root> [--repos <src-dir>] --id <xmlid> | --model <model>
+node "$PACK/scripts/odf-toolkit.js" verify-refs --repo <module-dir> --source <odoo-src-root> [--repos <src-dir>]
+```
+Record the defining file:line in the artifact. If the ID/model does not resolve, treat it as an OPEN decision — never guess.
+
 **NEVER use `mgrep` for searches.** It is denied for ODF agents. Use
 `fff_find_files`, `fff_grep`, or `fff_multi_grep` (faster, project-native), and
 CodeGraph for structural questions.
