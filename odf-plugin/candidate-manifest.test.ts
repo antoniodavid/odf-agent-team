@@ -34,10 +34,13 @@ function registryWithTdd(strict: boolean): ODFRegistry {
 
 describe("candidate-manifest", () => {
   let tmp: string
+  const originalConfigDir = process.env.ODF_CONFIG_DIR
   beforeEach(async () => {
     tmp = await fs.mkdtemp(path.join(os.tmpdir(), "odf-manifest-"))
   })
   afterEach(async () => {
+    if (originalConfigDir === undefined) delete process.env.ODF_CONFIG_DIR
+    else process.env.ODF_CONFIG_DIR = originalConfigDir
     await fs.rm(tmp, { recursive: true, force: true })
   })
 
@@ -118,6 +121,42 @@ describe("candidate-manifest", () => {
     expect(manifest.entries[0].status).toBe("??")
     expect(manifest.entries[0].path).toBe("untracked.txt")
     expect(computeCandidateDigest(manifest)).not.toBe(before)
+  })
+
+  it("ignores durable telemetry in a configured nested directory", async () => {
+    const repo = path.join(tmp, "nested-telemetry")
+    initGitRepo(repo)
+    commitFile(repo, "README.md")
+    process.env.ODF_CONFIG_DIR = path.join(repo, ".config", "opencode")
+    const before = computeCandidateDigest(buildCandidateManifest(repo))
+    await fs.mkdir(path.join(repo, ".config", "opencode", "metrics"), { recursive: true })
+    await fs.writeFile(path.join(repo, ".config", "opencode", "metrics", "delegations-2026-08-24.jsonl"), "{}\n", "utf8")
+
+    const manifest = buildCandidateManifest(repo)
+    expect(manifest.entries).toEqual([])
+    expect(computeCandidateDigest(manifest)).toBe(before)
+  })
+
+  it("ignores durable telemetry when the repository is the configured root", async () => {
+    const repo = path.join(tmp, "root-telemetry")
+    initGitRepo(repo)
+    commitFile(repo, "README.md")
+    process.env.ODF_CONFIG_DIR = repo
+    await fs.mkdir(path.join(repo, "metrics"), { recursive: true })
+    await fs.writeFile(path.join(repo, "metrics", "delegations-2026-08-24.jsonl"), "{}\n", "utf8")
+
+    expect(buildCandidateManifest(repo).entries).toEqual([])
+  })
+
+  it("does not exclude a similarly named directory when configured telemetry is outside", async () => {
+    const repo = path.join(tmp, "outside-telemetry")
+    initGitRepo(repo)
+    commitFile(repo, "README.md")
+    process.env.ODF_CONFIG_DIR = path.join(tmp, "outside-config")
+    await fs.mkdir(path.join(repo, "metrics"), { recursive: true })
+    await fs.writeFile(path.join(repo, "metrics", "user-file.txt"), "keep\n", "utf8")
+
+    expect(extractChangedPaths(buildCandidateManifest(repo))).toContain("metrics/user-file.txt")
   })
 
   it("excludes ODF's own .odf state dir from the manifest", async () => {

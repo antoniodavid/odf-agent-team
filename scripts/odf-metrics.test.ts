@@ -106,9 +106,9 @@ describe("buildDashboard + render", () => {
     expect(out).toContain("Errors: 0 (N/A)")
   })
 
-  it("dashboard-partial: legacy lines without T7 telemetry expose partial + coverage", () => {
+  it("dashboard-partial: legacy lines without the O1 proof expose partial + coverage", () => {
     const d = buildDashboard([
-      { agent: "backend", status: "ok", event: "complete", schema_version: 2, model_available: true, candidate_digest: "abc" },
+      { agent: "backend", status: "ok", event: "run", lifecycle: "finished", schema_version: 1, run_id: "run-1", change: "change-1", model_available: false },
       { agent: "backend", status: "ok" },
       { agent: "backend", status: "error" },
     ], 1)
@@ -137,6 +137,31 @@ describe("buildDashboard + render", () => {
     expect(d.joinRows.join("\n")).toContain("complete")
     expect(d.validationRatio).toBe(0.5)
     expect(renderDashboard(d)).toContain("Scheduler Joins")
+  })
+
+  it("counts a lifecycle pair once and excludes its started marker from totals", () => {
+    const d = buildDashboard([
+      { event: "run", lifecycle: "started", run_id: "run-1", change: "o1", agent: "backend", status: "ok" },
+      { event: "run", lifecycle: "finished", run_id: "run-1", change: "o1", agent: "backend", status: "ok" },
+      { event: "run", lifecycle: "started", run_id: "run-join", agent: "scheduler", status: "ok", join_status: "running", join_expected: 2, join_completed: 0, join_failed: 0, join_running: 2 },
+    ], 1)
+
+    expect(d.total).toBe(1)
+    expect(d.agentRows).toHaveLength(1)
+    expect(d.startedCount).toBe(1)
+    expect(d.unfinishedCount).toBe(0)
+  })
+
+  it("reports an unfinished lifecycle start as partial instead of completed data", () => {
+    const d = buildDashboard([
+      { event: "run", lifecycle: "started", run_id: "run-stale", change: "o1", agent: "backend", status: "ok" },
+    ], 1)
+
+    expect(d.total).toBe(0)
+    expect(d.data_status).toBe("partial")
+    expect(d.unfinishedCount).toBe(1)
+    expect(d.unfinishedRunIds).toEqual(["run-stale"])
+    expect(renderDashboard(d)).toContain("Unfinished runs: 1")
   })
 })
 

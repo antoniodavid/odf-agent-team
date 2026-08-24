@@ -33,29 +33,28 @@ export function evaluateOffline(fixtures) {
   }
 }
 
-/**
- * Evaluate only observed metric records; no model or provider is involved.
- * Zero observed records is honest "no_data": score null + N/A, never 1.
- *
- * "partial" heuristic: a dataset is partial when at least one record lacks the
- * T7 telemetry fields (event / schema_version / model_available / candidate_digest
- * or the T7 fields on the record itself). Coverage = telemetry-bearing records / total.
- * Partial data still yields a real score when there are records to score.
- */
-function hasTelemetry(record) {
-  return !!record && (record.event !== undefined || record.schema_version !== undefined || record.model_available !== undefined || record.candidate_digest !== undefined)
-}
-
 export function evaluateOnline(records, days = 1) {
-  const dashboard = buildDashboard(records, days)
-  if (!Array.isArray(records) || records.length === 0 || dashboard.total === 0) {
+  if (!Array.isArray(records) || records.length === 0) {
     return { mode: "online", data_status: "no_data", total: 0, errors: 0, error_rate: null, score: null, score_label: "N/A" }
+  }
+  const dashboard = buildDashboard(records, days)
+  if (dashboard.total === 0) {
+    return {
+      mode: "online",
+      data_status: dashboard.data_status,
+      total: 0,
+      errors: 0,
+      error_rate: null,
+      score: null,
+      score_label: "N/A",
+      started_count: dashboard.startedCount,
+      unfinished_count: dashboard.unfinishedCount,
+    }
   }
   const total = dashboard.total
   const errors = dashboard.errorsCount
-  const withTelemetry = records.filter(hasTelemetry).length
-  const partial = withTelemetry < records.length
-  const coverage = partial ? withTelemetry / records.length : null
+  const partial = dashboard.data_status === "partial"
+  const coverage = dashboard.coverage
   const result = {
     mode: "online",
     total,
@@ -63,11 +62,13 @@ export function evaluateOnline(records, days = 1) {
     error_rate: errors / total,
     score: 1 - errors / total,
     score_label: `${errors}/${total} errors`,
+    started_count: dashboard.startedCount,
+    unfinished_count: dashboard.unfinishedCount,
   }
   if (partial) {
     result.data_status = "partial"
     result.coverage = coverage
-    result.records_with_telemetry = withTelemetry
+    result.records_with_telemetry = dashboard.records_with_telemetry
   } else {
     result.data_status = "complete"
   }

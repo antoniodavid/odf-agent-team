@@ -19,7 +19,11 @@ export interface DelegationRecord {
   validation_ratio?: number
   error?: string
   event?: string
+  lifecycle?: "started" | "finished"
   schema_version?: number
+  change?: string
+  run_id?: string
+  attempt_id?: string
   model_available?: boolean
   candidate_digest?: string
   trace_id?: string
@@ -89,6 +93,9 @@ export interface DashboardData {
   errorRows: string[]
   days: number
   learning: LearningProgress
+  startedCount: number
+  unfinishedCount: number
+  unfinishedRunIds: string[]
 }
 
 export function resolveMetricsDir(): string

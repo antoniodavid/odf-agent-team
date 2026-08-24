@@ -853,8 +853,9 @@ The continuous-improvement loop components (goldens, verified telemetry,
 shadow judge, memory/skill candidates) now exist as deterministic contracts;
 activation of any blocking judge role or auto-skill creation still requires a
 separate human decision backed by measured calibration (see the conditional
-backlog and parking lot). The current hardening changes remain uncommitted and
-require the standard verification below before delivery.
+backlog and parking lot). At HEAD `6035f94` (`v1.2.1`), the working tree is
+clean; the remaining work below is planned follow-up, not an uncommitted
+implementation claim.
 
 ---
 
@@ -876,6 +877,60 @@ offline goldens
 The loop is healthy only when failures add reusable evidence. Adding another
 gate without adding a named regression is process growth, not improvement.
 
+## Dashboard and observability reassessment (2026-08-24)
+
+The current ODF implementation is materially stronger than the original
+dashboard study. It now has canonical workflow state, candidate-bound policy
+and receipts, durable `IMPLEMENT`/`VERIFY` attempt-ledger records, bounded
+parallel-join snapshots, richer versioned telemetry, source precision checks,
+dependency/health probes, and an integral harness smoke test.
+
+This changes the dashboard decision from “insufficient foundation” to
+“valuable, but still not ready for a live web UI.” O1 now emits correlated
+started/finished lifecycle records with bounded run/change/attempt identity for
+actual delegations, and the read-side excludes start markers from finished
+aggregates while exposing unfinished runs. It still cannot support a
+trustworthy full-run live trace because legacy/early records can lack usable
+identity, production spans are not emitted, finish telemetry is
+buffered/best-effort JSONL with a 30-second flush, and the read-side does not
+yet combine the attempt ledger with canonical workflow state.
+
+The existing telemetry coverage heuristic is also too permissive: the presence
+of `event`, `schema_version`, or `model_available` does not prove usable
+identity, lifecycle, model, or token coverage. Host-provided model/provider and
+real token usage remain unavailable in the current `ToolContext`; estimates
+must remain visibly estimated.
+
+### Revised observability plan
+
+1. **O1 — Define usable run identity and lifecycle coverage [x].** Added validated
+   change/run/attempt linkage and explicit start/finish outcomes for every
+   actual delegated phase. Reused candidate digests, receipts, and join records
+   without adding a parallel authority. Coverage now requires a finished
+   lifecycle record with valid identity, not merely the presence of T7 fields.
+2. **O2 — Make the read-side CLI truthful [ ].** Extend `odf-metrics` to combine
+   canonical workflow status, attempt-ledger state, parallel joins, and JSONL;
+   report active, stale, partial, and no-data states without inferring activity
+   from `canonical_stage` alone.
+3. **O3 — Add production spans only where they answer a measured question [ ].**
+   Instrument delegation, task invocation, and parallel branches with real
+   parent/child relationships. Measure required-field coverage, not schema
+   presence.
+4. **O4 — Revalidate the web UI gate [ ].** Only after O1–O3 reach stable coverage
+   should the project add a local, read-only web observatory. Its first views
+   should be run timeline, bottlenecks, harness health, and deterministic
+   replay/simulation.
+5. **O5 — Defer operational controls and remote observability [ ].** Abort/resume,
+   WebSockets, OTel, remote storage, and team-wide retention require a separate
+   measured need and must not become dashboard-side workflow authority.
+
+### Current decision
+
+Keep the dashboard as a conditional roadmap item. O1 is complete; O2 is the
+next work unit. Do not start a React application yet. The prior local-first,
+read-only architecture remains correct, but the dashboard should be named a
+**control-plane observatory**, not a full tracing platform.
+
 ## Program-level success measures
 
 | Capability | Measure |
@@ -884,7 +939,8 @@ gate without adding a named regression is process growth, not improvement.
 | Evidence authority | Successful VERIFY transitions with fresh executor receipts: 100% |
 | Micro UX | Median human blocks before BUILD: ≤ 1 |
 | Strict workflow | Gated legacy invocations: 0 |
-| Telemetry | Runs with required identity/model fields: ≥ 95% |
+| Telemetry | Runs with valid identity/lifecycle fields: ≥ 95% |
+| Host metadata | Model/provider/real-token coverage measured separately; estimates never substitute |
 | Evaluation honesty | Success claims from `no_data`: 0 |
 | Judge quality | Agreement and false-pass rate measured, not assumed |
 | Safety | Critical pre-tool corpus block rate: 100% |
@@ -894,7 +950,7 @@ gate without adding a named regression is process growth, not improvement.
 
 | Item | Activation condition |
 | --- | --- |
-| Web dashboard | At least 95% telemetry coverage and a stable event schema |
+| Web dashboard | At least 95% valid identity/lifecycle coverage and a stable event schema |
 | Semantic skill resolver | Measured misses or false matches from trigger matching |
 | Plugin extraction | A measured blast-radius or testability problem, not file length |
 | Executable archive receipt | Evidence that the current archive path creates inconsistent state |
@@ -910,6 +966,15 @@ Unlimited correction loops are permanently out of scope.
 ## Evidence behind this roadmap
 
 Repository evidence reviewed:
+
+- `odf-plugin/odf-delegation-metrics.ts` — versioned telemetry, buffering,
+  sanitization, and honest model/token fields.
+- `odf-plugin/odf-delegation-health.ts` and
+  `odf-plugin/odf-delegation-loopguard.ts` — runtime health and duplicate-entry
+  protection.
+- `odf-plugin/odf-parallel-join.ts` — durable bounded branch/join evidence.
+- `scripts/odf-toolkit.js` — source lookup and XML ref/model precision checks.
+- `scripts/odf-harness.test.ts` — integral harness smoke coverage.
 
 - `plugins/odf-delegation.ts` — policy, evidence, attempts, receipts, metrics,
   and learning summaries.
@@ -950,7 +1015,7 @@ commit, push, and runtime deployment remain separate explicit actions.
 
 ## Next action
 
-Run the standard verification commands, review the accumulated hardening diff,
-and refresh the Engram recovery copy with the final evidence. Do not restart
-T1–T12; future work belongs in the conditional backlog or a separately named
-hardening change.
+Do not start a web UI or restart T1–T12. The next observability work unit is O2:
+project the attempt ledger, canonical workflow state, parallel joins, and JSONL
+into one truthful read-side timeline, then measure actual identity/lifecycle
+coverage. The standard verification commands remain required for that work unit.

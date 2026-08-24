@@ -77,9 +77,9 @@ describe("odf evaluation", () => {
 
   it("online-complete: full telemetry records give a normal score", () => {
     const result = evaluateOnline([
-      { agent: "backend", status: "ok", event: "complete", schema_version: 2, model_available: true, candidate_digest: "abc" },
-      { agent: "backend", status: "ok", event: "complete", schema_version: 2, model_available: true, candidate_digest: "def" },
-      { agent: "backend", status: "error", event: "complete", schema_version: 2, model_available: true, candidate_digest: "ghi" },
+      { agent: "backend", status: "ok", event: "run", lifecycle: "finished", schema_version: 1, run_id: "run-1", change: "change-1" },
+      { agent: "backend", status: "ok", event: "run", lifecycle: "finished", schema_version: 1, run_id: "run-2", change: "change-2" },
+      { agent: "backend", status: "error", event: "run", lifecycle: "finished", schema_version: 1, run_id: "run-3", change: "change-3" },
     ], 1)
     expect(result).toMatchObject({ mode: "online", data_status: "complete", total: 3, errors: 1 })
     expect(result.error_rate).toBeCloseTo(1 / 3)
@@ -88,7 +88,7 @@ describe("odf evaluation", () => {
 
   it("online-partial-coverage: mixed T7 + legacy records are partial with coverage, score not 1", () => {
     const result = evaluateOnline([
-      { agent: "backend", status: "ok", event: "complete", schema_version: 2, model_available: true, candidate_digest: "abc" },
+      { agent: "backend", status: "ok", event: "run", lifecycle: "finished", schema_version: 1, run_id: "run-1", change: "change-1", model_available: false },
       { agent: "backend", status: "ok" },
       { agent: "backend", status: "error" },
     ], 1)
@@ -103,6 +103,21 @@ describe("odf evaluation", () => {
     expect(result.score).toBeCloseTo(2 / 3)
     expect(result.coverage).toBeCloseTo(1 / 3)
     expect(result.score).not.toBe(1)
+  })
+
+  it("online-lifecycle-start-only: unfinished runs are partial with no score", () => {
+    const result = evaluateOnline([
+      { event: "run", lifecycle: "started", run_id: "run-stale", status: "ok" },
+    ], 1)
+    expect(result).toMatchObject({
+      mode: "online",
+      data_status: "partial",
+      total: 0,
+      errors: 0,
+      score: null,
+      started_count: 1,
+      unfinished_count: 1,
+    })
   })
 })
 
@@ -176,4 +191,3 @@ describe("odf golden trajectories", () => {
     expect(result.failed).toBe(0)
   })
 })
-

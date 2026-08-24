@@ -27,6 +27,8 @@ export interface OnlineResult {
   score_label: string
   coverage?: number
   records_with_telemetry?: number
+  started_count?: number
+  unfinished_count?: number
 }
 
 export interface GoldenTrajectory {

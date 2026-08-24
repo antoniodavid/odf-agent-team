@@ -44,6 +44,7 @@ import {
   flushMetricsSync,
   getMetricsBufferCap,
   estimateTokens,
+  createTelemetryRunId,
   getMetricsDir,
   metricsBuffer,
   recordMetrics,
@@ -1947,6 +1948,37 @@ Use this instead of generic task() for ODF workflow delegation.`,
         ? { name: profile.name, model: profile.model, temperature: profile.temperature, reasoning: profile.reasoning }
         : null
 
+      const telemetryRunId = createTelemetryRunId()
+      const recordLifecycle = (
+        lifecycle: "started" | "finished",
+        overrides: Partial<DelegationMetricInput> = {},
+      ): void => {
+        const metric: DelegationMetricInput = {
+          timestamp: new Date().toISOString(),
+          session_id: toolCtx.sessionID,
+          phase: args.phase,
+          agent: agentName,
+          skills_injected: skills.map(s => s.name),
+          skill_resolution: skills.length > 0 ? "injected" : "none",
+          duration_ms: lifecycle === "started" ? 0 : Date.now() - startTime,
+          token_estimate: estimateTokens(delegationPrompt),
+          status: "ok",
+          task_api_source: taskApiInfo?.source || "unavailable",
+          ...metricContext,
+          ...overrides,
+          lifecycle,
+          change: changeName || undefined,
+          run_id: telemetryRunId,
+          attempt_id: args.attempt_id,
+        }
+        recordMetrics(metric)
+      }
+
+      // The start is flushed synchronously so a process dying in task() leaves
+      // an observable unfinished run. The finish remains best-effort JSONL.
+      recordLifecycle("started")
+      flushMetricsSync()
+
       if (taskApiInfo) {
         try {
           const timeoutMs = args.timeout_ms ?? 600_000
@@ -1992,20 +2024,10 @@ Use this instead of generic task() for ODF workflow delegation.`,
               expectationsIds,
             )
               : null
-            recordMetrics({
-              timestamp: new Date().toISOString(),
-              session_id: toolCtx.sessionID,
-              phase: args.phase,
-              agent: agentName,
-              skills_injected: skills.map(s => s.name),
-              skill_resolution: skills.length > 0 ? "injected" : "none",
-              duration_ms: Date.now() - startTime,
-              token_estimate: estimateTokens(delegationPrompt),
+            recordLifecycle("finished", {
               status: disposition?.metricStatus || "blocked",
-              task_api_source: taskApiInfo.source,
-               ...metricContext,
-               warnings: phaseWarnings.length ? phaseWarnings : undefined,
-               error: reason,
+              warnings: phaseWarnings.length ? phaseWarnings : undefined,
+              error: reason,
             })
             return JSON.stringify({
               status: "blocked",
@@ -2107,21 +2129,11 @@ Use this instead of generic task() for ODF workflow delegation.`,
           if (acquiredAttempt && !executionOptions.suppress_attempt_settlement) {
             settleAttempt(acquiredAttempt, "completed", "delegated", "task-completed")
           }
-          recordMetrics({
-            timestamp: new Date().toISOString(),
-            session_id: toolCtx.sessionID,
-            phase: args.phase,
-            agent: agentName,
-            skills_injected: skills.map(s => s.name),
-            skill_resolution: skills.length > 0 ? "injected" : "none",
-             duration_ms: Date.now() - startTime,
-             token_estimate: estimateTokens(delegationPrompt),
-              status: innerDisposition.metricStatus,
-             task_api_source: taskApiInfo.source,
-              ...metricContext,
-              warnings: phaseWarnings.length ? phaseWarnings : undefined,
-              candidate_digest: policyGate?.candidate_digest ?? undefined,
-           })
+          recordLifecycle("finished", {
+            status: innerDisposition.metricStatus,
+            warnings: phaseWarnings.length ? phaseWarnings : undefined,
+            candidate_digest: policyGate?.candidate_digest ?? undefined,
+          })
           return JSON.stringify({
             status: "delegated",
             phase: args.phase,
@@ -2167,20 +2179,10 @@ Use this instead of generic task() for ODF workflow delegation.`,
                   : "task-error"
             settleAttempt(acquiredAttempt, "failed", ledgerResultStatus, ledgerReason)
           }
-          recordMetrics({
-            timestamp: new Date().toISOString(),
-            session_id: toolCtx.sessionID,
-            phase: args.phase,
-            agent: agentName,
-            skills_injected: skills.map(s => s.name),
-            skill_resolution: skills.length > 0 ? "injected" : "none",
-            duration_ms: Date.now() - startTime,
-            token_estimate: estimateTokens(delegationPrompt),
+          recordLifecycle("finished", {
             status: isTimeout ? "timeout" : isCancelled || isEmpty ? "blocked" : "error",
-             task_api_source: taskApiInfo.source,
-             ...metricContext,
-             candidate_digest: policyGate?.candidate_digest ?? undefined,
-             error: errorMessage,
+            candidate_digest: policyGate?.candidate_digest ?? undefined,
+            error: errorMessage,
           })
           // Receipt auto-seal (slice 4): persist a failure disposition so the
           // learning loop does not depend on orchestrator memory. Best-effort.
@@ -2223,19 +2225,9 @@ Use this instead of generic task() for ODF workflow delegation.`,
       if (acquiredAttempt && !executionOptions.suppress_attempt_settlement) {
         settleAttempt(acquiredAttempt, "failed", "task-api-unavailable", "task-api-unavailable")
       }
-      recordMetrics({
-        timestamp: new Date().toISOString(),
-        session_id: toolCtx.sessionID,
-        phase: args.phase,
-        agent: agentName,
-        skills_injected: skills.map(s => s.name),
-        skill_resolution: skills.length > 0 ? "injected" : "none",
-        duration_ms: Date.now() - startTime,
-        token_estimate: estimateTokens(delegationPrompt),
-         status: "blocked",
-         task_api_source: "unavailable",
-         ...metricContext,
-         error: "task-api-unavailable",
+      recordLifecycle("finished", {
+        status: "blocked",
+        error: "task-api-unavailable",
       })
 
       return JSON.stringify({

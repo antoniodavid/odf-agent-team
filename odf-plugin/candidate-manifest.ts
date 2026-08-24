@@ -13,6 +13,7 @@ import * as fsSync from "node:fs"
 import * as path from "node:path"
 import { execFileSync } from "node:child_process"
 import { createHash } from "node:crypto"
+import { getOdfConfigDir } from "./odf-delegation-shared.js"
 
 export interface CandidateEntry {
   path: string
@@ -41,11 +42,21 @@ function fileIdentity(absPath: string): { mode: number | null; sha256: string | 
 
 const ODF_STATE_DIR = ".odf"
 
-// ODF persists its own state under .odf/ (policy gates, validation evidence,
-// tdd.off). Those files are harness bookkeeping, not candidate content, and
-// would otherwise invalidate the digest on every save.
-function isOdfState(p: string): boolean {
-  return p === ODF_STATE_DIR || p.startsWith(ODF_STATE_DIR + "/")
+// ODF persists its own state under .odf/ and durable telemetry under
+// the configured metrics directory. Those files are harness bookkeeping, not
+// candidate content, and would otherwise invalidate the digest on every save.
+function configuredTelemetryDir(workspaceDir: string): string | null {
+  const workspaceRoot = path.resolve(workspaceDir)
+  const metricsDir = path.resolve(getOdfConfigDir(), "metrics")
+  const relative = path.relative(workspaceRoot, metricsDir)
+  if (!relative || path.isAbsolute(relative) || relative === ".." || relative.startsWith(`..${path.sep}`)) return null
+  return relative.split(path.sep).join("/")
+}
+
+function isOdfState(p: string, telemetryDir: string | null): boolean {
+  const normalized = p.split(path.sep).join("/")
+  return normalized === ODF_STATE_DIR || normalized.startsWith(ODF_STATE_DIR + "/") ||
+    telemetryDir !== null && (normalized === telemetryDir || normalized.startsWith(telemetryDir + "/"))
 }
 
 /**
@@ -82,8 +93,9 @@ export function buildCandidateManifest(workspaceDir: string): CandidateManifest 
   }
 
   const byPath = new Map<string, CandidateEntry>()
+  const telemetryDir = configuredTelemetryDir(workspaceDir)
   const put = (p: string, status: string, readFile: boolean) => {
-    if (!p || isOdfState(p)) return
+    if (!p || isOdfState(p, telemetryDir)) return
     const abs = path.resolve(workspaceDir, p)
     const identity = readFile ? fileIdentity(abs) : { mode: null, sha256: null }
     const existing = byPath.get(p)

@@ -21,6 +21,7 @@ import { WORK_TYPES, type WorkType } from "./odf-workflow.js"
 // serialized explicitly as null / model_available=false. The heuristic
 // estimateTokens() is never treated as real input/output token counts.
 export type TelemetryEvent = "run" | "span"
+export type TelemetryLifecycle = "started" | "finished"
 
 export interface TelemetryTokens {
   /** Real input tokens from the host, when exposed. */
@@ -53,7 +54,11 @@ export interface DelegationMetrics {
   error?: string
   // T7 telemetry
   event?: TelemetryEvent
+  lifecycle?: TelemetryLifecycle
   schema_version?: 1
+  change?: string
+  run_id?: string
+  attempt_id?: string
   trace_id?: string
   parent_span_id?: string
   span_id?: string
@@ -204,6 +209,10 @@ export function sanitizeMetricSafeToken(value: unknown): string | undefined {
   return typeof value === "string" && METRIC_SAFE_TOKEN_PATTERN.test(value) ? value : undefined
 }
 
+export function createTelemetryRunId(): string {
+  return `run-${nodeCrypto.randomUUID().replace(/-/g, "")}`
+}
+
 /** Long candidate digests / receipt refs are bounded to safe tokens. */
 export function sanitizeMetricDigest(value: unknown): string | undefined {
   if (typeof value !== "string") return undefined
@@ -272,6 +281,10 @@ export function recordMetrics(metric: DelegationMetricInput): void {
     candidate_digest,
     receipt_ref,
     event,
+    lifecycle,
+    change,
+    run_id,
+    attempt_id,
     trace_id,
     span_id,
     parent_span_id,
@@ -292,7 +305,11 @@ export function recordMetrics(metric: DelegationMetricInput): void {
     ...(sanitizeMetricValidationRatio(validation_ratio) !== undefined ? { validation_ratio: sanitizeMetricValidationRatio(validation_ratio) } : {}),
     error: sanitizeError(error),
     event: isSpan ? "span" : "run",
+    ...(lifecycle === "started" || lifecycle === "finished" ? { lifecycle } : {}),
     schema_version: 1,
+    ...(sanitizeMetricSafeToken(change) ? { change: sanitizeMetricSafeToken(change) } : {}),
+    ...(sanitizeMetricSafeToken(run_id) ? { run_id: sanitizeMetricSafeToken(run_id) } : {}),
+    ...(sanitizeMetricSafeToken(attempt_id) ? { attempt_id: sanitizeMetricSafeToken(attempt_id) } : {}),
     trace_id: sanitizeMetricSafeToken(trace_id) || hashSession(session_id),
     span_id: sanitizeMetricSafeToken(span_id) || runSpanId,
     // A span's parent must be supplied by the caller (the enclosing run's

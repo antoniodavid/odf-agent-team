@@ -1490,6 +1490,31 @@ describe("recordMetrics", () => {
     expect(getMetricsBuffer()[1]).not.toHaveProperty("validation_ratio")
   })
 
+  it("sanitizes lifecycle identity fields and preserves start/finish correlation", () => {
+    recordMetrics(makeMetric({
+      event: "run",
+      lifecycle: "started",
+      change: "o1-change",
+      run_id: "run-123",
+      attempt_id: "attempt-1",
+    }))
+    recordMetrics(makeMetric({
+      event: "run",
+      lifecycle: "finished",
+      change: "o1-change",
+      run_id: "run-123",
+      attempt_id: "attempt-1",
+    }))
+    expect(getMetricsBuffer().map(metric => metric.lifecycle)).toEqual(["started", "finished"])
+    expect(getMetricsBuffer()[0]).toMatchObject({ change: "o1-change", run_id: "run-123", attempt_id: "attempt-1" })
+    expect(getMetricsBuffer()[1].run_id).toBe(getMetricsBuffer()[0].run_id)
+
+    recordMetrics(makeMetric({ lifecycle: "finished", change: "../secret", run_id: "run with spaces", attempt_id: "/tmp/secret" }))
+    expect(getMetricsBuffer()[2]).not.toHaveProperty("change")
+    expect(getMetricsBuffer()[2]).not.toHaveProperty("run_id")
+    expect(getMetricsBuffer()[2]).not.toHaveProperty("attempt_id")
+  })
+
   it("sanitizes and truncates error messages", () => {
     const longError = "x".repeat(300)
     recordMetrics(makeMetric({ status: "error", error: longError }))
@@ -2169,6 +2194,20 @@ ${overrides}`
     await fs.writeFile(registryPath, JSON.stringify(registry, null, 2), "utf8")
   }
 
+  const readPersistedMetrics = async () => {
+    const metricsDir = path.join(tempHome, ".config", "opencode", "metrics")
+    let files: string[]
+    try {
+      files = await fs.readdir(metricsDir)
+    } catch {
+      return []
+    }
+    return (await Promise.all(files.map(async file => {
+      const content = await fs.readFile(path.join(metricsDir, file), "utf8")
+      return content.trim().split("\n").filter(Boolean).map(line => JSON.parse(line))
+    }))).flat()
+  }
+
   const parallelBranches = (suffix: string) => [
     { branch_id: `backend-${suffix}`, attempt_id: `backend-attempt-${suffix}`, prompt: "Implement the backend branch", context_files: [`backend-${suffix}.py`] },
     { branch_id: `frontend-${suffix}`, attempt_id: `frontend-attempt-${suffix}`, prompt: "Implement the frontend branch", context_files: [`frontend-${suffix}.js`] },
@@ -2204,6 +2243,32 @@ ${overrides}`
     expect(metrics[0].phase).toBe("ASSESS")
     expect(metrics[0].agent).toBe("odoo_functional_consultant")
     expect(metrics[0].task_api_source).toBe("toolCtx.task")
+    expect(metrics[0]).toMatchObject({ lifecycle: "finished", run_id: expect.any(String) })
+  })
+
+  it("flushes a correlated lifecycle start before task execution", async () => {
+    const { createODFDelegate, clearMetricsBuffer, getMetricsBuffer, flushMetricsSync } = await import("./odf-delegation.js")
+    clearMetricsBuffer()
+    const metricsDir = path.join(tempHome, ".config", "opencode", "metrics")
+    const taskApi = vi.fn().mockImplementation(async () => {
+      const files = fsSync.readdirSync(metricsDir)
+      const lines = fsSync.readFileSync(path.join(metricsDir, files[0]), "utf8").trim().split("\n").map(line => JSON.parse(line))
+      expect(lines).toHaveLength(1)
+      expect(lines[0]).toMatchObject({ event: "run", lifecycle: "started", change: "o1-change", attempt_id: "attempt-1" })
+      return { status: "ok", executive_summary: "assessed" }
+    })
+
+    const output = await createODFDelegate(undefined, tempHome).execute(
+      { phase: "ASSESS", change: "o1-change", attempt_id: "attempt-1", prompt: "Assess the change", context_files: [] },
+      { sessionID: "secret-session", task: taskApi } as any,
+    )
+    expect(JSON.parse(output as string).status).toBe("delegated")
+    flushMetricsSync()
+
+    const lines = fsSync.readFileSync(path.join(metricsDir, fsSync.readdirSync(metricsDir)[0]), "utf8").trim().split("\n").map(line => JSON.parse(line))
+    expect(lines.map(line => line.lifecycle)).toEqual(["started", "finished"])
+    expect(lines[1].run_id).toBe(lines[0].run_id)
+    expect(lines.every(line => line.session_id === undefined)).toBe(true)
   })
 
   it("delegates through an isolated SDK child session and propagates the ODF result", async () => {
@@ -2276,6 +2341,8 @@ ${overrides}`
     )
 
     expect(JSON.parse(output as string)).toMatchObject({ status: "timeout" })
+    const { getMetricsBuffer } = await import("./odf-delegation.js")
+    expect(getMetricsBuffer().at(-1)).toMatchObject({ lifecycle: "finished", status: "timeout" })
     expect(session.abort).toHaveBeenCalledWith({ path: { id: "child-timeout" }, query: { directory: tempHome } })
   })
 
@@ -2296,6 +2363,8 @@ ${overrides}`
     const envelope = JSON.parse(await pending as string)
 
     expect(envelope).toMatchObject({ status: "blocked", reason: "task-cancelled" })
+    const { getMetricsBuffer } = await import("./odf-delegation.js")
+    expect(getMetricsBuffer().at(-1)).toMatchObject({ lifecycle: "finished", status: "blocked" })
     expect(session.abort).toHaveBeenCalledWith({ path: { id: "child-cancelled" }, query: { directory: tempHome } })
   })
 
@@ -4102,6 +4171,7 @@ ${overrides}`
     expect(metrics[0].status).toBe("blocked")
     expect(metrics[0].task_api_source).toBe("unavailable")
     expect(metrics[0].error).toBe("task-api-unavailable")
+    expect(metrics[0].lifecycle).toBe("finished")
   })
 
   it("appends executor and database boundaries to delegated prompts", async () => {
@@ -4142,6 +4212,7 @@ ${overrides}`
     expect(metrics.length).toBe(1)
     expect(metrics[0].status).toBe("error")
     expect(metrics[0].error).toContain("task service down")
+    expect(metrics[0].lifecycle).toBe("finished")
   })
 
   it("rejects invalid phases", async () => {
@@ -4369,7 +4440,7 @@ ${overrides}`
   })
 
   it("runs two independent cross-domain BUILD branches and completes the join", async () => {
-    const { createODFParallelDelegate, clearMetricsBuffer, getMetricsBuffer } = await import("./odf-delegation.js")
+    const { createODFParallelDelegate, clearMetricsBuffer, flushMetricsSync } = await import("./odf-delegation.js")
     clearMetricsBuffer()
     const branches = parallelBranches("success")
     await prepareWorkflowState("parallel-success", "IMPLEMENT", "cross-domain")
@@ -4396,7 +4467,8 @@ ${overrides}`
       ".odf/validation-evidence-parallel-success-frontend-success.json",
     ])
     expect(result.join.evidence_refs).toEqual(result.branches.map((branch: any) => branch.validation_evidence_ref))
-    const metrics = getMetricsBuffer()
+    flushMetricsSync()
+    const metrics = await readPersistedMetrics()
     expect(metrics.filter(metric => metric.branch_id).map(metric => metric.branch_id)).toEqual(expect.arrayContaining([
       "backend-success",
       "frontend-success",
@@ -4693,7 +4765,7 @@ ${overrides}`
   })
 
   it("does not complete the join when branch validation is not verified", async () => {
-    const { createODFParallelDelegate, clearMetricsBuffer, getMetricsBuffer } = await import("./odf-delegation.js")
+    const { createODFParallelDelegate, clearMetricsBuffer, flushMetricsSync } = await import("./odf-delegation.js")
     clearMetricsBuffer()
     const taskApi = vi.fn().mockResolvedValue({ status: "ok", executive_summary: "implemented without evidence" })
     await prepareWorkflowState("parallel-no-validation", "IMPLEMENT", "cross-domain")
@@ -4710,7 +4782,8 @@ ${overrides}`
 
     expect(result).toMatchObject({ status: "blocked", reason: "parallel-validation-incomplete", join: { status: "blocked", expected: 2, completed: 2, failed: 0, validation_verified: false } })
     expect(result.branches.every((branch: any) => branch.status === "delegated")).toBe(true)
-    const joinMetrics = getMetricsBuffer().filter(metric => metric.join_status)
+    flushMetricsSync()
+    const joinMetrics = (await readPersistedMetrics()).filter(metric => metric.join_status)
     expect(joinMetrics.map(metric => metric.join_status)).toEqual(["running", "blocked"])
     expect(joinMetrics.at(-1)).toMatchObject({
       join_status: "blocked",
@@ -4723,7 +4796,7 @@ ${overrides}`
   })
 
   it("does not complete the join when the inner branch result fails", async () => {
-    const { createODFParallelDelegate, clearMetricsBuffer, getMetricsBuffer } = await import("./odf-delegation.js")
+    const { createODFParallelDelegate, clearMetricsBuffer, flushMetricsSync } = await import("./odf-delegation.js")
     clearMetricsBuffer()
     const branches = parallelBranches("inner-failure")
     await prepareWorkflowState("parallel-inner-failure", "IMPLEMENT", "cross-domain")
@@ -4746,7 +4819,8 @@ ${overrides}`
       join: { status: "blocked", completed: 0, failed: 2, validation_verified: false },
     })
     expect(result.branches.every((branch: any) => branch.status === "delegated" && !branch.successful)).toBe(true)
-    expect(getMetricsBuffer().filter(metric => metric.branch_id).map(metric => metric.status)).toEqual(["error", "error"])
+    flushMetricsSync()
+    expect((await readPersistedMetrics()).filter(metric => metric.branch_id && metric.lifecycle === "finished").map(metric => metric.status)).toEqual(["error", "error"])
     const ledger = (await fs.readFile(path.join(tempHome, ".odf", "attempt-ledger-parallel-inner-failure.jsonl"), "utf8"))
       .trim().split("\n").map(line => JSON.parse(line))
     expect(ledger.filter((record: any) => record.status === "failed")).toHaveLength(2)

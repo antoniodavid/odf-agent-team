@@ -98,11 +98,53 @@ function joinRecord(record) {
   }
 }
 
-/** True when a record carries any of the T7 telemetry fields. Shared heuristic
- *  with odf-evaluation.js — a record is "telemetry-bearing" if it has any of
- *  event / schema_version / model_available / candidate_digest. */
+/** Coverage requires the complete O1 identity/lifecycle proof, not legacy T7 fields. */
+const VALID_OUTCOME_STATUSES = new Set(["ok", "blocked", "error", "timeout"])
+
 function hasTelemetry(record) {
-  return !!record && (record.event !== undefined || record.schema_version !== undefined || record.model_available !== undefined || record.candidate_digest !== undefined)
+  return !!record &&
+    record.schema_version === 1 &&
+    record.event === "run" &&
+    record.lifecycle === "finished" &&
+    safeToken(record.run_id) !== null &&
+    safeToken(record.change) !== null &&
+    VALID_OUTCOME_STATUSES.has(record.status)
+}
+
+function isLifecycleRecord(record) {
+  return !!record && record.event === "run" &&
+    (record.lifecycle === "started" || record.lifecycle === "finished") &&
+    safeToken(record.run_id) !== null
+}
+
+function lifecycleState(records) {
+  const started = new Set()
+  const finished = new Set()
+  for (const record of records) {
+    if (joinRecord(record) || !isLifecycleRecord(record)) continue
+    const runId = safeToken(record.run_id)
+    if (record.lifecycle === "started") started.add(runId)
+    else finished.add(runId)
+  }
+  const unfinishedRunIds = [...started].filter(runId => !finished.has(runId))
+  return {
+    startedCount: started.size,
+    unfinishedCount: unfinishedRunIds.length,
+    unfinishedRunIds,
+  }
+}
+
+function aggregationRecords(records) {
+  const finishedRunIds = new Set()
+  return new Set(records.filter(record => {
+    if (joinRecord(record)) return false
+    if (!isLifecycleRecord(record)) return true
+    if (record.lifecycle === "started") return false
+    const runId = safeToken(record.run_id)
+    if (finishedRunIds.has(runId)) return false
+    finishedRunIds.add(runId)
+    return true
+  }))
 }
 
 /* ------------------------------------------------------------------ */
@@ -185,6 +227,8 @@ export function learningProgress(library) {
 
 /** Build the dashboard from delegation records. */
 export function buildDashboard(records, days, library = null) {
+  const lifecycle = lifecycleState(records)
+  const aggregate = aggregationRecords(records)
   let total = 0
   const byAgent = new Map()
   const byWorkType = new Map()
@@ -218,6 +262,8 @@ export function buildDashboard(records, days, library = null) {
       }
       continue
     }
+
+    if (!aggregate.has(r)) continue
 
     total += 1
     const duration = typeof r.duration_ms === "number" && Number.isFinite(r.duration_ms) && r.duration_ms >= 0 ? r.duration_ms : 0
@@ -297,18 +343,21 @@ export function buildDashboard(records, days, library = null) {
     .slice(0, 10)
     .map((e) => `  ${String(e.timestamp || "unknown").slice(0, 64)} | ${e.agent} | ${String(e.error || "").replace(/\s+/g, " ").slice(0, 80)} | ${fmtDur(e.duration_ms)}`)
 
-  // "partial" heuristic (same simple rule as odf-evaluation): a dataset is
-  // partial when at least one record lacks the T7 telemetry fields. Coverage
-  // is the ratio of telemetry-bearing records; null when none lack fields.
-  const withTelemetry = records.filter(hasTelemetry).length
-  const partial = records.length > 0 && withTelemetry < records.length
-  const data_status = total === 0 ? "no_data" : partial ? "partial" : "complete"
+  // Partial means an unfinished run exists or a finished aggregate record lacks
+  // the T7 telemetry fields. Started markers never inflate this denominator.
+  const coverageRecords = records.filter(r => !joinRecord(r) && aggregate.has(r))
+  const withTelemetry = coverageRecords.filter(hasTelemetry).length
+  const partial = lifecycle.unfinishedCount > 0 || coverageRecords.length > 0 && withTelemetry < coverageRecords.length
+  const data_status = total === 0 ? lifecycle.unfinishedCount > 0 ? "partial" : "no_data" : partial ? "partial" : "complete"
 
   return {
     total,
     data_status,
-    coverage: partial ? withTelemetry / records.length : null,
+    coverage: partial && coverageRecords.length > 0 ? withTelemetry / coverageRecords.length : null,
     records_with_telemetry: withTelemetry,
+    startedCount: lifecycle.startedCount,
+    unfinishedCount: lifecycle.unfinishedCount,
+    unfinishedRunIds: lifecycle.unfinishedRunIds,
     avgDurationMs: total > 0 ? durationSum / total : 0,
     avgTokens: total > 0 ? tokensSum / total : 0,
     selfDiscoveredPct: pct(selfDiscovered, total),
@@ -341,6 +390,7 @@ export function renderDashboard(d) {
     `  Skill resolution rate: ${d.skillInjectionPctLabel} injected`,
     `  Validation ratio: ${d.validationRatio === null ? "n/a" : `${Math.round(d.validationRatio * 100)}%`}`,
     `  Errors: ${d.errorsCount} (${d.errorPctLabel})`,
+    `  Unfinished runs: ${d.unfinishedCount || 0}`,
     "",
     "=== By Agent ===",
     `  ${"Agent".padEnd(18)} ${"Delegations".padStart(11)} ${"Avg Dur".padStart(9)} ${"Avg Tokens".padStart(12)} ${"Resolution".padStart(11)}`,
