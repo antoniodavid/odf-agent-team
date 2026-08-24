@@ -29,6 +29,7 @@ import {
   computePolicyGate,
   savePolicyGateJson,
   loadEngramStatus,
+  createODFStatus,
   createODFWorkflowStatus,
   createODFHealth,
   commitWorkflowTransition,
@@ -1838,6 +1839,29 @@ describe("loadEngramStatus", () => {
       expect(legacy?.change).toBe("legacy")
       expect(legacy?.applyProgress).toEqual({ completed: 1, total: 2 })
       expect(fsSync.existsSync(path.join(process.cwd(), "--project"))).toBe(false)
+    } finally {
+      await cleanup()
+    }
+  })
+
+  it("adds observability to legacy odf_status without removing legacy fields", async () => {
+    const workspace = path.join(tmp, "repo")
+    initGitRepo(workspace)
+    commitFile(workspace, "README.md", 1)
+    const cleanup = await configureEngramExport([
+      { topic_key: "odf/legacy-output/propose", content: "proposal", created_at: "2026-07-31T11:00:00Z" },
+    ])
+
+    try {
+      const output = await createODFStatus().execute({ change_name: "legacy-output", workspace_dir: workspace }, {} as any)
+      const result = JSON.parse(output as string)
+      expect(result).toMatchObject({
+        status: "found",
+        change: "legacy-output",
+        phase: "propose",
+        artifacts: { propose: "done" },
+        observability: { schema_version: 1, change: "legacy-output" },
+      })
     } finally {
       await cleanup()
     }

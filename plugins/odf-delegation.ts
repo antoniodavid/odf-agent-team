@@ -109,6 +109,11 @@ import { classifyEntryTriage, type EntryTriageInput } from "../odf-plugin/entry-
 import { validateExpectations, validDate } from "../odf-plugin/odf-expectations.js"
 import { sanitizeChangeName, validatePreflight, type PreflightRecord } from "../scripts/lib/preflight.js"
 import { inspectToolArgs } from "../scripts/odf-safety.js"
+import {
+  buildObservabilityTimeline,
+  readTelemetry,
+  type ObservabilityTimeline,
+} from "../odf-plugin/odf-observability.js"
 
 
 // ==========================================
@@ -3458,6 +3463,7 @@ export interface ODFChangeStatus {
   applyProgress: { completed: number; total: number }
   lastUpdated: string | null
   workflowStatus: WorkflowStatus
+  observability: ObservabilityTimeline
 }
 
 interface StatusArtifact {
@@ -4620,7 +4626,7 @@ function buildEngramStatus(
   workspaceRoot: string,
   snapshot: EngramSnapshot,
   warnings: string[] = []
-): ODFChangeStatus {
+): Omit<ODFChangeStatus, "observability"> {
   const { change: bestChange, artifacts } = snapshot
 
   const status = {
@@ -4629,7 +4635,7 @@ function buildEngramStatus(
     artifacts: {},
     applyProgress: { completed: 0, total: 0 },
     lastUpdated: null,
-  } as ODFChangeStatus
+  } as Omit<ODFChangeStatus, "observability">
 
   // Map artifact types to state
   const artifactStates: Record<string, string> = {}
@@ -4672,7 +4678,7 @@ function buildEngramStatus(
 export async function loadEngramStatus(workspaceRoot: string, changeName?: string): Promise<ODFChangeStatus | null> {
   const observations = await readEngramObservations(workspaceRoot)
   const snapshot = observations ? selectEngramSnapshot(observations, changeName) : null
-  return snapshot ? buildEngramStatus(workspaceRoot, snapshot) : null
+  return snapshot ? attachRuntimeStatus(buildEngramStatus(workspaceRoot, snapshot), workspaceRoot) : null
 }
 
 function contentStatus(content: string): string | null {
@@ -4726,7 +4732,7 @@ function buildMergedStatus(
   workspaceRoot: string,
   openSpec: OpenSpecSnapshot,
   engram: EngramSnapshot | null,
-): ODFChangeStatus {
+): Omit<ODFChangeStatus, "observability"> {
   const warnings = [...openSpec.warnings, ...conflictWarnings(openSpec, engram)]
   const openGroups = new Set(openSpec.artifacts
     .map((artifact) => normalizeArtifactKey(artifact.key).group)
@@ -4778,14 +4784,24 @@ function buildMergedStatus(
   }
 }
 
-function attachParallelJoinStatus(status: ODFChangeStatus, workspaceRoot: string): ODFChangeStatus {
+function attachRuntimeStatus(status: Omit<ODFChangeStatus, "observability">, workspaceRoot: string): ODFChangeStatus {
   const loaded = readParallelJoinArtifact(workspaceRoot, status.change)
   if (loaded.warning) {
     status.workflowStatus.warnings = Array.from(new Set([...status.workflowStatus.warnings, loaded.warning]))
   } else if (loaded.artifact) {
     status.workflowStatus.parallel_join = loaded.artifact
   }
-  return status
+  const ledger = readAttemptLedger(attemptLedgerPath(workspaceRoot, status.change))
+  const observability = buildObservabilityTimeline({
+    change: status.change,
+    workflow: status.workflowStatus,
+    telemetry: readTelemetry(status.change),
+    attempts: ledger.records,
+    attempt_error: ledger.error,
+    parallel_join: loaded.artifact,
+    parallel_join_warning: loaded.warning,
+  })
+  return { ...status, observability }
 }
 
 async function loadCombinedWorkflowStatus(workspaceRoot: string, changeName?: string): Promise<ODFChangeStatus | null> {
@@ -4797,12 +4813,12 @@ async function loadCombinedWorkflowStatus(workspaceRoot: string, changeName?: st
   const targetChange = requestedChange || engram?.change
   const openSpec = targetChange ? await loadOpenSpecStatus(workspaceRoot, targetChange) : null
   if (!openSpec?.state) {
-    if (engram) return attachParallelJoinStatus(buildEngramStatus(workspaceRoot, engram, openSpec?.warnings || []), workspaceRoot)
+    if (engram) return attachRuntimeStatus(buildEngramStatus(workspaceRoot, engram, openSpec?.warnings || []), workspaceRoot)
     return openSpec?.artifacts.length
-      ? attachParallelJoinStatus(buildMergedStatus(workspaceRoot, openSpec, null), workspaceRoot)
+      ? attachRuntimeStatus(buildMergedStatus(workspaceRoot, openSpec, null), workspaceRoot)
       : null
   }
-  return attachParallelJoinStatus(buildMergedStatus(workspaceRoot, openSpec, engram), workspaceRoot)
+  return attachRuntimeStatus(buildMergedStatus(workspaceRoot, openSpec, engram), workspaceRoot)
 }
 
 function createODFStatus(): ReturnType<typeof tool> {
@@ -4861,6 +4877,7 @@ Returns canonical stages and legacy compatibility fields. It never writes state 
         artifacts: status.artifacts,
         applyProgress: status.applyProgress,
         lastUpdated: status.lastUpdated,
+        observability: status.observability,
       }, null, 2)
     },
   })
@@ -5921,6 +5938,7 @@ export {
   createODFWorkflowAdvance,
   createODFWorkflowOverride,
   createODFWorkflowBind,
+  createODFStatus,
   createODFEntryTriage,
   createODFWorkflowStatus,
   createODFHealth,

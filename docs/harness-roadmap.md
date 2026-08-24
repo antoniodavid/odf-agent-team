@@ -908,10 +908,12 @@ must remain visibly estimated.
    actual delegated phase. Reused candidate digests, receipts, and join records
    without adding a parallel authority. Coverage now requires a finished
    lifecycle record with valid identity, not merely the presence of T7 fields.
-2. **O2 — Make the read-side CLI truthful [ ].** Extend `odf-metrics` to combine
-   canonical workflow status, attempt-ledger state, parallel joins, and JSONL;
-   report active, stale, partial, and no-data states without inferring activity
-   from `canonical_stage` alone.
+2. **O2 — Make the read-side status truthful [x].** Added a bounded,
+   per-change observability timeline to both `odf_status` and
+   `odf_workflow_status`. It combines canonical workflow/receipt state,
+   attempt-ledger records, validated joins, and filtered lifecycle JSONL;
+   reports active, unfinished, partial, and no-data states without inferring
+   activity from `canonical_stage` alone. Stale classification remains deferred.
 3. **O3 — Add production spans only where they answer a measured question [ ].**
    Instrument delegation, task invocation, and parallel branches with real
    parent/child relationships. Measure required-field coverage, not schema
@@ -926,10 +928,55 @@ must remain visibly estimated.
 
 ### Current decision
 
-Keep the dashboard as a conditional roadmap item. O1 is complete; O2 is the
-next work unit. Do not start a React application yet. The prior local-first,
-read-only architecture remains correct, but the dashboard should be named a
-**control-plane observatory**, not a full tracing platform.
+Keep the dashboard as a conditional roadmap item. O1 and O2 are implemented in
+the current working tree; the next work unit is source-authority hardening,
+followed by O3 spans. Do not start a React application yet. The prior
+local-first, read-only architecture remains correct, but the dashboard should
+be named a **control-plane observatory**, not a full tracing platform.
+
+### Error-learning audit: source-authority resolution (2026-08-24)
+
+The vendor-bills incident is a real systemic bug class: **source-authority
+resolution is unsound and unenforced**. The agent searched for a plausible
+generic view instead of tracing the authoritative chain:
+
+```text
+action_move_in_invoice_type
+  → search_view_id
+  → account.view_account_bill_filter
+  → inherited target
+```
+
+The current precision tools do not yet prevent recurrence:
+
+- `sourceLookup` skips files larger than 128 KiB, which can hide the correct
+  definition in a large Odoo source file.
+- Module filtering does not fully constrain unqualified `id=` matches.
+- `verifyRefs` proves textual existence, not that an action points to the
+  selected view.
+- The plugin injects precision instructions but does not recompute or enforce
+  the action-to-view chain before accepting a result.
+- Failed/blocked runs are recorded operationally, but do not automatically
+  enter the T12 learning pipeline as causal prevention candidates.
+
+The next separate work unit is **S1 — source-authority precision**:
+
+1. Add an action-relation query to the existing precision tool.
+2. Make large-file scanning bounded but non-skipping.
+3. Enforce module-qualified definitions and reject authority mismatches.
+4. Require structured authority evidence for view-related DESIGN/IMPLEMENT.
+5. Add version-specific regression goldens for every supported Odoo version —
+   Odoo 16, 17, 18, and current 19.0 — and
+   block workflow advancement on an authority mismatch. Do not assume that an
+   action/view relation is stable across versions; XML IDs, actions, models,
+   fields, and inheritance chains can change between releases.
+6. Fix the learning bridge admission mapping so `blocked`/`failed` receipts
+   cannot default to a successful learning run.
+
+Generic memory such as “be more careful” is not sufficient learning. A useful
+lesson must become an executable lookup, validator, or regression. T12 should
+propose that lesson for human review; it must not auto-activate unverified
+skills.
 
 ## Program-level success measures
 

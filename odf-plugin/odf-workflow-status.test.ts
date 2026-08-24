@@ -668,6 +668,12 @@ await fs.writeFile(cli, "#!/bin/sh\nprintf '{\"observations\":%s}' \"$ODF_TEST_E
       expect(result.source.state).toBe("engram")
       expect(result.warnings).toContain("OpenSpec state was not read; status is derived from Engram artifacts.")
       expect(result.status).toBe("found")
+      expect(result.observability).toMatchObject({
+        schema_version: 1,
+        change: "tool-change",
+        data_status: "partial",
+        events: [],
+      })
       expect(fsSync.existsSync(path.join(root, ".odf"))).toBe(false)
     } finally {
       process.env.PATH = previousPath
