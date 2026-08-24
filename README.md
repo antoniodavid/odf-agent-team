@@ -1,47 +1,47 @@
 # ODF Agent Team
 
-> Sistema de agentes y skills para desarrollo **Odoo** con OpenCode — pipeline spec-driven, CLIs deterministas y gates de precisión.
+> AI agents and skills for **Odoo** development on OpenCode — spec-driven pipeline, deterministic CLIs, and precision gates.
 
-**ODF (Odoo Development Framework)** orquesta el desarrollo de módulos Odoo con una pipeline de fases delegadas a agentes especializados, respaldada por **lógica determinista en CLIs** (scan del entorno, lookup de IDs, evidencia de tests) para que los agentes encuentren el codebase en vez de inventarlo.
+**ODF (Odoo Development Framework)** orchestrates Odoo module development through a phase pipeline delegated to specialized agents, backed by **deterministic CLI logic** (environment scan, ID lookup, test evidence) so agents *find* the codebase instead of inventing it.
 
-## Estado honesto
+## Honest status
 
-- **Maduro y testeado**: 619 tests Vitest + 150 escenarios YAML + smoke integral del harness (`npm run test:harness`). Cada release se verifica de punta a punta.
-- **Portable**: se instala en cualquier entorno de OpenCode (Linux/macOS/Windows vía Git Bash/WSL), con resolución `XDG_CONFIG_HOME` y reescritura de paths al destino.
-- **Limitaciones conocidas**:
-  - El entrypoint del plugin (`plugins/odf-delegation.ts`, ~6k líneas) sigue siendo un monolito para el núcleo de delegación/workflow; las secciones autocontenidas ya viven en módulos (`odf-plugin/odf-delegation-{shared,metrics,health,policy,loopguard}.ts`).
-  - El store `engram` requiere el **MCP de Engram** (o el CLI para estado); sin él, los flujos OpenSpec funcionan y los Engram-only bloquean temprano con mensaje claro.
-  - `codegraph`/`fff`/`context7` son **opcionales**: degradan a búsqueda nativa/FFF con warnings (ver matriz abajo).
-  - El modelo de fases es estricto por diseño; el escape hatch es `odf_workflow_override` (skip/re-enter/re-plan auditado), no el bypass.
+- **Mature and tested**: 619 Vitest tests + 150 YAML scenarios + an end-to-end harness smoke suite (`npm run test:harness`). Every release is verified end to end.
+- **Portable**: installs into any OpenCode environment (Linux/macOS/Windows via Git Bash/WSL), with `XDG_CONFIG_HOME` resolution and author-path rewriting at install time.
+- **Known limitations**:
+  - The plugin entrypoint (`plugins/odf-delegation.ts`, ~6k lines) is still a monolith for the delegation/workflow core; the self-contained sections already live in modules (`odf-plugin/odf-delegation-{shared,metrics,health,policy,loopguard}.ts`).
+  - The `engram` store requires the **Engram MCP** (or the CLI for state); without it, OpenSpec flows work and Engram-only flows block early with a clear message.
+  - `codegraph` / `fff` / `context7` are **optional**: they degrade to native/FFF search with warnings (see the matrix below).
+  - The phase model is strict by design; the escape hatch is `odf_workflow_override` (audited skip/re-enter/re-plan), not a bypass.
 
-## Instalación
+## Install
 
 ```bash
-# Release-pinned (recomendado)
+# Release-pinned (recommended)
 curl -fsSL https://raw.githubusercontent.com/antoniodavid/odf-agent-team/v1.2.1/install.sh | BRANCH=v1.2.1 bash
-# O con flags: --yes (no interactivo) --force --with-codegraph --configure-mcp
+# Or with flags: --yes (non-interactive) --force --with-codegraph --configure-mcp
 
-# TUI interactiva (modo, componentes, perfil, MCP)
+# Interactive TUI (mode, components, profile, MCP)
 ./install.sh --tui
 
-# Desde el repo
+# From a local checkout
 ./install.sh --yes --force
 ```
 
-Variables útiles: `ODF_DIR` / `ODF_CONFIG_DIR` / `XDG_CONFIG_HOME` (destino), `ODF_SOURCE_DIR` (instalación local), `ODF_SKIP_NPM=1`, `ODF_SKIP_SELFTEST=1`, `BRANCH=<tag>` (pinned).
+Useful env vars: `ODF_DIR` / `ODF_CONFIG_DIR` / `XDG_CONFIG_HOME` (target), `ODF_SOURCE_DIR` (local source), `ODF_SKIP_NPM=1`, `ODF_SKIP_SELFTEST=1`, `BRANCH=<tag>` (pinned installs).
 
-### Dependencias y degradación
+### Dependencies and degradation
 
-| Dependencia | Falta | Impacto |
+| Dependency | Missing | Impact |
 |---|---|---|
-| Node.js 18+ | — | El pack no corre |
-| `engram` (CLI) | OpenSpec OK; Engram-only bloquea con `engram-cli-unavailable` | Opcional |
-| `engram` (MCP) | Store=engram bloquea temprano (instalar MCP o usar `openspec`) | Opcional |
-| `codegraph` | Context packs desactivados → FFF/nativo | Opcional |
-| `fff` / `context7` | Fallback a búsqueda nativa / fuentes locales | Opcional |
-| `git` / `docker` | Digests/evidence o test-command desactivados | Recomendado |
+| Node.js 18+ | — | The pack does not run |
+| `engram` (CLI) | OpenSpec OK; Engram-only blocks with `engram-cli-unavailable` | Optional |
+| `engram` (MCP) | Engram-store workflows block early (install the MCP or use `openspec`) | Optional |
+| `codegraph` | Context packs disabled → FFF/native | Optional |
+| `fff` / `context7` | Falls back to native search / local sources | Optional |
+| `git` / `docker` | Digests/evidence or test-command detection disabled | Recommended |
 
-Ver la matriz completa con: `node <pack>/scripts/odf-toolkit.js deps`
+Full matrix: `node <pack>/scripts/odf-toolkit.js deps`
 
 ## Pipeline
 
@@ -49,54 +49,54 @@ Ver la matriz completa con: `node <pack>/scripts/odf-toolkit.js deps`
 init → preflight → DECIDE → optional PLAN → BUILD → VERIFY → archived
 ```
 
-- `execution_mode`: `interactive` · `batch` · **`auto`** (piloto automático: fases encadenadas, gates obligatorios intactos).
-- Fases legacy = adaptadores: `DECIDE`=PROPOSE+ASSESS, `PLAN`=QA-PLAN+DESIGN, `BUILD`=IMPLEMENT, `VERIFY` independiente.
-- **Override auditado**: `odf_workflow_override` — skip (solo DECIDE/PLAN), re-enter (invalida etapas posteriores), re-plan (con revisiones de Expectations `revision/supersedes/replan_from`). Cada llamada se registra en `.odf/override-{change}.jsonl`.
+- `execution_mode`: `interactive` · `batch` · **`auto`** (autopilot: chained phases, mandatory gates intact).
+- Legacy phases are adapters: `DECIDE`=PROPOSE+ASSESS, `PLAN`=QA-PLAN+DESIGN, `BUILD`=IMPLEMENT, `VERIFY` stays independent.
+- **Audited override**: `odf_workflow_override` — skip (DECIDE/PLAN only), re-enter (invalidates later stages), re-plan (with human-approved Expectations revisions `revision/supersedes/replan_from`). Every call is appended to `.odf/override-{change}.jsonl`.
 - **Preflight**: `artifact_store` (openspec/engram/hybrid), `delivery_strategy`, `review_budget_lines`, `validation_mode` (automated/manual-acceptance), `odoo_version`, TDD, chain strategy.
 
-## CLIs deterministas (el "cerebro" fuera del LLM)
+## Deterministic CLIs (the brain outside the LLM)
 
-| CLI | Subcomandos |
+| CLI | Subcommands |
 |---|---|
-| `odf-project-scan` | Scan completo del entorno Doodba (addons.yaml sources, compose, linting, git, CodeGraph, matriz de dependencias) + persist verificado, checksum, `--diff`, `--deep`, exit codes |
+| `odf-project-scan` | Full Doodba environment scan (addons.yaml sources, compose, linting, git, CodeGraph, dependency matrix) + verified persistence, checksum cache, `--diff`, `--deep`, exit codes |
 | `odf-toolkit` | `context` (CodeGraph explore) · `state` · `result` · `resolve` · `evidence` · `metrics` · `manual-evidence` · `redundancy` · `deps` · **`lookup`** · **`verify-refs`** |
 
-### Gate de precisión (nunca inventar IDs)
+### Precision gate (never invent IDs)
 
 ```bash
-# Encontrar un XML ID / modelo / campo en el source local (file:line)
+# Find a view XML ID / model / field in the local source (file:line)
 odf-toolkit lookup --source <odoo-src-root> [--repos <src-dir>] --id <xmlid> | --model <model>
 
-# VERIFY: cada ref=/model= del módulo debe resolverse (exit 1 si no)
+# VERIFY: every ref=/model= in the module must resolve (exit 1 otherwise)
 odf-toolkit verify-refs --repo <module-dir> --source <odoo-src-root> [--repos <src-dir>]
 ```
 
-Diseño e implementación **deben** verificar cada ID de vista, modelo y `_inherit` contra el source local; un ID sin resolver es una decisión abierta, nunca un guess.
+Design and implementation **must** verify every view ID, model, and `_inherit` against the local source; an unresolved ID is an open decision, never a guess.
 
-## Qué incluye
+## What's inside
 
-- **32 skills** (OCA governance/style, patrones Odoo, fases ODF, convenciones compartidas), **13 agentes** especializados (backend, frontend, QA, functional, DBA, APIs, migraciones, stock-lot, proposer, etc.), comandos `/odf-*`.
-- **Plugin** (`plugins/odf-delegation.ts` + 5 módulos en `odf-plugin/`): delegación vía `task()`, policy gate, evidence seal, receipts, override, bind, loop guard.
-- **Instalador** idempotente con backup, TUI, `--configure-mcp`, probe de dependencias.
-- **Tests**: `npm test` (Vitest + escenarios YAML), `npm run test:harness` (smoke integral), `node scripts/odf-registry-validate.js`.
+- **32 skills** (OCA governance/style, Odoo patterns, ODF phases, shared conventions), **13 specialized agents** (backend, frontend, QA, functional, DBA, APIs, migrations, stock-lot, proposer, etc.), `/odf-*` commands.
+- **Plugin** (`plugins/odf-delegation.ts` + 5 modules in `odf-plugin/`): delegation via `task()`, policy gate, evidence seal, receipts, override, bind, loop guard.
+- **Idempotent installer** with backup, TUI, `--configure-mcp`, dependency probe.
+- **Tests**: `npm test` (Vitest + YAML scenarios), `npm run test:harness` (end-to-end smoke), `node scripts/odf-registry-validate.js`.
 
-## Desarrollo
+## Development
 
 ```bash
-npm test                 # 619 vitest + 150 escenarios
-npm run test:harness     # smoke integral del harness
+npm test                 # 619 vitest + 150 scenarios
+npm run test:harness     # end-to-end harness smoke
 npm run typecheck        # tsc --noEmit
-node scripts/odf-registry-validate.js   # paths del registry
+node scripts/odf-registry-validate.js   # registry paths
 ```
 
-Versión: `VERSION` + `odf-registry.json` + `CHANGELOG.md` deben ir sincronizados. Releases: tag semver + `gh release create`.
+Versioning: `VERSION` + `odf-registry.json` + `CHANGELOG.md` must stay in sync. Releases: semver tag + `gh release create`.
 
-## Repositorio
+## Repository layout
 
-- `agent/` — instrucciones de los agentes.
-- `skills/` — skills (OCA + ODF + compartidas).
+- `agent/` — agent instructions.
+- `skills/` — skills (OCA + ODF + shared).
 - `command/` — slash commands.
-- `odf-plugin/` — módulos deterministas (workflow, status, triage, expectations, candidate-manifest, delegation-*).
-- `scripts/` — CLIs y tests.
-- `plugins/odf-delegation.ts` — entrypoint del plugin.
-- `docs/` — arquitectura, contratos de diseño/expectations.
+- `odf-plugin/` — deterministic modules (workflow, status, triage, expectations, candidate-manifest, delegation-*).
+- `scripts/` — CLIs and tests.
+- `plugins/odf-delegation.ts` — plugin entrypoint.
+- `docs/` — architecture, design/expectations contracts.
