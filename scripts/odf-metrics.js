@@ -101,6 +101,10 @@ function joinRecord(record) {
 /** Coverage requires the complete O1 identity/lifecycle proof, not legacy T7 fields. */
 const VALID_OUTCOME_STATUSES = new Set(["ok", "blocked", "error", "timeout"])
 
+function isSpanRecord(record) {
+  return !!record && record.event === "span"
+}
+
 function hasTelemetry(record) {
   return !!record &&
     record.schema_version === 1 &&
@@ -108,7 +112,17 @@ function hasTelemetry(record) {
     record.lifecycle === "finished" &&
     safeToken(record.run_id) !== null &&
     safeToken(record.change) !== null &&
+    safeToken(record.trace_id) !== null &&
+    safeToken(record.span_id) !== null &&
     VALID_OUTCOME_STATUSES.has(record.status)
+}
+
+function hasSpanTelemetry(record) {
+  if (!record || record.schema_version !== 1 || record.event !== "span") return false
+  if (record.lifecycle !== "started" && record.lifecycle !== "finished") return false
+  if (safeToken(record.trace_id) === null || safeToken(record.span_id) === null || safeToken(record.parent_span_id) === null) return false
+  if (record.span_kind !== "branch" && record.span_kind !== "task") return false
+  return record.span_kind !== "branch" || (safeToken(record.branch_id) !== null && safeToken(record.attempt_id) !== null)
 }
 
 function isLifecycleRecord(record) {
@@ -121,7 +135,7 @@ function lifecycleState(records) {
   const started = new Set()
   const finished = new Set()
   for (const record of records) {
-    if (joinRecord(record) || !isLifecycleRecord(record)) continue
+    if (joinRecord(record) || isSpanRecord(record) || !isLifecycleRecord(record)) continue
     const runId = safeToken(record.run_id)
     if (record.lifecycle === "started") started.add(runId)
     else finished.add(runId)
@@ -137,6 +151,7 @@ function lifecycleState(records) {
 function aggregationRecords(records) {
   const finishedRunIds = new Set()
   return new Set(records.filter(record => {
+    if (isSpanRecord(record)) return false
     if (joinRecord(record)) return false
     if (!isLifecycleRecord(record)) return true
     if (record.lifecycle === "started") return false
@@ -243,6 +258,7 @@ export function buildDashboard(records, days, library = null) {
   let validationRatioCount = 0
 
   for (const r of records) {
+    if (isSpanRecord(r)) continue
     const join = joinRecord(r)
     if (join) {
       if (!byJoinStatus.has(join.status)) {
@@ -347,14 +363,54 @@ export function buildDashboard(records, days, library = null) {
   // the T7 telemetry fields. Started markers never inflate this denominator.
   const coverageRecords = records.filter(r => !joinRecord(r) && aggregate.has(r))
   const withTelemetry = coverageRecords.filter(hasTelemetry).length
+  const spanRecords = records.filter(isSpanRecord)
+  const spansWithTelemetry = spanRecords.filter(hasSpanTelemetry).length
+  const branchRecords = spanRecords.filter(record => record.span_kind === "branch")
+  const branchesWithTelemetry = branchRecords.filter(hasSpanTelemetry).length
+  const fieldRecords = records.filter(r => !joinRecord(r))
+  const fieldCoverage = (predicate) => ({
+    records: fieldRecords.length,
+    available: fieldRecords.filter(predicate).length,
+    coverage: fieldRecords.length > 0 ? fieldRecords.filter(predicate).length / fieldRecords.length : null,
+  })
+  const telemetryCoverage = {
+    runs: {
+      records: coverageRecords.length,
+      available: withTelemetry,
+      coverage: coverageRecords.length > 0 ? withTelemetry / coverageRecords.length : null,
+    },
+    spans: {
+      records: spanRecords.length,
+      available: spansWithTelemetry,
+      coverage: spanRecords.length > 0 ? spansWithTelemetry / spanRecords.length : null,
+    },
+    branch: {
+      records: branchRecords.length,
+      available: branchesWithTelemetry,
+      coverage: branchRecords.length > 0 ? branchesWithTelemetry / branchRecords.length : null,
+    },
+    model: fieldCoverage(record => record.model_available === true && typeof record.model === "string"),
+    provider: fieldCoverage(record => typeof record.provider === "string"),
+    real_tokens: fieldCoverage(record => {
+      const tokens = record.tokens
+      return !!tokens && (typeof tokens.input === "number" || typeof tokens.output === "number")
+    }),
+  }
   const partial = lifecycle.unfinishedCount > 0 || coverageRecords.length > 0 && withTelemetry < coverageRecords.length
   const data_status = total === 0 ? lifecycle.unfinishedCount > 0 ? "partial" : "no_data" : partial ? "partial" : "complete"
 
   return {
     total,
     data_status,
-    coverage: partial && coverageRecords.length > 0 ? withTelemetry / coverageRecords.length : null,
+    coverage: coverageRecords.length > 0 ? withTelemetry / coverageRecords.length : null,
     records_with_telemetry: withTelemetry,
+    span_coverage: telemetryCoverage.spans.coverage,
+    span_records: spanRecords.length,
+    records_with_span_telemetry: spansWithTelemetry,
+    branch_coverage: telemetryCoverage.branch.coverage,
+    branch_records: branchRecords.length,
+    records_with_branch_telemetry: branchesWithTelemetry,
+    telemetry_coverage: telemetryCoverage,
     startedCount: lifecycle.startedCount,
     unfinishedCount: lifecycle.unfinishedCount,
     unfinishedRunIds: lifecycle.unfinishedRunIds,

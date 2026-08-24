@@ -108,7 +108,7 @@ describe("buildDashboard + render", () => {
 
   it("dashboard-partial: legacy lines without the O1 proof expose partial + coverage", () => {
     const d = buildDashboard([
-      { agent: "backend", status: "ok", event: "run", lifecycle: "finished", schema_version: 1, run_id: "run-1", change: "change-1", model_available: false },
+      { agent: "backend", status: "ok", event: "run", lifecycle: "finished", schema_version: 1, run_id: "run-1", change: "change-1", trace_id: "trace-1", span_id: "span-1", model_available: false },
       { agent: "backend", status: "ok" },
       { agent: "backend", status: "error" },
     ], 1)
@@ -162,6 +162,38 @@ describe("buildDashboard + render", () => {
     expect(d.unfinishedCount).toBe(1)
     expect(d.unfinishedRunIds).toEqual(["run-stale"])
     expect(renderDashboard(d)).toContain("Unfinished runs: 1")
+  })
+
+  it("excludes spans from delegation totals and measures event-specific coverage", () => {
+    const d = buildDashboard([
+      { event: "run", lifecycle: "finished", schema_version: 1, run_id: "run-1", change: "change-1", trace_id: "trace-1", span_id: "span-1", agent: "backend", status: "ok" },
+      { event: "span", span_kind: "branch", lifecycle: "started", schema_version: 1, trace_id: "trace-1", span_id: "span-task", parent_span_id: "span-1", agent: "branch", branch_id: "backend", attempt_id: "attempt-1" },
+      { event: "span", span_kind: "branch", lifecycle: "finished", schema_version: 1, trace_id: "trace-1", span_id: "span-task", parent_span_id: "span-1", agent: "branch", branch_id: "backend", attempt_id: "attempt-1" },
+      { event: "span", span_kind: "branch", lifecycle: "finished", schema_version: 1, trace_id: "trace-1", span_id: "span-invalid", parent_span_id: "bad parent", agent: "branch", branch_id: "backend" },
+    ], 1)
+
+    expect(d.total).toBe(1)
+    expect(d.records_with_telemetry).toBe(1)
+    expect(d.span_records).toBe(3)
+    expect(d.records_with_span_telemetry).toBe(2)
+    expect(d.span_coverage).toBeCloseTo(2 / 3)
+    expect(d.branch_records).toBe(3)
+    expect(d.records_with_branch_telemetry).toBe(2)
+    expect(d.branch_coverage).toBeCloseTo(2 / 3)
+    expect(d.telemetry_coverage.runs.coverage).toBe(1)
+    expect(d.telemetry_coverage.spans.coverage).toBeCloseTo(2 / 3)
+    expect(d.telemetry_coverage.branch.coverage).toBeCloseTo(2 / 3)
+  })
+
+  it("accepts an attempt-only sequential task span", () => {
+    const d = buildDashboard([
+      { event: "span", span_kind: "task", lifecycle: "finished", schema_version: 1, trace_id: "trace-1", span_id: "span-task", parent_span_id: "span-run", agent: "odoo_backend_engineer", attempt_id: "attempt-1" },
+    ], 1)
+
+    expect(d.records_with_span_telemetry).toBe(1)
+    expect(d.span_coverage).toBe(1)
+    expect(d.branch_records).toBe(0)
+    expect(d.branch_coverage).toBeNull()
   })
 })
 

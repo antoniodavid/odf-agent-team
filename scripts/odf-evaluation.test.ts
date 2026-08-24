@@ -77,9 +77,9 @@ describe("odf evaluation", () => {
 
   it("online-complete: full telemetry records give a normal score", () => {
     const result = evaluateOnline([
-      { agent: "backend", status: "ok", event: "run", lifecycle: "finished", schema_version: 1, run_id: "run-1", change: "change-1" },
-      { agent: "backend", status: "ok", event: "run", lifecycle: "finished", schema_version: 1, run_id: "run-2", change: "change-2" },
-      { agent: "backend", status: "error", event: "run", lifecycle: "finished", schema_version: 1, run_id: "run-3", change: "change-3" },
+      { agent: "backend", status: "ok", event: "run", lifecycle: "finished", schema_version: 1, run_id: "run-1", change: "change-1", trace_id: "trace-1", span_id: "span-1" },
+      { agent: "backend", status: "ok", event: "run", lifecycle: "finished", schema_version: 1, run_id: "run-2", change: "change-2", trace_id: "trace-2", span_id: "span-2" },
+      { agent: "backend", status: "error", event: "run", lifecycle: "finished", schema_version: 1, run_id: "run-3", change: "change-3", trace_id: "trace-3", span_id: "span-3" },
     ], 1)
     expect(result).toMatchObject({ mode: "online", data_status: "complete", total: 3, errors: 1 })
     expect(result.error_rate).toBeCloseTo(1 / 3)
@@ -88,7 +88,7 @@ describe("odf evaluation", () => {
 
   it("online-partial-coverage: mixed T7 + legacy records are partial with coverage, score not 1", () => {
     const result = evaluateOnline([
-      { agent: "backend", status: "ok", event: "run", lifecycle: "finished", schema_version: 1, run_id: "run-1", change: "change-1", model_available: false },
+      { agent: "backend", status: "ok", event: "run", lifecycle: "finished", schema_version: 1, run_id: "run-1", change: "change-1", trace_id: "trace-1", span_id: "span-1", model_available: false },
       { agent: "backend", status: "ok" },
       { agent: "backend", status: "error" },
     ], 1)

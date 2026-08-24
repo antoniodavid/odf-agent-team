@@ -157,6 +157,39 @@ describe("O2 observability timeline", () => {
     }
   })
 
+  it("accepts valid span telemetry, preserves its identity, and keeps spans out of O2 events", async () => {
+    const metrics = await fs.mkdtemp(path.join(os.tmpdir(), "odf-observability-spans-"))
+    const day = new Date().toISOString().slice(0, 10)
+    try {
+      await fs.writeFile(path.join(metrics, `delegations-${day}.jsonl`), [
+        JSON.stringify(telemetryRow({ event: "run", lifecycle: "started", trace_id: "trace-1", span_id: "span-root" })),
+        JSON.stringify(telemetryRow({ event: "span", span_kind: "task", lifecycle: "started", run_id: undefined, trace_id: "trace-1", span_id: "span-task", parent_span_id: "span-root" })),
+        JSON.stringify(telemetryRow({ event: "span", span_kind: "branch", lifecycle: "finished", trace_id: "trace-1", span_id: "span-invalid", parent_span_id: "bad parent", branch_id: "backend" })),
+      ].join("\n") + "\n", "utf8")
+
+      const read = readTelemetry("target-change", metrics)
+      expect(read.records).toHaveLength(2)
+      expect(read.records[1]).toMatchObject({
+        event: "span",
+        trace_id: "trace-1",
+        span_id: "span-task",
+        parent_span_id: "span-root",
+        span_kind: "task",
+      })
+      const timeline = buildObservabilityTimeline({
+        change: "target-change",
+        workflow: workflow("target-change"),
+        telemetry: read,
+        attempts: [],
+      })
+      expect(timeline.events).toHaveLength(1)
+      expect(timeline.events[0]).toMatchObject({ source: "telemetry", kind: "delegation", lifecycle: "started", run_id: "run-default" })
+      expect(timeline.events.some(event => event.kind === "delegation" && event.run_id === "span-task")).toBe(false)
+    } finally {
+      await fs.rm(metrics, { recursive: true, force: true })
+    }
+  })
+
   it("reports unfinished runs and derives active attempts from the latest ledger state", () => {
     const timeline = buildObservabilityTimeline({
       change: "target-change",

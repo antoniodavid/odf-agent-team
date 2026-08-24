@@ -1599,14 +1599,24 @@ describe("recordMetrics", () => {
 
   it("telemetry-parent-child-correlate: a span carries its run's span_id as parent and shares trace_id", () => {
     recordMetrics(makeMetric({ event: "run" as const, trace_id: "t1", span_id: "s-root" }))
-    recordMetrics(makeMetric({ event: "span" as const, trace_id: "t1", span_id: "s-tool", parent_span_id: "s-root" }))
+    recordMetrics(makeMetric({ event: "span" as const, span_kind: "task", lifecycle: "finished", trace_id: "t1", span_id: "s-tool", parent_span_id: "s-root" }))
     const [run, span] = getMetricsBuffer()
     expect(run.event).toBe("run")
     expect(span.event).toBe("span")
     expect(span.trace_id).toBe(run.trace_id)
     expect(span.parent_span_id).toBe(run.span_id)
     expect(span.span_id).toBe("s-tool")
+    expect(span.span_kind).toBe("task")
     expect(run.parent_span_id).toBeUndefined()
+  })
+
+  it("does not store malformed span writes", () => {
+    recordMetrics(makeMetric({ event: "span" as const, span_kind: "task", lifecycle: undefined, trace_id: "t1", span_id: "s-tool", parent_span_id: "s-root" }))
+    recordMetrics(makeMetric({ event: "span" as const, span_kind: "task", lifecycle: "finished", trace_id: "t1", span_id: "s-tool", parent_span_id: undefined }))
+    expect(getMetricsBuffer()).toEqual([])
+
+    recordMetrics(makeMetric({ event: "span" as const, span_kind: "task", lifecycle: "finished", trace_id: "t1", span_id: "s-tool", parent_span_id: "s-root" }))
+    expect(getMetricsBuffer()).toHaveLength(1)
   })
 
   it("telemetry-tokens-honest: null input/output and flagged estimated when host hides tokens; real counts when exposed", () => {
@@ -1637,7 +1647,7 @@ describe("recordMetrics", () => {
   it("telemetry-buffer-bounded: cap and flush stay bounded with the new fields present", () => {
     process.env.ODF_METRICS_BUFFER_CAP = "2"
     recordMetrics(makeMetric({ event: "run" as const }))
-    recordMetrics(makeMetric({ event: "span" as const }))
+    recordMetrics(makeMetric({ event: "span" as const, span_kind: "task", lifecycle: "finished", trace_id: "trace-1", span_id: "span-task", parent_span_id: "span-run" }))
     expect(getMetricsBuffer().length).toBe(0)
     const metricsDir = path.join(tempHome, ".config", "opencode", "metrics")
     const files = fsSync.readdirSync(metricsDir)
@@ -1648,6 +1658,7 @@ describe("recordMetrics", () => {
       expect(parsed.schema_version).toBe(1)
       expect(parsed.trace_id).toBeTruthy()
       expect(parsed.span_id).toBeTruthy()
+      expect(parsed.event === "span" ? parsed.span_kind : undefined).toBe(parsed.event === "span" ? "task" : undefined)
     }
   })
 
@@ -2417,12 +2428,19 @@ ${overrides}`
     expect(envelope.workflow_advance).toBeUndefined()
 
     const metrics = getMetricsBuffer()
-    expect(metrics.length).toBe(1)
-    expect(metrics[0].status).toBe("ok")
-    expect(metrics[0].phase).toBe("ASSESS")
-    expect(metrics[0].agent).toBe("odoo_functional_consultant")
-    expect(metrics[0].task_api_source).toBe("toolCtx.task")
-    expect(metrics[0]).toMatchObject({ lifecycle: "finished", run_id: expect.any(String) })
+    expect(metrics).toHaveLength(2)
+    expect(metrics.map(metric => [metric.event, metric.lifecycle])).toEqual([
+      ["span", "finished"],
+      ["run", "finished"],
+    ])
+    expect(metrics[1]).toMatchObject({
+      status: "ok",
+      phase: "ASSESS",
+      agent: "odoo_functional_consultant",
+      task_api_source: "toolCtx.task",
+      run_id: expect.any(String),
+    })
+    expect(metrics[0]).toMatchObject({ tool: "task", parent_span_id: metrics[1].span_id })
   })
 
   it.each(["DESIGN", "IMPLEMENT"] as const)("leaves unrelated %s work unaffected", async phase => {
@@ -2561,8 +2579,9 @@ ${overrides}`
     const taskApi = vi.fn().mockImplementation(async () => {
       const files = fsSync.readdirSync(metricsDir)
       const lines = fsSync.readFileSync(path.join(metricsDir, files[0]), "utf8").trim().split("\n").map(line => JSON.parse(line))
-      expect(lines).toHaveLength(1)
+      expect(lines).toHaveLength(2)
       expect(lines[0]).toMatchObject({ event: "run", lifecycle: "started", change: "o1-change", attempt_id: "attempt-1" })
+      expect(lines[1]).toMatchObject({ event: "span", lifecycle: "started", tool: "task", parent_span_id: lines[0].span_id })
       return { status: "ok", executive_summary: "assessed" }
     })
 
@@ -2574,8 +2593,15 @@ ${overrides}`
     flushMetricsSync()
 
     const lines = fsSync.readFileSync(path.join(metricsDir, fsSync.readdirSync(metricsDir)[0]), "utf8").trim().split("\n").map(line => JSON.parse(line))
-    expect(lines.map(line => line.lifecycle)).toEqual(["started", "finished"])
-    expect(lines[1].run_id).toBe(lines[0].run_id)
+    expect(lines.map(line => [line.event, line.lifecycle])).toEqual([
+      ["run", "started"],
+      ["span", "started"],
+      ["span", "finished"],
+      ["run", "finished"],
+    ])
+    expect(new Set(lines.map(line => line.trace_id)).size).toBe(1)
+    expect(lines[3].run_id).toBe(lines[0].run_id)
+    expect(lines[2].parent_span_id).toBe(lines[0].span_id)
     expect(lines.every(line => line.session_id === undefined)).toBe(true)
   })
 
@@ -3207,7 +3233,8 @@ ${overrides}`
   })
 
   it("strict-parallel-delegate-blocks-without-shared-proof: parallel BUILD blocks without the shared workflow_advance proof", async () => {
-    const { createODFParallelDelegate } = await import("./odf-delegation.js")
+    const { createODFParallelDelegate, clearMetricsBuffer, getMetricsBuffer } = await import("./odf-delegation.js")
+    clearMetricsBuffer()
     const taskApi = vi.fn().mockResolvedValue({ status: "ok" })
     const parallelTool = createODFParallelDelegate(undefined, tempHome)
     const output = await parallelTool.execute({
@@ -3223,6 +3250,16 @@ ${overrides}`
       reason: "parallel-workflow-proof-mismatch",
     })
     expect(taskApi).not.toHaveBeenCalled()
+    const metricsDir = path.join(tempHome, ".config", "opencode", "metrics")
+    const persisted = fsSync.readdirSync(metricsDir).flatMap(file =>
+      fsSync.readFileSync(path.join(metricsDir, file), "utf8").trim().split("\n").filter(Boolean).map(line => JSON.parse(line))
+    )
+    const lifecycleMetrics = [...persisted, ...getMetricsBuffer()].filter(metric => metric.lifecycle)
+    expect(lifecycleMetrics.map(metric => [metric.event, metric.lifecycle])).toEqual([
+      ["run", "started"],
+      ["run", "finished"],
+    ])
+    expect(lifecycleMetrics.some(metric => metric.event === "span")).toBe(false)
   })
 
   it.each(["IMPLEMENT", "VERIFY"] as const)("strict-happy-path: strict mode delegates valid %s with workflow_advance, artifact_store, and attempt_id", async phase => {
@@ -4517,10 +4554,9 @@ ${overrides}`
     expect(envelope.message).toContain("task service down")
 
     const metrics = getMetricsBuffer()
-    expect(metrics.length).toBe(1)
-    expect(metrics[0].status).toBe("error")
-    expect(metrics[0].error).toContain("task service down")
-    expect(metrics[0].lifecycle).toBe("finished")
+    expect(metrics).toHaveLength(2)
+    expect(metrics.at(-1)).toMatchObject({ event: "run", status: "error", error: expect.stringContaining("task service down"), lifecycle: "finished" })
+    expect(metrics.at(-2)).toMatchObject({ event: "span", status: "error", error: expect.stringContaining("task service down"), lifecycle: "finished" })
   })
 
   it("rejects invalid phases", async () => {
@@ -4656,8 +4692,9 @@ ${overrides}`
     expect(envelope.message).toContain("timed out")
 
     const metrics = getMetricsBuffer()
-    expect(metrics.length).toBe(1)
-    expect(metrics[0].status).toBe("timeout")
+    expect(metrics).toHaveLength(2)
+    expect(metrics.at(-1)).toMatchObject({ event: "run", status: "timeout" })
+    expect(metrics.at(-2)).toMatchObject({ event: "span", span_kind: "task", status: "timeout", tool: "task" })
   })
 
   it("injects active SDD profile into the delegated prompt", async () => {
@@ -4723,9 +4760,8 @@ ${overrides}`
     expect(envelope.agent).toBe("odoo_functional_consultant")
 
     const metrics = getMetricsBuffer()
-    expect(metrics.length).toBe(1)
-    expect(metrics[0].phase).toBe("EXPLORE")
-    expect(metrics[0].agent).toBe("odoo_functional_consultant")
+    expect(metrics.filter(metric => metric.event === "run")).toHaveLength(1)
+    expect(metrics.find(metric => metric.event === "run")).toMatchObject({ phase: "EXPLORE", agent: "odoo_functional_consultant" })
   })
 
   it("accepts PROPOSE phase and delegates to the proposal agent", async () => {
@@ -4777,6 +4813,22 @@ ${overrides}`
     expect(result.join.evidence_refs).toEqual(result.branches.map((branch: any) => branch.validation_evidence_ref))
     flushMetricsSync()
     const metrics = await readPersistedMetrics()
+    const lifecycleMetrics = metrics.filter(metric => metric.lifecycle)
+    const schedulerRun = lifecycleMetrics.find(metric => metric.event === "run" && metric.lifecycle === "started")
+    expect(schedulerRun).toMatchObject({ agent: "scheduler", run_id: expect.any(String), span_id: expect.any(String), trace_id: expect.any(String) })
+    expect(lifecycleMetrics.filter(metric => metric.event === "run").map(metric => metric.lifecycle)).toEqual(["started", "finished"])
+    expect(new Set(lifecycleMetrics.map(metric => metric.trace_id)).size).toBe(1)
+    const branchSpans = lifecycleMetrics.filter(metric => metric.event === "span" && metric.agent === "branch")
+    expect(branchSpans.filter(metric => metric.lifecycle === "started")).toHaveLength(2)
+    expect(branchSpans.filter(metric => metric.lifecycle === "finished")).toHaveLength(2)
+    expect(branchSpans.filter(metric => metric.lifecycle === "started").every(metric => metric.parent_span_id === schedulerRun?.span_id)).toBe(true)
+    expect(branchSpans.every(metric => metric.branch_id && metric.attempt_id)).toBe(true)
+    expect(branchSpans.every(metric => metric.span_kind === "branch")).toBe(true)
+    const taskSpans = lifecycleMetrics.filter(metric => metric.event === "span" && metric.tool === "task")
+    expect(taskSpans.filter(metric => metric.lifecycle === "started")).toHaveLength(2)
+    expect(taskSpans.filter(metric => metric.lifecycle === "finished")).toHaveLength(2)
+    expect(taskSpans.filter(metric => metric.lifecycle === "finished").every(metric => branchSpans.some(branch => branch.span_id === metric.parent_span_id))).toBe(true)
+    expect(taskSpans.every(metric => metric.span_kind === "task")).toBe(true)
     expect(metrics.filter(metric => metric.branch_id).map(metric => metric.branch_id)).toEqual(expect.arrayContaining([
       "backend-success",
       "frontend-success",
@@ -4797,7 +4849,7 @@ ${overrides}`
     expect(joinArtifact.branches[0].descriptor.context_files).toEqual(["backend-success.py"])
     expect(joinArtifact.branches[0].outcome.validation_evidence_ref).toContain("parallel-success-backend-success")
     expect(joinArtifact.branches[0].outcome.attempt_ledger_ref).toBe(".odf/attempt-ledger-parallel-success.jsonl")
-    expect(taskApi).toHaveBeenCalledTimes(2)
+     expect(taskApi).toHaveBeenCalledTimes(2)
     const committed = YAML.parse(await fs.readFile(path.join(tempHome, "openspec", "changes", "parallel-success", "state.yaml"), "utf8"))
     expect(committed).toMatchObject({ canonical_stage: "BUILD", completed_canonical_stages: ["DECIDE", "PLAN", "BUILD"] })
 
@@ -4912,7 +4964,7 @@ ${overrides}`
     }, { sessionID: "parallel-session", task: taskApi } as any)
 
     await vi.waitFor(async () => {
-      expect(taskApi).toHaveBeenCalledTimes(2)
+    expect(taskApi).toHaveBeenCalledTimes(2)
       const ledger = (await fs.readFile(path.join(tempHome, ".odf", "attempt-ledger-parallel-running.jsonl"), "utf8"))
         .trim().split("\n").map(line => JSON.parse(line))
       expect(ledger.filter((record: any) => record.status === "running").map((record: any) => record.branch_id))
@@ -5128,7 +5180,7 @@ ${overrides}`
     })
     expect(result.branches.every((branch: any) => branch.status === "delegated" && !branch.successful)).toBe(true)
     flushMetricsSync()
-    expect((await readPersistedMetrics()).filter(metric => metric.branch_id && metric.lifecycle === "finished").map(metric => metric.status)).toEqual(["error", "error"])
+    expect((await readPersistedMetrics()).filter(metric => metric.event === "span" && metric.tool === "task" && metric.lifecycle === "finished").map(metric => metric.status)).toEqual(["error", "error"])
     const ledger = (await fs.readFile(path.join(tempHome, ".odf", "attempt-ledger-parallel-inner-failure.jsonl"), "utf8"))
       .trim().split("\n").map(line => JSON.parse(line))
     expect(ledger.filter((record: any) => record.status === "failed")).toHaveLength(2)

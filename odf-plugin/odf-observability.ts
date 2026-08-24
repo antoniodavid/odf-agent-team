@@ -1,6 +1,6 @@
 import * as fsSync from "node:fs"
 import * as path from "node:path"
-import { getMetricsDir } from "./odf-delegation-metrics.js"
+import { getMetricsDir, type TelemetrySpanKind } from "./odf-delegation-metrics.js"
 import type { ParallelJoinArtifact } from "./odf-parallel-join.js"
 import type { WorkflowStatus } from "./odf-workflow-status.js"
 
@@ -58,9 +58,14 @@ export interface ObservabilityAttemptSummary {
 
 export interface TelemetryRecord {
   timestamp: string
+  event: "run" | "span"
   lifecycle: "started" | "finished"
-  run_id: string
+  span_kind?: TelemetrySpanKind
+  run_id?: string
   change: string
+  trace_id?: string
+  span_id?: string
+  parent_span_id?: string
   phase?: string
   agent?: string
   branch_id?: string
@@ -173,21 +178,34 @@ function isTelemetryRecord(value: unknown, change: string): value is Record<stri
 
 function normalizeTelemetryRecord(value: Record<string, unknown>, change: string): TelemetryRecord | null {
   const timestamp = safeTimestamp(value.timestamp)
+  const event = value.event === "run" || value.event === "span" ? value.event : null
   const runId = safeToken(value.run_id)
   const lifecycle = value.lifecycle === "started" || value.lifecycle === "finished" ? value.lifecycle : null
-  if (value.schema_version !== 1 || !timestamp || value.event !== "run" || !runId || !lifecycle || safeToken(value.change) !== change) return null
+  const spanKind = value.span_kind === "branch" || value.span_kind === "task" ? value.span_kind : null
+  const traceId = safeToken(value.trace_id)
+  const spanId = safeToken(value.span_id)
+  const parentSpanId = safeToken(value.parent_span_id)
+  if (value.schema_version !== 1 || !timestamp || !event || !lifecycle || safeToken(value.change) !== change) return null
+  if (event === "run" && !runId) return null
+  if (event === "span" && (!spanKind || !traceId || !spanId || !parentSpanId)) return null
 
   const status = safeToken(value.status)
   const phase = safeLabel(value.phase)
   const agent = safeLabel(value.agent)
   const branchId = safeToken(value.branch_id)
   const attemptId = safeToken(value.attempt_id)
+  if (event === "span" && spanKind === "branch" && (!branchId || !attemptId)) return null
   const error = safeReason(value.error)
   return {
     timestamp,
+    event,
     lifecycle,
-    run_id: runId,
+    ...(event === "span" && spanKind ? { span_kind: spanKind } : {}),
+    ...(runId ? { run_id: runId } : {}),
     change,
+    ...(traceId ? { trace_id: traceId } : {}),
+    ...(spanId ? { span_id: spanId } : {}),
+    ...(parentSpanId ? { parent_span_id: parentSpanId } : {}),
     ...(phase ? { phase } : {}),
     ...(agent ? { agent } : {}),
     ...(branchId ? { branch_id: branchId } : {}),
@@ -317,6 +335,7 @@ export function buildObservabilityTimeline(input: BuildObservabilityInput): Obse
   const runStates = new Map<string, { started: boolean; finished: boolean }>()
 
   for (const [index, record] of input.telemetry.records.entries()) {
+    if (record.event !== "run" || !record.run_id) continue
     const state = runStates.get(record.run_id) || { started: false, finished: false }
     state[record.lifecycle] = true
     runStates.set(record.run_id, state)
@@ -452,7 +471,7 @@ export function buildObservabilityTimeline(input: BuildObservabilityInput): Obse
     : input.parallel_join ? "complete" : "no_data"
   const receiptStatus: ObservabilityDataStatus = receipt.state === "none" ? "no_data" : "complete"
   const workflowStatus: ObservabilityDataStatus = input.workflow.warnings.length ? "partial" : "complete"
-  const hasEvidence = events.length > 0
+  const hasEvidence = events.length > 0 || input.telemetry.records.length > 0
 
   return {
     schema_version: 1,

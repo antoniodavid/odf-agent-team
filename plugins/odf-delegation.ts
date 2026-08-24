@@ -45,6 +45,8 @@ import {
   getMetricsBufferCap,
   estimateTokens,
   createTelemetryRunId,
+  createTelemetrySpanId,
+  createTelemetryTraceId,
   getMetricsDir,
   metricsBuffer,
   recordMetrics,
@@ -743,6 +745,16 @@ interface DelegateExecutionOptions {
   pre_acquired_attempt?: AcquiredAttempt | null
   suppress_workflow_commit?: boolean
   suppress_attempt_settlement?: boolean
+  telemetry_context?: TelemetryExecutionContext
+}
+
+interface TelemetryExecutionContext {
+  event: "run" | "span"
+  trace_id: string
+  run_id: string
+  span_id: string
+  parent_span_id?: string
+  emit_lifecycle?: boolean
 }
 
 type InternalODFDelegateArgs = ODFDelegateArgs & {
@@ -1572,6 +1584,19 @@ Use this instead of generic task() for ODF workflow delegation.`,
       }
 
       const startTime = Date.now()
+      const telemetryContext = executionOptions.telemetry_context || {
+        event: "run" as const,
+        trace_id: createTelemetryTraceId(),
+        run_id: createTelemetryRunId(),
+        span_id: createTelemetrySpanId(),
+      }
+      const telemetryIdentity: Partial<DelegationMetricInput> = {
+        event: telemetryContext.event,
+        run_id: telemetryContext.run_id,
+        trace_id: telemetryContext.trace_id,
+        span_id: telemetryContext.span_id,
+        ...(telemetryContext.parent_span_id ? { parent_span_id: telemetryContext.parent_span_id } : {}),
+      }
       const blockWorkflow = (reason: string, message: string, workflowResult: ReturnType<typeof advanceWorkflow> | null, extra: Record<string, unknown> = {}): string => {
         recordMetrics({
           timestamp: new Date().toISOString(),
@@ -1585,6 +1610,7 @@ Use this instead of generic task() for ODF workflow delegation.`,
            status: "blocked",
            task_api_source: "unavailable",
            ...metricContext,
+           ...telemetryIdentity,
            error: message,
         })
         return JSON.stringify({
@@ -1672,10 +1698,11 @@ Use this instead of generic task() for ODF workflow delegation.`,
             skill_resolution: "none",
             duration_ms: Date.now() - startTime,
             token_estimate: estimateTokens(args.prompt),
-            status: "error",
-            task_api_source: "unavailable",
-            ...metricContext,
-            error: message,
+             status: "error",
+             task_api_source: "unavailable",
+             ...metricContext,
+             ...telemetryIdentity,
+             error: message,
           })
           return JSON.stringify({
             status: "error",
@@ -1752,10 +1779,11 @@ Use this instead of generic task() for ODF workflow delegation.`,
           skill_resolution: "none",
           duration_ms: Date.now() - startTime,
           token_estimate: estimateTokens(args.prompt),
-          status: "error",
-          task_api_source: "unavailable",
-          ...metricContext,
-          error: message,
+           status: "error",
+           task_api_source: "unavailable",
+           ...metricContext,
+           ...telemetryIdentity,
+           error: message,
         })
         return JSON.stringify({
           status: "error",
@@ -1817,10 +1845,11 @@ Use this instead of generic task() for ODF workflow delegation.`,
             skill_resolution: "none",
             duration_ms: Date.now() - startTime,
             token_estimate: estimateTokens(args.prompt),
-            status: "ok",
-            task_api_source: "unavailable",
-            ...metricContext,
-          })
+             status: "ok",
+             task_api_source: "unavailable",
+             ...metricContext,
+             ...telemetryIdentity,
+           })
           return JSON.stringify({
             status: "delegated",
             phase: args.phase,
@@ -1994,11 +2023,55 @@ Use this instead of generic task() for ODF workflow delegation.`,
         ? { name: profile.name, model: profile.model, temperature: profile.temperature, reasoning: profile.reasoning }
         : null
 
-      const telemetryRunId = createTelemetryRunId()
+      const emitTelemetryLifecycle = executionOptions.telemetry_context?.emit_lifecycle !== false
+      let taskSpanId: string | null = null
+      let taskSpanStartTime = 0
+      let taskSpanFinished = false
+
+      const recordTaskSpan = (
+        lifecycle: "started" | "finished",
+        overrides: Partial<DelegationMetricInput> = {},
+      ): void => {
+        if (!taskSpanId) return
+        recordMetrics({
+          timestamp: new Date().toISOString(),
+          session_id: toolCtx.sessionID,
+          phase: args.phase,
+          agent: agentName,
+          skills_injected: skills.map(s => s.name),
+          skill_resolution: skills.length > 0 ? "injected" : "none",
+          duration_ms: lifecycle === "started" ? 0 : Date.now() - taskSpanStartTime,
+          token_estimate: estimateTokens(delegationPrompt),
+          status: "ok",
+          task_api_source: taskApiInfo?.source || "unavailable",
+          ...metricContext,
+           ...overrides,
+           event: "span",
+           span_kind: "task",
+           lifecycle,
+          change: changeName || undefined,
+          run_id: telemetryContext.run_id,
+          attempt_id: args.attempt_id,
+          trace_id: telemetryContext.trace_id,
+          span_id: taskSpanId,
+          parent_span_id: telemetryContext.span_id,
+          task: args.prompt,
+          tool: "task",
+        })
+      }
+
+      const finishTaskSpan = (overrides: Partial<DelegationMetricInput> = {}): void => {
+        if (!taskSpanId || taskSpanFinished) return
+        taskSpanFinished = true
+        recordTaskSpan("finished", overrides)
+      }
+
       const recordLifecycle = (
         lifecycle: "started" | "finished",
         overrides: Partial<DelegationMetricInput> = {},
       ): void => {
+        if (lifecycle === "finished") finishTaskSpan(overrides)
+        if (!emitTelemetryLifecycle) return
         const metric: DelegationMetricInput = {
           timestamp: new Date().toISOString(),
           session_id: toolCtx.sessionID,
@@ -2012,10 +2085,14 @@ Use this instead of generic task() for ODF workflow delegation.`,
           task_api_source: taskApiInfo?.source || "unavailable",
           ...metricContext,
           ...overrides,
+          event: telemetryContext.event,
           lifecycle,
           change: changeName || undefined,
-          run_id: telemetryRunId,
+          run_id: telemetryContext.run_id,
           attempt_id: args.attempt_id,
+          trace_id: telemetryContext.trace_id,
+          span_id: telemetryContext.span_id,
+          ...(telemetryContext.parent_span_id ? { parent_span_id: telemetryContext.parent_span_id } : {}),
         }
         recordMetrics(metric)
       }
@@ -2028,6 +2105,10 @@ Use this instead of generic task() for ODF workflow delegation.`,
       if (taskApiInfo) {
         try {
           const timeoutMs = args.timeout_ms ?? 600_000
+          taskSpanId = createTelemetrySpanId()
+          taskSpanStartTime = Date.now()
+          recordTaskSpan("started")
+          flushMetricsSync()
           const taskResult = await invokeTask(taskApiInfo.taskApi, agentName, delegationPrompt, contextValidation.paths, timeoutMs, toolCtx.abort)
           let resultForOutput: unknown = taskResult.result
           // Stop-validation seal (slice 2): after an IMPLEMENT delegation, stamp
@@ -2484,6 +2565,7 @@ function recordParallelJoinMetrics(
   status: ParallelJoinArtifact["join"]["status"],
   expected: number,
   outcomes: ParallelBranchOutcome[],
+  telemetryContext: TelemetryExecutionContext | null = null,
 ): void {
   if (!sessionId || expected < 2 || expected > PARALLEL_BUILD_CONCURRENCY) return
   const completed = Math.min(expected, outcomes.filter(outcome => outcome.successful).length)
@@ -2508,6 +2590,78 @@ function recordParallelJoinMetrics(
     join_failed: failed,
     join_running: running,
     validation_ratio: validated / expected,
+    ...(telemetryContext ? {
+      event: "run" as const,
+      run_id: telemetryContext.run_id,
+      trace_id: telemetryContext.trace_id,
+      span_id: telemetryContext.span_id,
+    } : {}),
+  })
+}
+
+function recordSchedulerLifecycle(
+  sessionId: string | undefined,
+  telemetryContext: TelemetryExecutionContext | null,
+  lifecycle: "started" | "finished",
+  startTime: number,
+  status: DelegationMetrics["status"],
+  error?: string,
+): void {
+  if (!sessionId || !telemetryContext) return
+  recordMetrics({
+    timestamp: new Date().toISOString(),
+    session_id: sessionId,
+    phase: "IMPLEMENT",
+    agent: "scheduler",
+    skills_injected: [],
+    skill_resolution: "none",
+    duration_ms: lifecycle === "started" ? 0 : Math.max(0, Date.now() - startTime),
+    token_estimate: 0,
+    status,
+    task_api_source: "unavailable",
+    work_type: "cross-domain",
+    event: "run",
+    lifecycle,
+    run_id: telemetryContext.run_id,
+    trace_id: telemetryContext.trace_id,
+    span_id: telemetryContext.span_id,
+    ...(error ? { error } : {}),
+  })
+}
+
+function recordBranchLifecycle(
+  sessionId: string | undefined,
+  telemetryContext: TelemetryExecutionContext | null,
+  branch: ParallelBranchDescriptor,
+  lifecycle: "started" | "finished",
+  startTime: number,
+  spanId: string,
+  status: DelegationMetrics["status"],
+  error?: string,
+): void {
+  if (!sessionId || !telemetryContext) return
+  recordMetrics({
+    timestamp: new Date().toISOString(),
+    session_id: sessionId,
+    phase: "IMPLEMENT",
+    agent: "branch",
+    skills_injected: [],
+    skill_resolution: "none",
+    duration_ms: lifecycle === "started" ? 0 : Math.max(0, Date.now() - startTime),
+    token_estimate: 0,
+    status,
+    task_api_source: "unavailable",
+    work_type: "cross-domain",
+     branch_id: branch.branch_id,
+     attempt_id: branch.attempt_id,
+     event: "span",
+     span_kind: "branch",
+     lifecycle,
+    run_id: telemetryContext.run_id,
+    trace_id: telemetryContext.trace_id,
+    span_id: spanId,
+    parent_span_id: telemetryContext.span_id,
+    ...(error ? { error } : {}),
   })
 }
 
@@ -2623,6 +2777,22 @@ must not overlap. VERIFY remains sequential after the aggregate join is complete
       const startTime = Date.now()
       let expected = Array.isArray(args.branches) ? args.branches.length : 0
       let persistedJoinRef: string | null = null
+      const schedulerTelemetryContext: TelemetryExecutionContext | null = toolCtx?.sessionID
+        ? {
+          event: "run",
+          trace_id: createTelemetryTraceId(),
+          run_id: createTelemetryRunId(),
+          span_id: createTelemetrySpanId(),
+        }
+        : null
+      let schedulerLifecycleFinished = false
+      const finishScheduler = (status: DelegationMetrics["status"], error?: string): void => {
+        if (schedulerLifecycleFinished) return
+        schedulerLifecycleFinished = true
+        recordSchedulerLifecycle(toolCtx?.sessionID, schedulerTelemetryContext, "finished", startTime, status, error)
+      }
+      recordSchedulerLifecycle(toolCtx?.sessionID, schedulerTelemetryContext, "started", startTime, "ok")
+      flushMetricsSync()
       const blocked = (
         reason: string,
         message: string,
@@ -2630,7 +2800,8 @@ must not overlap. VERIFY remains sequential after the aggregate join is complete
         receipt: ODFReceipt | null = null,
         joinStatus: "blocked" | "running" = "blocked",
       ): string => {
-        recordParallelJoinMetrics(toolCtx?.sessionID, startTime, joinStatus, expected, outcomes)
+        recordParallelJoinMetrics(toolCtx?.sessionID, startTime, joinStatus, expected, outcomes, schedulerTelemetryContext)
+        finishScheduler("blocked", message)
         const completed = outcomes.filter(outcome => outcome.successful).length
         const running = outcomes.filter(outcome => outcome.status === "running").length
         const failed = Math.max(0, expected - completed - running)
@@ -2785,6 +2956,7 @@ must not overlap. VERIFY remains sequential after the aggregate join is complete
         return blocked("parallel-join-invalid", "The persisted parallel join has an invalid continuation branch set.")
       }
       if (transitionStart.alreadyCommitted && !args.resume_from_join) {
+        finishScheduler("ok")
         return JSON.stringify({
           status: "parallel-delegated",
           work_type: args.work_type,
@@ -2817,7 +2989,8 @@ must not overlap. VERIFY remains sequential after the aggregate join is complete
           const mergedReceipt = mergeReceipt(workspaceRoot, receipt)
           return blocked(workflowCommit.reason, workflowCommit.message, savedJoin.branches.map(savedParallelOutcome), mergedReceipt)
         }
-        recordParallelJoinMetrics(toolCtx.sessionID, startTime, savedJoin.join.status, expected, savedJoin.branches.map(savedParallelOutcome))
+        recordParallelJoinMetrics(toolCtx.sessionID, startTime, savedJoin.join.status, expected, savedJoin.branches.map(savedParallelOutcome), schedulerTelemetryContext)
+        finishScheduler("ok")
         return JSON.stringify({
           status: "parallel-delegated",
           work_type: "cross-domain",
@@ -2964,7 +3137,7 @@ must not overlap. VERIFY remains sequential after the aggregate join is complete
         return blocked("parallel-join-persist-failed", runningArtifact.error, settledOutcomes)
       }
       persistedJoinRef = runningArtifact.ref
-      recordParallelJoinMetrics(toolCtx.sessionID, startTime, "running", expected, outcomes)
+      recordParallelJoinMetrics(toolCtx.sessionID, startTime, "running", expected, outcomes, schedulerTelemetryContext)
 
       const persistRunningProgress = (): void => {
         const running = outcomes.filter(outcome => outcome.status === "running").length
@@ -2987,6 +3160,18 @@ must not overlap. VERIFY remains sequential after the aggregate join is complete
           const branch = runnableDescriptors[index]
           const outcomeIndex = descriptors.findIndex(descriptor => descriptor.branch_id === branch.branch_id)
           const validationEvidenceRef = validationEvidenceRelativePath(args.change, branch.branch_id)
+          const branchSpanId = createTelemetrySpanId()
+          const branchStartTime = Date.now()
+          recordBranchLifecycle(
+            toolCtx.sessionID,
+            schedulerTelemetryContext,
+            branch,
+            "started",
+            branchStartTime,
+            branchSpanId,
+            "ok",
+          )
+          flushMetricsSync()
           try {
             const output = await createODFDelegate(client, canonicalDirectory, {
               branch_id: branch.branch_id,
@@ -2996,6 +3181,14 @@ must not overlap. VERIFY remains sequential after the aggregate join is complete
               validation_evidence_path: validationEvidenceRef,
               workflow_result: workflowResult,
               pre_acquired_attempt: acquired.get(branch.branch_id),
+              telemetry_context: {
+                event: "span",
+                trace_id: schedulerTelemetryContext!.trace_id,
+                run_id: schedulerTelemetryContext!.run_id,
+                span_id: branchSpanId,
+                parent_span_id: schedulerTelemetryContext!.span_id,
+                emit_lifecycle: false,
+              },
             }).execute({
               phase: "IMPLEMENT",
               prompt: `${branch.prompt}\n\nStop-validation evidence: write \`${validationEvidenceRef}\`.`,
@@ -3008,16 +3201,38 @@ must not overlap. VERIFY remains sequential after the aggregate join is complete
               attempt_id: branch.attempt_id,
               workflow_advance: args.workflow_advance,
             }, toolCtx)
-            outcomes[outcomeIndex] = makeParallelOutcome(args.change, branch, output as string, acquired.get(branch.branch_id)!, workspaceRoot)
+            const outcome = makeParallelOutcome(args.change, branch, output as string, acquired.get(branch.branch_id)!, workspaceRoot)
+            outcomes[outcomeIndex] = outcome
+            recordBranchLifecycle(
+              toolCtx.sessionID,
+              schedulerTelemetryContext,
+              branch,
+              "finished",
+              branchStartTime,
+              branchSpanId,
+              outcome.successful ? "ok" : outcome.status === "timeout" ? "timeout" : outcome.status === "blocked" ? "blocked" : "error",
+              outcome.successful ? undefined : outcome.summary,
+            )
             persistRunningProgress()
           } catch (error) {
             const message = error instanceof Error ? error.message : String(error)
-            outcomes[outcomeIndex] = makeParallelOutcome(
+            const outcome = makeParallelOutcome(
               args.change,
               branch,
               JSON.stringify({ status: "error", message }),
               acquired.get(branch.branch_id)!,
               workspaceRoot,
+            )
+            outcomes[outcomeIndex] = outcome
+            recordBranchLifecycle(
+              toolCtx.sessionID,
+              schedulerTelemetryContext,
+              branch,
+              "finished",
+              branchStartTime,
+              branchSpanId,
+              isCancellationMessage(message) ? "blocked" : message.includes("timed out") ? "timeout" : "error",
+              message,
             )
             persistRunningProgress()
           }
@@ -3067,7 +3282,8 @@ must not overlap. VERIFY remains sequential after the aggregate join is complete
           return blocked(workflowCommit.reason, workflowCommit.message, outcomes, mergedReceipt)
         }
         for (const handle of acquired.values()) settleAttempt(handle, "completed", "delegated", "task-completed")
-        recordParallelJoinMetrics(toolCtx.sessionID, startTime, "complete", expected, outcomes)
+        recordParallelJoinMetrics(toolCtx.sessionID, startTime, "complete", expected, outcomes, schedulerTelemetryContext)
+        finishScheduler("ok")
         return JSON.stringify({
           status: "parallel-delegated",
           work_type: "cross-domain",

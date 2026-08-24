@@ -914,10 +914,23 @@ must remain visibly estimated.
    attempt-ledger records, validated joins, and filtered lifecycle JSONL;
    reports active, unfinished, partial, and no-data states without inferring
    activity from `canonical_stage` alone. Stale classification remains deferred.
-3. **O3 — Add production spans only where they answer a measured question [ ].**
+3. **O3 — Add production spans only where they answer a measured question [x].**
    Instrument delegation, task invocation, and parallel branches with real
    parent/child relationships. Measure required-field coverage, not schema
    presence.
+
+   **Implementation evidence (2026-08-24)**
+
+   - Sequential delegation now emits one explicit run tree (root run plus task
+     invocation span). Parallel execution emits one scheduler root, launched
+     branch spans, and task invocation children in one trace; early validation
+     failures do not fabricate branch or task spans.
+   - The read-side accepts valid span rows without projecting them as extra O2
+     delegation events. Metrics totals exclude spans, while run, span, model,
+     provider, and real-token coverage are reported separately.
+    - Verification: focused telemetry tests `335/335`; `npm test` `658/658`
+      Vitest and `150/150` YAML scenarios; typecheck, registry validation, and
+     `git diff --check` passed.
 4. **O4 — Revalidate the web UI gate [ ].** Only after O1–O3 reach stable coverage
    should the project add a local, read-only web observatory. Its first views
    should be run timeline, bottlenecks, harness health, and deterministic
@@ -928,8 +941,8 @@ must remain visibly estimated.
 
 ### Current decision
 
-Keep the dashboard as a conditional roadmap item. O1, O2, and S1
-source-authority hardening are implemented; O3 spans is the next work unit. Do
+Keep the dashboard as a conditional roadmap item. O1, O2, O3, and S1
+source-authority hardening are implemented; O4 is the next work unit. Do
 not start a React application yet. The prior
 local-first, read-only architecture remains correct, but the dashboard should
 be named a **control-plane observatory**, not a full tracing platform.
@@ -1059,7 +1072,6 @@ commit, push, and runtime deployment remain separate explicit actions.
 
 ## Next action
 
-Do not start a web UI or restart T1–T12. The next observability work unit is O2:
-project the attempt ledger, canonical workflow state, parallel joins, and JSONL
-into one truthful read-side timeline, then measure actual identity/lifecycle
-coverage. The standard verification commands remain required for that work unit.
+Do not start a web UI or restart T1–T12. The next observability work unit is O4:
+revalidate the web UI gate only after O1–O3 have stable coverage. The standard
+verification commands remain required for that work unit.

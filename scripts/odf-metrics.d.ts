@@ -20,13 +20,19 @@ export interface DelegationRecord {
   error?: string
   event?: string
   lifecycle?: "started" | "finished"
+  span_kind?: "branch" | "task"
   schema_version?: number
   change?: string
   run_id?: string
   attempt_id?: string
   model_available?: boolean
+  model?: string | null
+  provider?: string | null
+  tokens?: { input?: number | null; output?: number | null; estimated?: number | null }
   candidate_digest?: string
   trace_id?: string
+  span_id?: string
+  parent_span_id?: string
   receipt_ref?: string
 }
 
@@ -75,6 +81,20 @@ export interface DashboardData {
   data_status: DataStatus
   coverage: number | null
   records_with_telemetry: number
+  span_coverage: number | null
+  span_records: number
+  records_with_span_telemetry: number
+  branch_coverage: number | null
+  branch_records: number
+  records_with_branch_telemetry: number
+  telemetry_coverage: {
+    runs: { records: number; available: number; coverage: number | null }
+    spans: { records: number; available: number; coverage: number | null }
+    branch: { records: number; available: number; coverage: number | null }
+    model: { records: number; available: number; coverage: number | null }
+    provider: { records: number; available: number; coverage: number | null }
+    real_tokens: { records: number; available: number; coverage: number | null }
+  }
   avgDurationMs: number
   avgTokens: number
   selfDiscoveredPct: number | null

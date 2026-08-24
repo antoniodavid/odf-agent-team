@@ -22,6 +22,7 @@ import { WORK_TYPES, type WorkType } from "./odf-workflow.js"
 // estimateTokens() is never treated as real input/output token counts.
 export type TelemetryEvent = "run" | "span"
 export type TelemetryLifecycle = "started" | "finished"
+export type TelemetrySpanKind = "branch" | "task"
 
 export interface TelemetryTokens {
   /** Real input tokens from the host, when exposed. */
@@ -55,6 +56,7 @@ export interface DelegationMetrics {
   // T7 telemetry
   event?: TelemetryEvent
   lifecycle?: TelemetryLifecycle
+  span_kind?: TelemetrySpanKind
   schema_version?: 1
   change?: string
   run_id?: string
@@ -120,6 +122,10 @@ export function sanitizeMetricWorkType(value: unknown): WorkType | undefined {
 
 export function sanitizeMetricJoinStatus(value: unknown): DelegationMetrics["join_status"] {
   return value === "running" || value === "complete" || value === "blocked" ? value : undefined
+}
+
+export function sanitizeMetricSpanKind(value: unknown): TelemetrySpanKind | undefined {
+  return value === "branch" || value === "task" ? value : undefined
 }
 
 export function sanitizeMetricJoinCount(value: unknown): number | undefined {
@@ -213,6 +219,14 @@ export function createTelemetryRunId(): string {
   return `run-${nodeCrypto.randomUUID().replace(/-/g, "")}`
 }
 
+export function createTelemetryTraceId(): string {
+  return `trace-${nodeCrypto.randomUUID().replace(/-/g, "")}`
+}
+
+export function createTelemetrySpanId(): string {
+  return `span-${nodeCrypto.randomUUID().replace(/-/g, "")}`
+}
+
 /** Long candidate digests / receipt refs are bounded to safe tokens. */
 export function sanitizeMetricDigest(value: unknown): string | undefined {
   if (typeof value !== "string") return undefined
@@ -282,6 +296,7 @@ export function recordMetrics(metric: DelegationMetricInput): void {
     receipt_ref,
     event,
     lifecycle,
+    span_kind,
     change,
     run_id,
     attempt_id,
@@ -291,6 +306,10 @@ export function recordMetrics(metric: DelegationMetricInput): void {
     ...rest
   } = metric
   const isSpan = event === "span"
+  const sanitizedTraceId = sanitizeMetricSafeToken(trace_id)
+  const sanitizedSpanId = sanitizeMetricSafeToken(span_id)
+  const sanitizedParentSpanId = sanitizeMetricSafeToken(parent_span_id)
+  const sanitizedSpanKind = sanitizeMetricSpanKind(span_kind)
   const runSpanId = span_id || nextTelemetrySpanId(session_id, rest.phase || "phase")
   const sanitized: DelegationMetrics = {
     ...rest,
@@ -306,15 +325,16 @@ export function recordMetrics(metric: DelegationMetricInput): void {
     error: sanitizeError(error),
     event: isSpan ? "span" : "run",
     ...(lifecycle === "started" || lifecycle === "finished" ? { lifecycle } : {}),
+    ...(sanitizedSpanKind ? { span_kind: sanitizedSpanKind } : {}),
     schema_version: 1,
     ...(sanitizeMetricSafeToken(change) ? { change: sanitizeMetricSafeToken(change) } : {}),
     ...(sanitizeMetricSafeToken(run_id) ? { run_id: sanitizeMetricSafeToken(run_id) } : {}),
     ...(sanitizeMetricSafeToken(attempt_id) ? { attempt_id: sanitizeMetricSafeToken(attempt_id) } : {}),
-    trace_id: sanitizeMetricSafeToken(trace_id) || hashSession(session_id),
-    span_id: sanitizeMetricSafeToken(span_id) || runSpanId,
+    trace_id: sanitizedTraceId || (isSpan ? undefined : hashSession(session_id)),
+    span_id: sanitizedSpanId || (isSpan ? undefined : runSpanId),
     // A span's parent must be supplied by the caller (the enclosing run's
     // span_id). Root runs omit parent_span_id. Never synthesized.
-    ...(isSpan && sanitizeMetricSafeToken(parent_span_id) ? { parent_span_id: sanitizeMetricSafeToken(parent_span_id) } : {}),
+    ...(isSpan && sanitizedParentSpanId ? { parent_span_id: sanitizedParentSpanId } : {}),
     ...(sanitizeMetricTask(task) ? { task: sanitizeMetricTask(task) } : {}),
     ...(sanitizeMetricToken(tool) ? { tool: sanitizeMetricToken(tool) } : {}),
     model: sanitizeMetricModel(model) ?? null,
@@ -330,6 +350,14 @@ export function recordMetrics(metric: DelegationMetricInput): void {
     ...(sanitizeMetricDigest(candidate_digest) ? { candidate_digest: sanitizeMetricDigest(candidate_digest) } : {}),
     ...(sanitizeMetricSafeToken(receipt_ref) ? { receipt_ref: sanitizeMetricSafeToken(receipt_ref) } : {}),
   }
+  if (isSpan && (
+    !sanitized.lifecycle ||
+    !sanitized.span_kind ||
+    !sanitized.trace_id ||
+    !sanitized.span_id ||
+    !sanitized.parent_span_id ||
+    sanitized.span_kind === "branch" && (!sanitized.branch_id || !sanitized.attempt_id)
+  )) return
   metricsBuffer.push(sanitized)
   if (metricsBuffer.length >= getMetricsBufferCap()) {
     flushMetricsSync()
