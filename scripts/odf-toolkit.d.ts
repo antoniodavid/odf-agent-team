@@ -113,13 +113,17 @@ export function sourceLookup(opts: { source: string; repos?: string; id?: string
 export interface AuthorityEvidence { xmlid?: string; name?: string; target_xmlid?: string; file: string; line: number; snippet: string }
 export interface AuthorityLookupResult {
   ok: boolean
-  query: { action?: string; relation?: string }
+  query: { action?: string; view?: string; relation?: string }
   reason?: string
   action: AuthorityEvidence | null
+  view?: AuthorityEvidence | null
   relation: AuthorityEvidence | null
   target: AuthorityEvidence | null
 }
-export function authorityLookup(opts: { source: string; repos?: string; action: string; relation: string }): AuthorityLookupResult
+export type AuthorityLookupOptions =
+  | { source: string; repos?: string; action: string; relation: string; view?: never }
+  | { source: string; repos?: string; view: string; relation: "inherit_id"; action?: never }
+export function authorityLookup(opts: AuthorityLookupOptions): AuthorityLookupResult
 export function verifyRefs(opts: { repo: string; source: string; repos?: string }): {
   refs_checked: number
   models_checked: number

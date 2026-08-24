@@ -928,9 +928,9 @@ must remain visibly estimated.
 
 ### Current decision
 
-Keep the dashboard as a conditional roadmap item. O1 and O2 are implemented in
-the current working tree; the next work unit is source-authority hardening,
-followed by O3 spans. Do not start a React application yet. The prior
+Keep the dashboard as a conditional roadmap item. O1, O2, and S1
+source-authority hardening are implemented; O3 spans is the next work unit. Do
+not start a React application yet. The prior
 local-first, read-only architecture remains correct, but the dashboard should
 be named a **control-plane observatory**, not a full tracing platform.
 
@@ -959,19 +959,16 @@ The current precision tools do not yet prevent recurrence:
 - Failed/blocked runs are recorded operationally, but do not automatically
   enter the T12 learning pipeline as causal prevention candidates.
 
-The next separate work unit is **S1 — source-authority precision**:
+The separate work unit **S1 — source-authority precision** is implemented in
+two bounded slices:
 
-1. Add an action-relation query to the existing precision tool.
-2. Make large-file scanning bounded but non-skipping.
-3. Enforce module-qualified definitions and reject authority mismatches.
-4. Require structured authority evidence for view-related DESIGN/IMPLEMENT.
-5. Add version-specific regression goldens for every supported Odoo version —
-   Odoo 16, 17, 18, and current 19.0 — and
-   block workflow advancement on an authority mismatch. Do not assume that an
-   action/view relation is stable across versions; XML IDs, actions, models,
-   fields, and inheritance chains can change between releases.
-6. Fix the learning bridge admission mapping so `blocked`/`failed` receipts
-   cannot default to a successful learning run.
+1. **S1-A [x]** Add an action-relation query, bounded non-skipping large-file
+   scanning, strict module qualification, fail-closed learning admission, and
+   version fixtures for Odoo 16, 17, 18, and current 19.0.
+2. **S1-B [x]** Require deterministic, structured source-authority evidence for
+   narrow view-related DESIGN/IMPLEMENT work and block workflow advancement on
+   a missing, unavailable, malformed, or mismatched chain. The caller must
+   provide the exact Odoo source root; ODF never infers it from agent prose.
 
 Generic memory such as “be more careful” is not sufficient learning. A useful
 lesson must become an executable lookup, validator, or regression. T12 should

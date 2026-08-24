@@ -114,6 +114,14 @@ import {
   readTelemetry,
   type ObservabilityTimeline,
 } from "../odf-plugin/odf-observability.js"
+import {
+  establishSourceAuthorityRoots,
+  isViewAuthorityWork,
+  replaceSourceAuthority,
+  scrubSourceAuthority,
+  validateSourceAuthority,
+  type SourceAuthorityRoots,
+} from "../odf-plugin/odf-source-authority.js"
 
 
 // ==========================================
@@ -717,6 +725,8 @@ interface ODFDelegateArgs {
   phase: string
   prompt: string
   context_files?: string[]
+  odoo_source_root?: string
+  odoo_source_repos?: string
   profile?: string
   change?: string
   timeout_ms?: number
@@ -1469,6 +1479,14 @@ Use this instead of generic task() for ODF workflow delegation.`,
         .array(tool.schema.string())
         .optional()
         .describe("Files the agent will work with (for skill matching)"),
+      odoo_source_root: tool.schema
+        .string()
+        .optional()
+        .describe("Explicit Odoo source root required for view-authority DESIGN/IMPLEMENT tasks"),
+      odoo_source_repos: tool.schema
+        .string()
+        .optional()
+        .describe("Optional explicit active Odoo repos root for view-authority lookup"),
       profile: tool.schema
         .string()
         .optional()
@@ -1602,6 +1620,7 @@ Use this instead of generic task() for ODF workflow delegation.`,
 
       const workspaceRoot = resolveWorkspaceRoot(canonicalDirectory || process.cwd())
       const changeName = args.change?.trim() || extractChangeName(args.prompt)
+      const sourceAuthorityRequired = isViewAuthorityWork(args.phase, args.prompt, args.context_files || [])
 
       let acquiredAttempt: AcquiredAttempt | null = executionOptions.pre_acquired_attempt || null
       let workflowResult: ReturnType<typeof advanceWorkflow> | null = executionOptions.workflow_result || null
@@ -1832,6 +1851,24 @@ Use this instead of generic task() for ODF workflow delegation.`,
         return `❌ ODF registry not found. Run /odf-init or check ${REGISTRY_PATH}`
       }
 
+      let sourceAuthorityRoots: SourceAuthorityRoots | null = null
+      if (sourceAuthorityRequired) {
+        const roots = establishSourceAuthorityRoots({
+          workspaceRoot,
+          sourceRoot: args.odoo_source_root,
+          reposRoot: args.odoo_source_repos,
+        })
+        if (!roots.ok) {
+          return blockWorkflow(
+            "source-authority-unavailable",
+            `${roots.reason}. Provide the exact odoo_source_root and retry${changeName ? ` with /odf-continue ${changeName}` : "."}`,
+            workflowResult,
+            { safe_continuation: changeName ? `/odf-continue ${changeName}` : "/odf-continue" },
+          )
+        }
+        sourceAuthorityRoots = roots.roots
+      }
+
       let policyGate: PolicyGateDecision | null = null
 
       // Detect Odoo version from project
@@ -1899,8 +1936,12 @@ Use this instead of generic task() for ODF workflow delegation.`,
       const enrichedPrompt = hasInjection
         ? `${[rules, profileBlock].filter(Boolean).join("\n\n")}\n\n---\n\n${args.prompt}\n\n## Skill Resolution Status\nReport: injected (received from odf-delegation plugin)`
         : `${args.prompt}\n\n## Skill Resolution Status\nReport: none (no matching skills in registry)`
+      const sourceAuthorityPrompt = sourceAuthorityRequired && sourceAuthorityRoots
+        ? `## Source Authority Contract (mandatory postcondition)\nThis DESIGN/IMPLEMENT task is view-authority work. Return result.source_authority with ok: true, verified: true, relation, target_xmlid, and bounded evidence.relation/evidence.target objects containing the exact file, line, and snippet. For action relations such as search_view_id, also return action_xmlid and evidence.action. For ordinary view inheritance, return view_xmlid and evidence.view, with relation exactly inherit_id. Never put a view XML ID in action_xmlid. The plugin recomputes the explicit action or view relation from this source root; prose and verified flags are not proof.\nOdoo source root: ${sourceAuthorityRoots.source}${sourceAuthorityRoots.repos ? `\nOdoo repos root: ${sourceAuthorityRoots.repos}` : ""}`
+        : ""
       const delegationPrompt = [
         enrichedPrompt,
+        sourceAuthorityPrompt,
         policyGate ? `## Policy Gate Decision (authoritative, do not recompute)\n${JSON.stringify(policyGate, null, 2)}` : "",
         EXECUTOR_BOUNDARY,
       ].filter(Boolean).join("\n\n")
@@ -1988,6 +2029,7 @@ Use this instead of generic task() for ODF workflow delegation.`,
         try {
           const timeoutMs = args.timeout_ms ?? 600_000
           const taskResult = await invokeTask(taskApiInfo.taskApi, agentName, delegationPrompt, contextValidation.paths, timeoutMs, toolCtx.abort)
+          let resultForOutput: unknown = taskResult.result
           // Stop-validation seal (slice 2): after an IMPLEMENT delegation, stamp
           // the envelope with the deterministic evidence verdict. The sub-agent
           // executes the commands and writes the configured evidence path (the
@@ -2045,7 +2087,7 @@ Use this instead of generic task() for ODF workflow delegation.`,
               validation,
               receipt,
               task_api_source: taskApiInfo.source,
-              result: taskResult.result,
+              result: resultForOutput,
               workflow_advance: workflowResult,
                workflow_commit: workflowCommit,
                ...(phaseWarnings.length ? { warnings: phaseWarnings } : {}),
@@ -2053,8 +2095,28 @@ Use this instead of generic task() for ODF workflow delegation.`,
             }, null, 2)
           }
 
-          const designResult = taskResult.result && typeof taskResult.result === "object"
-            ? taskResult.result as Record<string, unknown>
+           if (sourceAuthorityRequired && innerDisposition.accepted && sourceAuthorityRoots) {
+             const authority = validateSourceAuthority({
+               result: taskResult.result,
+               task: args.prompt,
+               contextFiles: args.context_files,
+               roots: sourceAuthorityRoots,
+             })
+             if (!authority.ok || !authority.envelope) {
+               const rawAuthority = taskResult.result && typeof taskResult.result === "object" && !Array.isArray(taskResult.result)
+                 ? (taskResult.result as Record<string, unknown>).source_authority
+                 : null
+               resultForOutput = replaceSourceAuthority(taskResult.result, scrubSourceAuthority(rawAuthority))
+               return settleProofFailure(
+                 `Source authority blocked: ${authority.reason || "deterministic lookup did not verify the action relation"}. Return the required structured evidence and retry.`,
+                 "source-authority-invalid",
+               )
+             }
+             resultForOutput = replaceSourceAuthority(taskResult.result, authority.envelope)
+           }
+
+           const designResult = resultForOutput && typeof resultForOutput === "object"
+             ? resultForOutput as Record<string, unknown>
             : null
           if ((args.phase === "DESIGN" || args.phase === "PLAN") && innerDisposition.accepted && !asBoolean(designResult?.design_closed)) {
             return settleProofFailure(
@@ -2148,7 +2210,7 @@ Use this instead of generic task() for ODF workflow delegation.`,
              policy_gate: policyGate,
              validation,
              task_api_source: taskApiInfo.source,
-             result: taskResult.result,
+              result: resultForOutput,
              ...(workflowResult ? { workflow_advance: workflowResult } : {}),
               ...(proofBacked ? {
                workflow_commit: workflowCommit || (executionOptions.suppress_workflow_commit
@@ -2509,6 +2571,14 @@ must not overlap. VERIFY remains sequential after the aggregate join is complete
       change: tool.schema
         .string()
         .describe("Shared change name (kebab-case)"),
+      odoo_source_root: tool.schema
+        .string()
+        .optional()
+        .describe("Explicit Odoo source root required for view-authority branches"),
+      odoo_source_repos: tool.schema
+        .string()
+        .optional()
+        .describe("Optional explicit active Odoo repos root for view-authority branches"),
       artifact_store: tool.schema
         .enum(["openspec", "engram", "hybrid"])
         .describe("Authoritative workflow store for the aggregate transition"),
@@ -2543,6 +2613,8 @@ must not overlap. VERIFY remains sequential after the aggregate join is complete
       work_type: "cross-domain"
       phase: "IMPLEMENT"
       change: string
+      odoo_source_root?: string
+      odoo_source_repos?: string
       artifact_store: ArtifactStore
       workflow_advance: ODFDelegateWorkflowAdvance
       branches?: ParallelBranchDescriptor[]
@@ -2783,6 +2855,24 @@ must not overlap. VERIFY remains sequential after the aggregate join is complete
       const registry = await loadRegistry()
       if (!registry) return blocked("registry-unavailable", `ODF registry not found. Run /odf-init or check ${REGISTRY_PATH}`)
 
+      const sourceAuthorityRequired = runnableDescriptors.some(branch =>
+        isViewAuthorityWork("IMPLEMENT", branch.prompt, branch.context_files || []))
+      let sourceAuthorityRoots: SourceAuthorityRoots | null = null
+      if (sourceAuthorityRequired) {
+        const roots = establishSourceAuthorityRoots({
+          workspaceRoot,
+          sourceRoot: args.odoo_source_root,
+          reposRoot: args.odoo_source_repos,
+        })
+        if (!roots.ok) {
+          return blocked(
+            "source-authority-unavailable",
+            `${roots.reason}. Provide the exact odoo_source_root and retry with /odf-continue ${args.change}.`,
+          )
+        }
+        sourceAuthorityRoots = roots.roots
+      }
+
       const acquired = new Map<string, AcquiredAttempt>()
       for (const branch of runnableDescriptors) {
         const acquisition = acquireAttempt({
@@ -2910,9 +3000,11 @@ must not overlap. VERIFY remains sequential after the aggregate join is complete
               phase: "IMPLEMENT",
               prompt: `${branch.prompt}\n\nStop-validation evidence: write \`${validationEvidenceRef}\`.`,
               context_files: branch.context_files,
-              change: args.change,
-              artifact_store: args.artifact_store,
-              timeout_ms: branch.timeout_ms,
+               change: args.change,
+               artifact_store: args.artifact_store,
+               odoo_source_root: sourceAuthorityRoots?.source,
+               odoo_source_repos: sourceAuthorityRoots?.repos,
+               timeout_ms: branch.timeout_ms,
               attempt_id: branch.attempt_id,
               workflow_advance: args.workflow_advance,
             }, toolCtx)

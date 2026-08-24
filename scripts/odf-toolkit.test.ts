@@ -283,4 +283,43 @@ describe("odf-toolkit source precision", () => {
     })
     expect(result).toMatchObject({ ok: false, action: expect.any(Object), relation: null, target: null })
   })
+
+  it("resolves an ir.ui.view inherit_id relation without using the action contract", async () => {
+    await writeFile(root, "custom/views.xml", `<record id="view_child" model="ir.ui.view">
+  <field name="inherit_id" ref="base.view_parent"/>
+</record>
+`)
+    await writeFile(root, "base/views.xml", `<record id="view_parent" model="ir.ui.view"/>
+`)
+
+    const result = authorityLookup({ source: root, view: "custom.view_child", relation: "inherit_id" })
+
+    expect(result).toMatchObject({
+      ok: true,
+      action: null,
+      view: { xmlid: "custom.view_child" },
+      relation: { name: "inherit_id", target_xmlid: "base.view_parent" },
+      target: { xmlid: "base.view_parent" },
+    })
+  })
+
+  it("fails closed for missing and ambiguous inherit_id relations", async () => {
+    await writeFile(root, "custom/views.xml", `<record id="view_missing" model="ir.ui.view"/>
+<record id="view_ambiguous" model="ir.ui.view">
+  <field name="inherit_id" ref="base.view_parent"/>
+  <field name="inherit_id" ref="base.view_parent"/>
+</record>
+`)
+    await writeFile(root, "base/views.xml", `<record id="view_parent" model="ir.ui.view"/>
+`)
+
+    expect(authorityLookup({ source: root, view: "custom.view_missing", relation: "inherit_id" })).toMatchObject({
+      ok: false,
+      reason: "relation definition not proven",
+    })
+    expect(authorityLookup({ source: root, view: "custom.view_ambiguous", relation: "inherit_id" })).toMatchObject({
+      ok: false,
+      reason: "relation definition is ambiguous",
+    })
+  })
 })

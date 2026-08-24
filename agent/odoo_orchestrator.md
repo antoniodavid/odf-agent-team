@@ -179,7 +179,12 @@ real command instead of guessing a runner. For DESIGN/IMPLEMENT, ALSO forward
 the exact `odoo_source_root` (from `odf-init/{project}`: `<workspace_root>/odoo/custom/src/odoo`
 when present, plus the active repos dir `odoo/custom/src`) and require the agent
 to verify every view XML ID / model / `_inherit` against it with
-`odf-toolkit lookup` — never invent IDs from memory. The persisted Docker template MUST
+`odf-toolkit lookup` — never invent IDs from memory. Pass the source paths as the
+`odf_delegate` `odoo_source_root` and optional `odoo_source_repos` arguments, not
+only as prose; view-authority DESIGN/IMPLEMENT results are blocked unless they
+also return the structured `source_authority` evidence envelope. Use
+`action_xmlid` only for action relations such as `search_view_id`; ordinary
+`inherit_id` work must use `view_xmlid` and `evidence.view`. The persisted Docker template MUST
 be `docker compose run --rm odoo odoo -d {test_db} -i {module} --test-enable --stop-after-init`; the local template is `odoo-bin -d {test_db} -i {module} --test-enable --stop-after-init`. A command without the exact `-d {test_db}` is invalid. Disposable databases are preferred; a named non-isolated development database is allowed only for the current run when the current user-approved scope explicitly names that exact database and authorizes its use. The phase result/evidence must state the database is non-isolated and user-authorized and warn that tests may mutate module, schema, and test data. If the exact database or authorization is absent, block and ask; never guess.
 
 - For IMPLEMENT/VERIFY, forward strict TDD only when the authoritative Policy

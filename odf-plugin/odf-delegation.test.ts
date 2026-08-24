@@ -49,6 +49,12 @@ import {
 } from "./odf-delegation.js"
 import { advanceWorkflow, resolveWorkflowRoute } from "./odf-workflow.js"
 import { buildCandidateManifest, computeCandidateDigest } from "./candidate-manifest.js"
+import {
+  establishSourceAuthorityRoots,
+  isViewAuthorityWork,
+  validateSourceAuthority,
+} from "./odf-source-authority.js"
+import { authorityLookup } from "../scripts/odf-toolkit.js"
 
 // T6: these describes exercise post-gate gated-phase internals that predate the
 // strict_workflow default; they run under the sanctioned legacy opt-out flag.
@@ -2034,6 +2040,155 @@ describe("savePolicyGateJson", () => {
   })
 })
 
+const sourcePrecisionFixtureRoot = path.resolve("scripts/fixtures/source-precision")
+
+function sourceAuthorityResult(source: string, targetOverride?: string): Record<string, unknown> {
+  const lookup = authorityLookup({
+    source,
+    action: "account.action_account_move",
+    relation: "search_view_id",
+  })
+  if (!lookup.ok || !lookup.action || !lookup.relation || !lookup.target) throw new Error("fixture authority lookup failed")
+  return {
+    status: "ok",
+    design_closed: true,
+    source_authority: {
+      ok: true,
+      verified: true,
+      action_xmlid: lookup.action.xmlid,
+      relation: lookup.relation.name,
+      target_xmlid: targetOverride || lookup.target.xmlid,
+      evidence: {
+        action: lookup.action,
+        relation: lookup.relation,
+        target: lookup.target,
+      },
+    },
+  }
+}
+
+function viewAuthorityResult(source: string, targetOverride?: string): Record<string, unknown> {
+  const lookup = authorityLookup({ source, view: "custom.view_child", relation: "inherit_id" })
+  if (!lookup.ok || !lookup.view || !lookup.relation || !lookup.target) throw new Error("view fixture authority lookup failed")
+  return {
+    status: "ok",
+    design_closed: true,
+    source_authority: {
+      ok: true,
+      verified: true,
+      view_xmlid: lookup.view.xmlid,
+      relation: lookup.relation.name,
+      target_xmlid: targetOverride || lookup.target.xmlid,
+      evidence: {
+        view: lookup.view,
+        relation: lookup.relation,
+        target: lookup.target,
+      },
+    },
+  }
+}
+
+async function createViewAuthorityFixture(): Promise<string> {
+  const source = await fs.mkdtemp(path.join(os.tmpdir(), "odf-view-authority-"))
+  await fs.mkdir(path.join(source, "custom"), { recursive: true })
+  await fs.mkdir(path.join(source, "base"), { recursive: true })
+  await fs.writeFile(path.join(source, "custom", "views.xml"), `<record id="view_child" model="ir.ui.view">
+  <field name="inherit_id" ref="base.view_parent"/>
+</record>
+`, "utf8")
+  await fs.writeFile(path.join(source, "base", "views.xml"), `<record id="view_parent" model="ir.ui.view"/>
+`, "utf8")
+  return source
+}
+
+describe("source authority adapter", () => {
+  it("detects only the narrow view-authority DESIGN/IMPLEMENT terms", () => {
+    expect(isViewAuthorityWork("DESIGN", "Design a Python model", ["models/x.py"])).toBe(false)
+    expect(isViewAuthorityWork("IMPLEMENT", "Implement a controller", ["controllers/x.py"])).toBe(false)
+    expect(isViewAuthorityWork("PLAN", "Plan view inheritance with inherit_id", [])).toBe(false)
+    expect(isViewAuthorityWork("DESIGN", "Design view inheritance with inherit_id", [])).toBe(true)
+    expect(isViewAuthorityWork("IMPLEMENT", "Set search_view_id for the action XML ID", [])).toBe(true)
+  })
+
+  it("accepts the exact version-specific targets through deterministic lookup", async () => {
+    const goldens = JSON.parse(await fs.readFile(path.join(sourcePrecisionFixtureRoot, "../source-precision-goldens.json"), "utf8"))
+    for (const golden of goldens.fixtures) {
+      const source = path.join(sourcePrecisionFixtureRoot, golden.source)
+      const lookup = authorityLookup({ source, action: golden.action, relation: golden.relation })
+      const result = validateSourceAuthority({
+        result: {
+          source_authority: {
+            ok: true,
+            verified: true,
+            action_xmlid: golden.action,
+            relation: golden.relation,
+            target_xmlid: golden.target,
+            evidence: { action: lookup.action, relation: lookup.relation, target: lookup.target },
+          },
+        },
+        task: `Implement view inheritance for ${golden.action} using ${golden.relation}`,
+        roots: { source },
+      })
+      expect(result, `Odoo ${golden.odoo_version}`).toMatchObject({ ok: true })
+      expect(result.envelope?.target_xmlid).toBe(golden.target)
+    }
+  })
+
+  it("accepts ordinary ir.ui.view inherit_id evidence without an action XML ID", async () => {
+    const source = await createViewAuthorityFixture()
+    try {
+      const result = validateSourceAuthority({
+        result: viewAuthorityResult(source),
+        task: "Implement view inheritance with inherit_id for custom.view_child",
+        roots: { source },
+      })
+
+      expect(result).toMatchObject({ ok: true, envelope: { view_xmlid: "custom.view_child", target_xmlid: "base.view_parent" } })
+    } finally {
+      await fs.rm(source, { recursive: true, force: true })
+    }
+  })
+
+  it("rejects an inherit_id envelope with the wrong target", async () => {
+    const source = await createViewAuthorityFixture()
+    try {
+      const result = validateSourceAuthority({
+        result: viewAuthorityResult(source, "custom.view_child"),
+        task: "Implement view inheritance with inherit_id for custom.view_child",
+        roots: { source },
+      })
+
+      expect(result).toMatchObject({ ok: false, reason: "source authority evidence does not match the deterministic view relation" })
+    } finally {
+      await fs.rm(source, { recursive: true, force: true })
+    }
+  })
+
+  it("fails closed for unavailable roots, malformed evidence, and unbounded paths", async () => {
+    const unavailable = establishSourceAuthorityRoots({ workspaceRoot: sourcePrecisionFixtureRoot, sourceRoot: "missing-root" })
+    expect(unavailable).toMatchObject({ ok: false, reason: expect.stringContaining("source authority unavailable") })
+
+    const source = path.join(sourcePrecisionFixtureRoot, "odoo-19.0")
+    const malformed = validateSourceAuthority({
+      result: { source_authority: { ok: true, verified: true } },
+      task: "Implement view inheritance with search_view_id account.action_account_move",
+      roots: { source },
+    })
+    expect(malformed).toMatchObject({ ok: false, reason: expect.stringContaining("malformed") })
+
+    const bounded = sourceAuthorityResult(source)
+    const authority = bounded.source_authority as Record<string, any>
+    authority.evidence.action.file = "/secret/odoo/views.xml"
+    authority.evidence.action.snippet = "x".repeat(161)
+    const unbounded = validateSourceAuthority({
+      result: bounded,
+      task: "Implement view inheritance with search_view_id account.action_account_move",
+      roots: { source },
+    })
+    expect(unbounded).toMatchObject({ ok: false, reason: expect.stringContaining("malformed or unbounded") })
+  })
+})
+
 describe("createODFDelegate", () => {
   const originalHome = process.env.HOME
   let tempHome: string
@@ -2268,6 +2423,135 @@ ${overrides}`
     expect(metrics[0].agent).toBe("odoo_functional_consultant")
     expect(metrics[0].task_api_source).toBe("toolCtx.task")
     expect(metrics[0]).toMatchObject({ lifecycle: "finished", run_id: expect.any(String) })
+  })
+
+  it.each(["DESIGN", "IMPLEMENT"] as const)("leaves unrelated %s work unaffected", async phase => {
+    const { createODFDelegate } = await import("./odf-delegation.js")
+    if (phase === "IMPLEMENT") {
+      initGitRepo(tempHome)
+      commitFile(tempHome, "README.md", 1)
+      await setRegistryFlags({ strict_workflow: false })
+    }
+    const taskResult = { status: "ok", design_closed: true, executive_summary: "model work" }
+    const taskApi = vi.fn().mockResolvedValue(taskResult)
+    const output = JSON.parse(await createODFDelegate(undefined, tempHome).execute({
+      phase,
+      change: phase === "IMPLEMENT" ? "unrelated-implement" : undefined,
+      prompt: "Implement a Python model constraint",
+      context_files: ["models/x.py"],
+    }, { sessionID: `unrelated-${phase}`, task: taskApi } as any) as string)
+
+    expect(output).toMatchObject({ status: "delegated", result: taskResult })
+  })
+
+  it("blocks view-authority work without the structured evidence envelope", async () => {
+    const { createODFDelegate } = await import("./odf-delegation.js")
+    const taskApi = vi.fn().mockResolvedValue({ status: "ok", design_closed: true })
+    const output = JSON.parse(await createODFDelegate(undefined, tempHome).execute({
+      phase: "DESIGN",
+      prompt: "Design view inheritance with search_view_id for account.action_account_move",
+      context_files: [],
+      odoo_source_root: path.join(sourcePrecisionFixtureRoot, "odoo-19.0"),
+    }, { sessionID: "authority-missing", task: taskApi } as any) as string)
+
+    expect(output).toMatchObject({ status: "blocked", reason: "source-authority-invalid" })
+    expect(output.message).toContain("missing or malformed")
+    expect(output.result.source_authority).toMatchObject({ ok: false, verified: false })
+  })
+
+  it("blocks a generic target that does not match the deterministic action relation", async () => {
+    const { createODFDelegate } = await import("./odf-delegation.js")
+    initGitRepo(tempHome)
+    commitFile(tempHome, "README.md", 1)
+    await setRegistryFlags({ strict_workflow: false })
+    const source = path.join(sourcePrecisionFixtureRoot, "odoo-19.0")
+    const taskApi = vi.fn().mockResolvedValue(sourceAuthorityResult(source, "account.view_account_move_filter"))
+    const output = JSON.parse(await createODFDelegate(undefined, tempHome).execute({
+      phase: "IMPLEMENT",
+      change: "authority-mismatch",
+      prompt: "Implement view inheritance with search_view_id for account.action_account_move",
+      context_files: [],
+      odoo_source_root: source,
+    }, { sessionID: "authority-mismatch", task: taskApi } as any) as string)
+
+    expect(output).toMatchObject({ status: "blocked", reason: "source-authority-invalid" })
+    expect(output.message).toContain("does not match the deterministic action relation")
+  })
+
+  it("accepts the canonical evidence envelope for a view-authority result", async () => {
+    const { createODFDelegate } = await import("./odf-delegation.js")
+    initGitRepo(tempHome)
+    commitFile(tempHome, "README.md", 1)
+    await setRegistryFlags({ strict_workflow: false })
+    const source = path.join(sourcePrecisionFixtureRoot, "odoo-19.0")
+    const taskResult = sourceAuthorityResult(source)
+    const output = JSON.parse(await createODFDelegate(undefined, tempHome).execute({
+      phase: "IMPLEMENT",
+      change: "authority-valid",
+      prompt: "Implement view inheritance with search_view_id for account.action_account_move",
+      context_files: [],
+      odoo_source_root: source,
+    }, { sessionID: "authority-valid", task: vi.fn().mockResolvedValue(taskResult) } as any) as string)
+
+    expect(output).toMatchObject({
+      status: "delegated",
+      result: { source_authority: { ok: true, verified: true, target_xmlid: "account.view_account_move_search_accounting" } },
+    })
+    expect(output.result.source_authority.evidence.target.file).not.toMatch(/^\//)
+    expect(output.result.source_authority.evidence.target.snippet.length).toBeLessThanOrEqual(160)
+  })
+
+  it("accepts ordinary inherit_id work through the delegation gate", async () => {
+    const { createODFDelegate } = await import("./odf-delegation.js")
+    initGitRepo(tempHome)
+    commitFile(tempHome, "README.md", 1)
+    await setRegistryFlags({ strict_workflow: false })
+    const source = await createViewAuthorityFixture()
+    const taskApi = vi.fn().mockResolvedValue(viewAuthorityResult(source))
+    try {
+      const output = JSON.parse(await createODFDelegate(undefined, tempHome).execute({
+        phase: "IMPLEMENT",
+        change: "inherit-authority-valid",
+        prompt: "Implement view inheritance with inherit_id for custom.view_child",
+        context_files: [],
+        odoo_source_root: source,
+      }, { sessionID: "inherit-authority-valid", task: taskApi } as any) as string)
+
+      expect(output).toMatchObject({
+        status: "delegated",
+        result: { source_authority: { ok: true, verified: true, view_xmlid: "custom.view_child", target_xmlid: "base.view_parent" } },
+      })
+      expect(output.result.source_authority.evidence.view.file).toBe("custom/views.xml")
+      expect(taskApi.mock.calls[0][0].prompt).toContain("ordinary view inheritance")
+      expect(taskApi.mock.calls[0][0].prompt).toContain("Never put a view XML ID in action_xmlid")
+    } finally {
+      await fs.rm(source, { recursive: true, force: true })
+    }
+  })
+
+  it("does not advance proof-backed workflow state when authority validation fails", async () => {
+    const { createODFDelegate } = await import("./odf-delegation.js")
+    const change = "authority-proof-blocked"
+    initGitRepo(tempHome)
+    commitFile(tempHome, "README.md", 1)
+    await prepareWorkflowState(change, "IMPLEMENT")
+    const statePath = path.join(tempHome, "openspec", "changes", change, "state.yaml")
+    const before = await fs.readFile(statePath, "utf8")
+    const source = path.join(sourcePrecisionFixtureRoot, "odoo-19.0")
+    const output = JSON.parse(await createODFDelegate(undefined, tempHome).execute({
+      phase: "IMPLEMENT",
+      change,
+      artifact_store: "openspec",
+      attempt_id: "authority-proof-1",
+      prompt: "Implement view inheritance with search_view_id for account.action_account_move",
+      context_files: [],
+      odoo_source_root: source,
+      workflow_advance: workflowAdvance("IMPLEMENT"),
+    }, { sessionID: "authority-proof", task: vi.fn().mockResolvedValue({ status: "ok", design_closed: true }) } as any) as string)
+
+    expect(output).toMatchObject({ status: "blocked", reason: "source-authority-invalid", workflow_commit: null })
+    expect(output.receipt).toMatchObject({ status: "blocked" })
+    expect(await fs.readFile(statePath, "utf8")).toBe(before)
   })
 
   it("flushes a correlated lifecycle start before task execution", async () => {

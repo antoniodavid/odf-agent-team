@@ -571,7 +571,7 @@ function fileBelongsToModule(root, file, module) {
   return moduleForFile(root, file) === module
 }
 
-function findXmlDefinitions(roots, id, module) {
+function findXmlDefinitions(roots, id, module, model) {
   const results = []
   for (const root of roots) {
     if (!fs.existsSync(root)) continue
@@ -579,7 +579,7 @@ function findXmlDefinitions(roots, id, module) {
       if (!fileBelongsToModule(root, file, module)) continue
       scanXmlTags(file, (tag, line) => {
         if (results.length >= LOOKUP_MAX_MATCHES || isClosingXmlTag(tag)) return
-        if (xmlAttribute(tag, "id") !== id) return
+        if (xmlAttribute(tag, "id") !== id || (model && xmlAttribute(tag, "model") !== model)) return
         results.push({
           file: path.relative(root, file),
           line,
@@ -686,19 +686,31 @@ function qualifiedXmlId(value) {
 }
 
 function actionRecordMatches(root, file, actionModule, actionId, relation, matches) {
-  if (!fileBelongsToModule(root, file, actionModule)) return
+  recordMatches(root, file, actionModule, actionId, "ir.actions.act_window", relation, matches, false)
+}
+
+function viewRecordMatches(root, file, viewModule, viewId, relation, matches) {
+  recordMatches(root, file, viewModule, viewId, "ir.ui.view", relation, matches, true)
+}
+
+function recordMatches(root, file, module, id, model, relation, matches, includeSelfClosing) {
+  if (!fileBelongsToModule(root, file, module)) return
   let active = null
   scanXmlTags(file, (tag, line) => {
     const name = xmlTagName(tag)
     if (!active) {
-      if (isClosingXmlTag(tag) || name !== "record" || isSelfClosingXmlTag(tag)) return
-      if (xmlAttribute(tag, "id") !== actionId || xmlAttribute(tag, "model") !== "ir.actions.act_window") return
+      if (isClosingXmlTag(tag) || name !== "record" || (!includeSelfClosing && isSelfClosingXmlTag(tag))) return
+      if (xmlAttribute(tag, "id") !== id || xmlAttribute(tag, "model") !== model) return
       active = {
         root,
         file,
         line,
         snippet: compactSnippet(tag),
         relationMatches: [],
+      }
+      if (isSelfClosingXmlTag(tag)) {
+        matches.push(active)
+        active = null
       }
       return
     }
@@ -719,68 +731,102 @@ function actionRecordMatches(root, file, actionModule, actionId, relation, match
   })
 }
 
-/** Resolve one proven action relation to one proven target definition. */
+/** Resolve one proven action or inherited view relation to one target definition. */
 export function authorityLookup(opts) {
-  const query = { action: opts.action, relation: opts.relation }
-  const qualifiedAction = qualifiedXmlId(opts.action)
-  if (!qualifiedAction || typeof opts.relation !== "string" || !/^[A-Za-z_][\w-]*$/.test(opts.relation)) {
-    return { ok: false, query, reason: "action must be module.xmlid and relation must be a field name", action: null, relation: null, target: null }
+  const isViewLookup = opts.view !== undefined
+  const query = isViewLookup
+    ? { view: opts.view, relation: opts.relation }
+    : { action: opts.action, relation: opts.relation }
+  const sourceXmlId = isViewLookup ? opts.view : opts.action
+  const qualifiedSource = qualifiedXmlId(sourceXmlId)
+  const validRelation = isViewLookup
+    ? opts.relation === "inherit_id"
+    : typeof opts.relation === "string" && /^[A-Za-z_][\w-]*$/.test(opts.relation)
+  if (!qualifiedSource || !validRelation || (isViewLookup && opts.action !== undefined)) {
+    return {
+      ok: false,
+      query,
+      reason: isViewLookup
+        ? "view must be module.xmlid and relation must be inherit_id"
+        : "action must be module.xmlid and relation must be a field name",
+      action: null,
+      ...(isViewLookup ? { view: null } : {}),
+      relation: null,
+      target: null,
+    }
   }
   const roots = [opts.source, ...(opts.repos ? [opts.repos] : [])].filter(Boolean)
-  const actions = []
+  const records = []
   for (const root of roots) {
     if (!fs.existsSync(root)) continue
     for (const file of collectSourceFiles(root, [".xml"])) {
-      actionRecordMatches(root, file, qualifiedAction.module, qualifiedAction.id, opts.relation, actions)
-      if (actions.length > 1) break
+      if (isViewLookup) {
+        viewRecordMatches(root, file, qualifiedSource.module, qualifiedSource.id, opts.relation, records)
+      } else {
+        actionRecordMatches(root, file, qualifiedSource.module, qualifiedSource.id, opts.relation, records)
+      }
+      if (records.length > 1) break
     }
-    if (actions.length > 1) break
+    if (records.length > 1) break
   }
-  if (actions.length !== 1) {
+  if (records.length !== 1) {
     return {
       ok: false,
       query,
-      reason: actions.length === 0 ? "action definition not proven" : "action definition is ambiguous",
+      reason: records.length === 0
+        ? `${isViewLookup ? "view" : "action"} definition not proven`
+        : `${isViewLookup ? "view" : "action"} definition is ambiguous`,
       action: null,
+      ...(isViewLookup ? { view: null } : {}),
       relation: null,
       target: null,
     }
   }
 
-  const action = actions[0]
-  const actionEvidence = {
-    xmlid: `${qualifiedAction.module}.${qualifiedAction.id}`,
-    file: path.relative(action.root, action.file),
-    line: action.line,
-    snippet: action.snippet,
+  const record = records[0]
+  const sourceEvidence = {
+    xmlid: `${qualifiedSource.module}.${qualifiedSource.id}`,
+    file: path.relative(record.root, record.file),
+    line: record.line,
+    snippet: record.snippet,
   }
-  if (action.relationMatches.length !== 1 || !action.relationMatches[0].rawTarget) {
+  if (record.relationMatches.length !== 1 || !record.relationMatches[0].rawTarget) {
     return {
       ok: false,
       query,
-      reason: action.relationMatches.length === 0 ? "relation definition not proven" : "relation definition is ambiguous",
-      action: actionEvidence,
+      reason: record.relationMatches.length === 0 ? "relation definition not proven" : "relation definition is ambiguous",
+      action: isViewLookup ? null : sourceEvidence,
+      ...(isViewLookup ? { view: sourceEvidence } : {}),
       relation: null,
       target: null,
     }
   }
 
-  const relationEvidence = action.relationMatches[0]
+  const relationEvidence = record.relationMatches[0]
   const target = qualifiedXmlId(relationEvidence.rawTarget) || (
     /^[A-Za-z_][\w-]*$/.test(relationEvidence.rawTarget)
-      ? { module: qualifiedAction.module, id: relationEvidence.rawTarget }
+      ? { module: qualifiedSource.module, id: relationEvidence.rawTarget }
       : null
   )
   if (!target) {
-    return { ok: false, query, reason: "relation target XML ID is invalid", action: actionEvidence, relation: null, target: null }
+    return {
+      ok: false,
+      query,
+      reason: "relation target XML ID is invalid",
+      action: isViewLookup ? null : sourceEvidence,
+      ...(isViewLookup ? { view: sourceEvidence } : {}),
+      relation: null,
+      target: null,
+    }
   }
-  const targetMatches = findXmlDefinitions(roots, target.id, target.module)
+  const targetMatches = findXmlDefinitions(roots, target.id, target.module, isViewLookup ? "ir.ui.view" : undefined)
   if (targetMatches.length !== 1) {
     return {
       ok: false,
       query,
       reason: targetMatches.length === 0 ? "relation target definition not proven" : "relation target definition is ambiguous",
-      action: actionEvidence,
+      action: isViewLookup ? null : sourceEvidence,
+      ...(isViewLookup ? { view: sourceEvidence } : {}),
       relation: { name: opts.relation, target_xmlid: `${target.module}.${target.id}`, file: path.relative(relationEvidence.root, relationEvidence.file), line: relationEvidence.line, snippet: relationEvidence.snippet },
       target: null,
     }
@@ -789,7 +835,8 @@ export function authorityLookup(opts) {
   return {
     ok: true,
     query,
-    action: actionEvidence,
+    action: isViewLookup ? null : sourceEvidence,
+    ...(isViewLookup ? { view: sourceEvidence } : {}),
     relation: {
       name: opts.relation,
       target_xmlid: `${target.module}.${target.id}`,
@@ -869,20 +916,21 @@ function main(argv) {
       const source = argValue(argv, "--source")
       const repos = argValue(argv, "--repos")
       const action = argValue(argv, "--action")
+      const view = argValue(argv, "--view")
       const relation = argValue(argv, "--relation")
       const id = argValue(argv, "--id")
       const model = argValue(argv, "--model")
       const field = argValue(argv, "--field")
       const module = argValue(argv, "--module")
-      if (action || relation) {
-        if (!source || !action || !relation || id || model || field) {
-          return usage("lookup --source <odoo-src-root> --action <module.action_xmlid> --relation <field> [--repos <src-dir>]")
+      if (action || view || relation) {
+        if (!source || (!action && !view) || (action && view) || !relation || id || model || field) {
+          return usage("lookup --source <odoo-src-root> --action <module.action_xmlid> --relation <field> | --view <module.view_xmlid> --relation inherit_id [--repos <src-dir>]")
         }
-        result = authorityLookup({ source: path.resolve(source), repos: repos ? path.resolve(repos) : undefined, action, relation })
+        result = authorityLookup({ source: path.resolve(source), repos: repos ? path.resolve(repos) : undefined, ...(view ? { view } : { action }), relation })
         break
       }
       if (!source || (!id && !model && !field)) {
-        return usage("lookup --source <odoo-src-root> [--repos <src-dir>] --id <xmlid> | --model <model> | --field <field> [--module <prefix>] | --action <module.action_xmlid> --relation <field>")
+        return usage("lookup --source <odoo-src-root> [--repos <src-dir>] --id <xmlid> | --model <model> | --field <field> [--module <prefix>] | --action <module.action_xmlid> --relation <field> | --view <module.view_xmlid> --relation inherit_id")
       }
       result = sourceLookup({ source: path.resolve(source), repos: repos ? path.resolve(repos) : undefined, id, model, field, module })
       break
