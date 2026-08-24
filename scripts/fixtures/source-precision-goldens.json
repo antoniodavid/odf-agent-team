@@ -1,0 +1,34 @@
+{
+  "schema_version": 1,
+  "scope": "Synthetic source-authority regression fixtures only; not a catalog of real Odoo modules.",
+  "fixtures": [
+    {
+      "odoo_version": "16",
+      "source": "odoo-16",
+      "action": "account.action_account_move",
+      "relation": "search_view_id",
+      "target": "account.view_account_move_search_legacy"
+    },
+    {
+      "odoo_version": "17",
+      "source": "odoo-17",
+      "action": "account.action_account_move",
+      "relation": "search_view_id",
+      "target": "account.view_account_move_search_standard"
+    },
+    {
+      "odoo_version": "18",
+      "source": "odoo-18",
+      "action": "account.action_account_move",
+      "relation": "search_view_id",
+      "target": "account.view_account_move_search_extended"
+    },
+    {
+      "odoo_version": "19.0",
+      "source": "odoo-19.0",
+      "action": "account.action_account_move",
+      "relation": "search_view_id",
+      "target": "account.view_account_move_search_accounting"
+    }
+  ]
+}

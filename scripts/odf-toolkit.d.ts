@@ -108,8 +108,18 @@ export interface DependencyProbe {
   python3: "available" | "missing"
 }
 export function dependencyProbe(): DependencyProbe
-export interface LookupMatch { file: string; line: number; snippet: string; term: string }
+export interface LookupMatch { file: string; line: number; snippet: string; term: string; kind?: "definition" }
 export function sourceLookup(opts: { source: string; repos?: string; id?: string; model?: string; field?: string; module?: string }): { query: Record<string, string | undefined>; results: LookupMatch[] }
+export interface AuthorityEvidence { xmlid?: string; name?: string; target_xmlid?: string; file: string; line: number; snippet: string }
+export interface AuthorityLookupResult {
+  ok: boolean
+  query: { action?: string; relation?: string }
+  reason?: string
+  action: AuthorityEvidence | null
+  relation: AuthorityEvidence | null
+  target: AuthorityEvidence | null
+}
+export function authorityLookup(opts: { source: string; repos?: string; action: string; relation: string }): AuthorityLookupResult
 export function verifyRefs(opts: { repo: string; source: string; repos?: string }): {
   refs_checked: number
   models_checked: number

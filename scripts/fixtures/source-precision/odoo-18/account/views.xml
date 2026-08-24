@@ -1,0 +1,13 @@
+<odoo>
+  <record
+    model="ir.actions.act_window"
+    id="action_account_move">
+    <field ref="view_account_move_search_extended" name="search_view_id"/>
+  </record>
+  <record id="view_account_move_search_generic" model="ir.ui.view">
+    <field name="name">generic plausible search</field>
+  </record>
+  <record id="view_account_move_search_extended" model="ir.ui.view">
+    <field name="name">Odoo 18 exact search</field>
+  </record>
+</odoo>

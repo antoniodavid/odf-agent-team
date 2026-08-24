@@ -9,7 +9,7 @@ async function writeFile(dir: string, rel: string, content: string): Promise<voi
   await fs.writeFile(file, content, "utf8")
 }
 
-import { asBoolean, buildManualEvidence, evidencePack, loadRegistry, matchSkills, metricsSummary, normalizeResult, redundancyCheck, resolveAgent, sourceLookup, stateBundle, verifyRefs } from "./odf-toolkit.js"
+import { asBoolean, authorityLookup, buildManualEvidence, evidencePack, loadRegistry, matchSkills, metricsSummary, normalizeResult, redundancyCheck, resolveAgent, sourceLookup, stateBundle, verifyRefs } from "./odf-toolkit.js"
 
 describe("odf-toolkit result", () => {
   it("normalizes design_closed as string or boolean and flags missing on DESIGN/PLAN", () => {
@@ -233,5 +233,54 @@ describe("odf-toolkit source precision", () => {
     expect(verdict.ok).toBe(false)
     expect(verdict.missing_refs.some(m => m.ref === "account.ghost_view")).toBe(true)
     expect(verdict.missing_refs.some(m => m.ref === "account.real_view")).toBe(false)
+  })
+
+  it("scans large XML and Python files without the old 128 KiB skip", async () => {
+    const xmlFiller = "  <!-- bounded scanner filler -->\n".repeat(5000)
+    const pyFiller = "# bounded scanner filler\n".repeat(7000)
+    await writeFile(root, "addons/account/views/large.xml", `<odoo>\n${xmlFiller}<record id="large_view" model="ir.ui.view"/>\n</odoo>\n`)
+    await writeFile(root, "addons/account/models/large.py", `${pyFiller}_name = "x.large_model"\n`)
+    await writeFile(root, "custom/views/large.xml", `<odoo>\n${xmlFiller}<record id="x" model="ir.ui.view"><field name="inherit_id" ref="account.large_view"/></record>\n</odoo>\n`)
+
+    expect((await fs.stat(path.join(root, "addons/account/views/large.xml"))).size).toBeGreaterThan(128 * 1024)
+    expect(sourceLookup({ source: path.join(root, "addons"), id: "large_view", module: "account" }).results).toHaveLength(1)
+    expect(sourceLookup({ source: path.join(root, "addons"), model: "x.large_model" }).results).toHaveLength(1)
+    expect(verifyRefs({ repo: path.join(root, "custom"), source: path.join(root, "addons") })).toMatchObject({ ok: true, missing_refs: [], missing_models: [] })
+  })
+
+  it("keeps module-qualified XML IDs out of unrelated modules and unqualified roots", async () => {
+    await writeFile(root, "account/views.xml", `<record id="same_view" model="ir.ui.view"/>\n`)
+    await writeFile(root, "l10n_es/views.xml", `<record id="same_view" model="ir.ui.view"/>\n`)
+    await writeFile(root, "same_view.xml", `<record id="same_view" model="ir.ui.view"/>\n`)
+
+    const strict = sourceLookup({ source: root, id: "same_view", module: "account" })
+    expect(strict.results).toHaveLength(1)
+    expect(strict.results[0].file).toBe("account/views.xml")
+  })
+
+  it("resolves version-specific action relations to the fixture's exact target", async () => {
+    const fixtureRoot = path.resolve("scripts/fixtures/source-precision")
+    const goldens = JSON.parse(await fs.readFile(path.resolve("scripts/fixtures/source-precision-goldens.json"), "utf8"))
+    for (const golden of goldens.fixtures) {
+      const result = authorityLookup({
+        source: path.join(fixtureRoot, golden.source),
+        action: golden.action,
+        relation: golden.relation,
+      })
+      expect(result.ok, `Odoo ${golden.odoo_version}`).toBe(true)
+      expect(result.relation?.target_xmlid).toBe(golden.target)
+      expect(result.target?.xmlid).toBe(golden.target)
+      expect(result.target?.xmlid).not.toContain("generic")
+      expect(result.target?.snippet.length).toBeLessThanOrEqual(160)
+    }
+  })
+
+  it("fails closed when an action relation cannot be proven", () => {
+    const result = authorityLookup({
+      source: path.resolve("scripts/fixtures/source-precision/odoo-19.0"),
+      action: "account.action_account_move",
+      relation: "missing_view_id",
+    })
+    expect(result).toMatchObject({ ok: false, action: expect.any(Object), relation: null, target: null })
   })
 })

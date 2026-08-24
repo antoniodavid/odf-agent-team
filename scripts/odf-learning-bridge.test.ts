@@ -61,6 +61,7 @@ describe("odf learning bridge buildVerifiedRunFromChange", () => {
       expectations: EXPECTATIONS,
       records: toolRecords(7),
       outcome: "pass",
+      receipt: { status: "verified", candidate_digest: DIGEST },
     })
     expect(built.run).not.toBeNull()
     const run = built.run!
@@ -74,6 +75,7 @@ describe("odf learning bridge buildVerifiedRunFromChange", () => {
       expectations: EXPECTATIONS,
       records: implRecords(6),
       outcome: "pass",
+      receipt: { status: "success" },
     })
     expect(built.run).toBeNull()
     expect(built.data_status).toBe("no_data")
@@ -86,6 +88,7 @@ describe("odf learning bridge buildVerifiedRunFromChange", () => {
       expectations: { expectations: [{ id: "EXP-01" }], approved: false },
       records: implRecords(6),
       outcome: "pass",
+      receipt: { status: "success", candidate_digest: DIGEST },
     })
     expect(built.run).toBeNull()
     expect(built.data_status).toBe("no_data")
@@ -98,12 +101,39 @@ describe("odf learning bridge buildVerifiedRunFromChange", () => {
       expectations: EXPECTATIONS,
       records: null,
       outcome: "pass",
+      receipt: { status: "success", candidate_digest: DIGEST },
     })
     expect(built.data_status).toBe("complete")
     expect(built.run).not.toBeNull()
     const run = built.run!
     expect(run.tool_call_count).toBeNull()
     expect(run.tool_call_source).toBeNull()
+  })
+
+  it("admission-requires-explicit-success-receipt-status", () => {
+    for (const status of [undefined, "", "failed", "blocked", "pending", "arbitrary"]) {
+      const built = buildVerifiedRunFromChange({
+        design_meta: DESIGN_META,
+        expectations: EXPECTATIONS,
+        records: implRecords(1),
+        outcome: "pass",
+        receipt: status === undefined ? undefined : { status, candidate_digest: DIGEST },
+      })
+      expect(built.run, `status=${status ?? "missing"}`).toBeNull()
+      expect(built.data_status).toBe("no_data")
+    }
+
+    for (const status of ["success", "verified"]) {
+      const built = buildVerifiedRunFromChange({
+        design_meta: DESIGN_META,
+        expectations: EXPECTATIONS,
+        records: [],
+        outcome: "pass",
+        receipt: { status, candidate_digest: DIGEST },
+      })
+      expect(built.run, `status=${status}`).not.toBeNull()
+      expect(built.data_status).toBe("complete")
+    }
   })
 })
 
@@ -135,6 +165,7 @@ describe("odf learning bridge proposeFromArchivedChange", () => {
       expectations: EXPECTATIONS,
       records: implRecords(8),
       outcome: "pass",
+      receipt: { status: "success" },
     })
     expect(result.run_verified).toBe(false)
     expect(result.data_status).toBe("no_data")

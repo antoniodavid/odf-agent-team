@@ -22,6 +22,7 @@ import os from "node:os"
 import path from "node:path"
 import { execFileSync } from "node:child_process"
 import { createHash } from "node:crypto"
+import { StringDecoder } from "node:string_decoder"
 import { pathToFileURL } from "node:url"
 import YAML from "yaml"
 import { collectDelegations, resolveMetricsDir } from "./odf-metrics.js"
@@ -407,8 +408,12 @@ function renderDeps(deps) {
 // ==========================================
 
 const LOOKUP_MAX_FILES = 6000
-const LOOKUP_MAX_FILE_BYTES = 128 * 1024
 const LOOKUP_MAX_MATCHES = 15
+const LOOKUP_MAX_REFS = 2000
+const LOOKUP_MAX_MODELS = 2000
+const LOOKUP_CHUNK_BYTES = 64 * 1024
+const LOOKUP_MAX_LINE_CHARS = 8192
+const LOOKUP_MAX_TAG_CHARS = 16 * 1024
 const LOOKUP_SKIP_DIRS = new Set(["node_modules", ".git", ".codegraph", "__pycache__", ".mypy_cache"])
 
 function collectSourceFiles(root, exts) {
@@ -429,23 +434,179 @@ function collectSourceFiles(root, exts) {
   return files
 }
 
-function findMatches(root, exts, predicate) {
+// Read lines in bounded chunks. Large source files are scanned instead of
+// rejected, while an unusually long line cannot grow the working buffer.
+function scanFileLines(file, onLine) {
+  let fd
+  try { fd = fs.openSync(file, "r") } catch { return }
+  const decoder = new StringDecoder("utf8")
+  const chunk = Buffer.allocUnsafe(LOOKUP_CHUNK_BYTES)
+  let line = ""
+  let lineNumber = 1
+
+  const append = (text) => {
+    if (line.length >= LOOKUP_MAX_LINE_CHARS) return
+    line += text.slice(0, LOOKUP_MAX_LINE_CHARS - line.length)
+  }
+  const consume = (text) => {
+    let start = 0
+    while (start <= text.length) {
+      const end = text.indexOf("\n", start)
+      if (end < 0) {
+        append(text.slice(start))
+        return
+      }
+      append(text.slice(start, end))
+      onLine(line.replace(/\r$/, ""), lineNumber)
+      line = ""
+      lineNumber += 1
+      start = end + 1
+      if (start === text.length) return
+    }
+  }
+
+  try {
+    let bytes
+    do {
+      bytes = fs.readSync(fd, chunk, 0, chunk.length, null)
+      if (bytes > 0) consume(decoder.write(chunk.subarray(0, bytes)))
+    } while (bytes > 0)
+    consume(decoder.end())
+    if (line.length > 0 || lineNumber === 1) onLine(line, lineNumber)
+  } catch {
+    // A file can disappear or become unreadable while a source tree is scanned.
+  } finally {
+    try { fs.closeSync(fd) } catch { /* best effort */ }
+  }
+}
+
+function findTagEnd(text) {
+  let quote = null
+  for (let i = 0; i < text.length; i++) {
+    const char = text[i]
+    if (quote) {
+      if (char === quote) quote = null
+    } else if (char === '"' || char === "'") {
+      quote = char
+    } else if (char === ">") {
+      return i
+    }
+  }
+  return -1
+}
+
+// XML tags are also bounded and can span lines. This is enough structure for
+// exact XML ID/ref checks without loading an entire XML document or using a
+// whole-file regular expression.
+function scanXmlTags(file, onTag) {
+  let active = null
+  scanFileLines(file, (line, lineNumber) => {
+    let remaining = line
+    while (remaining.length > 0) {
+      if (!active) {
+        const start = remaining.indexOf("<")
+        if (start < 0) return
+        remaining = remaining.slice(start)
+        active = { line: lineNumber, text: "", truncated: false }
+      }
+
+      const end = findTagEnd(remaining)
+      const piece = end < 0 ? remaining : remaining.slice(0, end + 1)
+      if (!active.truncated) {
+        if (active.text.length + piece.length <= LOOKUP_MAX_TAG_CHARS) active.text += piece
+        else active.truncated = true
+      }
+      if (end < 0) return
+
+      if (!active.truncated) onTag(active.text, active.line)
+      active = null
+      remaining = remaining.slice(end + 1)
+    }
+  })
+}
+
+function xmlAttribute(tag, name) {
+  const attributes = /([:\w-]+)\s*=\s*(?:"([^"]*)"|'([^']*)')/g
+  let match
+  while ((match = attributes.exec(tag))) {
+    if (match[1] === name) return match[2] ?? match[3]
+  }
+  return null
+}
+
+function xmlTagName(tag) {
+  const match = tag.match(/^<\s*\/?\s*([:\w-]+)/)
+  return match ? match[1] : null
+}
+
+function isClosingXmlTag(tag) {
+  return /^<\s*\//.test(tag)
+}
+
+function isSelfClosingXmlTag(tag) {
+  return /\/\s*>$/.test(tag)
+}
+
+function compactSnippet(value) {
+  return value.replace(/\s+/g, " ").trim().slice(0, 160)
+}
+
+function moduleForFile(root, file) {
+  const rootPath = path.resolve(root)
+  let directory = path.dirname(file)
+  while (directory === rootPath || directory.startsWith(`${rootPath}${path.sep}`)) {
+    const manifest = ["__manifest__.py", "__openerp__.py"].some(name => fs.existsSync(path.join(directory, name)))
+    if (manifest) return path.basename(directory)
+    if (directory === rootPath) break
+    directory = path.dirname(directory)
+  }
+  const relative = path.relative(rootPath, file)
+  const parts = relative.split(path.sep)
+  const addons = parts.indexOf("addons")
+  const first = addons >= 0 ? parts[addons + 1] : parts[0]
+  return first && first !== ".." ? first : null
+}
+
+function fileBelongsToModule(root, file, module) {
+  return moduleForFile(root, file) === module
+}
+
+function findXmlDefinitions(roots, id, module) {
+  const results = []
+  for (const root of roots) {
+    if (!fs.existsSync(root)) continue
+    for (const file of collectSourceFiles(root, [".xml"])) {
+      if (!fileBelongsToModule(root, file, module)) continue
+      scanXmlTags(file, (tag, line) => {
+        if (results.length >= LOOKUP_MAX_MATCHES || isClosingXmlTag(tag)) return
+        if (xmlAttribute(tag, "id") !== id) return
+        results.push({
+          file: path.relative(root, file),
+          line,
+          snippet: compactSnippet(tag),
+          term: `id="${id}"`,
+          kind: "definition",
+          root,
+        })
+      })
+      if (results.length >= LOOKUP_MAX_MATCHES) break
+    }
+    if (results.length >= LOOKUP_MAX_MATCHES) break
+  }
+  return results
+}
+
+function findMatches(root, exts, predicate, filePredicate = () => true) {
   const results = []
   for (const file of collectSourceFiles(root, exts)) {
     if (results.length >= LOOKUP_MAX_MATCHES) break
-    let content
-    try {
-      const stat = fs.statSync(file)
-      if (stat.size > LOOKUP_MAX_FILE_BYTES) continue
-      content = fs.readFileSync(file, "utf8")
-    } catch { continue }
-    const lines = content.split("\n")
-    for (let i = 0; i < lines.length; i++) {
-      if (results.length >= LOOKUP_MAX_MATCHES) break
-      if (predicate(lines[i])) {
-        results.push({ file: path.relative(root, file), line: i + 1, snippet: lines[i].trim().slice(0, 160) })
+    if (!filePredicate(file)) continue
+    scanFileLines(file, (line, lineNumber) => {
+      if (results.length >= LOOKUP_MAX_MATCHES) return
+      if (predicate(line)) {
+        results.push({ file: path.relative(root, file), line: lineNumber, snippet: line.trim().slice(0, 160) })
       }
-    }
+    })
   }
   return results
 }
@@ -454,10 +615,17 @@ function findMatches(root, exts, predicate) {
 export function sourceLookup(opts) {
   const roots = [opts.source, ...(opts.repos ? [opts.repos] : [])].filter(Boolean)
   const results = []
+
+  // A qualified XML ID is a definition lookup, not a same-named text search.
+  // Restrict it to the requested Odoo module and exclude unqualified roots.
+  if (opts.id && opts.module) {
+    results.push(...findXmlDefinitions(roots, opts.id, opts.module).map(({ root: _root, ...match }) => match))
+    return { query: { id: opts.id, model: opts.model, field: opts.field, module: opts.module }, results }
+  }
+
   const terms = []
   if (opts.id) {
     terms.push(`id="${opts.id}"`, `ref="${opts.id}"`)
-    if (opts.module) terms.push(`ref="${opts.module}.${opts.id}"`)
   }
   if (opts.model) terms.push(`model="${opts.model}"`, `_name = '${opts.model}'`, `_name = "${opts.model}"`, `_inherit = '${opts.model}'`, `_inherit = "${opts.model}"`)
   if (opts.field) terms.push(`${opts.field} = fields.`)
@@ -468,32 +636,35 @@ export function sourceLookup(opts) {
       for (const match of found) results.push({ ...match, term })
     }
   }
-  return { query: { id: opts.id, model: opts.model, field: opts.field }, results }
+  return { query: { id: opts.id, model: opts.model, field: opts.field, module: opts.module }, results }
 }
 
 /** Scan a module's XML for refs/models and verify each against the source. */
 export function verifyRefs(opts) {
   const xmlFiles = collectSourceFiles(opts.repo, [".xml"])
-  const refs = new Set()
+  const refs = new Map()
   const models = new Set()
-  const refRe = /ref="([^"]+)"/g
-  const modelRe = /model="([^"]+)"/g
   for (const file of xmlFiles) {
-    let content
-    try {
-      const stat = fs.statSync(file)
-      if (stat.size > LOOKUP_MAX_FILE_BYTES) continue
-      content = fs.readFileSync(file, "utf8")
-    } catch { continue }
-    for (const m of content.matchAll(refRe)) refs.add({ ref: m[1], file: path.relative(opts.repo, file) })
-    for (const m of content.matchAll(modelRe)) models.add(m[1])
+    scanXmlTags(file, (tag) => {
+      const ref = xmlAttribute(tag, "ref")
+      if (ref && refs.size < LOOKUP_MAX_REFS) {
+        const relative = path.relative(opts.repo, file)
+        refs.set(`${relative}\0${ref}`, { ref, file: relative })
+      }
+      const model = xmlAttribute(tag, "model")
+      if (model && models.size < LOOKUP_MAX_MODELS) models.add(model)
+    })
   }
   const missingRefs = []
   const missingModels = []
-  for (const { ref, file } of refs) {
-    const [module, id] = ref.split(".")
-    if (!id) continue // relative refs are intra-file; skip
-    const found = sourceLookup({ source: opts.source, repos: opts.repos, id, module }).results.length > 0
+  const refResults = new Map()
+  for (const { ref, file } of refs.values()) {
+    const parts = ref.split(".")
+    if (parts.length !== 2 || !parts[0] || !parts[1]) continue // relative refs are intra-file; skip
+    const [module, id] = parts
+    const cacheKey = `${module}.${id}`
+    if (!refResults.has(cacheKey)) refResults.set(cacheKey, findXmlDefinitions([opts.source, ...(opts.repos ? [opts.repos] : [])], id, module).length > 0)
+    const found = refResults.get(cacheKey)
     if (!found) missingRefs.push({ ref, file })
   }
   for (const model of models) {
@@ -506,6 +677,132 @@ export function verifyRefs(opts) {
     missing_refs: missingRefs.slice(0, 20),
     missing_models: missingModels.slice(0, 20),
     ok: missingRefs.length === 0 && missingModels.length === 0,
+  }
+}
+
+function qualifiedXmlId(value) {
+  const parts = typeof value === "string" ? value.split(".") : []
+  return parts.length === 2 && parts.every(Boolean) ? { module: parts[0], id: parts[1] } : null
+}
+
+function actionRecordMatches(root, file, actionModule, actionId, relation, matches) {
+  if (!fileBelongsToModule(root, file, actionModule)) return
+  let active = null
+  scanXmlTags(file, (tag, line) => {
+    const name = xmlTagName(tag)
+    if (!active) {
+      if (isClosingXmlTag(tag) || name !== "record" || isSelfClosingXmlTag(tag)) return
+      if (xmlAttribute(tag, "id") !== actionId || xmlAttribute(tag, "model") !== "ir.actions.act_window") return
+      active = {
+        root,
+        file,
+        line,
+        snippet: compactSnippet(tag),
+        relationMatches: [],
+      }
+      return
+    }
+
+    if (!isClosingXmlTag(tag) && name === "field" && xmlAttribute(tag, "name") === relation) {
+      active.relationMatches.push({
+        rawTarget: xmlAttribute(tag, "ref"),
+        root,
+        file,
+        line,
+        snippet: compactSnippet(tag),
+      })
+    }
+    if (isClosingXmlTag(tag) && name === "record") {
+      matches.push(active)
+      active = null
+    }
+  })
+}
+
+/** Resolve one proven action relation to one proven target definition. */
+export function authorityLookup(opts) {
+  const query = { action: opts.action, relation: opts.relation }
+  const qualifiedAction = qualifiedXmlId(opts.action)
+  if (!qualifiedAction || typeof opts.relation !== "string" || !/^[A-Za-z_][\w-]*$/.test(opts.relation)) {
+    return { ok: false, query, reason: "action must be module.xmlid and relation must be a field name", action: null, relation: null, target: null }
+  }
+  const roots = [opts.source, ...(opts.repos ? [opts.repos] : [])].filter(Boolean)
+  const actions = []
+  for (const root of roots) {
+    if (!fs.existsSync(root)) continue
+    for (const file of collectSourceFiles(root, [".xml"])) {
+      actionRecordMatches(root, file, qualifiedAction.module, qualifiedAction.id, opts.relation, actions)
+      if (actions.length > 1) break
+    }
+    if (actions.length > 1) break
+  }
+  if (actions.length !== 1) {
+    return {
+      ok: false,
+      query,
+      reason: actions.length === 0 ? "action definition not proven" : "action definition is ambiguous",
+      action: null,
+      relation: null,
+      target: null,
+    }
+  }
+
+  const action = actions[0]
+  const actionEvidence = {
+    xmlid: `${qualifiedAction.module}.${qualifiedAction.id}`,
+    file: path.relative(action.root, action.file),
+    line: action.line,
+    snippet: action.snippet,
+  }
+  if (action.relationMatches.length !== 1 || !action.relationMatches[0].rawTarget) {
+    return {
+      ok: false,
+      query,
+      reason: action.relationMatches.length === 0 ? "relation definition not proven" : "relation definition is ambiguous",
+      action: actionEvidence,
+      relation: null,
+      target: null,
+    }
+  }
+
+  const relationEvidence = action.relationMatches[0]
+  const target = qualifiedXmlId(relationEvidence.rawTarget) || (
+    /^[A-Za-z_][\w-]*$/.test(relationEvidence.rawTarget)
+      ? { module: qualifiedAction.module, id: relationEvidence.rawTarget }
+      : null
+  )
+  if (!target) {
+    return { ok: false, query, reason: "relation target XML ID is invalid", action: actionEvidence, relation: null, target: null }
+  }
+  const targetMatches = findXmlDefinitions(roots, target.id, target.module)
+  if (targetMatches.length !== 1) {
+    return {
+      ok: false,
+      query,
+      reason: targetMatches.length === 0 ? "relation target definition not proven" : "relation target definition is ambiguous",
+      action: actionEvidence,
+      relation: { name: opts.relation, target_xmlid: `${target.module}.${target.id}`, file: path.relative(relationEvidence.root, relationEvidence.file), line: relationEvidence.line, snippet: relationEvidence.snippet },
+      target: null,
+    }
+  }
+  const targetMatch = targetMatches[0]
+  return {
+    ok: true,
+    query,
+    action: actionEvidence,
+    relation: {
+      name: opts.relation,
+      target_xmlid: `${target.module}.${target.id}`,
+      file: path.relative(relationEvidence.root, relationEvidence.file),
+      line: relationEvidence.line,
+      snippet: relationEvidence.snippet,
+    },
+    target: {
+      xmlid: `${target.module}.${target.id}`,
+      file: targetMatch.file,
+      line: targetMatch.line,
+      snippet: targetMatch.snippet,
+    },
   }
 }
 
@@ -571,12 +868,21 @@ function main(argv) {
     case "lookup": {
       const source = argValue(argv, "--source")
       const repos = argValue(argv, "--repos")
+      const action = argValue(argv, "--action")
+      const relation = argValue(argv, "--relation")
       const id = argValue(argv, "--id")
       const model = argValue(argv, "--model")
       const field = argValue(argv, "--field")
       const module = argValue(argv, "--module")
+      if (action || relation) {
+        if (!source || !action || !relation || id || model || field) {
+          return usage("lookup --source <odoo-src-root> --action <module.action_xmlid> --relation <field> [--repos <src-dir>]")
+        }
+        result = authorityLookup({ source: path.resolve(source), repos: repos ? path.resolve(repos) : undefined, action, relation })
+        break
+      }
       if (!source || (!id && !model && !field)) {
-        return usage("lookup --source <odoo-src-root> [--repos <src-dir>] --id <xmlid> | --model <model> | --field <field> [--module <prefix>]")
+        return usage("lookup --source <odoo-src-root> [--repos <src-dir>] --id <xmlid> | --model <model> | --field <field> [--module <prefix>] | --action <module.action_xmlid> --relation <field>")
       }
       result = sourceLookup({ source: path.resolve(source), repos: repos ? path.resolve(repos) : undefined, id, model, field, module })
       break
@@ -661,7 +967,7 @@ function main(argv) {
   if (sub === "context" && result.status === "ok") {
     process.stdout.write("\n# freshness: if a relevant file was edited moments ago, read it directly — the index syncs within ~1s.\n")
   }
-  process.exit(sub === "context" && result.status !== "ok" ? 1 : 0)
+  process.exit((sub === "context" && result.status !== "ok") || (sub === "lookup" && result.ok === false) ? 1 : 0)
 }
 
 function usage(detail = "") {

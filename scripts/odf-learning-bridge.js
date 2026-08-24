@@ -69,11 +69,11 @@ function approvedExpectations(expectations) {
     .map((e) => ({ id: e.id, statement: e.statement, approved: true }))
 }
 
-// The archive gate guarantees VERIFY passed before C1 runs, so an absent receipt
-// status maps to "success" rather than inventing a different verification state.
+// Admission requires an explicit successful receipt. The archive gate is not a
+// reason to invent one when the receipt is missing or malformed.
 function receiptStatus(receipt) {
   const s = receipt && typeof receipt === "object" ? receipt.status : null
-  return OK_RECEIPT_STATUSES.has(s) ? s : "success"
+  return OK_RECEIPT_STATUSES.has(s) ? s : null
 }
 
 // Same gate: called only after a passing VERIFY, so an absent outcome maps to
@@ -106,6 +106,10 @@ function deriveToolCalls(records) {
  * (64-hex candidate_digest, approved expectations) is missing.
  */
 export function buildVerifiedRunFromChange({ design_meta, expectations, records, outcome, receipt } = {}) {
+  const status = receiptStatus(receipt)
+  if (!status) {
+    return { run: null, data_status: "no_data", reason: "missing or non-success receipt status" }
+  }
   const digest = candidateDigest(receipt, design_meta)
   if (!digest) {
     return { run: null, data_status: "no_data", reason: "missing candidate_digest (64-hex from receipt or design_meta)" }
@@ -118,7 +122,7 @@ export function buildVerifiedRunFromChange({ design_meta, expectations, records,
   const run = {
     candidate_digest: digest,
     receipt_ref: {
-      status: receiptStatus(receipt),
+      status,
       candidate_digest: digest,
       ...(receipt && typeof receipt === "object" && receipt.receipt_id ? { receipt_id: receipt.receipt_id } : {}),
     },
