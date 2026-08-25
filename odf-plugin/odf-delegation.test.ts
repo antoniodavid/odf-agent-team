@@ -171,11 +171,13 @@ const flag = (name) => {
 }
 if (args[0] === "save") {
   const topic = flag("--topic")
+  const project = flag("--project")
   if (process.env.ODF_TEST_ENGRAM_FAIL === "1" || process.env.ODF_TEST_ENGRAM_FAIL === topic) process.exit(17)
   const observations = fs.existsSync(storePath) ? JSON.parse(fs.readFileSync(storePath, "utf8")) : []
   fs.writeFileSync(storePath, JSON.stringify([...observations.filter(item => item.topic_key !== topic), {
     topic_key: topic,
     content: args[2],
+    project,
     created_at: "2026-08-07T00:00:00.000Z"
   }]))
   process.exit(0)
@@ -3525,6 +3527,227 @@ ${overrides}`
       context_files: [],
     }, { sessionID: "design-closed", task: taskApi } as any) as string)
     expect(output.status).toBe("delegated")
+  })
+
+  it("materializes ASSESS and DESIGN into the canonical DECIDE/PLAN prefix", async () => {
+    const { createODFDelegate } = await import("./odf-delegation.js")
+    const change = "legacy-boundary-materialization"
+    const changeDir = path.join(tempHome, "openspec", "changes", change)
+    await fs.mkdir(changeDir, { recursive: true })
+    await fs.writeFile(path.join(changeDir, "state.yaml"), [
+      "work_type: feature",
+      "artifact_store: openspec",
+      "phase: preflight",
+      "canonical_stage: DECIDE",
+      "completed_canonical_stages: []",
+      "resumable: true",
+      "",
+    ].join("\n"), "utf8")
+    await fs.writeFile(path.join(changeDir, "propose.yaml"), "status: passed\n", "utf8")
+    await fs.writeFile(path.join(changeDir, "assess.yaml"), "status: passed\n", "utf8")
+
+    const taskApi = vi.fn()
+      .mockResolvedValueOnce({ status: "ok", executive_summary: "assessed" })
+      .mockResolvedValueOnce({ status: "ok", executive_summary: "assessed again" })
+      .mockResolvedValueOnce({ status: "ok", design_closed: true, executive_summary: "designed" })
+    const delegate = createODFDelegate(undefined, tempHome)
+
+    const assess = JSON.parse(await delegate.execute({
+      phase: "ASSESS",
+      change,
+      prompt: "Assess the requested feature",
+      context_files: [],
+    }, { sessionID: "legacy-boundary", task: taskApi } as any) as string)
+    expect(assess).toMatchObject({
+      status: "delegated",
+      workflow_materialization: { status: "committed", canonical_stage: "DECIDE", completed_stages: ["DECIDE"] },
+    })
+    expect(YAML.parse(await fs.readFile(path.join(changeDir, "state.yaml"), "utf8"))).toMatchObject({
+      phase: "ASSESS",
+      canonical_stage: "DECIDE",
+      completed_canonical_stages: ["DECIDE"],
+    })
+
+    const repeatedAssess = JSON.parse(await delegate.execute({
+      phase: "ASSESS",
+      change,
+      prompt: "Assess the requested feature again",
+      context_files: [],
+    }, { sessionID: "legacy-boundary-repeat", task: taskApi } as any) as string)
+    expect(repeatedAssess).toMatchObject({
+      status: "delegated",
+      workflow_materialization: { status: "already-committed", canonical_stage: "DECIDE", completed_stages: ["DECIDE"] },
+    })
+
+    await fs.writeFile(path.join(changeDir, "design.yaml"), "status: passed\n", "utf8")
+    const design = JSON.parse(await delegate.execute({
+      phase: "DESIGN",
+      change,
+      prompt: "Design the requested feature",
+      context_files: [],
+    }, { sessionID: "legacy-boundary", task: taskApi } as any) as string)
+    expect(design).toMatchObject({
+      status: "delegated",
+      workflow_materialization: { status: "committed", canonical_stage: "PLAN", completed_stages: ["DECIDE", "PLAN"] },
+    })
+    expect(YAML.parse(await fs.readFile(path.join(changeDir, "state.yaml"), "utf8"))).toMatchObject({
+      phase: "DESIGN",
+      canonical_stage: "PLAN",
+      completed_canonical_stages: ["DECIDE", "PLAN"],
+    })
+    expect(taskApi).toHaveBeenCalledTimes(3)
+  })
+
+  it("blocks legacy materialization when the phase artifact is not terminal", async () => {
+    const { createODFDelegate } = await import("./odf-delegation.js")
+    const change = "legacy-boundary-nonterminal"
+    const changeDir = path.join(tempHome, "openspec", "changes", change)
+    await fs.mkdir(changeDir, { recursive: true })
+    await fs.writeFile(path.join(changeDir, "state.yaml"), [
+      "work_type: feature",
+      "artifact_store: openspec",
+      "canonical_stage: DECIDE",
+      "completed_canonical_stages: []",
+      "resumable: true",
+      "",
+    ].join("\n"), "utf8")
+    await fs.writeFile(path.join(changeDir, "propose.yaml"), "status: passed\n", "utf8")
+    await fs.writeFile(path.join(changeDir, "assess.yaml"), "status: pending\n", "utf8")
+
+    const taskApi = vi.fn().mockResolvedValue({ status: "ok", executive_summary: "assessed" })
+    const output = JSON.parse(await createODFDelegate(undefined, tempHome).execute({
+      phase: "ASSESS",
+      change,
+      prompt: "Assess the requested feature",
+      context_files: [],
+    }, { sessionID: "legacy-nonterminal", task: taskApi } as any) as string)
+
+    expect(output).toMatchObject({
+      status: "blocked",
+      reason: "workflow-assess-artifact-not-terminal",
+      workflow_materialization: { status: "blocked" },
+    })
+    expect(YAML.parse(await fs.readFile(path.join(changeDir, "state.yaml"), "utf8"))).toMatchObject({
+      canonical_stage: "DECIDE",
+      completed_canonical_stages: [],
+    })
+    expect(taskApi).toHaveBeenCalledTimes(1)
+  })
+
+  it.each(["PROPOSE", "QA-PLAN"] as const)("does not materialize %s by itself", async phase => {
+    const { createODFDelegate } = await import("./odf-delegation.js")
+    const change = `legacy-${phase.toLowerCase()}-no-boundary`
+    const changeDir = path.join(tempHome, "openspec", "changes", change)
+    await fs.mkdir(changeDir, { recursive: true })
+    await fs.writeFile(path.join(changeDir, "state.yaml"), [
+      "work_type: feature",
+      "artifact_store: openspec",
+      "canonical_stage: DECIDE",
+      "completed_canonical_stages: []",
+      "resumable: true",
+      "",
+    ].join("\n"), "utf8")
+    const artifact = phase === "PROPOSE" ? "propose.yaml" : "qa-plan.yaml"
+    await fs.writeFile(path.join(changeDir, artifact), "status: passed\n", "utf8")
+
+    const taskApi = vi.fn().mockResolvedValue({ status: "ok", executive_summary: phase.toLowerCase() })
+    const output = JSON.parse(await createODFDelegate(undefined, tempHome).execute({
+      phase,
+      change,
+      prompt: `${phase} the requested feature`,
+      context_files: [],
+    }, { sessionID: `legacy-${phase}`, task: taskApi } as any) as string)
+
+    expect(output.status).toBe("delegated")
+    expect(output.workflow_materialization).toBeUndefined()
+    expect(YAML.parse(await fs.readFile(path.join(changeDir, "state.yaml"), "utf8"))).toMatchObject({
+      canonical_stage: "DECIDE",
+      completed_canonical_stages: [],
+    })
+  })
+
+  it("materializes an Engram-bound legacy boundary when artifact_store is omitted", async () => {
+    const fake = await configureFakeEngram()
+    try {
+      const { createODFDelegate } = await import("./odf-delegation.js")
+      const change = "legacy-engram-boundary"
+      await fake.setObservations([
+        {
+          topic_key: `odf/${change}/state`,
+          content: JSON.stringify({
+            work_type: "feature",
+            artifact_store: "engram",
+            phase: "preflight",
+            canonical_stage: "DECIDE",
+            completed_canonical_stages: [],
+            resumable: true,
+          }),
+          project: path.basename(tempHome),
+          created_at: "2026-08-20T00:00:00.000Z",
+        },
+        { topic_key: `odf/${change}/propose`, content: JSON.stringify({ status: "passed" }), project: path.basename(tempHome), created_at: "2026-08-20T00:01:00.000Z" },
+        { topic_key: `odf/${change}/assess`, content: JSON.stringify({ status: "passed" }), project: path.basename(tempHome), created_at: "2026-08-20T00:02:00.000Z" },
+      ])
+
+      const taskApi = vi.fn().mockResolvedValue({ status: "ok", executive_summary: "assessed" })
+      const output = JSON.parse(await createODFDelegate(undefined, tempHome).execute({
+        phase: "ASSESS",
+        change,
+        prompt: "Assess the requested feature",
+        context_files: [],
+      }, { sessionID: "legacy-engram", task: taskApi } as any) as string)
+
+      expect(output).toMatchObject({
+        status: "delegated",
+        workflow_materialization: { status: "committed", store: "engram", canonical_stage: "DECIDE", completed_stages: ["DECIDE"] },
+      })
+      const calls = JSON.parse(await fs.readFile(fake.logPath, "utf8")) as string[][]
+      expect(calls.some(call => call[0] === "save" && call.includes(`odf/${change}/state`))).toBe(true)
+    } finally {
+      await fake.cleanup()
+    }
+  })
+
+  it("scopes Engram workflow reads to the workspace project", async () => {
+    const fake = await configureFakeEngram()
+    try {
+      const { createODFDelegate } = await import("./odf-delegation.js")
+      const change = "same-change-name"
+      const project = path.basename(tempHome)
+      await fake.setObservations([
+        {
+          topic_key: `odf/${change}/state`,
+          content: JSON.stringify({ work_type: "feature", artifact_store: "engram", canonical_stage: "DECIDE", completed_canonical_stages: [], resumable: true, marker: "current" }),
+          project,
+          created_at: "2026-08-20T00:00:00.000Z",
+        },
+        { topic_key: `odf/${change}/propose`, content: JSON.stringify({ status: "passed" }), project, created_at: "2026-08-20T00:01:00.000Z" },
+        { topic_key: `odf/${change}/assess`, content: JSON.stringify({ status: "passed" }), project, created_at: "2026-08-20T00:02:00.000Z" },
+        {
+          topic_key: `odf/${change}/state`,
+          content: JSON.stringify({ work_type: "feature", artifact_store: "engram", canonical_stage: "DECIDE", completed_canonical_stages: [], resumable: true, marker: "other" }),
+          project: "other-project",
+          created_at: "2026-08-20T00:03:00.000Z",
+        },
+        { topic_key: `odf/${change}/propose`, content: JSON.stringify({ status: "passed" }), project: "other-project", created_at: "2026-08-20T00:04:00.000Z" },
+        { topic_key: `odf/${change}/assess`, content: JSON.stringify({ status: "passed" }), project: "other-project", created_at: "2026-08-20T00:05:00.000Z" },
+      ])
+
+      const output = JSON.parse(await createODFDelegate(undefined, tempHome).execute({
+        phase: "ASSESS",
+        change,
+        prompt: "Assess the requested feature",
+        context_files: [],
+      }, { sessionID: "engram-project-scope", task: vi.fn().mockResolvedValue({ status: "ok" }) } as any) as string)
+
+      expect(output).toMatchObject({ status: "delegated", workflow_materialization: { status: "committed", store: "engram" } })
+      const calls = JSON.parse(await fs.readFile(fake.logPath, "utf8")) as string[][]
+      const stateSave = calls.find(call => call[0] === "save" && call.includes(`odf/${change}/state`))
+      expect(stateSave).toBeDefined()
+      expect(JSON.parse(stateSave![2]).marker).toBe("current")
+    } finally {
+      await fake.cleanup()
+    }
   })
 
   it.each(["true", "True", "TRUE"])("delegates DESIGN when design_closed arrives as the string %s", async designClosed => {

@@ -2127,10 +2127,11 @@ Use this instead of generic task() for ODF workflow delegation.`,
             })
           }
           const proofBacked = gatedPhase && args.workflow_advance !== undefined
-          const innerDisposition = innerResultDisposition(taskResult.result)
-          const actualResultStatus = innerDisposition.resultStatus
-          let workflowCommit: WorkflowCommitResult | null = null
-          const settleProofFailure = (summary: string, reason: string, disposition?: InnerResultDisposition): string => {
+           const innerDisposition = innerResultDisposition(taskResult.result)
+           const actualResultStatus = innerDisposition.resultStatus
+           let workflowCommit: WorkflowCommitResult | null = null
+           let workflowMaterialization: LegacyWorkflowMaterialization | null = null
+           const settleProofFailure = (summary: string, reason: string, disposition?: InnerResultDisposition, extra: Record<string, unknown> = {}): string => {
             if (acquiredAttempt && !executionOptions.suppress_attempt_settlement) {
               settleAttempt(
                 acquiredAttempt,
@@ -2169,12 +2170,13 @@ Use this instead of generic task() for ODF workflow delegation.`,
               receipt,
               task_api_source: taskApiInfo.source,
               result: resultForOutput,
-              workflow_advance: workflowResult,
-               workflow_commit: workflowCommit,
-               ...(phaseWarnings.length ? { warnings: phaseWarnings } : {}),
-               message: summary,
-            }, null, 2)
-          }
+               workflow_advance: workflowResult,
+                workflow_commit: workflowCommit,
+                ...(phaseWarnings.length ? { warnings: phaseWarnings } : {}),
+                message: summary,
+                ...extra,
+             }, null, 2)
+           }
 
            if (sourceAuthorityRequired && innerDisposition.accepted && sourceAuthorityRoots) {
              const authority = validateSourceAuthority({
@@ -2231,12 +2233,29 @@ Use this instead of generic task() for ODF workflow delegation.`,
                 "artifact-ref-missing",
               )
             }
-            if (refs.length === 0 && ["PROPOSE", "ASSESS", "QA-PLAN", "DESIGN", "IMPLEMENT"].includes(args.phase)) {
-              phaseWarnings.push("missing-artifact-refs")
-            }
-          }
+             if (refs.length === 0 && ["PROPOSE", "ASSESS", "QA-PLAN", "DESIGN", "IMPLEMENT"].includes(args.phase)) {
+               phaseWarnings.push("missing-artifact-refs")
+             }
+           }
 
-          if (!innerDisposition.accepted && !proofBacked && policyGate && !executionOptions.suppress_failure_receipt) {
+           if (innerDisposition.accepted && (args.phase === "ASSESS" || args.phase === "DESIGN") && changeName) {
+             workflowMaterialization = await materializeLegacyCanonicalBoundary({
+               workspaceRoot,
+               changeName,
+               phase: args.phase,
+               artifactStore: args.artifact_store,
+             })
+             if (workflowMaterialization?.status === "blocked") {
+               return settleProofFailure(
+                 workflowMaterialization.message,
+                 workflowMaterialization.reason,
+                 undefined,
+                 { workflow_materialization: workflowMaterialization },
+               )
+             }
+           }
+
+           if (!innerDisposition.accepted && !proofBacked && policyGate && !executionOptions.suppress_failure_receipt) {
             persistWorkflowFailureReceipt(
               workspaceRoot,
               changeName!,
@@ -2292,8 +2311,9 @@ Use this instead of generic task() for ODF workflow delegation.`,
              validation,
              task_api_source: taskApiInfo.source,
               result: resultForOutput,
-             ...(workflowResult ? { workflow_advance: workflowResult } : {}),
-              ...(proofBacked ? {
+               ...(workflowResult ? { workflow_advance: workflowResult } : {}),
+               ...(workflowMaterialization ? { workflow_materialization: workflowMaterialization } : {}),
+               ...(proofBacked ? {
                workflow_commit: workflowCommit || (executionOptions.suppress_workflow_commit
                  ? { status: "deferred", reason: "parallel-aggregate-commit" }
                  : null),
@@ -3883,6 +3903,7 @@ interface EngramObservation {
   content: string
   topic_key?: string
   created_at?: string
+  project?: string
 }
 
 interface EngramObservationRead {
@@ -3917,8 +3938,18 @@ function readEngramObservationsWithError(workspaceRoot: string): EngramObservati
     const observations = Array.isArray(parsed)
       ? parsed
       : (parsed as { observations?: unknown } | null)?.observations
-    return Array.isArray(observations)
-      ? { observations, error: null }
+    if (!Array.isArray(observations)) return { observations: null, error: "engram-export-invalid" }
+    const project = workspaceProjectName(resolveWorkspaceRoot(workspaceRoot))
+    const hasProjectMetadata = observations.some(observation =>
+      Boolean(observation && typeof observation === "object" && typeof (observation as { project?: unknown }).project === "string")
+    )
+    const scoped = hasProjectMetadata
+      ? observations.filter(observation =>
+        Boolean(observation && typeof observation === "object" && (observation as { project?: unknown }).project === project)
+      )
+      : observations
+    return Array.isArray(scoped)
+      ? { observations: scoped as EngramObservation[], error: null }
       : { observations: null, error: "engram-export-invalid" }
   } catch {
     return { observations: null, error: "engram-export-invalid" }
@@ -4083,6 +4114,21 @@ export interface WorkflowCommitResult {
   workflow_result: ReturnType<typeof advanceWorkflow> | null
 }
 
+interface LegacyWorkflowMaterialization {
+  status: "committed" | "already-committed" | "blocked"
+  reason: string
+  message: string
+  store: ArtifactStore
+  state_ref: string
+  canonical_stage: WorkflowStage | null
+  completed_stages: CanonicalStage[]
+}
+
+const LEGACY_CANONICAL_BOUNDARIES: Partial<Record<"ASSESS" | "DESIGN", CanonicalStage>> = {
+  ASSESS: "DECIDE",
+  DESIGN: "PLAN",
+}
+
 const WORKFLOW_LOCK_SUFFIX = ".workflow.lock"
 
 function parseStateDocument(content: string): { state: Record<string, unknown>; document: ReturnType<typeof parseDocument> } | null {
@@ -4160,6 +4206,197 @@ async function readSelectedWorkflowState(
     snapshot: { store, state: parsed.state, stateContent: stateObservation.content, artifacts, status },
     error: null,
   }
+}
+
+function artifactStoreValue(value: unknown): ArtifactStore | null {
+  return value === "openspec" || value === "engram" || value === "hybrid" ? value : null
+}
+
+async function resolveBoundArtifactStore(
+  workspaceRoot: string,
+  changeName: string,
+  requested?: ArtifactStore,
+): Promise<ArtifactStore | null> {
+  if (requested) return requested
+
+  try {
+    const openSpec = await loadOpenSpecStatus(workspaceRoot, changeName)
+    if (openSpec?.state) {
+      const parsed = parseStateDocument(openSpec.state.content)
+      return artifactStoreValue(parsed?.state.artifact_store) || "openspec"
+    }
+  } catch {
+    // Fall through to the bound Engram state.
+  }
+
+  const read = readEngramObservationsWithError(workspaceRoot)
+  const state = read.observations?.filter(observation => observation.topic_key === `odf/${changeName}/state`).at(-1)
+  if (!state) return null
+  try {
+    const parsed = parseStateDocument(state.content)
+    return artifactStoreValue(parsed?.state.artifact_store) || "engram"
+  } catch {
+    return null
+  }
+}
+
+function writeWorkflowState(
+  store: ArtifactStore,
+  workspaceRoot: string,
+  changeName: string,
+  stateContent: string,
+  workType: WorkType,
+  canonicalStage: WorkflowStage,
+  completedStages: CanonicalStage[],
+): string | null {
+  if (store === "openspec") {
+    return writeOpenSpecWorkflowState(workspaceRoot, changeName, stateContent, workType, canonicalStage, completedStages)
+  }
+  if (store === "engram") {
+    return writeEngramWorkflowState(workspaceRoot, changeName, stateContent, workType, canonicalStage, completedStages)
+  }
+
+  const openSpecError = writeOpenSpecWorkflowState(workspaceRoot, changeName, stateContent, workType, canonicalStage, completedStages)
+  if (openSpecError) return openSpecError
+  return writeEngramWorkflowState(workspaceRoot, changeName, stateContent, workType, canonicalStage, completedStages)
+}
+
+async function materializeLegacyCanonicalBoundary(opts: {
+  workspaceRoot: string
+  changeName: string
+  phase: "ASSESS" | "DESIGN"
+  artifactStore?: ArtifactStore
+}): Promise<LegacyWorkflowMaterialization | null> {
+  const target = LEGACY_CANONICAL_BOUNDARIES[opts.phase]
+  if (!target) return null
+
+  const store = await resolveBoundArtifactStore(opts.workspaceRoot, opts.changeName, opts.artifactStore)
+  if (!store) return null
+  const stateRef = workflowStateReference(store, opts.changeName)
+
+  const locked = await withWorkflowLock(opts.workspaceRoot, opts.changeName, async (): Promise<LegacyWorkflowMaterialization | null> => {
+    const read = await readSelectedWorkflowState(opts.workspaceRoot, opts.changeName, store)
+    if (!read.snapshot) {
+      return {
+        status: "blocked",
+        reason: read.error || "workflow-state-unavailable",
+        message: "The bound workflow state could not be read before materializing the legacy phase boundary.",
+        store,
+        state_ref: stateRef,
+        canonical_stage: null,
+        completed_stages: [],
+      }
+    }
+
+    const workType = read.snapshot.status.work_type || read.snapshot.state.work_type
+    if (!workType || !WORK_TYPES.includes(workType as WorkType)) {
+      return {
+        status: "blocked",
+        reason: "workflow-work-type-missing",
+        message: "The bound workflow state has no valid work_type; the legacy boundary cannot be materialized safely.",
+        store,
+        state_ref: stateRef,
+        canonical_stage: null,
+        completed_stages: [],
+      }
+    }
+
+    const route = resolveWorkflowRoute(workType as WorkType)
+    const targetIndex = route.stages.indexOf(target)
+    if (targetIndex < 0) return null
+
+    const expectedPrefix = route.stages.slice(0, targetIndex + 1)
+    const artifactStatus = deriveWorkflowStatus({
+      change: opts.changeName,
+      artifacts: read.snapshot.artifacts,
+      source: store,
+    })
+    if (!expectedPrefix.every(stage => artifactStatus.completed_canonical_stages.includes(stage))) {
+      return {
+        status: "blocked",
+        reason: `workflow-${opts.phase.toLowerCase()}-artifact-not-terminal`,
+        message: `${opts.phase} requires terminal artifacts for ${expectedPrefix.join(" and ")}; persist and complete the phase artifacts before continuing.`,
+        store,
+        state_ref: stateRef,
+        canonical_stage: read.snapshot.status.canonical_stage,
+        completed_stages: persistedCompletedStages(read.snapshot, route),
+      }
+    }
+
+    const persisted = persistedCompletedStages(read.snapshot, route)
+    const currentIndex = route.stages.indexOf(read.snapshot.status.canonical_stage as CanonicalStage)
+    const newStageIndex = Math.max(targetIndex, currentIndex)
+    const newStage = route.stages[newStageIndex]
+    const newCompleted = route.stages.slice(0, newStageIndex + 1)
+    const stateStage = typeof read.snapshot.state.canonical_stage === "string"
+      ? read.snapshot.state.canonical_stage.toUpperCase()
+      : ""
+    const statePhase = typeof read.snapshot.state.phase === "string"
+      ? read.snapshot.state.phase.toUpperCase()
+      : ""
+    if (sameStages(persisted, newCompleted) && stateStage === newStage && statePhase === opts.phase) {
+      return {
+        status: "already-committed",
+        reason: "already-committed",
+        message: `The ${opts.phase} boundary is already materialized.`,
+        store,
+        state_ref: stateRef,
+        canonical_stage: newStage,
+        completed_stages: newCompleted,
+      }
+    }
+
+    const parsed = parseStateDocument(read.snapshot.stateContent)
+    if (!parsed) {
+      return {
+        status: "blocked",
+        reason: "malformed-state",
+        message: "The bound workflow state is malformed and could not be materialized safely.",
+        store,
+        state_ref: stateRef,
+        canonical_stage: read.snapshot.status.canonical_stage,
+        completed_stages: persisted,
+      }
+    }
+    parsed.document.set("work_type", workType)
+    parsed.document.set("canonical_stage", newStage)
+    parsed.document.set("completed_canonical_stages", newCompleted)
+    if (newStageIndex === targetIndex) parsed.document.set("phase", opts.phase)
+    parsed.document.set("last_updated", new Date().toISOString())
+    const writeError = writeWorkflowState(store, opts.workspaceRoot, opts.changeName, parsed.document.toString(), workType as WorkType, newStage, newCompleted)
+    if (writeError) {
+      return {
+        status: "blocked",
+        reason: writeError,
+        message: "The canonical legacy phase boundary could not be persisted.",
+        store,
+        state_ref: stateRef,
+        canonical_stage: read.snapshot.status.canonical_stage,
+        completed_stages: persisted,
+      }
+    }
+    return {
+      status: "committed",
+      reason: "committed",
+      message: `Materialized ${opts.phase} as ${newStage} in ${store}.`,
+      store,
+      state_ref: stateRef,
+      canonical_stage: newStage,
+      completed_stages: newCompleted,
+    }
+  })
+
+  return locked.locked
+    ? locked.value || null
+    : {
+      status: "blocked",
+      reason: locked.error,
+      message: "The legacy workflow boundary could not acquire the workflow lock.",
+      store,
+      state_ref: stateRef,
+      canonical_stage: null,
+      completed_stages: [],
+    }
 }
 
 function explicitCompletedStages(state: Record<string, unknown>, route: WorkflowRoute): CanonicalStage[] | null {
@@ -4437,7 +4674,7 @@ function writeOpenSpecWorkflowState(
   changeName: string,
   stateContent: string,
   workType: WorkType,
-  canonicalStage: "BUILD" | "VERIFY" | "ARCHIVED",
+  canonicalStage: WorkflowStage,
   completedStages: CanonicalStage[],
 ): string | null {
   const statePath = path.resolve(workspaceRoot, "openspec", "changes", changeName, "state.yaml")
@@ -4472,7 +4709,7 @@ function writeEngramWorkflowState(
   changeName: string,
   stateContent: string,
   workType: WorkType,
-  canonicalStage: "BUILD" | "VERIFY" | "ARCHIVED",
+  canonicalStage: WorkflowStage,
   completedStages: CanonicalStage[],
 ): string | null {
   const parsed = parseStateDocument(stateContent)

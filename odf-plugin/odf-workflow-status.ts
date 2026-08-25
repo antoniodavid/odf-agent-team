@@ -319,7 +319,9 @@ function successful(artifact: InternalArtifact): boolean {
   return status ? SUCCESS_STATUSES.has(status) : false
 }
 function isTerminal(artifact: InternalArtifact): boolean {
-  if (artifact.explicitStatus) return Boolean(artifact.status && SUCCESS_STATUSES.has(artifact.status))
+  const status = artifactStatus(artifact)
+  if (status) return SUCCESS_STATUSES.has(status)
+  if (artifact.explicitStatus) return false
   const { type } = artifact.normalized
   if (type === "verify-report" || type === "archive-report") return successful(artifact)
   if (["implement-progress", "apply-progress", "tasks", "explore-progress", "fix-progress"].includes(type)) {
