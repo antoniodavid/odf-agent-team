@@ -127,6 +127,20 @@ describe("odf-toolkit metrics", () => {
   })
 })
 
+describe("odf-toolkit deps", () => {
+  it("executes the deps subcommand through the current CLI dispatch", () => {
+    const output = execFileSync(process.execPath, [path.resolve("scripts/odf-toolkit.js"), "deps", "--json"], { encoding: "utf8" })
+    expect(JSON.parse(output)).toMatchObject({
+      engram_cli: expect.any(String),
+      codegraph_cli: expect.any(String),
+      git: expect.any(String),
+      node: expect.any(String),
+      docker: expect.any(String),
+      python3: expect.any(String),
+    })
+  })
+})
+
 describe("odf-toolkit manual-evidence", () => {
   it("builds valid VERIFY evidence from a user-run test and reads the policy gate", async () => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), "odf-manual-"))

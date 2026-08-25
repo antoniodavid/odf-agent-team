@@ -905,7 +905,7 @@ function main(argv) {
       break
     }
     case "deps": {
-      result = dependencyProbe()
+      result = sharedDependencyProbe()
       if (!json) {
         process.stdout.write(renderDeps(result) + "\n")
         process.exit(0)
