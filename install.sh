@@ -2,38 +2,16 @@
 # ODF Agent Team — Idempotent Installer
 # Usage: curl -fsSL https://raw.githubusercontent.com/antoniodavid/odf-agent-team/main/install.sh | bash
 #
-# Installs the ODF Agent Team into ~/.config/opencode/ (or $ODF_CONFIG_DIR).
+# Installs the ODF Agent Team into ~/.config/opencode/ (or $ODF_CONFIG_DIR),
+# or into a project's .opencode/ directory with --scope project.
 # Backs up existing ODF configuration before overwriting. Safe to run multiple times.
 
 set -euo pipefail
 
-# ---------------------------------------------------------------------------
-# Configuration
-# ---------------------------------------------------------------------------
-# Portable config dir resolution for ANY OpenCode environment:
-#   ODF_DIR -> ODF_CONFIG_DIR -> $XDG_CONFIG_HOME/opencode -> ~/.config/opencode
-#   (falls back to %USERPROFILE%/.config/opencode on Windows/Git Bash)
-if [[ -n "${ODF_DIR:-}" ]]; then
-  ODF_DIR="$ODF_DIR"
-elif [[ -n "${ODF_CONFIG_DIR:-}" ]]; then
-  ODF_DIR="$ODF_CONFIG_DIR"
-elif [[ -n "${XDG_CONFIG_HOME:-}" ]]; then
-  ODF_DIR="${XDG_CONFIG_HOME}/opencode"
-elif [[ -n "${HOME:-}" ]]; then
-  ODF_DIR="${HOME}/.config/opencode"
-elif [[ -n "${USERPROFILE:-}" ]]; then
-  ODF_DIR="${USERPROFILE}/.config/opencode"
-else
-  ODF_DIR="${HOME}/.config/opencode"
-fi
 ODF_SOURCE_DIR="${ODF_SOURCE_DIR:-}"
 REPO="${REPO:-https://github.com/antoniodavid/odf-agent-team}"
 BRANCH="${BRANCH:-main}"
 VERSION="1.2.1"
-
-BACKUP_DIR="${ODF_DIR}/backups/install-$(date +%Y%m%d_%H%M%S)"
-PLUGIN_ENTRYPOINT="${ODF_DIR}/plugins/odf-delegation.ts"
-PLUGIN_SUPPORT_DIR="${ODF_DIR}/odf-plugin"
 STALE_ODF_PLUGIN_FILES=(
   candidate-manifest.test.ts
   candidate-manifest.ts
@@ -69,11 +47,16 @@ INSTALL_DRY_RUN=false
 INSTALL_FORCE=false
 INSTALL_UPDATE=false
 INSTALL_TUI=false
+INSTALL_SCOPE="global"
+INSTALL_PROJECT=""
 
 INSTALL_CODEGRAPH=false
 INSTALL_CONFIGURE_MCP=false
 
-for arg in "$@"; do
+INSTALL_ARGS=("$@")
+arg_index=0
+while [[ "$arg_index" -lt "${#INSTALL_ARGS[@]}" ]]; do
+  arg="${INSTALL_ARGS[$arg_index]}"
   case "$arg" in
     --yes) INSTALL_YES=true ;;
     --dry-run) INSTALL_DRY_RUN=true ;;
@@ -82,8 +65,26 @@ for arg in "$@"; do
     --tui|--interactive) INSTALL_TUI=true ;;
     --with-codegraph) INSTALL_CODEGRAPH=true ;;
     --configure-mcp) INSTALL_CONFIGURE_MCP=true ;;
+    --scope)
+      arg_index=$((arg_index + 1))
+      if [[ "$arg_index" -ge "${#INSTALL_ARGS[@]}" ]]; then
+        echo "Missing value for --scope" >&2
+        exit 1
+      fi
+      INSTALL_SCOPE="${INSTALL_ARGS[$arg_index]}"
+      ;;
+    --scope=*) INSTALL_SCOPE="${arg#*=}" ;;
+    --project)
+      arg_index=$((arg_index + 1))
+      if [[ "$arg_index" -ge "${#INSTALL_ARGS[@]}" ]]; then
+        echo "Missing value for --project" >&2
+        exit 1
+      fi
+      INSTALL_PROJECT="${INSTALL_ARGS[$arg_index]}"
+      ;;
+    --project=*) INSTALL_PROJECT="${arg#*=}" ;;
     -h|--help)
-      echo "Usage: $0 [--yes] [--dry-run] [--force] [--update] [--tui] [--with-codegraph]"
+      echo "Usage: $0 [--yes] [--dry-run] [--force] [--update] [--scope global|project] [--project /absolute/project] [--tui] [--with-codegraph]"
       echo ""
       echo "Modes:"
       echo "  (no flags)        Interactive install with prompts"
@@ -91,6 +92,8 @@ for arg in "$@"; do
       echo "  --dry-run         Show what would be done without modifying anything"
       echo "  --force           Skip confirmation, overwrite without prompting"
       echo "  --update          Update existing installation (pull latest + backup + reinstall)"
+      echo "  --scope project   Install into <project>/.opencode with a project launcher"
+      echo "  --project PATH    Project root (absolute existing directory; defaults to cwd in project scope)"
       echo "  --tui, --interactive  Launch Node.js TUI installer (rich interactive UI)"
       echo ""
       echo "Options:"
@@ -119,7 +122,18 @@ for arg in "$@"; do
       exit 1
       ;;
   esac
+  arg_index=$((arg_index + 1))
 done
+
+if [[ "$INSTALL_SCOPE" != "global" && "$INSTALL_SCOPE" != "project" ]]; then
+  echo "Invalid scope: ${INSTALL_SCOPE} (expected global or project)" >&2
+  exit 1
+fi
+
+if [[ "$INSTALL_SCOPE" == "global" && -n "$INSTALL_PROJECT" ]]; then
+  echo "--project requires --scope project" >&2
+  exit 1
+fi
 
 if [[ "${ODF_INSTALL_NONINTERACTIVE:-}" == "1" || "${ODF_INSTALL_NONINTERACTIVE:-}" == "true" ]]; then
   INSTALL_YES=true
@@ -147,6 +161,49 @@ die() {
   log_error "$1"
   exit 1
 }
+
+# Portable config dir resolution for ANY OpenCode environment:
+#   ODF_DIR -> ODF_CONFIG_DIR -> $XDG_CONFIG_HOME/opencode -> ~/.config/opencode
+#   (falls back to %USERPROFILE%/.config/opencode on Windows/Git Bash)
+PROJECT_MODE=false
+PROJECT_META_DIR=""
+if [[ "$INSTALL_SCOPE" == "project" ]]; then
+  PROJECT_MODE=true
+  if [[ -z "$INSTALL_PROJECT" ]]; then
+    INSTALL_PROJECT="$(pwd -P)" || die "❌ Could not resolve the current working directory."
+  fi
+  if [[ "$INSTALL_PROJECT" != /* || ! -d "$INSTALL_PROJECT" ]]; then
+    die "❌ Project path must be an existing absolute directory: ${INSTALL_PROJECT}"
+  fi
+  INSTALL_PROJECT="$(cd "$INSTALL_PROJECT" && pwd -P)" || die "❌ Could not resolve project path: ${INSTALL_PROJECT}"
+  ODF_DIR="${INSTALL_PROJECT}/.opencode"
+  PROJECT_META_DIR="${INSTALL_PROJECT}/.odf"
+  export ODF_CONFIG_DIR="$ODF_DIR"
+else
+  if [[ -n "${ODF_DIR:-}" ]]; then
+    ODF_DIR="$ODF_DIR"
+  elif [[ -n "${ODF_CONFIG_DIR:-}" ]]; then
+    ODF_DIR="$ODF_CONFIG_DIR"
+  elif [[ -n "${XDG_CONFIG_HOME:-}" ]]; then
+    ODF_DIR="${XDG_CONFIG_HOME}/opencode"
+  elif [[ -n "${HOME:-}" ]]; then
+    ODF_DIR="${HOME}/.config/opencode"
+  elif [[ -n "${USERPROFILE:-}" ]]; then
+    ODF_DIR="${USERPROFILE}/.config/opencode"
+  else
+    ODF_DIR="${HOME}/.config/opencode"
+  fi
+fi
+
+BACKUP_DIR="${ODF_DIR}/backups/install-$(date +%Y%m%d_%H%M%S)"
+PLUGIN_ENTRYPOINT="${ODF_DIR}/plugins/odf-delegation.ts"
+PLUGIN_SUPPORT_DIR="${ODF_DIR}/odf-plugin"
+PROJECT_LAUNCHER="${PROJECT_META_DIR}/opencode"
+PROJECT_LOCK="${PROJECT_META_DIR}/odf.lock"
+if [[ "$PROJECT_MODE" != true ]]; then
+  PROJECT_LAUNCHER=""
+  PROJECT_LOCK=""
+fi
 
 node_major() {
   local v
@@ -207,8 +264,17 @@ create_backup() {
     return 0
   fi
 
-  if [[ ! -d "$ODF_DIR" ]]; then
+  if [[ ! -d "$ODF_DIR" && ! -f "$PROJECT_LAUNCHER" && ! -f "$PROJECT_LOCK" ]]; then
     return 0
+  fi
+
+  if [[ -e "$BACKUP_DIR" ]]; then
+    local backup_base="$BACKUP_DIR"
+    local backup_index=1
+    while [[ -e "${backup_base}-${backup_index}" ]]; do
+      backup_index=$((backup_index + 1))
+    done
+    BACKUP_DIR="${backup_base}-${backup_index}"
   fi
 
   log_warn "📦 Backing up existing config..."
@@ -220,6 +286,17 @@ create_backup() {
       cp -r "$ODF_DIR/$dir" "$BACKUP_DIR/" 2>/dev/null || true
     fi
   done
+
+  if [[ "$PROJECT_MODE" == true ]]; then
+    if [[ -f "$PROJECT_LAUNCHER" ]]; then
+      mkdir -p "$BACKUP_DIR/project-meta"
+      cp "$PROJECT_LAUNCHER" "$BACKUP_DIR/project-meta/opencode"
+    fi
+    if [[ -f "$PROJECT_LOCK" ]]; then
+      mkdir -p "$BACKUP_DIR/project-meta"
+      cp "$PROJECT_LOCK" "$BACKUP_DIR/project-meta/odf.lock"
+    fi
+  fi
 
   log_ok "✅ Backed up to ${BACKUP_DIR}"
 }
@@ -281,9 +358,14 @@ install_files() {
   rewrite_config_paths() {
     local old_path="/home/adruban/.config/opencode"
     local f
+    # Do not traverse dependency trees or historical/non-runtime artifacts.
     while IFS= read -r -d '' f; do
       sed -i "s|${old_path}|${ODF_DIR}|g" "$f"
-    done < <(find "$ODF_DIR" -type f \( -name '*.md' -o -name '*.ts' -o -name '*.json' -o -name '*.js' \) -print0 2>/dev/null)
+    done < <(
+      find "$ODF_DIR" \
+        \( -type d \( -name backups -o -name node_modules -o -name .git -o -name .hg -o -name .svn -o -name .cache -o -name coverage -o -name dist -o -name tmp -o -name logs \) -prune \) -o \
+        -type f \( -name '*.md' -o -name '*.ts' -o -name '*.json' -o -name '*.js' \) -print0 2>/dev/null
+    )
     log_info "    Rewrote config paths to ${ODF_DIR}"
   }
 
@@ -310,6 +392,123 @@ install_files() {
   if [[ "$INSTALL_DRY_RUN" != true ]]; then
     rewrite_config_paths
   fi
+}
+
+sha256_file() {
+  local file="$1"
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$file" | cut -d' ' -f1
+  elif command -v shasum >/dev/null 2>&1; then
+    shasum -a 256 "$file" | cut -d' ' -f1
+  else
+    node -e 'const crypto = require("node:crypto"); const fs = require("node:fs"); process.stdout.write(crypto.createHash("sha256").update(fs.readFileSync(process.argv[1])).digest("hex"));' "$file"
+  fi
+}
+
+write_project_launcher() {
+  [[ "$PROJECT_MODE" == true ]] || return 0
+
+  if [[ "$INSTALL_DRY_RUN" == true ]]; then
+    log_info "    [dry-run] Would write launcher ${PROJECT_LAUNCHER}"
+    return 0
+  fi
+
+  local project_literal
+  local pack_literal
+  printf -v project_literal '%q' "$INSTALL_PROJECT"
+  printf -v pack_literal '%q' "$ODF_DIR"
+  mkdir -p "$PROJECT_META_DIR"
+  {
+    printf '%s\n' '#!/usr/bin/env bash' 'set -euo pipefail' ''
+    printf '%s\n' '# ODF project launcher: this project-local pack is the active ODF runtime.'
+    printf 'PROJECT_ROOT=%s\n' "$project_literal"
+    printf 'PROJECT_PACK=%s\n' "$pack_literal"
+    cat <<'LAUNCHER'
+
+ORIGINAL_ODF_CONFIG_DIR="${ODF_CONFIG_DIR:-}"
+ORIGINAL_ODF_DIR="${ODF_DIR:-}"
+ORIGINAL_OPENCODE_CONFIG="${OPENCODE_CONFIG:-}"
+GLOBAL_CONFIG="${XDG_CONFIG_HOME:-${HOME:-$PROJECT_ROOT/.config}}/opencode"
+HOME_CONFIG="${HOME:-$PROJECT_ROOT}/.config/opencode"
+
+has_odf_marker() {
+  local root="$1"
+  if [[ -f "$root" ]]; then
+    grep -Eiq 'odf-delegation|odf-agent-team' "$root"
+    return $?
+  fi
+  if [[ -f "$root/plugins/odf-delegation.ts" ||
+        -f "$root/plugins/odf-delegation.js" ||
+        -f "$root/plugin/odf-delegation.ts" ||
+        -f "$root/plugin/odf-delegation.js" ]]; then
+    return 0
+  fi
+  local config
+  for config in "$root/opencode.json" "$root/opencode.jsonc"; do
+    if [[ -f "$config" ]] && grep -Eiq 'odf-delegation|odf-agent-team' "$config"; then
+      return 0
+    fi
+  done
+  return 1
+}
+
+for candidate in "$ORIGINAL_ODF_CONFIG_DIR" "$ORIGINAL_ODF_DIR" "$ORIGINAL_OPENCODE_CONFIG" "$GLOBAL_CONFIG" "$HOME_CONFIG"; do
+  [[ -n "$candidate" && "$candidate" != "$PROJECT_PACK" ]] || continue
+  if { [[ -d "$candidate" ]] || [[ -f "$candidate" ]]; } && has_odf_marker "$candidate"; then
+    printf 'ODF project launcher refused to start: conflicting global ODF plugin/config detected at:\n  %s\n' "$candidate" >&2
+    printf 'The global and project odf-delegation plugins must not load together.\n' >&2
+    if [[ -f "$candidate" ]]; then
+      printf 'Remediation: remove or disable only the ODF plugin entry in "%s", then rerun:\n  %s\n' "$candidate" "$PROJECT_ROOT/.odf/opencode" >&2
+    else
+      printf 'Remediation: remove or disable only the global ODF plugin/config at "%s" (for auto-discovery, remove "%s/plugins/odf-delegation.ts"), then rerun:\n  %s\n' "$candidate" "$candidate" "$PROJECT_ROOT/.odf/opencode" >&2
+    fi
+    exit 1
+  fi
+done
+
+export ODF_CONFIG_DIR="$PROJECT_PACK"
+cd "$PROJECT_ROOT"
+exec opencode "$@"
+LAUNCHER
+  } > "$PROJECT_LAUNCHER"
+  chmod +x "$PROJECT_LAUNCHER"
+  log_ok "✅ Wrote project launcher ${PROJECT_LAUNCHER}"
+}
+
+write_project_lock() {
+  local src_dir="$1"
+  [[ "$PROJECT_MODE" == true ]] || return 0
+
+  if [[ "$INSTALL_DRY_RUN" == true ]]; then
+    log_info "    [dry-run] Would write lock metadata ${PROJECT_LOCK}"
+    return 0
+  fi
+
+  local source
+  if [[ -n "$ODF_SOURCE_DIR" ]]; then
+    source="local:$(cd "$src_dir" && pwd -P)"
+  else
+    source="${REPO}@${BRANCH}"
+  fi
+  local checksum
+  checksum="$(sha256_file "$ODF_DIR/odf-registry.json")"
+
+  mkdir -p "$PROJECT_META_DIR"
+  node -e '
+    const fs = require("node:fs")
+    const [lockPath, version, source, checksum, configDir] = process.argv.slice(1)
+    const lock = {
+      format: 1,
+      package: "odf-agent-team",
+      scope: "project",
+      version,
+      source,
+      checksum,
+      config_dir: configDir,
+    }
+    fs.writeFileSync(lockPath, JSON.stringify(lock, null, 2) + "\n")
+  ' "$PROJECT_LOCK" "$VERSION" "$source" "$checksum" "$ODF_DIR"
+  log_ok "✅ Wrote project lock metadata ${PROJECT_LOCK}"
 }
 
 run_npm_install() {
@@ -356,7 +555,7 @@ run_self_test() {
   fi
 
   log_warn "🧪 Running self-test..."
-  if ! node "$ODF_DIR/scripts/odf-test-runner.js"; then
+  if ! ODF_CONFIG_DIR="$ODF_DIR" node "$ODF_DIR/scripts/odf-test-runner.js"; then
     log_error "❌ Self-test failed. Your installation is kept at ${ODF_DIR}"
     if [[ -d "$BACKUP_DIR" ]]; then
       log_warn "   Backup: ${BACKUP_DIR}"
@@ -449,6 +648,10 @@ print_summary() {
   log_ok "║         ODF Agent Team v${VERSION} — ${status}        ║"
   log_ok "╚═══════════════════════════════════════════════════╝"
   log_info "  Target:        ${ODF_DIR}"
+  if [[ "$PROJECT_MODE" == true ]]; then
+    log_info "  Launcher:      ${PROJECT_LAUNCHER}"
+    log_info "  Lock:          ${PROJECT_LOCK}"
+  fi
   log_info "  Previous:      ${existing_status}"
   log_info "  Skills:        ${skills}"
   log_info "  Agents:        ${agents}"
@@ -561,6 +764,16 @@ main() {
   # Install / merge files
   install_files "$src_dir"
 
+  # Verify registry present (skip in dry-run because no files were written)
+  if [[ "$INSTALL_DRY_RUN" == false && ! -f "$ODF_DIR/odf-registry.json" ]]; then
+    die "❌ Installation failed: registry not found at ${ODF_DIR}/odf-registry.json"
+  fi
+
+  if [[ "$PROJECT_MODE" == true ]]; then
+    write_project_launcher
+    write_project_lock "$src_dir"
+  fi
+
   # npm install
   run_npm_install
 
@@ -577,11 +790,6 @@ main() {
         log_warn "⚠️ npm not found; skipping CodeGraph install"
       fi
     fi
-  fi
-
-  # Verify registry present (skip in dry-run because no files were written)
-  if [[ "$INSTALL_DRY_RUN" == false && ! -f "$ODF_DIR/odf-registry.json" ]]; then
-    die "❌ Installation failed: registry not found at ${ODF_DIR}/odf-registry.json"
   fi
 
   # Self-test
