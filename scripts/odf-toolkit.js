@@ -307,7 +307,15 @@ export function buildManualEvidence({ change, command, database, output, exitCod
       output_evidence: String(output).slice(-2000),
     }],
   }
-  if (gate && !gate.candidate_digest) problems.push("policy gate has no candidate_digest; the evidence may be rejected at commit")
+  if (gate && gate.phase !== "VERIFY") {
+    if (gate.phase === "IMPLEMENT") {
+      problems.push("manual evidence requires a VERIFY policy gate; the IMPLEMENT gate intentionally has no candidate_digest; create a VERIFY policy gate before recording evidence")
+    } else {
+      problems.push(`manual evidence requires a VERIFY policy gate; found policy gate phase ${String(gate.phase || "unknown")}`)
+    }
+  } else if (gate && !gate.candidate_digest) {
+    problems.push("VERIFY policy gate has no candidate_digest; create a VERIFY policy gate before recording evidence")
+  }
   return { problems, evidence }
 }
 

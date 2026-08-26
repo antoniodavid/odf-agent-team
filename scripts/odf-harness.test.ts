@@ -140,13 +140,33 @@ describe("harness smoke: CLI subcommands end-to-end", () => {
   })
 
   it("manual-evidence: writes validated user evidence bound to the gate", async () => {
-    await writeFile(tmp, ".odf/policy-gate-chg.json", JSON.stringify({ risk_tier: "MEDIUM", frozen_diff_ref: "abc", candidate_digest: "d".repeat(64) }))
+    await writeFile(tmp, ".odf/policy-gate-chg.json", JSON.stringify({ phase: "VERIFY", risk_tier: "MEDIUM", frozen_diff_ref: "abc", candidate_digest: "d".repeat(64) }))
     await writeFile(tmp, "out.txt", "12 passed, 0 failed\n")
     const out = JSON.parse(runCli(TOOLKIT, ["manual-evidence", "--change", "chg", "--command", "odoo-bin -d devel_test -i mod --test-enable --stop-after-init", "--database", "devel_test", "--output-file", "out.txt", "--root", tmp]))
     expect(out.status).toBe("written")
     const evidence = JSON.parse(await fs.readFile(path.join(tmp, ".odf", "validation-evidence-chg.json"), "utf8"))
     expect(evidence.executor).toBe("user-manual")
     expect(evidence.commands[0].database).toBe("devel_test")
+  })
+
+  it("manual-evidence: rejects an IMPLEMENT gate without mutating it", async () => {
+    const gatePath = path.join(tmp, ".odf", "policy-gate-chg.json")
+    const evidencePath = path.join(tmp, ".odf", "validation-evidence-chg.json")
+    const gateText = JSON.stringify({ phase: "IMPLEMENT", risk_tier: "MEDIUM", frozen_diff_ref: null, candidate_digest: null })
+    await writeFile(tmp, ".odf/policy-gate-chg.json", gateText)
+    await writeFile(tmp, "out.txt", "12 passed, 0 failed\n")
+
+    const result = spawnSync("node", [
+      TOOLKIT, "manual-evidence", "--change", "chg",
+      "--command", "odoo-bin -d devel_test --test-enable", "--database", "devel_test",
+      "--output-file", "out.txt", "--root", tmp,
+    ], { encoding: "utf8", cwd: REPO, env: { ...process.env as Record<string, string> } })
+
+    expect(result.status).toBe(1)
+    expect(result.stderr).toContain("IMPLEMENT gate intentionally has no candidate_digest")
+    expect(result.stderr).toContain("create a VERIFY policy gate before recording evidence")
+    expect(await fs.readFile(gatePath, "utf8")).toBe(gateText)
+    expect(fsSyncExists(evidencePath)).toBe(false)
   })
 
   it("scan: builds the Doodba environment config and matrix", async () => {

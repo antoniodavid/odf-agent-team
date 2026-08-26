@@ -147,7 +147,7 @@ describe("odf-toolkit manual-evidence", () => {
     try {
       await fs.mkdir(path.join(root, ".odf"), { recursive: true })
       await fs.writeFile(path.join(root, ".odf", "policy-gate-chg.json"), JSON.stringify({
-        risk_tier: "MEDIUM", frozen_diff_ref: "abc123", candidate_digest: "d" + "0".repeat(63),
+        phase: "VERIFY", risk_tier: "MEDIUM", frozen_diff_ref: "abc123", candidate_digest: "d" + "0".repeat(63),
       }))
       const built = buildManualEvidence({
         change: "chg", command: "odoo-bin -d devel_test -i mod --test-enable --stop-after-init", database: "devel_test",
@@ -158,6 +158,24 @@ describe("odf-toolkit manual-evidence", () => {
       expect(built.evidence.candidate_digest).toBe("d" + "0".repeat(63))
       expect(built.evidence.frozen_diff_ref).toBe("abc123")
       expect(built.evidence.commands[0]).toMatchObject({ name: "odoo-tests", database: "devel_test", exit_code: 0 })
+    } finally {
+      await fs.rm(root, { recursive: true, force: true })
+    }
+  })
+
+  it("rejects manual evidence for an IMPLEMENT gate without mutating it", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "odf-manual-implement-"))
+    const gatePath = path.join(root, ".odf", "policy-gate-chg.json")
+    const gateText = JSON.stringify({ phase: "IMPLEMENT", risk_tier: "MEDIUM", frozen_diff_ref: null, candidate_digest: null })
+    try {
+      await fs.mkdir(path.dirname(gatePath), { recursive: true })
+      await fs.writeFile(gatePath, gateText, "utf8")
+      const built = buildManualEvidence({
+        change: "chg", command: "odoo-bin -d devel_test --test-enable", database: "devel_test",
+        output: "12 passed, 0 failed", root,
+      })
+      expect(built.problems).toContain("manual evidence requires a VERIFY policy gate; the IMPLEMENT gate intentionally has no candidate_digest; create a VERIFY policy gate before recording evidence")
+      expect(await fs.readFile(gatePath, "utf8")).toBe(gateText)
     } finally {
       await fs.rm(root, { recursive: true, force: true })
     }
