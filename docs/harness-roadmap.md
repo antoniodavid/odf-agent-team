@@ -121,11 +121,11 @@ from the candidate bytes, not merely from `HEAD`.
 
 **Acceptance criteria**
 
-- [ ] The same repository candidate always produces the same manifest and digest.
-- [ ] A byte, path, status, or mode change changes the digest.
-- [ ] Untracked files participate in the digest.
-- [ ] An untracked ACL, migration, or security file participates in risk analysis.
-- [ ] Empty candidates have an explicit representation rather than an inferred one.
+- [x] The same repository candidate always produces the same manifest and digest.
+- [x] A byte, path, status, or mode change changes the digest.
+- [x] Untracked files participate in the digest.
+- [x] An untracked ACL, migration, or security file participates in risk analysis.
+- [x] Empty candidates have an explicit representation rather than an inferred one.
 
 **Required evidence**
 
@@ -184,10 +184,10 @@ addressable storage layer.
 
 **Acceptance criteria**
 
-- [ ] A mutation after policy classification invalidates that classification.
-- [ ] A mutation after BUILD evidence invalidates the evidence.
-- [ ] A receipt for candidate A cannot approve candidate B.
-- [ ] Retry and resume rediscover committed state without duplicating attempts.
+- [x] A mutation after policy classification invalidates that classification.
+- [x] A mutation after BUILD evidence invalidates the evidence.
+- [x] A receipt for candidate A cannot approve candidate B.
+- [x] Retry and resume rediscover committed state without duplicating attempts.
 
 **Required evidence**
 
@@ -247,11 +247,11 @@ execution boundary and bound to the current candidate.
 
 **Acceptance criteria**
 
-- [ ] `status: passed` without execution evidence is rejected.
-- [ ] Stale receipts are rejected.
-- [ ] Digest mismatches are rejected.
-- [ ] Missing Git or incomplete candidate discovery never permits VERIFY.
-- [ ] A complete, fresh, matching receipt permits the expected transition.
+- [x] `status: passed` without execution evidence is rejected.
+- [x] Stale receipts are rejected.
+- [x] Digest mismatches are rejected.
+- [x] Missing Git or incomplete candidate discovery never permits VERIFY.
+- [x] A complete, fresh, matching receipt permits the expected transition.
 
 **Required evidence**
 
@@ -334,11 +334,11 @@ already exist in `plugins/odf-workflow.ts`:
 
 **Acceptance criteria**
 
-- [ ] Explicit commands such as `/odf-fix` keep their intended route.
-- [ ] Migration and security work never select micro.
-- [ ] Ambiguity produces at most one user question.
-- [ ] Routing output records the selected existing `work_type` and reason.
-- [ ] Table-driven tests cover micro, standard, full, and ambiguous inputs.
+- [x] Explicit commands such as `/odf-fix` keep their intended route.
+- [x] Migration and security work never select micro.
+- [x] Ambiguity produces at most one user question.
+- [x] Routing output records the selected existing `work_type` and reason.
+- [x] Table-driven tests cover micro, standard, full, and ambiguous inputs.
 
 **KPI:** small changes reach BUILD with at most one human interruption.
 
@@ -390,10 +390,10 @@ assessment, QA plan, and design ceremonies that add no decision value.
 
 **Acceptance criteria**
 
-- [ ] `small-change` omits QA-PLAN and DESIGN.
-- [ ] Complete micro input reaches BUILD without a human approval loop.
-- [ ] `/odf-fix` preserves root-cause analysis and a regression check.
-- [ ] Any discovered high-risk condition escalates before editing.
+- [x] `small-change` omits QA-PLAN and DESIGN.
+- [x] Complete micro input reaches BUILD without a human approval loop.
+- [x] `/odf-fix` preserves root-cause analysis and a regression check.
+- [x] Any discovered high-risk condition escalates before editing.
 
 **KPI:** median human blocks before micro BUILD ≤ 1.
 
@@ -441,11 +441,11 @@ proof, and receipt contracts.
 
 **Acceptance criteria**
 
-- [ ] BUILD without binding, attempt ID, or required validation fails before
+- [x] BUILD without binding, attempt ID, or required validation fails before
   `task()`.
-- [ ] VERIFY without a bound receipt fails before `task()`.
-- [ ] No retained command relies on a removed compatibility path.
-- [ ] Runtime smoke evidence is recorded, or `N/A` explains why no runtime
+- [x] VERIFY without a bound receipt fails before `task()`.
+- [x] No retained command relies on a removed compatibility path.
+- [x] Runtime smoke evidence is recorded, or `N/A` explains why no runtime
   boundary exists.
 
 **KPI:** zero gated delegations through legacy proof-optional paths.
@@ -506,11 +506,11 @@ current `prompt.length / 4` token estimate.
 
 **Acceptance criteria**
 
-- [ ] Parent and child spans correlate to one run.
-- [ ] Real token fields replace the heuristic when available.
-- [ ] Missing provider data is explicit and test-covered.
-- [ ] Sensitive prompt, source, path, and environment content is not logged.
-- [ ] Buffer, flush, cap, and failure behavior remain bounded.
+- [x] Parent and child spans correlate to one run.
+- [x] Real token fields replace the heuristic when available.
+- [x] Missing provider data is explicit and test-covered.
+- [x] Sensitive prompt, source, path, and environment content is not logged.
+- [x] Buffer, flush, cap, and failure behavior remain bounded.
 
 **KPI:** at least 95% of delegations contain model, version, candidate digest,
 and honest token availability.
@@ -559,9 +559,9 @@ and honest token availability.
 
 **Acceptance criteria**
 
-- [ ] Zero records never produce score `1` or `100%`.
-- [ ] Partial datasets expose coverage and freshness.
-- [ ] Tests cover empty, partial, invalid, and complete datasets.
+- [x] Zero records never produce score `1` or `100%`.
+- [x] Partial datasets expose coverage and freshness.
+- [x] Tests cover empty, partial, invalid, and complete datasets.
 
 **KPI:** zero success claims generated from absent evidence.
 
@@ -617,10 +617,10 @@ written and judged by the same model.
 
 **Acceptance criteria**
 
-- [ ] Agents cannot silently rewrite approved Expectations.
-- [ ] Goldens evaluate outcomes and trajectories, not only JSON shape.
-- [ ] Corpus cases name the defect or contract they protect.
-- [ ] Generated fixtures remain part of candidate identity even when excluded
+- [x] Agents cannot silently rewrite approved Expectations.
+- [x] Goldens evaluate outcomes and trajectories, not only JSON shape.
+- [x] Corpus cases name the defect or contract they protect.
+- [x] Generated fixtures remain part of candidate identity even when excluded
   from authored-line workload estimates.
 
 **KPI:** golden coverage by work type and risk tier, with zero unexplained
@@ -676,10 +676,10 @@ model delivery authority.
 
 **Acceptance criteria**
 
-- [ ] Shadow judgments never change workflow state.
-- [ ] Agreement, false-pass, false-block, unavailable, and cost are recorded.
-- [ ] Judge failures cannot be mistaken for positive judgments.
-- [ ] Promotion to any blocking role requires a separate human decision backed
+- [x] Shadow judgments never change workflow state.
+- [x] Agreement, false-pass, false-block, unavailable, and cost are recorded.
+- [x] Judge failures cannot be mistaken for positive judgments.
+- [x] Promotion to any blocking role requires a separate human decision backed
   by measured calibration.
 
 **KPI:** measured human/judge agreement and false-pass rate; no gate impact.
@@ -735,10 +735,10 @@ are stopped before execution rather than detected afterward.
 
 **Acceptance criteria**
 
-- [ ] Critical corpus cases block before the tool runs.
-- [ ] Allowed equivalents continue to work.
-- [ ] Each refusal names a runnable safe continuation.
-- [ ] False-positive rate is measured before broadening policy.
+- [x] Critical corpus cases block before the tool runs.
+- [x] Allowed equivalents continue to work.
+- [x] Each refusal names a runnable safe continuation.
+- [x] False-positive rate is measured before broadening policy.
 
 **KPI:** 100% block rate for critical corpus cases, with false positives tracked.
 
@@ -800,10 +800,10 @@ plausible mistakes into permanent procedure.
 
 **Acceptance criteria**
 
-- [ ] Unverified and failed runs cannot create promotable candidates.
-- [ ] Each candidate cites source run, Expectations, receipt, and regressions.
-- [ ] Human approval is required before memory/skill activation.
-- [ ] Rollback removes the candidate without rewriting source evidence.
+- [x] Unverified and failed runs cannot create promotable candidates.
+- [x] Each candidate cites source run, Expectations, receipt, and regressions.
+- [x] Human approval is required before memory/skill activation.
+- [x] Rollback removes the candidate without rewriting source evidence.
 
 **KPI:** candidate acceptance rate, regressions avoided, and rollback rate.
 
@@ -853,9 +853,18 @@ The continuous-improvement loop components (goldens, verified telemetry,
 shadow judge, memory/skill candidates) now exist as deterministic contracts;
 activation of any blocking judge role or auto-skill creation still requires a
 separate human decision backed by measured calibration (see the conditional
-backlog and parking lot). At HEAD `6035f94` (`v1.2.1`), the working tree is
-clean; the remaining work below is planned follow-up, not an uncommitted
-implementation claim.
+backlog and parking lot). At published HEAD `1cd9b81` (`v1.2.1`), the
+implementation commits are pushed; this roadmap reconciliation is a local,
+uncommitted documentation change, not a new implementation claim.
+
+Post-roadmap hardening delivered after the original `6035f94` baseline:
+
+- `3ff2b08` — materialize legacy ASSESS/DESIGN boundaries into canonical
+  DECIDE/PLAN workflow state with selected-store persistence and idempotency.
+- `312011a` — add project-local installation with isolated runtime state,
+  launcher, lock metadata, backups, and duplicate-plugin protection.
+- `1cd9b81` — require a VERIFY policy gate before recording manual evidence and
+  explain why IMPLEMENT gates intentionally have no candidate digest.
 
 ---
 
@@ -934,7 +943,9 @@ must remain visibly estimated.
 4. **O4 — Revalidate the web UI gate [ ].** Only after O1–O3 reach stable coverage
    should the project add a local, read-only web observatory. Its first views
    should be run timeline, bottlenecks, harness health, and deterministic
-   replay/simulation.
+   replay/simulation. The current one-day global measurement (2026-08-26) is
+   not sufficient: 8/10 runs have T7 telemetry (80%), no run is unfinished,
+   and model/provider/real-token fields are 0/34. Keep this gate closed.
 5. **O5 — Defer operational controls and remote observability [ ].** Abort/resume,
    WebSockets, OTel, remote storage, and team-wide retention require a separate
    measured need and must not become dashboard-side workflow authority.
@@ -942,8 +953,10 @@ must remain visibly estimated.
 ### Current decision
 
 Keep the dashboard as a conditional roadmap item. O1, O2, O3, and S1
-source-authority hardening are implemented; O4 is the next work unit. Do
-not start a React application yet. The prior
+source-authority hardening are implemented, but O4 is not yet ready for
+implementation because the observed telemetry coverage is below the 95% gate
+and host metadata is absent. First improve or measure the live telemetry
+coverage; do not start a React application yet. The prior
 local-first, read-only architecture remains correct, but the dashboard should
 be named a **control-plane observatory**, not a full tracing platform.
 
@@ -1072,6 +1085,7 @@ commit, push, and runtime deployment remain separate explicit actions.
 
 ## Next action
 
-Do not start a web UI or restart T1–T12. The next observability work unit is O4:
-revalidate the web UI gate only after O1–O3 have stable coverage. The standard
-verification commands remain required for that work unit.
+Do not start a web UI or restart T1–T12. The next action is to establish stable
+live telemetry coverage and host metadata; revalidate the O4 gate only after
+the 95% identity/lifecycle threshold is met. The standard verification commands
+remain required for the eventual O4 work unit.
