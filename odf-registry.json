@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "last_updated": "2026-08-21T00:00:00Z",
+  "last_updated": "2026-08-26T00:00:00Z",
   "package": {
     "name": "odf-agent-team",
     "version": "1.2.1",
@@ -644,6 +644,39 @@
         }
       ],
       "last_updated": "2026-08-21"
+    },
+    {
+      "name": "odf-batch-implement",
+      "title": "Bounded Odoo Batch Implementation",
+      "category": "odf",
+      "triggers": [
+        "bounded batch",
+        "work unit",
+        "IMPLEMENT batch",
+        "timeout-sensitive",
+        "T8",
+        "T9",
+        "T10",
+        "validation evidence"
+      ],
+      "compact_rules": "Bounded IMPLEMENT batch for timeout-sensitive work units/T8-T10.\n- Require closed spec/design/tasks and existing implement-progress before editing\n- One cohesive 1-3 task/file vertical slice; tests with code; strict TDD when effective\n- Merge progress and write verified validation evidence\n- Exact authorized long DB command once; no destructive setup; timeout => blocked partial evidence",
+      "path": "skills/odf-batch-implement/SKILL.md",
+      "odoo_versions": [
+        16,
+        17,
+        18,
+        19
+      ],
+      "sdd_phase": "IMPLEMENT",
+      "version": "1.0",
+      "changelog": [
+        {
+          "version": "1.0",
+          "date": "2026-08-26",
+          "change": "Initial bounded IMPLEMENT batch workflow"
+        }
+      ],
+      "last_updated": "2026-08-26"
     },
     {
       "name": "odf-verify",
@@ -1315,6 +1348,25 @@
       "model": null,
       "path": "agent/odoo_backend_engineer.md",
       "installed": true
+    },
+    {
+      "name": "odoo_batch_implementer",
+      "mode": "subagent",
+      "description": "Odoo bounded batch IMPLEMENT agent for timeout-sensitive work units, tests, and validation evidence",
+      "phases": [
+        "IMPLEMENT"
+      ],
+      "model": null,
+      "path": "agent/odoo_batch_implementer.md",
+      "installed": true,
+      "routing_triggers": [
+        "bounded",
+        "work unit",
+        "timeout",
+        "T8",
+        "T9",
+        "T10"
+      ]
     },
     {
       "name": "odoo_frontend_engineer",

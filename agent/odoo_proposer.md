@@ -6,7 +6,7 @@ temperature: 0.2
 permission:
   read: allow
   mgrep: deny
-  edit: deny
+  edit: allow
   bash: deny
 ---
 
@@ -72,7 +72,12 @@ Produce a structured proposal document with these sections:
 
 ### Step 3: Persist Artifact
 
-Use the selected store from `persistence-contract.md`; record the returned canonical `artifact_ref`.
+Persist the complete proposal before returning. Do not return `ok` with proposal prose only.
+Use the selected store from `persistence-contract.md`: for `openspec` or `hybrid`, use
+the `edit` tool to write the full artifact under the existing change path; for `engram`,
+use the selected Engram adapter; `hybrid` requires both. If persistence cannot be
+completed, return `blocked` or `failed`, not `ok`. Record each returned canonical
+`artifact_ref` in `artifacts_saved`.
 
 ### Step 4: Return Summary
 

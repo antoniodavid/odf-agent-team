@@ -73,7 +73,8 @@ export const DEFAULT_AGENTS = {
 /**
  * Score-based agent resolution: count keyword hits per agent description and
  * pick the highest; ties keep registry order. A single generic token (e.g.
- * "odoo") can never outvote a strongly matching domain agent.
+ * "odoo") can never outvote a strongly matching domain agent. Agents with
+ * routing_triggers are eligible only when the task contains one of them.
  */
 export function resolveAgent(registry, phase, taskKeywords) {
   if (!Object.prototype.hasOwnProperty.call(DEFAULT_AGENTS, phase)) return null
@@ -81,9 +82,15 @@ export function resolveAgent(registry, phase, taskKeywords) {
   if (filteredKeywords.length === 0) return DEFAULT_AGENTS[phase]
 
   let best = null
+  const keywordText = filteredKeywords.join(" ").toLowerCase()
   for (const agent of registry.agents || []) {
     if (!agent.installed) continue
     if (!agent.phases?.includes(phase) && !agent.phases?.includes("ANY")) continue
+    const routingTriggers = Array.isArray(agent.routing_triggers) ? agent.routing_triggers : []
+    if (
+      routingTriggers.length > 0 &&
+      !routingTriggers.some(trigger => keywordText.includes(String(trigger).toLowerCase()))
+    ) continue
 
     const descLower = String(agent.description || "").toLowerCase()
     let score = 0

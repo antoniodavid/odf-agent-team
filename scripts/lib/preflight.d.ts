@@ -23,6 +23,8 @@ export interface PreflightRecord {
   [key: string]: unknown;
 }
 
+export type PreflightDefaults = Omit<PreflightRecord, 'artifact_store'> & { artifact_store?: string };
+
 export interface ValidationResult {
   valid: boolean;
   errors: string[];
@@ -35,7 +37,7 @@ export const REQUIRED_FIELDS: string[];
 
 export function sanitizeChangeName(name: string | null | undefined): string;
 export function detectOdooVersionFromManifest(cwd?: string): number | null;
-export function inferDefaults(changeName: string, projectConfig?: Record<string, unknown> | null): PreflightRecord;
+export function inferDefaults(changeName: string, projectConfig?: Record<string, unknown> | null): PreflightDefaults;
 export function validatePreflight(record: Record<string, unknown>): ValidationResult;
 export function getMissingFields(record: Record<string, unknown>): string[];
 export function renderPreflightPrompt(record: Record<string, unknown>, missingFields: string[]): string;

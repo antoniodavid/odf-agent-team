@@ -6,6 +6,7 @@ import {
   type WorkType,
 } from "./odf-workflow.js"
 import type { ParallelJoinArtifact } from "./odf-parallel-join.js"
+import { isMap, parseDocument } from "yaml"
 
 export type CanonicalStage = RouteCanonicalStage | "ARCHIVED"
 export type WorkflowStage = "INIT" | CanonicalStage
@@ -203,7 +204,20 @@ function parseStateContent(content: string): ParsedWorkflowState {
     const parsed = asRecord(JSON.parse(content))
     return parsed ? { state: parsed as WorkflowState, warnings } : { state: null, warnings: ["State JSON is not an object."] }
   } catch {
-    // ponytail: scalar-only YAML parsing keeps this adapter dependency-free; complex state yields warnings.
+    // Keep the scalar-only block fallback below for compatibility.
+  }
+
+  try {
+    const document = parseDocument(content)
+    if (isMap(document.contents) && document.contents.flow === true) {
+      if (document.errors.length > 0) return { state: null, warnings: ["Malformed YAML flow state ignored."] }
+      const parsed = asRecord(document.toJSON())
+      return parsed
+        ? { state: parsed as WorkflowState, warnings }
+        : { state: null, warnings: ["YAML flow state is not an object."] }
+    }
+  } catch {
+    // Fall through to the scalar-only block parser.
   }
 
   const result: WorkflowState = {}

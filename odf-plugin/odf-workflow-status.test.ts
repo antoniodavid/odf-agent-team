@@ -8,6 +8,7 @@ import {
   deriveWorkflowStatus,
   normalizeArtifactKey,
   parseProgress,
+  parseWorkflowState,
 } from "./odf-workflow-status.js"
 import { createODFWorkflowStatus } from "./odf-delegation.js"
 
@@ -305,6 +306,33 @@ describe("workflow status adapter", () => {
     expect(status.canonical_stage).toBe("BUILD")
     expect(status.completed_canonical_stages).toEqual(["DECIDE", "PLAN"])
     expect(status.pending_stage).toBe("BUILD")
+  })
+
+  it("reads a previous flow-style state without hiding valid workflow data", () => {
+    const state = [
+      "{ work_type: feature, artifact_store: openspec, phase: preflight, canonical_stage: DECIDE, completed_canonical_stages: [] }",
+    ].join("\n")
+
+    expect(parseWorkflowState(state)).toEqual({
+      state: {
+        work_type: "feature",
+        artifact_store: "openspec",
+        phase: "preflight",
+        canonical_stage: "DECIDE",
+        completed_canonical_stages: [],
+      },
+      warnings: [],
+    })
+    expect(deriveWorkflowStatus({ change: "flow-state", state })).toMatchObject({
+      work_type: "feature",
+      canonical_stage: "DECIDE",
+      completed_canonical_stages: [],
+    })
+
+    expect(parseWorkflowState("{ work_type: feature")).toEqual({
+      state: null,
+      warnings: ["Malformed YAML flow state ignored."],
+    })
   })
 
   it("exposes valid route bindings and warns on invalid declarations", () => {

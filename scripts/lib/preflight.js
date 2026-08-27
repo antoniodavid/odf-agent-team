@@ -27,7 +27,6 @@ export const PREFLIGHT_FIELDS = {
   artifact_store: {
     type: 'enum',
     values: ['openspec', 'engram', 'hybrid'],
-    default: 'openspec',
     question: 'Almacén de artefactos (openspec | engram | hybrid):',
   },
   delivery_strategy: {
@@ -128,7 +127,6 @@ export function inferDefaults(changeName, projectConfig = null) {
   const record = {
     change: sanitizeChangeName(changeName),
     execution_mode: 'interactive',
-    artifact_store: 'openspec',
     delivery_strategy: 'ask-on-risk',
     review_budget_lines: 400,
     odoo_version: detectedVersion ?? 18,
@@ -240,8 +238,10 @@ export function getMissingFields(record) {
   }
   // Also include fields that failed validation but were present.
   for (const err of errors) {
-    const field = err.split(' ')[0];
-    if (!missing.includes(field)) missing.push(field);
+    const field = Object.keys(PREFLIGHT_FIELDS).find((name) =>
+      err === `Falta el campo requerido: ${name}` || err.startsWith(`${name} `)
+    );
+    if (field && !missing.includes(field)) missing.push(field);
   }
   return missing;
 }

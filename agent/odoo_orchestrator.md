@@ -101,6 +101,7 @@ replace a default when their phase and triggers match.
 | ASSESS | `odoo_functional_consultant` |
 | ASSESS context | `odoo_context_gatherer` |
 | QA-PLAN, VERIFY | `odoo_qa_engineer` |
+| IMPLEMENT bounded batch | `odoo_batch_implementer` |
 | DESIGN, IMPLEMENT backend | `odoo_backend_engineer` |
 | DESIGN, IMPLEMENT frontend | `odoo_frontend_engineer` |
 | DESIGN, IMPLEMENT integrations | `odoo_api_integrator` |

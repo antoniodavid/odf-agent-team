@@ -4143,6 +4143,10 @@ function parseStateDocument(content: string): { state: Record<string, unknown>; 
   }
 }
 
+function serializeOpenSpecState(document: ReturnType<typeof parseDocument>): string {
+  return document.toString({ collectionStyle: "block" })
+}
+
 function selectedWorkflowArtifacts(changeName: string, observations: EngramObservation[]): StatusArtifact[] {
   const prefix = `odf/${changeName}/`
   const latest = new Map<string, EngramObservation>()
@@ -4363,7 +4367,7 @@ async function materializeLegacyCanonicalBoundary(opts: {
     parsed.document.set("completed_canonical_stages", newCompleted)
     if (newStageIndex === targetIndex) parsed.document.set("phase", opts.phase)
     parsed.document.set("last_updated", new Date().toISOString())
-    const writeError = writeWorkflowState(store, opts.workspaceRoot, opts.changeName, parsed.document.toString(), workType as WorkType, newStage, newCompleted)
+    const writeError = writeWorkflowState(store, opts.workspaceRoot, opts.changeName, serializeOpenSpecState(parsed.document), workType as WorkType, newStage, newCompleted)
     if (writeError) {
       return {
         status: "blocked",
@@ -4694,7 +4698,7 @@ function writeOpenSpecWorkflowState(
     const root = fsSync.realpathSync(path.resolve(workspaceRoot))
     const realStatePath = fsSync.realpathSync(statePath)
     if (!isWithinRoot(realStatePath, root)) return "unsafe-state-path"
-    const serialized = parsed.document.toString()
+    const serialized = serializeOpenSpecState(parsed.document)
     fsSync.writeFileSync(tempPath, serialized, { encoding: "utf8", flag: "wx" })
     fsSync.renameSync(tempPath, statePath)
     return null
@@ -5899,7 +5903,7 @@ only after canonical state exists. Existing state and Expectations are reused on
         if (!prepared.document || prepared.error) return blocked(prepared.error || "malformed-state", "OpenSpec workflow state is malformed or conflicts with this binding.")
         if (!await safeDirectoryPath(realWorkspace, changeDir, true)) return blocked("unsafe-change-path", "The OpenSpec change path could not be created safely.")
         if (prepared.action !== "reused") {
-          if (!await writeAtomicFile(statePath, prepared.document.toString())) {
+          if (!await writeAtomicFile(statePath, serializeOpenSpecState(prepared.document))) {
             return blocked("state-write-failed", "OpenSpec workflow state could not be persisted.")
           }
         }
@@ -5911,7 +5915,7 @@ only after canonical state exists. Existing state and Expectations are reused on
           const cleared = parseStateDocument(await fs.readFile(statePath, "utf8"))
           if (cleared) {
             cleared.document.delete("binding_pending")
-            await writeAtomicFile(statePath, cleared.document.toString())
+            await writeAtomicFile(statePath, serializeOpenSpecState(cleared.document))
           }
         }
         if (terminalStage && terminalAction === "persisted") {
@@ -6167,7 +6171,9 @@ Requires a human-approved reason (>=20 chars). Every call is appended to the ove
         if (!parsed) return blocked("malformed-state", "The persisted workflow state is malformed.")
         parsed.document.set("canonical_stage", newStage)
         parsed.document.set("completed_canonical_stages", newCompleted)
-        const newStateContent = parsed.document.toString()
+        const newStateContent = args.artifact_store === "engram"
+          ? parsed.document.toString()
+          : serializeOpenSpecState(parsed.document)
         // Write the overridden state directly (the commit helpers force their own
         // canonical_stage; the override sets it explicitly).
         const writeState = async (content: string): Promise<string | null> => {

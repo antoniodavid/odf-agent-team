@@ -88,6 +88,15 @@ describe('preflight', () => {
       expect([16, 17, 18, 19]).toContain(defaults.odoo_version);
     });
 
+    it('leaves artifact store unset without project configuration', () => {
+      const defaults = inferDefaults('x');
+      const missing = getMissingFields(defaults);
+
+      expect(defaults.artifact_store).toBeUndefined();
+      expect(missing).not.toContain('Falta');
+      expect(missing).toEqual(['artifact_store']);
+    });
+
     it('merges project config values', () => {
       const defaults = inferDefaults('x', { odoo_version: 17, artifact_store: 'hybrid', tdd_mode: true });
       expect(defaults.odoo_version).toBe(17);

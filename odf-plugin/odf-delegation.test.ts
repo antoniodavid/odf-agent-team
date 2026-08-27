@@ -749,13 +749,16 @@ describe("createODFWorkflowBind", () => {
       expect(output).toMatchObject({ status: "bound", state_action: "created", expectations_action: "persisted" })
 
       const changeDir = path.join(root, "openspec", "changes", change)
-      const state = YAML.parse(await fs.readFile(path.join(changeDir, "state.yaml"), "utf8"))
+      const stateContent = await fs.readFile(path.join(changeDir, "state.yaml"), "utf8")
+      expect(stateContent.trimStart()).not.toMatch(/^\{/)
+      const state = YAML.parse(stateContent)
       expect(state).toMatchObject({
         change,
         artifact_store: "openspec",
         work_type: "feature",
         canonical_stage: "DECIDE",
         completed_canonical_stages: [],
+        phase: "preflight",
         preflight: { change, artifact_store: "openspec", work_type: "feature" },
         route: { work_type: "feature", stages: ["DECIDE", "PLAN", "BUILD", "VERIFY"] },
       })

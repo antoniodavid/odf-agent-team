@@ -117,10 +117,11 @@ function runTestSuite(suite) {
     const task = tc.input.task;
     const contextFiles = tc.input.context?.files || [];
     const version = tc.input.context?.version;
+    const phase = tc.input.phase || suite.phase || 'DESIGN';
 
     // Test 1: skill resolution
     test('resolves correct skill_resolution', () => {
-      // YAML scenarios do not model a delegation phase; null keeps matching contextual.
+      // Keep skill matching contextual; phase is used for agent resolution.
       const skills = matchSkills(registry, null, { task, files: contextFiles, odooVersion: version });
       const resolution = skills.length > 0 ? 'self-discovered' : 'none';
       return resolution === tc.expected.skill_resolution;
@@ -138,8 +139,10 @@ function runTestSuite(suite) {
     // Test 3: agent resolution
     test(`resolves agent (expected in: ${tc.expected.status_in.join(', ')})`, () => {
       const keywords = task.split(/\s+/).slice(0, 10);
-      const agent = resolveAgent(registry, 'DESIGN', keywords);
-      return typeof agent === 'string' && agent.length > 0;
+      const agent = resolveAgent(registry, phase, keywords);
+      return tc.expected.agent
+        ? agent === tc.expected.agent
+        : typeof agent === 'string' && agent.length > 0;
     });
 
     // Test 4: status is valid

@@ -1,0 +1,15 @@
+name: odf-batch-implement
+agent: odoo_batch_implementer
+tests:
+  - name: "bounded T8/T9/T10 implementation batch routes to batch agent"
+    input:
+      phase: IMPLEMENT
+      task: "Implement bounded batch T8/T9 tests and T10 validation evidence; timeout-sensitive"
+      context:
+        version: 18
+        files: ["models/batch.py", "tests/test_batch.py"]
+    expected:
+      agent: odoo_batch_implementer
+      skill_resolution: "self-discovered"
+      expected_skills: ["odf-batch-implement"]
+      status_in: ["ok", "blocked"]
