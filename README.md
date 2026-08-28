@@ -6,7 +6,7 @@
 
 ## Honest status
 
-- **Mature and tested**: 619 Vitest tests + 150 YAML scenarios + an end-to-end harness smoke suite (`npm run test:harness`). Every release is verified end to end.
+- **Mature and tested**: 687 Vitest tests + 154 YAML scenarios + an end-to-end harness smoke suite (`npm run test:harness`). Every release is verified end to end.
 - **Portable**: installs into any OpenCode environment (Linux/macOS/Windows via Git Bash/WSL), with `XDG_CONFIG_HOME` resolution and author-path rewriting at install time.
 - **Known limitations**:
   - The plugin entrypoint (`plugins/odf-delegation.ts`, ~6k lines) is still a monolith for the delegation/workflow core; the self-contained sections already live in modules (`odf-plugin/odf-delegation-{shared,metrics,health,policy,loopguard}.ts`).
@@ -75,7 +75,7 @@ Design and implementation **must** verify every view ID, model, and `_inherit` a
 
 ## What's inside
 
-- **32 skills** (OCA governance/style, Odoo patterns, ODF phases, shared conventions), **13 specialized agents** (backend, frontend, QA, functional, DBA, APIs, migrations, stock-lot, proposer, etc.), `/odf-*` commands.
+- **32 skills** (OCA governance/style, Odoo patterns, ODF phases, shared conventions), **10 specialized agents** (backend, frontend, QA, functional, DBA, APIs, migrations, proposer, batch, reviewer), `/odf-*` commands.
 - **Plugin** (`plugins/odf-delegation.ts` + 5 modules in `odf-plugin/`): delegation via `task()`, policy gate, evidence seal, receipts, override, bind, loop guard.
 - **Idempotent installer** with backup, TUI, `--configure-mcp`, dependency probe.
 - **Tests**: `npm test` (Vitest + YAML scenarios), `npm run test:harness` (end-to-end smoke), `node scripts/odf-registry-validate.js`.
