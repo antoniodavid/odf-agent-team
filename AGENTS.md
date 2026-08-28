@@ -55,7 +55,7 @@ Each phase is a sub-agent with a defined input/output contract. The orchestrator
               ┌───────────┘       └───────────┐
               ▼                               ▼
    ┌──────────────────────┐       ┌──────────────────────┐
-   │   odf-delegation.ts  │       │   13 sub-agents       │
+    │   odf-delegation.ts  │       │   10 sub-agents       │
    │   (PLUGIN)           │──────▶│   (via task())        │
    │                      │       │                       │
    │   Registry cache     │       │  odoo_backend_engineer │
@@ -64,11 +64,8 @@ Each phase is a sub-agent with a defined input/output contract. The orchestrator
    │   Status resolver    │       │  odoo_functional_con.  │
    │   Community tools    │       │  odoo_code_reviewer    │
    └──────────────────────┘       │  odoo_api_integrator   │
-                                  │  odoo_context_gatherer │
-                                  │  odoo_skill_finder     │
                                   │  odoo_dba_devops       │
-                                  │  odoo_stock_lot_spec.  │
-                                  │  odoo_upgrade_migrator │
+                                   │  odoo_upgrade_migrator │
                                   └──────────────────────┘
 ```
 
@@ -90,7 +87,7 @@ Each phase is a sub-agent with a defined input/output contract. The orchestrator
 
 ### Skills system
 
-33 skills covering:
+32 skills covering:
 
 - **OCA governance**: PR workflow, maturity levels, commit messages, contribution guidelines
 - **OCA style**: Python, XML, JavaScript/CSS standards
@@ -155,18 +152,18 @@ Missing fields are collected via `question` tool.
 ## Key structure
 
 ```
-agent/              — 14 agent instructions (orchestrator + 13 sub-agents)
+agent/              — 11 agent instructions (orchestrator + 10 sub-agents)
 command/            — 21 slash command definitions (Markdown)
 plugins/            — odf-delegation.ts (OpenCode plugin)
 scripts/            — test runner (118 tests), CLI wrapper, registry validator
-skills/              — 33 skills (OCA governance, ODF phases, patterns)
+skills/              — 32 skills (OCA governance, ODF phases, patterns)
   _shared/          — conventions (engram persistence, skill-resolver, Odoo sources)
   oca/              — OCA governance, style, patterns
   odf-{phase}/      — phase-specific skills (assess, design, implement, etc.)
 openspec/           — SDD change artifacts (when artifact_store=openspec)
 docs/               — intended-usage, architecture, skill-style-guide
 install.sh          — idempotent installer (backup, --dry-run, --force)
-odf-registry.json   — SINGLE SOURCE OF TRUTH (33 skills, 14 agents, 2 profiles, community tools)
+odf-registry.json   — SINGLE SOURCE OF TRUTH (32 skills, 11 agents, 2 profiles, community tools)
 ```
 
 ## Quick start
@@ -190,7 +187,7 @@ ODF is a superset of the generic SDD workflow:
 |--------|-----------------|-----|
 | Phases | propose → spec → design → tasks → apply → verify | propose → assess → qa-plan → design → implement → verify |
 | Domain | Generic | Odoo-specific |
-| Sub-agents | 7 generic agents | 11 specialized Odoo agents (backend, frontend, QA, DBA, etc.) |
+| Sub-agents | 7 generic agents | 10 specialized Odoo agents (backend, frontend, QA, DBA, etc.) |
 | Skills | Code style, commit conventions | OCA governance, Odoo patterns, migration guides |
 | Profile system | No | Yes (default/cheap profiles per phase) |
 | Community tools | CodeGraph | CodeGraph + extensible via plugin tools |

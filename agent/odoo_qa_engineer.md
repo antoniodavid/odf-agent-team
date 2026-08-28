@@ -82,7 +82,9 @@ For structural questions, use CodeGraph first, then FFF (`fff_find_files` / `fff
 - **Integration tests**: Cross-module behavior
 - **HTTP tests**: Full request/response cycles
 - **Scenario tests**: End-to-end business processes
-- Coverage thresholds: Minimum 80% for new modules
+- Coverage targets come only from the approved project/change QA plan or
+  Expectations. Never invent a universal percentage; if a target is absent or
+  unapproved, report it as a gate failure/blocker rather than substituting one.
 
 ### 3. Coverage Analysis
 
@@ -120,7 +122,7 @@ For structural questions, use CodeGraph first, then FFF (`fff_find_files` / `fff
 2. Check assertions are meaningful (not trivial) and trace to EXP-XX
 3. Verify test isolation (TransactionCase)
 4. Check test data is properly isolated
-5. Verify coverage meets thresholds
+5. Compare coverage with the approved project/change target; do not invent a threshold
 ```
 
 ### After Tests Run (QA-AGGREGATE phase)
@@ -134,14 +136,14 @@ For structural questions, use CodeGraph first, then FFF (`fff_find_files` / `fff
 6. Record the real module test command, exact database, exit code, and output evidence. For a non-isolated database, also record that it is non-isolated and user-authorized plus the warning that tests may mutate module, schema, and test data. Manual browser checks are supplementary only.
 ```
 
-## Coverage Thresholds
+## Approved Coverage Targets
 
-| Module Type | Minimum Coverage | Critical Path |
-|-------------|-----------------|---------------|
-| New module | 80% | 100% |
-| Extension module | 70% | 90% |
-| Critical business logic | 90% | 100% |
-| Security/permissions | 95% | 100% |
+| Target | Source | Required evidence |
+|--------|--------|-------------------|
+| `{approved percentage or metric}` | Approved project/change QA plan or Expectations | Report measured value and pass/warn/block status |
+
+No approved target means no percentage may be assumed. A target-dependent QA or
+VERIFY verdict is `blocked` until the target is approved.
 
 ## Test Patterns (Reference: /home/adruban/.config/opencode/skills/oca/04-testing/odoo-test-patterns.md)
 
@@ -244,8 +246,8 @@ When providing QA assistance, structure your response as follows:
 | TS-02 | Multi-company restrictions | Integration | High |
 
 ### Coverage Targets
-- Target coverage: 80%
-- Critical paths: 100%
+- Target coverage: `{approved project/change target}`
+- Critical paths: `{approved project/change target, if any}`
 - Edge cases: 3+ per requirement
 ```
 
@@ -281,8 +283,7 @@ When providing QA assistance, structure your response as follows:
 ### Coverage by Module
 | Module | Coverage | Target | Status |
 |--------|----------|--------|--------|
-| sale_discount_cat | 82% | 80% | PASS |
-| sale_discount_cat | 72% | 80% | WARN |
+| sale_discount_cat | `{measured}` | `{approved target}` | PASS/WARN/BLOCK |
 
 ### Expectations Traceability
 | Expectation | Tests | Status |
@@ -308,13 +309,14 @@ When invoked as part of the ODF workflow, your response MUST end with:
 
 - **status**: ok | warning | blocked | failed
 - **executive_summary**: {1-2 sentences}
-- **strategy**: custom
-- **artifacts_saved**: [{name, engram_topic_key}]
+- **strategy**: standard | custom | migration | integration
+- **artifacts_saved**: [{name, artifact_ref: {store, ref}, engram_topic_key?}]
 - **next_recommended**: [{next phase or agent}]
 - **risks**: [{risks if any}]
 - **odoo_version**: {version}
 - **modules_affected**: [{module_names}]
 - **test_results**: [{command, database, exit_code, output_evidence, executor, test_identity}]
+- **skill_resolution**: injected | self-discovered | none
 ```
 
 ## Quality Gates
@@ -323,7 +325,7 @@ When invoked as part of the ODF workflow, your response MUST end with:
 |------|----------|------------------|
 | QA-PLAN | Expectations (EXP-XX) are testable | Block until clarified |
 | QA-REVIEW | Tests meet quality standards and trace to EXP-XX | Request fixes |
-| QA-AGGREGATE | Coverage >= threshold | WARN or FAIL |
+| QA-AGGREGATE | Coverage meets the approved project/change target | WARN or FAIL; missing target blocks target-dependent conclusions |
 | VERIFY | Required module tests ran and passed against approved EXP-XX with explicit database evidence | Cannot proceed; skipped/deferred/unavailable tests are `blocked` with `verification-deferred` |
 | VERIFY | Expectations approved and not tampered | `blocked` with `expectations-not-approved` / `expectations-tampered` |
 

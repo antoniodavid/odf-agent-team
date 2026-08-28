@@ -70,6 +70,25 @@ export const DEFAULT_AGENTS = {
   FIX: "odoo_backend_engineer",
 }
 
+const FIXED_PHASES = new Set(["PROPOSE", "ASSESS", "QA-PLAN", "VERIFY", "EXPLORE"])
+const DOMAIN_PHASES = new Set(["DESIGN", "IMPLEMENT", "FIX"])
+
+function phaseEligible(agent, phase) {
+  return agent?.installed === true && (
+    agent.phases?.includes(phase) || agent.phases?.includes("ANY")
+  )
+}
+
+/** Validate an explicit agent without ever treating registry metadata as optional. */
+export function validateAgentSelection(registry, phase, agentName) {
+  const name = typeof agentName === "string" ? agentName.trim() : ""
+  const agent = (Array.isArray(registry?.agents) ? registry.agents : []).find(candidate => candidate?.name === name)
+  if (!agent) return { valid: false, reason: "agent-not-registered", agent: null }
+  if (agent.installed !== true) return { valid: false, reason: "agent-not-installed", agent: null }
+  if (!phaseEligible(agent, phase)) return { valid: false, reason: "agent-phase-ineligible", agent: null }
+  return { valid: true, reason: null, agent }
+}
+
 /**
  * Score-based agent resolution: count keyword hits per agent description and
  * pick the highest; ties keep registry order. A single generic token (e.g.
@@ -78,26 +97,34 @@ export const DEFAULT_AGENTS = {
  */
 export function resolveAgent(registry, phase, taskKeywords) {
   if (!Object.prototype.hasOwnProperty.call(DEFAULT_AGENTS, phase)) return null
-  const filteredKeywords = filterStopWords(taskKeywords)
-  if (filteredKeywords.length === 0) return DEFAULT_AGENTS[phase]
+
+  const defaultSelection = validateAgentSelection(registry, phase, DEFAULT_AGENTS[phase])
+  if (FIXED_PHASES.has(phase)) return defaultSelection.valid ? defaultSelection.agent.name : null
+
+  const filteredKeywords = filterStopWords(Array.isArray(taskKeywords) ? taskKeywords : [])
+  if (filteredKeywords.length === 0) {
+    return DOMAIN_PHASES.has(phase) && phase !== "FIX"
+      ? (defaultSelection.valid ? defaultSelection.agent.name : null)
+      : null
+  }
 
   let best = null
   const keywordText = filteredKeywords.join(" ").toLowerCase()
-  for (const agent of registry.agents || []) {
-    if (!agent.installed) continue
-    if (!agent.phases?.includes(phase) && !agent.phases?.includes("ANY")) continue
+  for (const agent of (Array.isArray(registry?.agents) ? registry.agents : [])) {
+    if (!phaseEligible(agent, phase)) continue
     const routingTriggers = Array.isArray(agent.routing_triggers) ? agent.routing_triggers : []
     if (
       routingTriggers.length > 0 &&
       !routingTriggers.some(trigger => keywordText.includes(String(trigger).toLowerCase()))
     ) continue
 
-    const descLower = String(agent.description || "").toLowerCase()
+    const descLower = `${String(agent.name || "")} ${String(agent.description || "")}`.toLowerCase()
     let score = 0
     for (const kw of filteredKeywords) {
       if (descLower.includes(kw.toLowerCase())) score++
     }
     if (score > 0 && (!best || score > best.score)) best = { name: agent.name, score }
   }
-  return best ? best.name : DEFAULT_AGENTS[phase]
+  if (best) return best.name
+  return phase === "FIX" ? null : (defaultSelection.valid ? defaultSelection.agent.name : null)
 }

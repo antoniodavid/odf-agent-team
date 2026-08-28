@@ -147,7 +147,7 @@ export function loadRegistry() {
 function resolvePreview(phase, task, files, odooVersion) {
   const registry = loadRegistry()
   if (!registry) return { status: "error", warnings: [`registry not found at ${REGISTRY_PATH}`] }
-  const keywords = task.split(/\s+/).slice(0, 10)
+  const keywords = task.split(/\s+/)
   const agent = resolveAgent(registry, phase, keywords)
   const skills = matchSkills(registry, phase, { task, files, odooVersion })
   const profile = (registry.profiles || []).find(p => p.name === "default")?.phases?.[phase] || null

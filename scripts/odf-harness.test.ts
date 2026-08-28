@@ -85,10 +85,18 @@ describe("harness smoke: core determinism", () => {
     expect(validateExpectations({ change: "c", artifacts: [{ key: "x/expectations", content: { ...approved, approved: false } }] }).status).toBe("invalid")
   })
 
-  it("agent resolution: backend prompts stay backend; frontend goes frontend; default on generic", () => {
+  it("agent resolution: applies every phase, specialist routing, and bounded T8/T9/T10 routing", () => {
     const registry = JSON.parse(fsSyncRead(path.join(REPO, "odf-registry.json")))
+    expect(resolveAgent(registry, "PROPOSE", ["migration", "scope"])).toBe("odoo_proposer")
+    expect(resolveAgent(registry, "ASSESS", ["migration", "version"])).toBe("odoo_functional_consultant")
+    expect(resolveAgent(registry, "QA-PLAN", ["frontend", "coverage"])).toBe("odoo_qa_engineer")
     expect(resolveAgent(registry, "DESIGN", ["Odoo", "18", "Python", "ORM", "model"])).toBe("odoo_backend_engineer")
     expect(resolveAgent(registry, "DESIGN", ["frontend", "OWL", "assets"])).toBe("odoo_frontend_engineer")
+    expect(resolveAgent(registry, "IMPLEMENT", ["bounded", "batch", "T8", "T9", "T10", "validation"])).toBe("odoo_batch_implementer")
+    expect(resolveAgent(registry, "VERIFY", ["review", "coverage"])).toBe("odoo_qa_engineer")
+    expect(resolveAgent(registry, "EXPLORE", ["taxes", "patterns"])).toBe("odoo_functional_consultant")
+    expect(resolveAgent(registry, "FIX", ["Python", "model", "constraint"])).toBe("odoo_backend_engineer")
+    expect(resolveAgent(registry, "FIX", ["fix", "bug"])).toBeNull()
     expect(resolveAgent(registry, "DESIGN", [])).toBe("odoo_backend_engineer")
   })
 })

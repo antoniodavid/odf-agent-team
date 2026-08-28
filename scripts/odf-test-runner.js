@@ -138,7 +138,7 @@ function runTestSuite(suite) {
 
     // Test 3: agent resolution
     test(`resolves agent (expected in: ${tc.expected.status_in.join(', ')})`, () => {
-      const keywords = task.split(/\s+/).slice(0, 10);
+      const keywords = task.split(/\s+/);
       const agent = resolveAgent(registry, phase, keywords);
       return tc.expected.agent
         ? agent === tc.expected.agent

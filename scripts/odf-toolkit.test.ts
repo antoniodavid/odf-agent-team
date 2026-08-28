@@ -63,6 +63,17 @@ describe("odf-toolkit resolve", () => {
     expect(resolveAgent(registry, "DESIGN", [])).toBe("odoo_backend_engineer")
   })
 
+  it("fails closed when the default agent is not installed or phase-eligible", () => {
+    const registry = {
+      agents: [
+        { name: "odoo_backend_engineer", installed: false, phases: ["DESIGN"], description: "Python models" },
+      ],
+      skills: [],
+    }
+    expect(resolveAgent(registry, "DESIGN", [])).toBeNull()
+    expect(resolveAgent({ agents: [{ ...registry.agents[0], installed: true, phases: ["IMPLEMENT"] }] }, "DESIGN", [])).toBeNull()
+  })
+
   it("matchSkills ranks by trigger hits", () => {
     const registry = {
       skills: [

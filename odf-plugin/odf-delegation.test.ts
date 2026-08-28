@@ -105,7 +105,7 @@ const baseRegistry: ODFRegistry = {
       name: "odoo_backend_engineer",
       mode: "subagent",
       description: "Python models, views, security, tests, OCA compliance",
-      phases: ["DESIGN", "IMPLEMENT"],
+      phases: ["DESIGN", "IMPLEMENT", "FIX"],
       model: null,
       path: "/tmp/odoo_backend_engineer.md",
       installed: true,
@@ -114,28 +114,47 @@ const baseRegistry: ODFRegistry = {
       name: "odoo_frontend_engineer",
       mode: "subagent",
       description: "OWL, JS/TS, SCSS, QWeb, all view types",
-      phases: ["DESIGN", "IMPLEMENT"],
+      phases: ["DESIGN", "IMPLEMENT", "FIX"],
       model: null,
       path: "/tmp/odoo_frontend_engineer.md",
-      installed: true,
-    },
-    {
-      name: "odoo_stock_lot_specialist",
-      mode: "subagent",
-      description: "Odoo Stock Lot/Serial Specialist",
-      phases: ["DESIGN", "IMPLEMENT"],
-      model: null,
-      path: "/tmp/odoo_stock_lot_specialist.md",
       installed: true,
     },
     {
       name: "odoo_functional_consultant",
       mode: "subagent",
       description: "Standard vs custom assessment, functional analysis",
-      phases: ["ASSESS"],
+      phases: ["ASSESS", "EXPLORE"],
       model: null,
       path: "/tmp/odoo_functional_consultant.md",
       installed: true,
+    },
+    {
+      name: "odoo_proposer",
+      mode: "subagent",
+      description: "Business framing, scope, capabilities, risks",
+      phases: ["PROPOSE"],
+      model: null,
+      path: "/tmp/odoo_proposer.md",
+      installed: true,
+    },
+    {
+      name: "odoo_qa_engineer",
+      mode: "subagent",
+      description: "Test strategy, coverage analysis, quality gates",
+      phases: ["QA-PLAN", "VERIFY"],
+      model: null,
+      path: "/tmp/odoo_qa_engineer.md",
+      installed: true,
+    },
+    {
+      name: "odoo_batch_implementer",
+      mode: "subagent",
+      description: "Odoo bounded batch IMPLEMENT agent for timeout-sensitive work units, tests, and validation evidence",
+      phases: ["IMPLEMENT"],
+      model: null,
+      path: "/tmp/odoo_batch_implementer.md",
+      installed: true,
+      routing_triggers: ["bounded", "work unit", "timeout", "T8", "T9", "T10"],
     },
   ] as unknown as ODFAgent[],
 }
@@ -1262,15 +1281,26 @@ describe("resolveAgent", () => {
   it("returns default agents when keywords are empty", () => {
     expect(resolveAgent(baseRegistry, "PROPOSE", [])).toBe("odoo_proposer")
     expect(resolveAgent(baseRegistry, "ASSESS", [])).toBe("odoo_functional_consultant")
+    expect(resolveAgent(baseRegistry, "QA-PLAN", [])).toBe("odoo_qa_engineer")
     expect(resolveAgent(baseRegistry, "DESIGN", [])).toBe("odoo_backend_engineer")
     expect(resolveAgent(baseRegistry, "IMPLEMENT", [])).toBe("odoo_backend_engineer")
     expect(resolveAgent(baseRegistry, "VERIFY", [])).toBe("odoo_qa_engineer")
     expect(resolveAgent(baseRegistry, "EXPLORE", [])).toBe("odoo_functional_consultant")
   })
 
+  it("enforces the phase matrix while preserving specialist and bounded routing", () => {
+    expect(resolveAgent(baseRegistry, "PROPOSE", ["migration", "scope"])).toBe("odoo_proposer")
+    expect(resolveAgent(baseRegistry, "ASSESS", ["migration", "version"])).toBe("odoo_functional_consultant")
+    expect(resolveAgent(baseRegistry, "QA-PLAN", ["frontend", "coverage"])).toBe("odoo_qa_engineer")
+    expect(resolveAgent(baseRegistry, "DESIGN", ["frontend", "OWL"])).toBe("odoo_frontend_engineer")
+    expect(resolveAgent(baseRegistry, "IMPLEMENT", ["bounded", "batch", "T8", "T9", "T10"])).toBe("odoo_batch_implementer")
+    expect(resolveAgent(baseRegistry, "VERIFY", ["review", "coverage"])).toBe("odoo_qa_engineer")
+    expect(resolveAgent(baseRegistry, "EXPLORE", ["migration", "patterns"])).toBe("odoo_functional_consultant")
+    expect(resolveAgent(baseRegistry, "FIX", ["Python", "model", "constraint"])).toBe("odoo_backend_engineer")
+  })
+
   it("matches custom agents by description keywords", () => {
     expect(resolveAgent(baseRegistry, "DESIGN", ["OWL", "component", "JavaScript"])).toBe("odoo_frontend_engineer")
-    expect(resolveAgent(baseRegistry, "DESIGN", ["lot", "serial", "stock", "tracking"])).toBe("odoo_stock_lot_specialist")
   })
 
   it("does not route a backend prompt to frontend because of the generic odoo token", () => {
@@ -1288,6 +1318,24 @@ describe("resolveAgent", () => {
 
   it("falls back to phase default when no custom agent matches", () => {
     expect(resolveAgent(baseRegistry, "ASSESS", ["model", "python", "security"])).toBe("odoo_functional_consultant")
+  })
+
+  it("does not use a generic backend fallback for an ambiguous FIX", () => {
+    expect(resolveAgent(baseRegistry, "FIX", ["fix", "bug"])).toBeNull()
+  })
+
+  it("fails closed when a phase default is uninstalled or ineligible", () => {
+    const uninstalled = {
+      ...baseRegistry,
+      agents: baseRegistry.agents.map(agent => agent.name === "odoo_qa_engineer" ? { ...agent, installed: false } : agent),
+    } as ODFRegistry
+    expect(resolveAgent(uninstalled, "QA-PLAN", [])).toBeNull()
+
+    const ineligible = {
+      ...baseRegistry,
+      agents: baseRegistry.agents.map(agent => agent.name === "odoo_backend_engineer" ? { ...agent, phases: ["IMPLEMENT"] } : agent),
+    } as ODFRegistry
+    expect(resolveAgent(ineligible, "DESIGN", [])).toBeNull()
   })
 
   it("does not route unknown phases to an implementation agent", () => {
@@ -2389,6 +2437,13 @@ ${overrides}`
     await fs.writeFile(registryPath, JSON.stringify(registry, null, 2), "utf8")
   }
 
+  const setRegistryAgentInstalled = async (name: string, installed: boolean) => {
+    const registryPath = path.join(tempHome, ".config", "opencode", "odf-registry.json")
+    const registry = JSON.parse(await fs.readFile(registryPath, "utf8"))
+    registry.agents = registry.agents.map((agent: { name: string }) => agent.name === name ? { ...agent, installed } : agent)
+    await fs.writeFile(registryPath, JSON.stringify(registry, null, 2), "utf8")
+  }
+
   const readPersistedMetrics = async () => {
     const metricsDir = path.join(tempHome, ".config", "opencode", "metrics")
     let files: string[]
@@ -2465,6 +2520,73 @@ ${overrides}`
     }, { sessionID: `unrelated-${phase}`, task: taskApi } as any) as string)
 
     expect(output).toMatchObject({ status: "delegated", result: taskResult })
+  })
+
+  it("honors a valid explicit agent override", async () => {
+    const { createODFDelegate } = await import("./odf-delegation.js")
+    const taskApi = vi.fn().mockResolvedValue({ status: "ok", design_closed: true })
+    const output = JSON.parse(await createODFDelegate(undefined, tempHome).execute({
+      phase: "DESIGN",
+      agent: "odoo_frontend_engineer",
+      prompt: "Design a Python model",
+      context_files: [],
+    }, { sessionID: "explicit-valid", task: taskApi } as any) as string)
+
+    expect(output).toMatchObject({ status: "delegated", agent: "odoo_frontend_engineer" })
+    expect(taskApi).toHaveBeenCalledWith(expect.objectContaining({ agent: "odoo_frontend_engineer" }))
+  })
+
+  it.each([
+    ["missing_agent", "agent-not-registered"],
+    ["odoo_qa_engineer", "agent-phase-ineligible"],
+  ])("blocks invalid explicit agent %s before task()", async (agent, reason) => {
+    const { createODFDelegate } = await import("./odf-delegation.js")
+    const taskApi = vi.fn().mockResolvedValue({ status: "ok", design_closed: true })
+    const output = JSON.parse(await createODFDelegate(undefined, tempHome).execute({
+      phase: "DESIGN",
+      agent,
+      prompt: "Design a model",
+      context_files: [],
+    }, { sessionID: `explicit-${agent}`, task: taskApi } as any) as string)
+
+    expect(output).toMatchObject({ status: "blocked", reason, agent: null })
+    expect(taskApi).not.toHaveBeenCalled()
+  })
+
+  it("blocks an explicit installed=false agent before task()", async () => {
+    await setRegistryAgentInstalled("odoo_frontend_engineer", false)
+    const { createODFDelegate } = await import("./odf-delegation.js")
+    const taskApi = vi.fn().mockResolvedValue({ status: "ok", design_closed: true })
+    const output = JSON.parse(await createODFDelegate(undefined, tempHome).execute({
+      phase: "DESIGN",
+      agent: "odoo_frontend_engineer",
+      prompt: "Design a frontend component",
+      context_files: [],
+    }, { sessionID: "explicit-uninstalled", task: taskApi } as any) as string)
+
+    expect(output).toMatchObject({ status: "blocked", reason: "agent-not-installed", agent: null })
+    expect(taskApi).not.toHaveBeenCalled()
+  })
+
+  it("routes domain-specific FIX and blocks an ambiguous FIX", async () => {
+    const { createODFDelegate } = await import("./odf-delegation.js")
+    const taskApi = vi.fn().mockResolvedValue({ status: "ok", executive_summary: "fixed" })
+    const delegateTool = createODFDelegate(undefined, tempHome)
+
+    const domainOutput = JSON.parse(await delegateTool.execute({
+      phase: "FIX",
+      prompt: "Fix a backend model bug",
+      context_files: [],
+    }, { sessionID: "fix-domain", task: taskApi } as any) as string)
+    expect(domainOutput).toMatchObject({ status: "delegated", agent: "odoo_backend_engineer" })
+
+    const ambiguousOutput = JSON.parse(await delegateTool.execute({
+      phase: "FIX",
+      prompt: "Fix the bug",
+      context_files: [],
+    }, { sessionID: "fix-ambiguous", task: taskApi } as any) as string)
+    expect(ambiguousOutput).toMatchObject({ status: "blocked", reason: "agent-routing-unavailable", agent: null })
+    expect(taskApi).toHaveBeenCalledTimes(1)
   })
 
   it("blocks view-authority work without the structured evidence envelope", async () => {

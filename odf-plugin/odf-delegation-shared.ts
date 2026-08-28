@@ -130,6 +130,7 @@ export interface ODFAgent {
   mode: string
   description: string
   phases: string[]
+  routing_triggers?: string[]
   model: string | null
   path: string
   installed: boolean

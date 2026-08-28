@@ -98,8 +98,7 @@ replace a default when their phase and triggers match.
 | Phase/domain | Default or specialist |
 |---|---|
 | PROPOSE | `odoo_proposer` |
-| ASSESS | `odoo_functional_consultant` |
-| ASSESS context | `odoo_context_gatherer` |
+| ASSESS (including context) | `odoo_functional_consultant` |
 | QA-PLAN, VERIFY | `odoo_qa_engineer` |
 | IMPLEMENT bounded batch | `odoo_batch_implementer` |
 | DESIGN, IMPLEMENT backend | `odoo_backend_engineer` |
@@ -108,8 +107,7 @@ replace a default when their phase and triggers match.
 | Any database/operations work | `odoo_dba_devops` |
 | Any migration work | `odoo_upgrade_migrator` |
 | VERIFY code review | `odoo_code_reviewer` |
-| DESIGN, IMPLEMENT skill fallback | `odoo_skill_finder` |
-| DESIGN, IMPLEMENT stock lot domain | `odoo_stock_lot_specialist` |
+| DESIGN, IMPLEMENT skill resolution | Native plugin tools: `odf_skill_inject` / `odf_skill_resolve` |
 
 ## Phase Skills
 

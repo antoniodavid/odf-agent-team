@@ -19,7 +19,7 @@ import * as os from "node:os"
 import * as nodeCrypto from "node:crypto"
 import { type Hooks, type Plugin, type ToolContext, tool } from "@opencode-ai/plugin"
 import { execFileSync, execSync } from "node:child_process"
-import { filterStopWords, resolveAgent } from "../scripts/lib/agent-resolve.js"
+import { filterStopWords, resolveAgent, validateAgentSelection } from "../scripts/lib/agent-resolve.js"
 import {
   canonicalChangeName,
   canonicalWorkspaceRoot,
@@ -726,6 +726,7 @@ type ArtifactStore = "openspec" | "engram" | "hybrid"
 interface ODFDelegateArgs {
   phase: string
   prompt: string
+  agent?: string
   context_files?: string[]
   odoo_source_root?: string
   odoo_source_repos?: string
@@ -1487,6 +1488,10 @@ Use this instead of generic task() for ODF workflow delegation.`,
       prompt: tool.schema
         .string()
         .describe("The full detailed prompt for the agent."),
+      agent: tool.schema
+        .string()
+        .optional()
+        .describe("Optional explicit registered agent override; must be installed and eligible for the phase."),
       context_files: tool.schema
         .array(tool.schema.string())
         .optional()
@@ -1914,10 +1919,27 @@ Use this instead of generic task() for ODF workflow delegation.`,
       })
 
       // Resolve agent and profile
-      const keywords = args.prompt.split(/\s+/).slice(0, 10)
-      const agentName = resolveAgent(registry, args.phase, keywords)
+      const keywords = args.prompt.split(/\s+/)
+      let agentName: string | null
+      if (args.agent !== undefined) {
+        const selection = validateAgentSelection(registry, args.phase, args.agent)
+        if (!selection.valid) {
+          return blockWorkflow(
+            selection.reason,
+            `Explicit agent "${args.agent}" is not registered, installed, and phase-eligible for ${args.phase}.`,
+            workflowResult,
+          )
+        }
+        agentName = selection.agent.name
+      } else {
+        agentName = resolveAgent(registry, args.phase, keywords)
+      }
       if (!agentName) {
-        return `❌ No agent configured for phase "${args.phase}"`
+        return blockWorkflow(
+          "agent-routing-unavailable",
+          `No registered, installed, phase-eligible agent is available for ${args.phase}.`,
+          workflowResult,
+        )
       }
       const profile = await getProfileByPhase(registry, args.phase, args.profile)
       const profileBlock = profile ? formatProfileBlock(profile, args.phase) : ""

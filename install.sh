@@ -26,7 +26,6 @@ STALE_ODF_PLUGIN_FILES=(
   odf-workflow.test.ts
   odf-workflow.ts
 )
-
 # Auto-detect local source when running from inside the cloned repo.
 # Respects explicit ODF_SOURCE_DIR if set.
 detect_local_source() {
@@ -380,7 +379,6 @@ install_files() {
   copy_dir "$src_dir/command" "$ODF_DIR/command"
   copy_dir "$src_dir/scripts" "$ODF_DIR/scripts"
   copy_dir "$src_dir/openspec" "$ODF_DIR/openspec"
-
   # Install only the contracts consumed by ODF phases.
   copy_dir "$src_dir/docs/design-contract.md" "$ODF_DIR/docs/design-contract.md"
   copy_dir "$src_dir/docs/expectations-contract.md" "$ODF_DIR/docs/expectations-contract.md"

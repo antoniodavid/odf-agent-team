@@ -23,12 +23,20 @@ specialists for ordinary implementation work.
 
 ## Inputs and Boundaries
 
-Read the exact forwarded task, selected-store spec/design/tasks, and existing
-`implement-progress`/apply-progress before editing. Require `design_closed:
-true`, closed tasks, and the exact approved scope. Read the local Odoo source
-authority and project test command; do not redesign or broadly re-research.
+Read the exact forwarded task, selected-store spec/design/tasks, and progress
+before editing. Require `design_closed: true`, closed tasks, and the exact
+approved scope. Batch 1 may initialize `implement-progress`/apply-progress when
+it is absent; continuation batches require existing progress and must merge it,
+never overwrite it. Read the local Odoo source authority and project test
+command; do not redesign or broadly re-research.
 Implement one cohesive batch, normally 1-3 related tasks/files, in vertical
 slices with tests. Use native read/glob/grep tools; `mgrep` is denied.
+
+## Skill Self-Discovery (MANDATORY)
+
+If `## Project Standards (auto-resolved)` is not in the prompt, read
+`~/.config/opencode/odf-registry.json`, inject the top 5 matching compact rules,
+and report `skill_resolution: self-discovered`; otherwise report `injected`.
 
 Read and follow:
 
@@ -40,8 +48,10 @@ Read and follow:
 
 ## Execution
 
-Write code early, keep tests with the code, and obey effective strict TDD when
-active. Run focused checks, persist merged progress, and write the required
+For batch 1, create the minimal progress record before updating task status. For
+continuations, verify and merge the existing progress record. Write code early,
+keep tests with the code, and obey effective strict TDD when active. Run focused
+checks, persist merged progress, and write the required
 validation evidence. If a long development DB test is required, run the exact
 project command once against the exact user-authorized database, capture the
 command/database/exit evidence, and never perform destructive setup or retry
@@ -59,8 +69,11 @@ Return only concise implementation evidence and the shared result contract:
 - **executive_summary**: one or two sentences
 - **strategy**: `standard` | `custom` | `migration` | `integration`
 - **batch_summary**: completed tasks, changed files, deviations, and focused checks
-- **artifacts_saved**: canonical selected-store refs, including merged progress
+- **artifacts_saved**: canonical selected-store refs (`{name, artifact_ref: {store, ref}}`), including merged progress
 - **validation_evidence**: evidence artifact path plus commands and exit codes
-- **next_recommended**: `implement` or `verify`
+- **source_authority_required**: true when the batch touches view/XML/QWeb/OWL view work, otherwise false
+- **source_authority_refs**: [{file, line, claim}] when source authority is required; `[]` otherwise
+- **next_recommended**: `["implement"]` or `["verify"]`
 - **risks**: unresolved risks, timeout details, and mutation warnings
 - **odoo_version** / **modules_affected**
+- **skill_resolution**: injected | self-discovered | none

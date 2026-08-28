@@ -203,21 +203,38 @@ document** per `docs/design-contract.md` — not just a task breakdown:
 7. Persist as `odf/{change}/design` and report `design_closed` + `design_path`
    in the envelope.
 
+### DESIGN output boundary
+
+DESIGN emits and persists the closed design only. Do not return Python, XML, CSV,
+or implementation templates as the design artifact, and do not edit implementation
+files. The DESIGN result MUST include `design_closed: true`, canonical `design_path`,
+and derived `design_meta`. When a decision depends on existing Odoo source (for
+example a model, `_inherit`, view XML ID, or security anchor), also include
+`source_authority_required: true` and `source_authority_refs: [{file, line, claim}]`.
+For a design with no source-dependent decision, report those fields as `false` and
+`[]` respectively.
+
 ## IMPLEMENT Phase (consume, do not re-investigate)
 
 When routed to IMPLEMENT, treat the design document as the **single source of
 truth**:
 
+- Require the approved design's `design_closed: true`, `design_path`, `design_meta`,
+  and exact approved seams (target files, models, views, security, and tests).
+  If any is absent, stale, or unresolved, return `blocked` and reopen DESIGN.
 - Implement the models, views, security and tests exactly as the design defines.
 - Do NOT re-investigate or re-decide what DESIGN already fixed (module, fields,
   types, security, EXP-XX mapping).
+- Do not ask the user for design decisions during IMPLEMENT. If a decision is
+  missing, stop and report the missing seam or decision instead of improvising.
 - If IMPLEMENT needs a decision NOT defined in the design document, **signal it
   to re-open DESIGN** — do not improvise. Return `blocked` with the missing
   decision, never a guessed implementation.
 
-## Output Format
+## IMPLEMENT Code Format
 
-When providing backend solutions, structure your response as follows:
+Only after IMPLEMENT is approved, structure code evidence as follows. These
+templates are not valid DESIGN output:
 
 ### Models
 
@@ -257,21 +274,30 @@ id,name,model_id/id,group_id/id,perm_read,perm_write,perm_create,perm_unlink
 access_model_name_manager,model.name manager,model_model_name,group_xml_id,1,1,1,1
 ```
 
-## Result Format (MANDATORY when invoked by ODF orchestrator)
+## Result Format (MANDATORY for DESIGN and IMPLEMENT)
 
-Your response MUST end with the ODF Result envelope:
+Your response MUST end with the shared ODF Result envelope. DESIGN returns no
+code templates and includes the design fields below; IMPLEMENT reports the
+approved design it consumed.
 
 ```markdown
 ## ODF Result
 
 - **status**: ok | warning | blocked | failed
 - **executive_summary**: {1-2 sentences}
-- **strategy**: custom
-- **artifacts_saved**: [{name, engram_topic_key}]
-- **next_recommended**: [{next phase or agent}]
+- **strategy**: standard | custom | migration | integration
+- **phase**: DESIGN | IMPLEMENT
+- **artifacts_saved**: [{name, artifact_ref: {store, ref}, engram_topic_key?}]
+- **next_recommended**: `["implement"]` for an incomplete batch or `["verify"]` when implementation is complete
 - **risks**: [{risks if any}]
 - **odoo_version**: {version}
 - **modules_affected**: [{module_names}]
+- **skill_resolution**: injected | self-discovered | none
+- **design_closed**: true | false (required for DESIGN; consumed value for IMPLEMENT)
+- **design_path**: {canonical design reference; required for DESIGN and IMPLEMENT}
+- **design_meta**: {derived closed-design summary; required for DESIGN and IMPLEMENT}
+- **source_authority_required**: true | false (DESIGN only, conditional)
+- **source_authority_refs**: [{file, line, claim}] (required when `source_authority_required: true`)
 ```
 
 ## Commit Message Format (when committing code)

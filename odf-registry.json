@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "last_updated": "2026-08-26T00:00:00Z",
+  "last_updated": "2026-08-27T00:00:00Z",
   "package": {
     "name": "odf-agent-team",
     "version": "1.2.1",
@@ -804,45 +804,6 @@
       "last_updated": "2026-05-14"
     },
     {
-      "name": "odoo-stock-lot-specialist",
-      "title": "Odoo Stock Lot/Serial Specialist",
-      "category": "business/inventory",
-      "triggers": [
-        "stock",
-        "lot",
-        "serial",
-        "tracking",
-        "traceability",
-        "fefo",
-        "expiration",
-        "picking",
-        "inventory"
-      ],
-      "compact_rules": "\\n- Require target Odoo version, local source verification, and approved EXP-XX before imposing inventory rules\\n- Do not impose lot/serial, expiration, uniqueness, or reservation behavior universally\\n- Require approved EXP-XX and a regression test for reservation or validation changes\\n- Mark version-specific models, fields, strategies, and Command usage as verify-local until proven\\n- Use `stock.quant` for lot/location availability checks\\n- Handle `stock.move.line` correctly for lot/serial assignments\\n- Follow OCA style: `_()` for user-facing strings, proper field naming\\n- NEVER modify core Odoo files — only custom modules\\n",
-      "path": "skills/odoo-stock-lot-specialist/SKILL.md",
-      "odoo_versions": [
-        16,
-        17,
-        18,
-        19
-      ],
-      "sdd_phase": "DESIGN",
-      "version": "1.2",
-      "changelog": [
-        {
-          "version": "1.0",
-          "date": "2026-04-01",
-          "change": "Initial version"
-        },
-        {
-          "version": "1.2",
-          "date": "2026-08-19",
-          "change": "Require approved expectations and target-version verification"
-        }
-      ],
-      "last_updated": "2026-05-14"
-    },
-    {
       "name": "odf-fix",
       "title": "ODF Bugfix Flow",
       "category": "odf",
@@ -1331,7 +1292,8 @@
       "mode": "subagent",
       "description": "Standard vs custom assessment, functional analysis",
       "phases": [
-        "ASSESS"
+        "ASSESS",
+        "EXPLORE"
       ],
       "model": null,
       "path": "agent/odoo_functional_consultant.md",
@@ -1343,7 +1305,8 @@
       "description": "Python ORM models, declarative XML/data, security, tests, OCA compliance",
       "phases": [
         "DESIGN",
-        "IMPLEMENT"
+        "IMPLEMENT",
+        "FIX"
       ],
       "model": null,
       "path": "agent/odoo_backend_engineer.md",
@@ -1374,7 +1337,8 @@
       "description": "Odoo frontend, OWL/QWeb, assets, JS/TS, SCSS, and client interaction",
       "phases": [
         "DESIGN",
-        "IMPLEMENT"
+        "IMPLEMENT",
+        "FIX"
       ],
       "model": null,
       "path": "agent/odoo_frontend_engineer.md",
@@ -1398,7 +1362,8 @@
       "description": "HTTP controllers, webhooks, external APIs",
       "phases": [
         "DESIGN",
-        "IMPLEMENT"
+        "IMPLEMENT",
+        "FIX"
       ],
       "model": null,
       "path": "agent/odoo_api_integrator.md",
@@ -1410,7 +1375,8 @@
       "description": "PostgreSQL, Docker, Nginx, performance",
       "phases": [
         "DESIGN",
-        "IMPLEMENT"
+        "IMPLEMENT",
+        "FIX"
       ],
       "model": null,
       "path": "agent/odoo_dba_devops.md",
@@ -1423,7 +1389,8 @@
       "phases": [
         "ASSESS",
         "DESIGN",
-        "IMPLEMENT"
+        "IMPLEMENT",
+        "FIX"
       ],
       "model": null,
       "path": "agent/odoo_upgrade_migrator.md",
@@ -1438,41 +1405,6 @@
       ],
       "model": null,
       "path": "agent/odoo_code_reviewer.md",
-      "installed": true
-    },
-    {
-      "name": "odoo_context_gatherer",
-      "mode": "subagent",
-      "description": "Auxiliary Odoo pattern and version context gathering utility",
-      "phases": [
-        "ASSESS"
-      ],
-      "model": null,
-      "path": "agent/odoo_context_gatherer.md",
-      "installed": true
-    },
-    {
-      "name": "odoo_skill_finder",
-      "mode": "subagent",
-      "description": "Auxiliary pattern and skill lookup fallback utility",
-      "phases": [
-        "DESIGN",
-        "IMPLEMENT"
-      ],
-      "model": null,
-      "path": "agent/odoo_skill_finder.md",
-      "installed": true
-    },
-    {
-      "name": "odoo_stock_lot_specialist",
-      "mode": "subagent",
-      "description": "Odoo Stock Lot/Serial Specialist — Lot tracking, traceability, FEFO, expiration management",
-      "phases": [
-        "DESIGN",
-        "IMPLEMENT"
-      ],
-      "model": null,
-      "path": "agent/odoo_stock_lot_specialist.md",
       "installed": true
     }
   ],
