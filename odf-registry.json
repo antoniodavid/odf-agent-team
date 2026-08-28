@@ -1389,8 +1389,7 @@
       "phases": [
         "ASSESS",
         "DESIGN",
-        "IMPLEMENT",
-        "FIX"
+        "IMPLEMENT"
       ],
       "model": null,
       "path": "agent/odoo_upgrade_migrator.md",
@@ -1405,7 +1404,10 @@
       ],
       "model": null,
       "path": "agent/odoo_code_reviewer.md",
-      "installed": true
+      "installed": true,
+      "routing_triggers": [
+        "code review"
+      ]
     }
   ],
   "community_tools": [

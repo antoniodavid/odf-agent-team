@@ -105,7 +105,7 @@ replace a default when their phase and triggers match.
 | DESIGN, IMPLEMENT frontend | `odoo_frontend_engineer` |
 | DESIGN, IMPLEMENT integrations | `odoo_api_integrator` |
 | Any database/operations work | `odoo_dba_devops` |
-| Any migration work | `odoo_upgrade_migrator` |
+| ASSESS/DESIGN/IMPLEMENT migration | `odoo_upgrade_migrator` |
 | VERIFY code review | `odoo_code_reviewer` |
 | DESIGN, IMPLEMENT skill resolution | Native plugin tools: `odf_skill_inject` / `odf_skill_resolve` |
 

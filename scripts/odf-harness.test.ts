@@ -8,7 +8,7 @@ import { classifyEntryTriage } from "../odf-plugin/entry-triage.js"
 import { advanceWorkflow, resolveWorkflowRoute } from "../odf-plugin/odf-workflow.js"
 import { deriveWorkflowStatus } from "../odf-plugin/odf-workflow-status.js"
 import { validateExpectations } from "../odf-plugin/odf-expectations.js"
-import { resolveAgent } from "./lib/agent-resolve.js"
+import { filterStopWords, MAX_ROUTING_KEYWORD_LENGTH, MAX_ROUTING_KEYWORDS, resolveAgent, validateAgentSelection } from "./lib/agent-resolve.js"
 import { buildConfig } from "./odf-project-scan.js"
 import { inspectToolArgs } from "./odf-safety.js"
 
@@ -94,10 +94,35 @@ describe("harness smoke: core determinism", () => {
     expect(resolveAgent(registry, "DESIGN", ["frontend", "OWL", "assets"])).toBe("odoo_frontend_engineer")
     expect(resolveAgent(registry, "IMPLEMENT", ["bounded", "batch", "T8", "T9", "T10", "validation"])).toBe("odoo_batch_implementer")
     expect(resolveAgent(registry, "VERIFY", ["review", "coverage"])).toBe("odoo_qa_engineer")
+    expect(resolveAgent(registry, "VERIFY", ["code", "review"])).toBe("odoo_code_reviewer")
     expect(resolveAgent(registry, "EXPLORE", ["taxes", "patterns"])).toBe("odoo_functional_consultant")
     expect(resolveAgent(registry, "FIX", ["Python", "model", "constraint"])).toBe("odoo_backend_engineer")
     expect(resolveAgent(registry, "FIX", ["fix", "bug"])).toBeNull()
     expect(resolveAgent(registry, "DESIGN", [])).toBe("odoo_backend_engineer")
+
+    const migrator = registry.agents.find((agent: any) => agent.name === "odoo_upgrade_migrator")
+    expect(migrator.phases).toEqual(["ASSESS", "DESIGN", "IMPLEMENT"])
+    expect(validateAgentSelection(registry, "FIX", "odoo_upgrade_migrator")).toMatchObject({
+      valid: false,
+      reason: "agent-phase-ineligible",
+    })
+
+    const lateFrontendKeywords = Array.from({ length: MAX_ROUTING_KEYWORDS }, () => "noise")
+    lateFrontendKeywords.push("frontend", "OWL")
+    expect(resolveAgent(registry, "DESIGN", lateFrontendKeywords)).toBe("odoo_backend_engineer")
+    expect(resolveAgent(registry, "DESIGN", [`${"x".repeat(MAX_ROUTING_KEYWORD_LENGTH)}frontend`])).toBe("odoo_backend_engineer")
+    expect(resolveAgent(registry, "DESIGN", [null, 7, {}, "frontend", "OWL"])).toBe("odoo_frontend_engineer")
+    expect(resolveAgent(registry, "DESIGN", null)).toBe("odoo_backend_engineer")
+    const longKeyword = `frontend${"x".repeat(MAX_ROUTING_KEYWORD_LENGTH)}`
+    expect(filterStopWords([longKeyword])).toEqual([longKeyword.slice(0, MAX_ROUTING_KEYWORD_LENGTH)])
+    expect(resolveAgent({
+      agents: [
+        null,
+        { name: "malformed", installed: true, phases: { includes: true }, description: "frontend" },
+        { name: "", installed: true, phases: ["DESIGN"], description: "frontend" },
+        { name: "odoo_backend_engineer", installed: true, phases: ["DESIGN"], description: "Python models" },
+      ],
+    } as any, "DESIGN", ["frontend"])).toBe("odoo_backend_engineer")
   })
 })
 
@@ -126,6 +151,8 @@ describe("harness smoke: CLI subcommands end-to-end", () => {
     const out = JSON.parse(runCli(TOOLKIT, ["resolve", "--phase", "DESIGN", "--task", "Design the OWL frontend component"]))
     expect(out.status).toBe("ok")
     expect(typeof out.agent).toBe("string")
+    const review = JSON.parse(runCli(TOOLKIT, ["resolve", "--phase", "VERIFY", "--task", "Please perform an explicit code review"]))
+    expect(review.agent).toBe("odoo_code_reviewer")
   })
 
   it("evidence: packs git head, branch, and diff check on a real repo", async () => {

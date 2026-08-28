@@ -1,5 +1,7 @@
 export const STOP_WORDS: Set<string>
-export function filterStopWords(keywords: string[]): string[]
+export const MAX_ROUTING_KEYWORDS: number
+export const MAX_ROUTING_KEYWORD_LENGTH: number
+export function filterStopWords(keywords: unknown): string[]
 export const DEFAULT_AGENTS: Record<string, string>
 interface ResolvedAgent {
   name: string
@@ -19,5 +21,5 @@ export function validateAgentSelection(
 export function resolveAgent(
   registry: { agents?: ResolvedAgent[] },
   phase: string,
-  taskKeywords: string[],
+  taskKeywords: unknown,
 ): string | null

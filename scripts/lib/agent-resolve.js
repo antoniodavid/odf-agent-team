@@ -49,13 +49,19 @@ export const STOP_WORDS = new Set([
   "cuyas", "cual", "cuales", "cuanto", "cuanta", "cuantos", "cuantas",
 ])
 
+export const MAX_ROUTING_KEYWORDS = 100
+export const MAX_ROUTING_KEYWORD_LENGTH = 100
+
 export function filterStopWords(keywords) {
-  return keywords.filter(kw => {
-    const lower = kw.toLowerCase().trim()
-    if (!lower || lower.length < 3) return false
-    if (STOP_WORDS.has(lower)) return false
-    if (/^\d+$/.test(lower)) return false
-    return true
+  const boundedKeywords = Array.isArray(keywords) ? keywords.slice(0, MAX_ROUTING_KEYWORDS) : []
+  return boundedKeywords.flatMap(keyword => {
+    if (typeof keyword !== "string") return []
+    const boundedKeyword = keyword.slice(0, MAX_ROUTING_KEYWORD_LENGTH)
+    const lower = boundedKeyword.toLowerCase().trim()
+    if (!lower || lower.length < 3) return []
+    if (STOP_WORDS.has(lower)) return []
+    if (/^\d+$/.test(lower)) return []
+    return [boundedKeyword]
   })
 }
 
@@ -70,12 +76,12 @@ export const DEFAULT_AGENTS = {
   FIX: "odoo_backend_engineer",
 }
 
-const FIXED_PHASES = new Set(["PROPOSE", "ASSESS", "QA-PLAN", "VERIFY", "EXPLORE"])
-const DOMAIN_PHASES = new Set(["DESIGN", "IMPLEMENT", "FIX"])
+const FIXED_PHASES = new Set(["PROPOSE", "ASSESS", "QA-PLAN", "EXPLORE"])
+const ROUTABLE_PHASES = new Set(["DESIGN", "IMPLEMENT", "VERIFY", "FIX"])
 
 function phaseEligible(agent, phase) {
-  return agent?.installed === true && (
-    agent.phases?.includes(phase) || agent.phases?.includes("ANY")
+  return agent?.installed === true && Array.isArray(agent.phases) && (
+    agent.phases.includes(phase) || agent.phases.includes("ANY")
   )
 }
 
@@ -103,7 +109,7 @@ export function resolveAgent(registry, phase, taskKeywords) {
 
   const filteredKeywords = filterStopWords(Array.isArray(taskKeywords) ? taskKeywords : [])
   if (filteredKeywords.length === 0) {
-    return DOMAIN_PHASES.has(phase) && phase !== "FIX"
+    return ROUTABLE_PHASES.has(phase) && phase !== "FIX"
       ? (defaultSelection.valid ? defaultSelection.agent.name : null)
       : null
   }
@@ -112,18 +118,23 @@ export function resolveAgent(registry, phase, taskKeywords) {
   const keywordText = filteredKeywords.join(" ").toLowerCase()
   for (const agent of (Array.isArray(registry?.agents) ? registry.agents : [])) {
     if (!phaseEligible(agent, phase)) continue
-    const routingTriggers = Array.isArray(agent.routing_triggers) ? agent.routing_triggers : []
+    const agentName = typeof agent.name === "string" ? agent.name.trim() : ""
+    if (!agentName) continue
+    const routingTriggers = Array.isArray(agent.routing_triggers)
+      ? agent.routing_triggers.filter(trigger => typeof trigger === "string" && trigger.trim())
+      : []
     if (
       routingTriggers.length > 0 &&
-      !routingTriggers.some(trigger => keywordText.includes(String(trigger).toLowerCase()))
+      !routingTriggers.some(trigger => keywordText.includes(trigger.toLowerCase()))
     ) continue
 
-    const descLower = `${String(agent.name || "")} ${String(agent.description || "")}`.toLowerCase()
+    const description = typeof agent.description === "string" ? agent.description : ""
+    const descLower = `${agentName} ${description}`.toLowerCase()
     let score = 0
     for (const kw of filteredKeywords) {
       if (descLower.includes(kw.toLowerCase())) score++
     }
-    if (score > 0 && (!best || score > best.score)) best = { name: agent.name, score }
+    if (score > 0 && (!best || score > best.score)) best = { name: agentName, score }
   }
   if (best) return best.name
   return phase === "FIX" ? null : (defaultSelection.valid ? defaultSelection.agent.name : null)
