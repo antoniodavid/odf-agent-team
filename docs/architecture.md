@@ -10,12 +10,21 @@ ODF runs the thin-spine workflow:
 preflight → DECIDE → optional PLAN → BUILD → VERIFY → archived
 ```
 
-Legacy phases remain as compatible adapters:
+Legacy phases remain as compatible adapters. This is the single vocabulary table:
 
-- `DECIDE` = `PROPOSE` + `ASSESS`
-- `PLAN` = `QA-PLAN` + `DESIGN` (optional per routing)
-- `BUILD` = `IMPLEMENT`
-- `VERIFY` stays independent
+| Canonical stage | Legacy phases | Applies when | Phase artifacts |
+|-----------------|---------------|--------------|-----------------|
+| `DECIDE` | `PROPOSE` + `ASSESS` | always (non-micro) | `proposal`, `assess`, `expectations` |
+| `PLAN` | `QA-PLAN` + `DESIGN` | optional per routing | `qa-plan`, `design` |
+| `BUILD` | `IMPLEMENT` | the plan is closed | `implement-progress` |
+| `VERIFY` | `VERIFY` | verification is required | `verify-report` |
+| `FIX` | `FIX` | bugfix route (terminal FIX, then BUILD/VERIFY) | `fix` |
+| `EXPLORE` | `EXPLORE` | investigation | `explore` |
+
+Rules: `state.yaml` (or `odf/{change}/state`) persists the canonical stage; legacy
+names are adapter-facing (commands, prompts, agent names) and are normalized by
+`odf_workflow_status`. A legacy name in a result or prompt is an alias, never a
+separate stage — when both appear, the canonical stage wins.
 
 `QA-PLAN`/`QA-REVIEW`/`QA-AGGREGATE`/`QA-REPORT` are QA lenses nested inside
 `PLAN`, `BUILD`, and `VERIFY` — not mandatory top-level stages. The concrete

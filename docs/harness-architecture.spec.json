@@ -1,0 +1,479 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "ODF Agent Team — Harness Architecture",
+    "locale": "en",
+    "quality_profile": "showcase",
+    "repository": {
+      "url": "https://github.com/antoniodavid/odf-agent-team",
+      "provider": "github",
+      "link_mode": "web",
+      "revision": "c91ea57fcd30d33e873a753af4405eb92564ad4d"
+    },
+    "views": [
+      {
+        "id": "delegation",
+        "label": "Delegation path",
+        "focus": [
+          "operator",
+          "opencode",
+          "orchestrator",
+          "plugin",
+          "fleet",
+          "odoo"
+        ],
+        "note": "From the operator's prompt to a specialist agent editing the Odoo worktree."
+      },
+      {
+        "id": "context",
+        "label": "Context & routing",
+        "focus": [
+          "plugin",
+          "registry",
+          "skills",
+          "workflow"
+        ],
+        "note": "How the plugin picks an agent, injects up to five skill rules, and tracks workflow state."
+      },
+      {
+        "id": "evidence",
+        "label": "Workflow & evidence",
+        "focus": [
+          "orchestrator",
+          "workflow",
+          "store",
+          "fleet"
+        ],
+        "note": "Gates, receipts, and where artifacts live between phases."
+      },
+      {
+        "id": "external",
+        "label": "External touchpoints",
+        "focus": [
+          "cloud",
+          "engram",
+          "odoo"
+        ],
+        "note": "What crosses the workstation boundary: docs, memory, and the target project."
+      }
+    ]
+  },
+  "components": [
+    {
+      "id": "operator",
+      "type": "external",
+      "label": "Operator",
+      "sublabel": "human supervisor",
+      "pos": [
+        40,
+        340
+      ],
+      "size": [
+        110,
+        60
+      ]
+    },
+    {
+      "id": "opencode",
+      "type": "frontend",
+      "label": "OpenCode Runtime",
+      "sublabel": "plugins · agents · MCP",
+      "pos": [
+        200,
+        340
+      ],
+      "size": [
+        140,
+        60
+      ]
+    },
+    {
+      "id": "orchestrator",
+      "type": "backend",
+      "label": "odoo_orchestrator",
+      "sublabel": "routes · gates · no code",
+      "pos": [
+        390,
+        340
+      ],
+      "size": [
+        160,
+        60
+      ],
+      "sources": [
+        {
+          "path": "agent/odoo_orchestrator.md",
+          "label": "agent contract"
+        }
+      ]
+    },
+    {
+      "id": "plugin",
+      "type": "backend",
+      "label": "odf-delegation plugin",
+      "sublabel": "routing · injection · safety",
+      "pos": [
+        600,
+        340
+      ],
+      "size": [
+        180,
+        60
+      ],
+      "tag": "TypeScript",
+      "sources": [
+        {
+          "path": "plugins/odf-delegation.ts",
+          "label": "plugin + 19 tools"
+        }
+      ]
+    },
+    {
+      "id": "fleet",
+      "type": "backend",
+      "label": "Sub-agent Fleet",
+      "sublabel": "10 Odoo specialists",
+      "pos": [
+        820,
+        340
+      ],
+      "size": [
+        150,
+        60
+      ],
+      "sources": [
+        {
+          "path": "agent/odoo_qa_engineer.md",
+          "label": "agent set"
+        }
+      ]
+    },
+    {
+      "id": "odoo",
+      "type": "external",
+      "label": "Odoo Worktree",
+      "sublabel": "Doodba O19 · Docker",
+      "pos": [
+        1030,
+        340
+      ],
+      "size": [
+        150,
+        60
+      ],
+      "tag": "code + tests"
+    },
+    {
+      "id": "skills",
+      "type": "backend",
+      "label": "Skill Library",
+      "sublabel": "32 skills · OCA + ODF",
+      "pos": [
+        820,
+        188
+      ],
+      "size": [
+        150,
+        56
+      ],
+      "tag": "max 5 per delegation",
+      "sources": [
+        {
+          "path": "skills/odf-verify/SKILL.md",
+          "label": "skill pack"
+        }
+      ]
+    },
+    {
+      "id": "cloud",
+      "type": "cloud",
+      "label": "External Services",
+      "sublabel": "Context7 · GitHub",
+      "pos": [
+        1030,
+        188
+      ],
+      "size": [
+        150,
+        56
+      ],
+      "sources": [
+        {
+          "path": "install.sh",
+          "label": "pack distribution"
+        }
+      ]
+    },
+    {
+      "id": "engram",
+      "type": "external",
+      "label": "Engram Memory",
+      "sublabel": "MCP · cross-session",
+      "pos": [
+        820,
+        478
+      ],
+      "size": [
+        150,
+        56
+      ],
+      "tag": "odf/ topics",
+      "sources": [
+        {
+          "path": "scripts/odf-engram-maintenance.js",
+          "label": "memory upkeep"
+        }
+      ]
+    },
+    {
+      "id": "workflow",
+      "type": "backend",
+      "label": "Workflow & Gates",
+      "sublabel": "DECIDE → PLAN → BUILD → VERIFY",
+      "pos": [
+        390,
+        478
+      ],
+      "size": [
+        160,
+        56
+      ],
+      "tag": "policy gate · receipts · attempts",
+      "sources": [
+        {
+          "path": "odf-plugin/odf-workflow.ts",
+          "label": "state machine"
+        }
+      ]
+    },
+    {
+      "id": "registry",
+      "type": "database",
+      "label": "odf-registry.json",
+      "sublabel": "skills · agents · profiles",
+      "pos": [
+        600,
+        478
+      ],
+      "size": [
+        150,
+        56
+      ],
+      "tag": "single source of truth",
+      "sources": [
+        {
+          "path": "odf-registry.json",
+          "label": "registry"
+        }
+      ]
+    },
+    {
+      "id": "store",
+      "type": "database",
+      "label": "Change Artifacts",
+      "sublabel": "OpenSpec · .odf state",
+      "pos": [
+        1030,
+        478
+      ],
+      "size": [
+        150,
+        56
+      ],
+      "sources": [
+        {
+          "path": "docs/design-contract.md",
+          "label": "artifact contracts"
+        }
+      ]
+    }
+  ],
+  "boundaries": [
+    {
+      "kind": "region",
+      "label": "OpenCode workstation · ~/.config/opencode",
+      "wraps": [
+        "opencode",
+        "orchestrator",
+        "plugin",
+        "fleet",
+        "skills",
+        "engram",
+        "workflow",
+        "registry"
+      ],
+      "pad": 18
+    },
+    {
+      "kind": "region",
+      "label": "Odoo worktree · project + change state",
+      "wraps": [
+        "odoo",
+        "store"
+      ],
+      "pad": 18
+    }
+  ],
+  "connections": [
+    {
+      "id": "operator-opencode",
+      "from": "operator",
+      "to": "opencode",
+      "label": "chat · /odf-*",
+      "variant": "emphasis",
+      "labelAt": [
+        175,
+        414
+      ]
+    },
+    {
+      "id": "opencode-orchestrator",
+      "from": "opencode",
+      "to": "orchestrator",
+      "label": "loads agent",
+      "labelAt": [
+        365,
+        414
+      ]
+    },
+    {
+      "id": "orchestrator-plugin",
+      "from": "orchestrator",
+      "to": "plugin",
+      "label": "odf_* tools",
+      "variant": "emphasis",
+      "labelAt": [
+        575,
+        414
+      ]
+    },
+    {
+      "id": "plugin-fleet",
+      "from": "plugin",
+      "to": "fleet",
+      "label": "odf_delegate → task()",
+      "variant": "emphasis",
+      "labelAt": [
+        795,
+        414
+      ]
+    },
+    {
+      "id": "fleet-odoo",
+      "from": "fleet",
+      "to": "odoo",
+      "label": "edits · runs tests",
+      "labelAt": [
+        1000,
+        414
+      ]
+    },
+    {
+      "id": "plugin-skills",
+      "from": "plugin",
+      "to": "skills",
+      "label": "injects ≤5",
+      "fromSide": "top",
+      "toSide": "bottom"
+    },
+    {
+      "id": "orchestrator-workflow",
+      "from": "orchestrator",
+      "to": "workflow",
+      "label": "gates · phases",
+      "fromSide": "bottom",
+      "toSide": "top",
+      "labelAt": [
+        470,
+        414
+      ]
+    },
+    {
+      "id": "plugin-registry",
+      "from": "plugin",
+      "to": "registry",
+      "label": "reads · caches",
+      "fromSide": "bottom",
+      "toSide": "top"
+    },
+    {
+      "id": "fleet-engram",
+      "from": "fleet",
+      "to": "engram",
+      "label": "mem_save · mem_search",
+      "fromSide": "bottom",
+      "toSide": "top",
+      "labelAt": [
+        818,
+        462
+      ]
+    },
+    {
+      "id": "fleet-store",
+      "from": "fleet",
+      "to": "store",
+      "label": "phase artifacts",
+      "variant": "dashed",
+      "fromSide": "bottom",
+      "toSide": "top"
+    },
+    {
+      "id": "workflow-store",
+      "from": "workflow",
+      "to": "store",
+      "label": "state · receipts",
+      "variant": "dashed",
+      "fromSide": "bottom",
+      "toSide": "bottom",
+      "via": [
+        [
+          470,
+          564
+        ],
+        [
+          1105,
+          564
+        ]
+      ]
+    },
+    {
+      "id": "fleet-cloud",
+      "from": "fleet",
+      "to": "cloud",
+      "label": "Odoo docs",
+      "variant": "dashed",
+      "fromSide": "top",
+      "toSide": "bottom"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "Orchestration",
+      "items": [
+        "odoo_orchestrator never writes code — it routes every phase through odf_delegate",
+        "The plugin resolves the agent and injects at most five skill rules per delegation",
+        "FIX and small-change run in supervised auto with one bounded retry"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "Workflow & evidence",
+      "items": [
+        "Canonical DECIDE → PLAN → BUILD → VERIFY with legacy phase adapters",
+        "Policy Gate, attempt ledger, and receipts are mandatory and run silently",
+        "Assessment, design, and verify reports gate progression"
+      ]
+    },
+    {
+      "dot": "violet",
+      "title": "Memory & context",
+      "items": [
+        "odf-registry.json is the pack's single source of truth",
+        "OpenSpec artifacts live in the worktree; Engram carries cross-session memory",
+        "Pre-tool safety and DB guardrails run on every delegation"
+      ]
+    }
+  ]
+}
