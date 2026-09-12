@@ -4,75 +4,75 @@ triggers: ["/odf-explore"]
 agent: odoo_orchestrator
 ---
 
-# /odf-explore — Explorar Odoo
+# /odf-explore — Explore Odoo
 
-Investigación profunda del código o funcionalidad de Odoo. **NO es parte del flujo formal ODF**; sirve para decidir si se necesita un cambio.
+Deep investigation of Odoo code or functionality. **It is NOT part of the formal ODF flow**; it serves to decide whether a change is needed.
 
-## Uso
+## Usage
 
 ```
 /odf-explore <topic> [--version {16|17|18|19}] [--module <name>]
 ```
 
-## Parámetros
+## Parameters
 
-| Parámetro | Requerido | Tipo | Descripción |
-|-----------|-----------|------|-------------|
-| `topic` | Sí | string | Tema a investigar. Puede ir entre comillas si tiene espacios |
-| `--version` | No | number | Versión de Odoo. Default: versión del proyecto o preflight |
-| `--module` | No | string | Módulo sobre el que enfocar la búsqueda |
+| Parameter | Required | Type | Description |
+|-----------|----------|------|-------------|
+| `topic` | Yes | string | Topic to investigate. It can be quoted if it has spaces |
+| `--version` | No | number | Odoo version. Default: project version or preflight |
+| `--module` | No | string | Module to focus the search on |
 
-## Ejemplos
+## Examples
 
 - `/odf-explore "inventory valuation methods"`
 - `/odf-explore "tax calculation" --version 18`
 - `/odf-explore "how discounts work" --module sale`
 
-## Instrucciones para el orquestador
+## Orchestrator Instructions
 
-1. **Parsear argumentos**: `topic`, `--version`, `--module`.
-2. **Cargar configuración del proyecto** para obtener la versión por defecto.
-3. **Seleccionar agente** por dominio del tema:
-   - Conceptos backend → `odoo_backend_engineer`
-   - Conceptos frontend → `odoo_frontend_engineer`
-   - Preguntas funcionales → `odoo_functional_consultant`
-   - Integración/API → `odoo_api_integrator`
-   - Dominio no claro → `odoo_functional_consultant`
-4. **Delegar exploración** vía `odf_delegate(phase=EXPLORE, prompt, context_files)`.
-5. **Mostrar reporte** en español con:
-   - Resumen de hallazgos
-   - Módulos relevantes
-   - Cobertura estándar: Sí / No / Parcial
-   - Recomendación de siguiente paso
-6. Si hay un gap, sugerir `/odf-new <nombre-sugerido>`.
+1. **Parse arguments**: `topic`, `--version`, `--module`.
+2. **Load project configuration** to get the default version.
+3. **Select the agent** by topic domain:
+   - Backend concepts → `odoo_backend_engineer`
+   - Frontend concepts → `odoo_frontend_engineer`
+   - Functional questions → `odoo_functional_consultant`
+   - Integration/API → `odoo_api_integrator`
+   - Unclear domain → `odoo_functional_consultant`
+4. **Delegate the exploration** via `odf_delegate(phase=EXPLORE, prompt, context_files)`.
+5. **Show the report** in English with:
+   - Summary of findings
+   - Relevant modules
+   - Standard coverage: Yes / No / Partial
+   - Recommended next step
+6. If there is a gap, suggest `/odf-new <suggested-name>`.
 
-## Contrato de enrutamiento
+## Routing Contract
 
-- Entrada: comando `/odf-explore` con argumentos parseados.
-- Salida: prompt conversacional con:
+- Input: `/odf-explore` command with parsed arguments.
+- Output: conversational prompt with:
   - `command: odf-explore`
   - `topic: <topic>`
   - `version: <version>`
   - `module: <module|null>`
 
-## Manejo de errores
+## Error Handling
 
-- **Falta `topic`**: mostrar uso.
-- **Versión desconocida**: preguntar o usar la versión del proyecto.
-- **Error de `odf_delegate`**: mostrar mensaje y ofrecer reintentar.
+- **Missing `topic`**: show usage.
+- **Unknown version**: ask or use the project version.
+- **`odf_delegate` error**: show the message and offer to retry.
 
-## Formato de salida
+## Output Format
 
 ```
 ODF Exploration: "{topic}"
 
-Resumen:
+Summary:
 {executive_summary}
 
-Módulos relevantes:
+Relevant modules:
 - {module1}: {purpose}
 
-Cobertura estándar: {Sí/No/Parcial}
+Standard coverage: {Yes/No/Partial}
 
-Recomendación: {next action}
+Recommendation: {next action}
 ```

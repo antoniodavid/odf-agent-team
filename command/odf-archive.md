@@ -110,7 +110,7 @@ or non-terminal, return `workflow-verify-not-terminal` and do not modify state.
 - Duration: {calculated from timestamps}
 
 ## Effort (calibrated)
-- Rounds reales (from IMPLEMENT telemetry): {rounds_real} — N/A if no data
+- Real rounds (from IMPLEMENT telemetry): {rounds_real} — N/A if no data
 - Duration: {duration_ms}ms across {record_count} delegations
 - Bucket: {work_type}/{risk}/{module_type}
 

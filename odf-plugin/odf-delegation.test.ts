@@ -6730,10 +6730,10 @@ describe("stable discovery runtime guard", () => {
     expect(command).toMatch(/1\. \*\*Run `odf_health` first\*\*/)
     expect(command.indexOf("Run `odf_health` first")).toBeLessThan(command.indexOf("`question`"))
     expect(orchestrator).toContain("A missing tool, thrown/malformed result, `failed`, or `blocked` result stops the command immediately")
-    expect(continuation).toContain("`expectations-only` bloquea")
-    expect(continuation).toContain("`legacy-artifacts` conserva `resumable: true`")
-    expect(continuation).toContain("exige `--work-type <type>`")
-    expect(continuation).toContain("nunca crea workflows")
+    expect(continuation).toContain("`expectations-only` blocks")
+    expect(continuation).toContain("`legacy-artifacts` preserves `resumable: true`")
+    expect(continuation).toContain("requires `--work-type <type>`")
+    expect(continuation).toContain("never creates workflows")
   })
 
   it("resets when arguments change", async () => {

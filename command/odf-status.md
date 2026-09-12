@@ -4,39 +4,39 @@ triggers: ["/odf-status"]
 agent: odoo_orchestrator
 ---
 
-# /odf-status — Estado de cambios ODF
+# /odf-status — ODF change status
 
-Muestra todos los cambios ODF activos o el detalle de un cambio específico.
+Shows all active ODF changes or the detail of a specific change.
 
-## Uso
+## Usage
 
 ```
-/odf-status              — Muestra todos los cambios activos
-/odf-status <change-name> — Muestra detalle de un cambio
+/odf-status              — Show all active changes
+/odf-status <change-name> — Show detail for one change
 ```
 
-## Parámetros
+## Parameters
 
-| Parámetro | Requerido | Tipo | Descripción |
-|-----------|-----------|------|-------------|
-| `change-name` | No | string | Nombre del cambio a mostrar en detalle |
+| Parameter | Required | Type | Description |
+|-----------|----------|------|-------------|
+| `change-name` | No | string | Name of the change to show in detail |
 
-## Ejemplos
+## Examples
 
 - `/odf-status`
 - `/odf-status sale-discount-field`
 
-## Instrucciones para el orquestador
+## Orchestrator Instructions
 
-1. **Consultar `odf_workflow_status` en modo read-only**. Para un cambio nombrado, lee primero `openspec/changes/{change}/state.yaml` y sus artefactos; Engram completa grupos ausentes y conserva los conflictos como warnings.
-2. Si no existe un `state.yaml` OpenSpec válido, usar Engram como fallback, mostrar `source.state: engram` y su advertencia, sin presentarlo como autoridad OpenSpec. Sin nombre, conservar la selección Engram existente y consultar OpenSpec solo para ese cambio seleccionado.
-3. Si hay nombre, renderizar **detalle del cambio** usando `renderStatusDetail(change, state)`.
-4. Si no hay nombre, renderizar **tabla resumen** usando `renderStatusTable(states)`.
-5. Incluir el comando sugerido para continuar cada cambio.
+1. **Query `odf_workflow_status` in read-only mode**. For a named change, first read `openspec/changes/{change}/state.yaml` and its artifacts; Engram fills in missing groups and keeps conflicts as warnings.
+2. If no valid OpenSpec `state.yaml` exists, use Engram as a fallback, show `source.state: engram` and its warning, without presenting it as OpenSpec authority. Without a name, keep the existing Engram selection and query OpenSpec only for that selected change.
+3. If a name is given, render the **change detail** using `renderStatusDetail(change, state)`.
+4. If there is no name, render the **summary table** using `renderStatusTable(states)`.
+5. Include the suggested command to continue each change.
 
-## Campos canónicos
+## Canonical Fields
 
-En el detalle, mostrar estos campos además de los legacy (`phase`, `artifacts`, `applyProgress`, `lastUpdated`):
+In the detail, show these fields in addition to the legacy ones (`phase`, `artifacts`, `applyProgress`, `lastUpdated`):
 
 - `canonical_stage`
 - `legacy_phase`
@@ -49,59 +49,59 @@ En el detalle, mostrar estos campos además de los legacy (`phase`, `artifacts`,
 - `source` (`state`, `artifacts`)
 - `warnings`
 
-OpenSpec es la autoridad de estado y de los artefactos canónicos cuando está disponible. El comando no escribe `state.yaml`, artefactos ni receipts.
+OpenSpec is the authority for state and canonical artifacts when available. The command does not write `state.yaml`, artifacts, or receipts.
 
-## Contrato de enrutamiento
+## Routing Contract
 
-- Entrada: comando `/odf-status` con nombre opcional.
-- Salida: estado renderizado en español.
+- Input: `/odf-status` command with optional name.
+- Output: state rendered in English.
 
-## Manejo de errores
+## Error Handling
 
-- **Sin cambios activos**: mostrar mensaje vacío y sugerir `/odf-new`.
-- **Cambio no encontrado**: listar activos.
-- **Fallo al leer estado**: mostrar error y sugerir `/odf-init`.
+- **No active changes**: show an empty message and suggest `/odf-new`.
+- **Change not found**: list active ones.
+- **Failed to read state**: show the error and suggest `/odf-init`.
 
-## Formato de salida (tabla)
+## Output Format (table)
 
 ```
 ODF Status
 
-| Cambio              | Fase     | Siguiente | Versión | Estrategia |
+| Change              | Phase    | Next      | Version | Strategy   |
 |---------------------|----------|-----------|---------|------------|
 | sale-discount-field | ASSESS   | design    | 18      | custom     |
 | pos-custom-receipt  | init     | preflight | 18      | pending    |
 
-Comandos:
-  /odf-continue sale-discount-field  — Continuar implementación
-  /odf-continue pos-custom-receipt   — Continuar a DESIGN
+Commands:
+  /odf-continue sale-discount-field  — Continue implementation
+  /odf-continue pos-custom-receipt   — Continue to DESIGN
 ```
 
-## Formato de salida (detalle)
+## Output Format (detail)
 
 ```
-## Estado ODF: sale-discount-field
+## ODF Status: sale-discount-field
 
-- **Cambio**: sale-discount-field
-- **Versión Odoo**: 18
-- **Estrategia**: custom
-- **Fase actual**: ASSESS
-- **Siguiente fase**: design
-- **Etapa canónica**: DECIDE
-- **Etapa canónica pendiente**: PLAN
-- **Etapas canónicas completadas**: DECIDE
-- **Progreso**: 0/0 (desconocido; source: null)
-- **Refs de artefactos**: DECIDE=[odf/sale-discount-field/assess]
+- **Change**: sale-discount-field
+- **Odoo version**: 18
+- **Strategy**: custom
+- **Current phase**: ASSESS
+- **Next phase**: design
+- **Canonical stage**: DECIDE
+- **Pending canonical stage**: PLAN
+- **Completed canonical stages**: DECIDE
+- **Progress**: 0/0 (unknown; source: null)
+- **Artifact refs**: DECIDE=[odf/sale-discount-field/assess]
 - **Receipt**: none (resumable: true)
-- **Fuente**: engram
+- **Source**: engram
 - **Warnings**: []
 
-**Artefactos**:
+**Artifacts**:
 - [x] assess
 - [ ] qa-plan
 - [ ] design
 - [ ] implement
 - [ ] verify
 
-Continuar: /odf-continue sale-discount-field
+Continue: /odf-continue sale-discount-field
 ```

@@ -37,7 +37,7 @@ Use second-level headings (`##`) for each section.
 ## Language
 
 - Generated technical artifacts default to **English**.
-- User-facing command definitions and prompts in `command/*.md` are in **Spanish** for this project.
+- Command definitions in `command/*.md` are in **English** (migrated from Spanish); runtime conversation with the user still follows the user's language.
 - Skills may be in English or Spanish depending on their audience; prefer English for technical rules.
 
 ## Compact Rules

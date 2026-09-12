@@ -92,7 +92,7 @@ The receipt must also include `candidate_digest`, `executor`, and
 `test_identity` (from the injected Policy Gate decision) or the harness
 rejects it before the workflow can advance.
 
-### Ejecución manual de tests (mejora)
+### Manual test execution (enhancement)
 
 The user MAY run the module test suite themselves instead of the agent. The
 orchestrator then records the user-run evidence deterministically and VERIFY

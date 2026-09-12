@@ -19,7 +19,7 @@ Components available:
 - `all` — Everything ODF-managed
 - `registry` — odf-registry.json + .registry-cache.json
 - `agents` — agent/*.md
-- `skills` — skills/odf-* + skills/oca/01-oca-governance/oca-* (solo prefijos ODF)
+- `skills` — skills/odf-* + skills/oca/01-oca-governance/oca-* (ODF prefixes only)
 - `commands` — command/odf-*.md
 - `plugins` — plugins/odf-delegation.ts
 - `backups` — backups/

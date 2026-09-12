@@ -4,49 +4,49 @@ triggers: ["/odf-new"]
 agent: odoo_orchestrator
 ---
 
-# /odf-new — Iniciar cambio ODF
+# /odf-new — Start ODF change
 
 Starts a new ODF change using the canonical flow `DECIDE -> optional PLAN -> BUILD -> VERIFY`.
 Legacy mapping remains compatible: `DECIDE = PROPOSE + ASSESS`, `PLAN = QA-PLAN + DESIGN`,
 and `BUILD = IMPLEMENT`.
 
-## Uso
+## Usage
 
 ```
 /odf-new <change-name> ["description"] [--fast]
 ```
 
-## Parámetros
+## Parameters
 
-| Parámetro | Requerido | Tipo | Descripción |
-|-----------|-----------|------|-------------|
-| `change-name` | Sí | string | Identificador del cambio en kebab-case. Ej: `sale-discount-field` |
-| `description` | No | string | Descripción corta entre comillas. Si se omite, se usa el nombre del cambio |
-| `--fast` | No | flag | Salta puertas de aprobación intermedias hasta IMPLEMENT. Elegir `execution_mode: auto` en el preflight hace las aprobaciones intermedias automáticas sin dejar de aplicar las puertas obligatorias |
+| Parameter | Required | Type | Description |
+|-----------|----------|------|-------------|
+| `change-name` | Yes | string | Change identifier in kebab-case. E.g.: `sale-discount-field` |
+| `description` | No | string | Short description in quotes. If omitted, the change name is used |
+| `--fast` | No | flag | Skips intermediate approval gates up to IMPLEMENT. Choosing `execution_mode: auto` in preflight makes intermediate approvals automatic while still applying the mandatory gates |
 
-## Ejemplos
+## Examples
 
 - `/odf-new sale-discount-field`
 - `/odf-new sale-discount-field "Add configurable discount per partner category"`
 - `/odf-new pos-custom-receipt --fast`
-- `/odf-new sale-discount-field "Add configurable discount per partner category"` — en el preflight responder `execution_mode: auto` para piloto automático
+- `/odf-new sale-discount-field "Add configurable discount per partner category"` — in preflight, answer `execution_mode: auto` for autopilot
 
-## Instrucciones para el orquestador
+## Orchestrator Instructions
 
 1. **Run `odf_health` first**: this MUST be the first ODF operation, before `question`, status/triage/route tools, Engram writes, artifact/state creation, or delegation. Continue only for `warning` with required checks present (or future `ok`). If the tool is missing, throws, returns malformed output, `failed`, or `blocked`, stop immediately with no later side effects.
-2. **Parsear argumentos**: extraer `change-name`, `description` opcional y flag `--fast`.
-3. **Sanitizar** el nombre a kebab-case.
-4. **Verificar cambio existente** con `odf_workflow_status`: si `state_present: true` y el estado seleccionado está activo, ofrecer `/odf-continue {change}` o pedir renombrar. Expectations sin state no son un workflow activo ni resumable.
-5. **Cargar configuración del proyecto** desde `odf-init/{project}` si existe.
-6. **Ejecutar preflight gate**: si no está completo, preguntar los campos faltantes en español y validarlo, pero mantenerlo en memoria; no persistirlo todavía.
-7. **Clasificar la entrada** con `odf_entry_triage`: pasar el `description` parseado y los campos opcionales disponibles (`module`, `domain`, `expected_files`, `expectations_clear`, `risk_signals`). Pasar `known_modules` con los módulos del proyecto desde `odf-init/{project}` (config persistida) para que el triage marque módulos inexistentes. Si `needs_question` es `true`, hacer UNA pregunta agrupada (datos + intent/contexto/Expectations cuando la descripción no es concreta) y re-ejecutar el triage. Usar su `work_type`; no elegirlo libremente. Migration/security/payment/public API/data-loss/pii nunca son micro.
-8. **Redundancy pre-check (antes de PROPOSE)**: con términos de dominio del `description`, correr:
+2. **Parse arguments**: extract `change-name`, optional `description`, and the `--fast` flag.
+3. **Sanitize** the name to kebab-case.
+4. **Check for an existing change** with `odf_workflow_status`: if `state_present: true` and the selected state is active, offer `/odf-continue {change}` or ask to rename. Expectations without state are not an active workflow and are not resumable.
+5. **Load project configuration** from `odf-init/{project}` if it exists.
+6. **Run the preflight gate**: if it is incomplete, ask for the missing fields in English and validate them, but keep it in memory; do not persist it yet.
+7. **Classify the entry** with `odf_entry_triage`: pass the parsed `description` and the available optional fields (`module`, `domain`, `expected_files`, `expectations_clear`, `risk_signals`). Pass `known_modules` with the project modules from `odf-init/{project}` (persisted config) so triage flags nonexistent modules. If `needs_question` is `true`, ask ONE grouped question (data + intent/context/Expectations when the description is not concrete) and re-run triage. Use its `work_type`; do not choose it freely. Migration/security/payment/public API/data-loss/pii are never micro.
+8. **Redundancy pre-check (before PROPOSE)**: with domain terms from the `description`, run:
    ```
    PACK="${ODF_CONFIG_DIR:-$HOME/.config/opencode}"
-   node "$PACK/scripts/odf-toolkit.js" redundancy --repo <repo-dir> --terms "<términos de dominio>" --project <project-name>
+   node "$PACK/scripts/odf-toolkit.js" redundancy --repo <repo-dir> --terms "<domain terms>" --project <project-name>
    ```
-   Busca implementaciones existentes (models/views/static/controllers/data/tests, acotado) y learnings previos (`odf-learned/{project}` = base de "ya visto/rechazado"). Si hay matches relevantes o learnings que contradicen, presentarlos al usuario (extender lo existente / ya está implementado / cancelar) ANTES de delegar PROPOSE; nunca decidir solo.
-9. **Resolver Expectations**: leer primero el artefacto existente del mismo store. Si está aprobado, es válido y coincide exactamente con el contrato humano, reutilizar sus IDs y contenido sin preguntar, renumerar ni guardar de nuevo. Si difiere o está invalid/tampered, bloquear. Si no existe, destilar intent y Expectations del USUARIO (descripción + UNA aclaración), reformular `EXP-01…EXP-N` con `owned_by: "human"`, pedir confirmación explícita y mantener el documento aprobado en memoria.
+   It searches existing implementations (models/views/static/controllers/data/tests, bounded) and prior learnings (`odf-learned/{project}` = basis of "already seen/rejected"). If there are relevant matches or learnings that contradict, present them to the user (extend what exists / already implemented / cancel) BEFORE delegating PROPOSE; never decide alone.
+9. **Resolve Expectations**: first read the existing artifact from the same store. If it is approved, valid, and matches the human contract exactly, reuse its IDs and content without asking, renumbering, or saving again. If it differs or is invalid/tampered, block. If it does not exist, distill intent and Expectations from the USER (description + ONE clarification), restate `EXP-01…EXP-N` with `owned_by: "human"`, ask for explicit confirmation, and keep the approved document in memory.
 10. **Resolve the route** with `odf_workflow_route(work_type)`.
 11. **Start atomically through `odf_workflow_bind`**: pass `change_name`, `work_type`, the complete preflight, and the exact approved `expectations` document. Missing-state creation is accepted only under the runtime authorization issued for this exact `/odf-new` command/change after health; an ordinary bind cannot create state. Use `artifact_store: openspec` for OpenSpec or hybrid authority and `artifact_store: engram` for Engram-only. For `small-change`/`standard-config`, also pass `terminal_stage: DECIDE`; for all others bind before the first phase. The tool persists canonical state before Expectations. Never persist either artifact directly. Stop on any blocked/failure result.
 12. **Run DECIDE** through `PROPOSE` and `ASSESS` only for non-micro routes. Micro routes use the terminal DECIDE materialized by the bind; `standard-config` ends there.
@@ -61,35 +61,35 @@ Standard configuration terminates after DECIDE and has no BUILD or VERIFY stage.
 may use an inline plan before BUILD. Existing public phase commands and legacy phase IDs remain
 available for compatibility; they have not disappeared.
 
-## Contrato de enrutamiento
+## Routing Contract
 
-- Entrada: comando `/odf-new` con argumentos parseados.
-- Salida: prompt conversacional para el orquestador con los campos:
+- Input: `/odf-new` command with parsed arguments.
+- Output: conversational prompt for the orchestrator with the fields:
   - `command: odf-new`
   - `change: <change-name>`
   - `description: <description>`
   - `fast: true|false`
-- `work_type`: resultado determinista de `odf_entry_triage(description + campos opcionales)`; nunca se elige a criterio libre.
+- `work_type`: deterministic result of `odf_entry_triage(description + optional fields)`; never chosen at will.
 
-## Manejo de errores
+## Error Handling
 
-- **Falta `change-name`**: mostrar uso y abortar.
-- **Nombre duplicado**: advertir y ofrecer continuar o renombrar.
-- **Preflight inválido**: re-preguntar campos con valores permitidos.
-- **Error de `odf_delegate`**: mostrar mensaje, mantener estado, ofrecer reintentar.
+- **Missing `change-name`**: show usage and abort.
+- **Duplicate name**: warn and offer to continue or rename.
+- **Invalid preflight**: re-ask for fields with allowed values.
+- **`odf_delegate` error**: show the message, keep state, offer to retry.
 
-## Formato de salida
+## Output Format
 
 ```
-ODF: Iniciando cambio "{change-name}"
+ODF: Starting change "{change-name}"
 
-Fase: PROPOSE
-Agente: odoo_proposer
+Phase: PROPOSE
+Agent: odoo_proposer
 ...
 
-Evaluación completada:
-  Estrategia: {standard | custom}
-  Resumen: {executive_summary}
+Assessment completed:
+  Strategy: {standard | custom}
+  Summary: {executive_summary}
 
-¿Querés ajustar algo o continuamos?
+Do you want to adjust anything, or shall we continue?
 ```

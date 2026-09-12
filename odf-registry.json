@@ -1438,7 +1438,7 @@
   "commands": [
     {
       "name": "odf-new",
-      "description": "Inicia un nuevo cambio ODF con preflight y flujo de trabajo completo",
+      "description": "Start a new ODF change with preflight and the full workflow",
       "path": "command/odf-new.md",
       "triggers": [
         "/odf-new"
@@ -1446,7 +1446,7 @@
     },
     {
       "name": "odf-continue",
-      "description": "Reanuda el cambio ODF activo más reciente o uno nombrado",
+      "description": "Resume the most recent active ODF change or a named one",
       "path": "command/odf-continue.md",
       "triggers": [
         "/odf-continue"
@@ -1454,7 +1454,7 @@
     },
     {
       "name": "odf-status",
-      "description": "Muestra el estado de los cambios ODF activos o el detalle de uno",
+      "description": "Show active ODF changes or the detail of one",
       "path": "command/odf-status.md",
       "triggers": [
         "/odf-status"
@@ -1462,7 +1462,7 @@
     },
     {
       "name": "odf-explore",
-      "description": "Investigación profunda del código o funcionalidad de Odoo",
+      "description": "Deep investigation of Odoo code or functionality",
       "path": "command/odf-explore.md",
       "triggers": [
         "/odf-explore"
