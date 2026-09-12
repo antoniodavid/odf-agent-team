@@ -4,7 +4,7 @@ description: "Deep investigation of Odoo codebase to understand patterns before 
 license: MIT
 metadata:
   author: adruban
-  version: "2.1"
+  version: "2.2"
 ---
 
 ## Activation Contract
@@ -24,6 +24,7 @@ Use BEFORE /odf-new when you need to understand how Odoo handles a feature, find
 | Read actual files | Never guess Odoo behavior — read models/, views/, tests/ |
 | Standard check | Determine if standard Odoo already covers the need |
 | Version noted | APIs change between versions — check the target version specifically |
+| Cite sources | Every claim traces to a primary source (local Odoo source file:line, official docs, tests) and is cited inline — secondary write-ups and recollection are not evidence |
 
 ## Decision Gates
 
@@ -38,7 +39,7 @@ Use BEFORE /odf-new when you need to understand how Odoo handles a feature, find
 1. **Resolve project root and check CodeGraph** for structural questions before broad filesystem searches.
 2. **Find modules and patterns** with native OpenCode `Glob` and `Grep` in `~/Workspace/Doodba_ENV/O{VER}/odoo/custom/src/odoo/addons/`.
 3. **Read key files** with `Read`: `__manifest__.py` (scope), `models/` (logic), `views/` (UI), and `tests/` (examples).
-4. **Synthesize**: Report modules, models, patterns found, standard coverage assessment, and recommended next step
+4. **Synthesize**: Report modules, models, patterns found, standard coverage assessment, and recommended next step. Cite the primary source (file:line for local code, official doc reference) for every claim; never present a guess as a finding.
 
 ## Output Contract
 

@@ -18,3 +18,26 @@ describe("odoo proposer persistence contract", () => {
     expect(proposer).toContain("artifacts_saved")
   })
 })
+
+const orchestrator = fs.readFileSync(new URL("../agent/odoo_orchestrator.md", import.meta.url), "utf8")
+const proposeSkill = fs.readFileSync(new URL("../skills/odf-propose/SKILL.md", import.meta.url), "utf8")
+const assessSkill = fs.readFileSync(new URL("../skills/odf-assess/SKILL.md", import.meta.url), "utf8")
+const consultant = fs.readFileSync(new URL("../agent/odoo_functional_consultant.md", import.meta.url), "utf8")
+
+describe("grilling and requirements-quality contracts", () => {
+  it("orchestrator owns the interactive grilling as frontier rounds", () => {
+    expect(orchestrator).toContain("frontier")
+    expect(orchestrator).toContain("recommended answer")
+  })
+
+  it("proposal consumes grilling decisions instead of re-interviewing", () => {
+    expect(proposeSkill).toContain("Grilling upstream")
+    expect(proposeSkill).toContain("### Decisions")
+    expect(proposer).toContain("### Decisions")
+  })
+
+  it("assess enforces the requirements quality checklist", () => {
+    expect(assessSkill).toContain("Requirements Quality Checklist")
+    expect(consultant).toContain("Requirements Quality")
+  })
+})

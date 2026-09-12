@@ -4,7 +4,7 @@ description: "Quality gate for ODF: evidence-based risk tiers (0/1/4 lenses), sp
 license: MIT
 metadata:
   author: adruban
-  version: "3.1"
+  version: "3.2"
 ---
 
 ## Activation Contract
@@ -74,6 +74,7 @@ The tier is decided by the EVIDENCE in the frozen diff, NEVER by the number of l
     - **MEDIUM** → 1 focused lens (default readability, focus configurable)
     - **LOW** → structural readback + native tool verification only — do NOT launch reviewers
     - The readability lens uses the fixed smell baseline from `skills/_shared/code-smells.md` (repo standards override; skip what tooling enforces).
+    - Every review pass reports two separate axes: **Standards** (repo/OCA/version rules + smell baseline) and **Spec** (fidelity to `EXP-XX`/`REQ-XX` and the design tasks: missing, partial, scope creep, or wrong). Never merge or re-rank one axis against the other.
 11. **Persist** the verify report in the selected store with its canonical
     `artifact_ref` (see Correction Budget & Single Attempt)
 

@@ -203,6 +203,11 @@ document** per `docs/design-contract.md` — not just a task breakdown:
 7. Persist as `odf/{change}/design` and report `design_closed` + `design_path`
    in the envelope.
 
+For interface decisions, design deep modules (much behaviour behind a small
+interface) and apply the deletion test; when an interface is genuinely in
+question, sketch 2-3 radically different options and compare depth, locality,
+and seam placement before closing.
+
 ### DESIGN output boundary
 
 DESIGN emits and persists the closed design only. Do not return Python, XML, CSV,

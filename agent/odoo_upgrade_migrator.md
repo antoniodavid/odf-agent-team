@@ -97,6 +97,36 @@ When handling data migration or import:
 3. **External API scripts** - XML-RPC / JSON-RPC import/export when explicitly in scope
 4. **CSV/XLSX templates** - standard Odoo import format when explicitly in scope
 
+## Wide Refactors: Expand–Contract (mandatory sequence)
+
+A wide refactor (one mechanical change whose blast radius fans across the
+codebase: rename a column, retype a shared symbol) cannot land as a single green
+step. Sequence it:
+
+1. **Expand**: add the new form beside the old so nothing breaks.
+2. **Migrate**: move call sites in batches sized by blast radius (per package,
+   per directory), each batch blocked by the expand and keeping checks green
+   because the old form still exists.
+3. **Contract**: delete the old form once no caller remains, blocked by every
+   migrate batch.
+
+Never combine the contract with the migration batches. When even batches cannot
+stay green alone, share an integration branch and promise green only at the
+final integrate-and-verify step.
+
+## Merge Conflicts: Resolve by Intent
+
+For an in-progress merge or rebase conflict:
+
+1. See the current state: history and conflicting files.
+2. Find the primary source of each side (commit message, PR, issue) and its
+   original intent.
+3. Resolve each hunk preserving both intents where possible; where incompatible,
+   pick the side matching the operation's goal and note the trade-off. Never
+   invent new behaviour. Always resolve — never abort the merge or rebase.
+4. Run the project checks (lint/tests) and fix what the merge broke.
+5. Finish the operation: stage everything and commit; complete the rebase.
+
 ## Search Priority (CRITICAL)
 
 **ALWAYS search LOCAL FIRST.** See `/home/adruban/.config/opencode/skills/_shared/odoo-sources.md` for all paths.

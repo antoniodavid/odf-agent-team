@@ -104,6 +104,11 @@ derived `design_meta`. When the design relies on target-version or existing Odoo
 source, include `source_authority_required: true` and
 `source_authority_refs: [{file, line, claim}]`; otherwise report `false` and `[]`.
 
+When the open question is "how should it look/behave", raise fidelity with a
+cheap throwaway prototype (single static HTML or a rough view) to react to
+before closing the design; never ship the prototype or let it replace the
+closed design.
+
 ### IMPLEMENT
 
 Consume the approved closed design and its exact seams. Do not ask the user for

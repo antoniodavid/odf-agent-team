@@ -49,7 +49,7 @@ user disposition.
 - In `batch`, do not ask voluntary approval questions; continue only for inner `ok` or `warning`.
 - In `auto`, continue automatically under the same conditions as `batch` plus: no pending receipt with `action: null`, no pending correction/disposition, validation evidence verified (IMPLEMENT/VERIFY), and no product/scope decision required. The only stops are: `odf_health`/preflight missing or failed; human Expectations not yet approved (the ONE confirmation at entry — reuse existing approved Expectations when byte-equivalent, otherwise collect+confirm once); inner `blocked`/`failed`; pending receipt with `action: null`; Policy Gate block; missing/invalid validation evidence; candidate digest mismatch; a failed single correction attempt; blocked parallel join; or any explicit product/scope/user disposition.
 - If `question` is unavailable, print the identical phase, summary, option labels, values, and order as plain text, then wait; never choose silently. This fallback is identical in all modes whenever input is required.
-- PROPOSE runs its 3-5 business-question round in `interactive`; `batch` and `auto` skip that voluntary round. Any required product/user disposition still stops every mode.
+- PROPOSE runs its interactive grilling (frontier rounds) in `interactive`; `batch` and `auto` skip that voluntary round. Any required product/user disposition still stops every mode.
 
 ### ODF Entry Health Gate
 
@@ -156,6 +156,8 @@ At `/odf-new`, classify the change with `odf_entry_triage` before resolving work
 
 11. On `/odf-continue` for a cross-domain BUILD join, use `odf_workflow_status.parallel_join` as supplemental runtime evidence only; OpenSpec/Engram remains primary. If `parallel_join.join.status` is `running`, do not call continuation against it: the scheduler is active, and any resume attempt must fail closed with `reason: parallel-join-running`. Otherwise call `odf_parallel_delegate` with `resume_from_join: true`, the exact shared transition proof, and no branch descriptors. Completed and verified branches are reused without relaunching; only retryable/incomplete branches receive fresh attempt IDs. Preserve the artifact's aggregate `join.expected` and completed semantics. One remaining retry branch is valid only for continuation. Malformed, mismatched, oversized, or unsafe join reads block closed.
 
+12. **Timeout budget**: pass an explicit `timeout_ms` for known-heavy delegations — 900000 for ASSESS, QA-PLAN, and DESIGN; 600000 for bounded IMPLEMENT batches. A timed-out task is a transport failure with no committed artifacts; report it per the result contract and keep the launch log — never loop retries or duplicate the same `(phase, fingerprint)` launch.
+
 The plugin resolves profiles only for SDD phases. If `task()` is unavailable,
 the plugin returns a structured `blocked` envelope with
 `reason: task-api-unavailable`; do not show or execute an enriched fallback
@@ -255,7 +257,8 @@ comes from `odf_workflow_route`; adapters must not create extra business stages.
 
 ### PROPOSE
 
-- In `interactive`, ask 3-5 business questions before delegation: problem, users, rules, scope, and risks/rollback. In `batch` and `auto`, skip this voluntary question round.
+- **Interactive grilling (frontier rounds)**: in `interactive`, resolve the design tree with the user before delegation. Map the open decisions, then ask one round of the **frontier** — the questions whose prerequisites are already settled. Number each question and attach your recommended answer. Facts are the agent's job: look up files, standard Odoo source, and existing configuration; never ask what you can discover yourself. Wait for the answers before recomputing the frontier and asking the next round. Done when the frontier is empty — no branch silently assumed. In `batch` and `auto`, skip this voluntary round.
+- Carry the resolved decisions into the proposal delegation; a scope-, risk-, or rollback-changing decision that is still open blocks the delegation.
 - **Capture human Expectations**: before delegating, first inspect any existing Expectations artifact. If it is valid, approved, and byte-equivalent in protected content to the intended contract, reuse it without another question, renumbering, or write. If it differs or is invalid/tampered, stop closed. Otherwise distill the USER's intent and expectations from the command description plus ONE clarification round (via `question`), reformulate them as testable `EXP-XX`, and request explicit confirmation. Pass the complete approved document to `odf_workflow_bind`; never persist it directly. Every `EXP` has `owned_by: "human"`.
 - Delegate the proposal; it contains intent, scope, capabilities, approach, affected areas, risks, rollback, and success criteria.
 - No code, functional spec, or configuration guide; keep it under 300 words.
@@ -276,7 +279,9 @@ comes from `odf_workflow_route`; adapters must not create extra business stages.
 ### DESIGN
 
 - Select the domain agent(s), using the ASSESS and QA artifacts plus codebase context.
-- Persist `odf/{change}/design`. In `interactive`, show the task list and ask to approve, adjust, or cancel; in `batch` and `auto`, continue only for inner `ok`/`warning`. `blocked`/`failed`, correction, or disposition stops.
+- Persist `odf/{change}/design`.
+- **Cross-artifact consistency audit (before any BUILD)**: read the persisted proposal, `assess` (REQ-XX), `expectations` (EXP-XX), `qa-plan`, and `design` artifacts and check by ID: (a) every EXP-XX is resolved in the design and covered by at least one REQ-XX; (b) every REQ-XX maps to at least one design task and one test/check; (c) every design task traces to a REQ-XX and nothing exceeds the proposal's in-scope capabilities (scope creep); (d) no dangling IDs. Report the audit as a compact table; any gap stops progression and is presented with the exact missing/extra IDs — adjust the design, re-plan, or cancel. Never delegate BUILD with an unresolved gap.
+- In `interactive`, show the task list and ask to approve, adjust, or cancel; in `batch` and `auto`, continue only for inner `ok`/`warning` AND a clean audit. `blocked`/`failed`, correction, or disposition stops.
 
 ### IMPLEMENT
 

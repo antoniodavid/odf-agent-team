@@ -109,6 +109,29 @@ Run the scenario with:
 node scripts/odf-test-runner.js
 ```
 
+## Writing for Agents
+
+Skills are read by an agent, not a human skimming docs; the document's job is a
+predictable process every run. Composition rules:
+
+- **Context pointers**: a description line is a pointer; its wording decides when
+  the agent reaches the material. Front-load the leading word, one trigger per
+  branch, and cut identity the body already carries.
+- **Two loads**: always-loaded text spends context load every turn; material
+  reached through a pointer spends only the pointer. Push reference behind
+  pointers (progressive disclosure); keep every-branch material inline.
+- **Leading words**: anchor behaviour on compact pretrained concepts (seam,
+  tracer bullet, red) instead of explaining them in sentences; repeat the token,
+  not the definition.
+- **Completion criteria**: every step ends on a checkable boundary; vague bounds
+  invite premature completion. Demand ("every EXP-XX accounted for") drives legwork.
+- **Positive framing**: state the target behaviour; a prohibition drags the banned
+  behaviour into context. Keep a prohibition only as a hard guardrail, paired
+  with its positive target.
+- **Single source of truth**: one meaning lives in one place; duplication costs
+  maintenance and inflates prominence. Never restate what the environment
+  already exposes (package scripts, configs).
+
 ## Review Checklist
 
 Before submitting a skill change:
@@ -120,4 +143,5 @@ Before submitting a skill change:
 - [ ] Path is relative when `use_relative_paths` is `true`.
 - [ ] Version and changelog are updated if behavior changed.
 - [ ] YAML scenario test passes.
+- [ ] Pointers and steps follow the writing-for-agents rules (leading words, positive framing, no duplication).
 - [ ] Change stays within the 400-line PR budget or is split into a chained PR.

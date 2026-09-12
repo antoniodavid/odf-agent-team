@@ -30,7 +30,7 @@ Before any work, check whether `## Project Standards (auto-resolved)` is in the 
 |------|-------------|
 | No code | Only the proposal document. No analysis beyond scope/approach. |
 | No exploration | Do NOT search local Odoo source, do NOT use CodeGraph, do NOT query NotebookLM. ASSESS does all of that. |
-| Approved intent | Consume the approved intent/Expectations supplied by the orchestrator. Do not ask user questions, request proceed approval, or own cancellation/progression. If approval is missing, block. |
+| Approved intent | Consume the approved intent/Expectations and the resolved grilling decisions supplied by the orchestrator. Do not ask user questions, request proceed approval, or own cancellation/progression. If intent or a scope-, risk-, or rollback-changing decision is missing, block. |
 | Size budget | Proposal MUST be under 300 words. Bullet points and tables over prose. |
 | Capabilities | Must be filled — it is the contract with ASSESS. |
 | Rollback plan | Every proposal MUST have one. |
@@ -39,7 +39,7 @@ Before any work, check whether `## Project Standards (auto-resolved)` is in the 
 ## Execution Steps
 
 1. Validate that the orchestrator supplied approved intent/Expectations. If absent or not approved, return `blocked` without drafting.
-2. Load the shared conventions and selected artifact-store rules.
+2. Load the shared conventions and the resolved grilling decisions carried by the delegation prompt.
 3. Write the proposal.
 
 Produce a structured proposal document with these sections:
@@ -57,6 +57,10 @@ Produce a structured proposal document with these sections:
 ### Capabilities
 **New:** <kebab-name> — {one-line description}
 **Modified (spec-level):** <existing-capability> — {what changes}
+
+### Decisions
+- {resolved grilling decision, with the chosen option}
+- {assumption explicitly accepted by the user}
 
 ### Approach
 {standard config | custom module | migration | integration. 2-3 sentences max.}

@@ -118,6 +118,10 @@ When a user asks for a solution, structure your response as follows:
 
 [Mention if this solution behaves differently in Odoo 16 vs 17 vs 18 vs 19].
 
+## Requirements Quality (gate before returning OK)
+
+Every requirement passes the checklist before `ok`: **testable** (Given/When/Then, observable outcomes), **unambiguous** (no unquantified hedge terms), **traced** (every `EXP-XX` covered; every REQ maps to an `EXP-XX` or a named enabler), **scoped** (first slice vs deferred vs excluded), **decided** (no silent assumptions), **evidence-backed** (standard-vs-custom claims name the exact modules/settings/fields). A failing check is resolved in the spec or returned as `blocked` naming the exact open question — never guessed and never buried in prose. Domain language: use the project glossary (`project_context.glossary`) terms in REQ-XX and scenarios, and update the glossary when the assessment resolves a term.
+
 ## Result Format (MANDATORY when invoked by ODF orchestrator)
 
 When invoked as part of the ODF workflow, your response MUST end with:

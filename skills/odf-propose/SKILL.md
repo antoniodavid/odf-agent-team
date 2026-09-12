@@ -4,7 +4,7 @@ description: "Create an ODF change proposal with business context, scope, and ap
 license: MIT
 metadata:
   author: adruban
-  version: "1.1"
+  version: "1.2"
 ---
 
 ## Activation Contract
@@ -18,7 +18,7 @@ NEVER write code, functional specs, or config guides in this phase. Only the pro
 | Rule | Requirement |
 |------|-------------|
 | No code | Produce only the proposal document. No analysis beyond scope/approach |
-| Questions first | Before finalizing, offer the user a question round for business decisions |
+| Grilling upstream | The orchestrator owns the interactive grilling (frontier rounds) before delegation. Consume its resolved decisions; never re-interview the user from this phase |
 | Size budget | Proposal MUST be under 300 words. Bullet points and tables over prose |
 | Capabilities section | Must be filled — it's the contract with ASSESS |
 | Rollback plan | Every proposal MUST have one |
@@ -34,17 +34,13 @@ NEVER write code, functional specs, or config guides in this phase. Only the pro
 
 ## Execution Steps
 
-### Step 0: Question Round (Interactive Mode Only)
+### Step 0: Consume the Grilling (Interactive Mode Only)
 
-Before writing the proposal, offer the user 3–5 business questions via the `question` tool (or plain text if the tool is unavailable — list the questions and ask the user to answer one by one). Explain that these clarify scope and risks before investing in a full assessment. Cover the smallest useful subset of:
+The orchestrator owns the interactive grilling BEFORE this phase is delegated: it resolves the design tree in **frontier rounds** (one round of answerable questions per turn, each numbered with a recommended answer), fetching environment facts itself instead of asking for them. In `interactive`, the delegation carries the resolved decisions.
 
-1. Business problem — what pain, opportunity, or cost drives this change now?
-2. Target users — who is affected, in which workflow, at what moment?
-3. Business rules — policies, thresholds, compliance, invariants the solution must respect
-4. Scope boundaries — what belongs in the first slice vs deferred vs explicitly excluded
-5. Risks — what could go wrong, what's the rollback plan?
-
-After answers, summarize assumptions and ask if the user wants a second round or to proceed.
+- Incorporate those decisions and assumptions into the proposal; never re-interview the user or invent new questions from this phase.
+- If a decision that changes scope, risk, or rollback is still open, return `blocked` naming the missing decision — never guess or ship an assumed answer.
+- In `batch` and `auto`, the grilling round is skipped; the proposal proceeds from the approved intent and Expectations.
 
 ### Step 1: Load Skills
 
@@ -72,6 +68,10 @@ Produce a structured proposal document in the response:
 ### Capabilities
 **New:** <kebab-name> — {one-line description}
 **Modified (spec-level):** <existing-capability> — {what behavior changes}
+
+### Decisions
+- {resolved grilling decision, with the chosen option}
+- {assumption explicitly accepted by the user}
 
 ### Approach
 {High-level: standard Odoo config, custom module, migration, or integration. 2-3 sentences max.}
@@ -127,6 +127,7 @@ approval, or `[]` when cancelled.
 
 ## Changelog
 
+- 2026-09-12: Interactive grilling is orchestrator-owned; the proposal records resolved Decisions.
 - 2026-07-31: Standardized result status for approval, handoff, and execution errors.
 
 ## References

@@ -114,6 +114,16 @@ El documento DEBE pasar TODOS los criterios antes de devolverse:
 - [ ] Cada tarea del plan de IMPLEMENT ligada a archivo(s) exacto(s) y EXP-XX.
 - [ ] IMPLEMENT puede proceder sin re-investigar (no quedan decisiones abiertas).
 
+### 9. Architecture Decisions (condicional)
+
+Solo cuando una decisión cumple las TRES condiciones — difícil de revertir, sorprendente sin contexto, y resultado de un trade-off real (había opciones) — se registra un bloque:
+
+| Decisión | Opciones consideradas | Elección | Consecuencia |
+|----------|----------------------|----------|--------------|
+
+- Una decisión que falle cualquiera de las tres condiciones NO se registra (sin ruido de ADRs).
+- El bloque no es obligatorio: un diseño sin decisiones calificadas no lo incluye y sigue cerrado.
+
 ## design_meta (para estimación y biblioteca)
 
 Además del documento completo, DESIGN deriva un **resumen estructurado**

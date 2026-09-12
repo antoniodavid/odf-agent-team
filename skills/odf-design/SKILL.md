@@ -4,7 +4,7 @@ description: "Create a CLOSED technical design document + IMPLEMENT plan for Odo
 license: MIT
 metadata:
   author: adruban
-  version: "3.1"
+  version: "3.3"
 ---
 
 ## Activation Contract
@@ -35,9 +35,11 @@ plan from it. The orchestrator will approve before IMPLEMENT.
 | Reference by ID | Reference EXP-XX/REQ-XX by ID; do not restate the full expectation statement (it lives in expectations.yaml) |
 | Fix the module | Decide the exact target module (new vs inherit) in DESIGN — never leave it to IMPLEMENT |
 | Traceability | Every task links to a REQ-XX and the EXP-XX it resolves |
+| Decisions (ADR-lite) | Record a decision only when ALL three hold: hard to reverse, surprising without context, and the result of a real trade-off (real options existed). Format: decision / options / choice / consequence. Omit decisions failing any condition — no ADR spam |
 | Security required | Every new model MUST have ir.model.access.csv (per group) + ir.rule if applicable |
 | Tests required | Every feature MUST have at least one test task |
 | OCA conventions | File structure, naming, manifest follow OCA standards |
+| Deep modules | Design interfaces as deep modules — much behaviour behind a small interface (module / interface / depth / seam / adapter). Apply the deletion test: if deleting it merely moves complexity, cut it; if complexity concentrates, keep it. The interface is the test surface — a test that must reach past it signals the wrong shape. When an interface is genuinely in question, sketch 2-3 radically different options (design-it-twice) and compare depth, locality, and seam placement before choosing |
 
 ## Decision Gates
 
@@ -45,7 +47,7 @@ plan from it. The orchestrator will approve before IMPLEMENT.
 |-----------|--------|
 | Single module | One module, 3 phases: Foundation → Views → Tests |
 | Multi-module (2+) | Design per module: Primary first (all phases), then secondary. Prefix task IDs (A1.1, B1.1) |
-| Complex architecture | Include architecture decisions with rationale + rejected alternatives |
+| Complex architecture | Record qualifying decisions under `### Architecture Decisions` per the ADR-lite rule (decision / options / choice / consequence) |
 
 ## Execution Steps
 
@@ -55,7 +57,8 @@ plan from it. The orchestrator will approve before IMPLEMENT.
 3. **Produce the design document** per `docs/design-contract.md` (ALL sections):
    Context (module + manifest_depends), EXP-XX resolution table, data model
    (`_name`/`_inherit`, fields/types/constraints, computed/onchange), views + UI
-   (actions + menus + wizard), security, data/migration, IMPLEMENT plan.
+   (actions + menus + wizard), security, data/migration, IMPLEMENT plan, plus
+   `### Architecture Decisions` when a decision meets the ADR-lite three-condition test (§9).
 4. **Fix the module destination** exactly (new vs inherit) — do not leave it open.
 5. **Derive the IMPLEMENT plan** from the document: each task links to exact
    file(s) + the EXP-XX it resolves.
@@ -79,6 +82,7 @@ The design is DONE (closed) only when ALL hold:
 - Every EXP-XX is resolved by exact file/line references; none is restated in full (reference by ID).
 - The contract tables (fields, views, tasks) are complete and contain NO Python/XML code blocks.
 - Every task in the breakdown maps to at least one EXP-XX, and no task depends on an open decision.
+- Every qualifying decision (hard to reverse, surprising, real trade-off) is recorded under `### Architecture Decisions`; no qualifying decision is left implicit.
 - Every view XML ID, model, and `_inherit` in the design was VERIFIED in the local source via `odf-toolkit lookup` (defining file:line recorded); nothing is invented from memory.
 - `design_closed` is reported as a boolean `true` (never the string `"true"`).
 - The closed-design checklist passes internally and is NOT copied into the document.

@@ -4,7 +4,7 @@ description: "QA workflow for ODF: test planning, coverage analysis, test review
 license: MIT
 metadata:
   author: adruban
-  version: "2.1"
+  version: "2.2"
 ---
 
 ## Activation Contract
@@ -26,6 +26,8 @@ Use for test strategy planning (after ASSESS), test review (during IMPLEMENT), c
 | Trace to expectations | Start from every approved EXP-XX, then map through REQ-XX to tests; an untested EXP-XX blocks the acceptance verdict |
 | Flag untested paths | Identify critical paths without test coverage — don't ignore them |
 | Choose the test class | Select the narrowest valid class: `TransactionCase` for ORM transactions, `SavepointCase` for savepoint behavior, `HttpCase` for browser/tour flows, and focused JS tests for frontend behavior. Do not impose one class universally |
+| Seams before scenarios | Declare the public seams under test before writing scenarios: prefer the highest existing seam, propose new seams at the highest point, keep their number minimal, and confirm them. No scenario is written at an unconfirmed seam |
+| Integration fixtures | For API integrations, capture a real request/response pair at the client adapter seam and replay it in tests; never assert against a live external service |
 
 ## Decision Gates
 
@@ -38,7 +40,7 @@ Use for test strategy planning (after ASSESS), test review (during IMPLEMENT), c
 
 ## Execution Steps
 
-1. **QA-PLAN**: Read approved EXP-XX first, map REQ-XX from assess, choose the narrowest suitable test class per behavior, design scenarios for every expectation, set coverage targets per module type, and persist as qa-plan
+1. **QA-PLAN**: Read approved EXP-XX first, map REQ-XX from assess, choose the narrowest suitable test class per behavior, **declare the seams under test (highest, fewest, confirmed)**, design scenarios for every expectation, set coverage targets per module type, and persist as qa-plan
 2. **QA-REVIEW**: Review test quality (isolation, meaningful assertions, coverage toward targets) → flag issues → persist as qa-review
 3. **QA-AGGREGATE**: Collect all batch test results → generate aggregate coverage → map to requirements → identify untested paths → persist as qa-aggregate
 4. **QA-REPORT**: Compile final metrics → build requirements traceability matrix → evaluate quality gates → persist as qa-report

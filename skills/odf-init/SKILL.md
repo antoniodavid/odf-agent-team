@@ -4,7 +4,7 @@ description: "Detect + persist Odoo project context: version, modules, test runn
 license: MIT
 metadata:
   author: adruban
-  version: "2.2"
+  version: "2.3"
 ---
 
 ## Activation Contract
@@ -23,6 +23,7 @@ Use when entering a new Odoo project, or when project tooling changes (new test 
 |------|-------------|
 | Never ask what can be detected | Try all detection methods before asking the user |
 | Never guess | If detection fails for a field, set it to null — don't invent |
+| Never invent context | `project_context.principles` and `project_context.glossary` only contain detected or explicitly confirmed entries; leave them empty when absent |
 | Partial is better than none | Persist even partial detection |
 | Upsert | Running /odf-init again updates the existing config |
 
@@ -74,8 +75,8 @@ Use when entering a new Odoo project, or when project tooling changes (new test 
      - **Database safety**: a test command without the exact `-d {test_db}` is invalid for Odoo DB tests. Disposable databases remain preferred. A non-isolated development database is allowed only when the current user-approved scope names that exact database and authorizes its use. The phase result/evidence must state `database: {test_db}`, `database_isolation: non-isolated`, `database_authorization: current-user-approved`, and warn that tests may mutate module, schema, and test data. Consent to use the database does not authorize `dropdb`, `createdb`/reset/restore, `DROP DATABASE`, `DROP TABLE`, `TRUNCATE`, `DROP SCHEMA`, or destructive re-initialization; those require separate current consent for the exact operation and database and are not test setup. If the exact database or authorization is absent, return `blocked` and ask the user.
     - **pytest-odoo**: only when a `pytest.ini`/`setup.cfg` configures pytest-odoo.
 6. **Detect linting**: pre-commit config, pylint-odoo availability, OCA compliance flags
-7. **Detect conventions**: Module prefix patterns, git workflow, CI platform, README conventions
-8. **Build config**: Assemble YAML with project_name, odoo_version, modules[], environment{}, testing{}, linting{}, flags{}, conventions{}
+7. **Detect conventions + project context**: Module prefix patterns, git workflow, CI platform, README conventions. Also detect project context when present: **principles** (engineering rules stated by the repo — CONTRIBUTING, README, pre-commit/OCA config; never invented) and **glossary** (existing `CONTEXT.md` or domain docs mapping business terms ↔ Odoo models/fields). Persist as `project_context: { principles: [], glossary: {} }`; leave both empty when absent — never invent entries
+8. **Build config**: Assemble YAML with project_name, odoo_version, modules[], environment{}, testing{}, linting{}, flags{}, conventions{}, project_context{}
 9. **Persist** the config in the selected store and return its canonical `artifact_ref`.
      - Persist the resolved command under `testing.test_command` with literal `{test_db}` and `{module}` placeholders so IMPLEMENT/VERIFY can substitute the exact authorized database and module under test.
 

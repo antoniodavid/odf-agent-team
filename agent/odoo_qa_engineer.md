@@ -96,6 +96,7 @@ For structural questions, use CodeGraph first, then FFF (`fff_find_files` / `fff
 ### 4. Test Data Management
 
 - **Fixtures**: XML data files in `tests/data/`
+- **API integration fixtures**: capture a real request/response pair at the client adapter seam and replay it in tests; never assert against a live external service
 - **Factories**: Python helpers for creating test records
 - **Isolation**: Each test should be independent
 - **Cleanup**: Proper teardown to avoid test pollution
@@ -109,10 +110,11 @@ For structural questions, use CodeGraph first, then FFF (`fff_find_files` / `fff
 2. If the `expectations` artifact is missing (legacy change), emit an explicit `missing-expectations` warning and fall back to REQ-XX
 3. Parse the technical plan (REQ-XX) from the assess artifact as CONTEXT only
 4. Identify testable assertions per EXP-XX
-5. Map each EXP-XX to test scenarios
-6. Check if tests can cover edge cases
-7. Flag: "This expectation is not testable" → escalate
-8. If an approved EXP-XX `statement` appears rewritten, mark `blocked` (`expectations-tampered`)
+5. Declare the public seams under test (highest, fewest, confirmed) before writing scenarios
+6. Map each EXP-XX to test scenarios
+7. Check if tests can cover edge cases
+8. Flag: "This expectation is not testable" → escalate
+9. If an approved EXP-XX `statement` appears rewritten, mark `blocked` (`expectations-tampered`)
 ```
 
 ### During Implementation (QA-REVIEW phase)

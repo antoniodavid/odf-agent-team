@@ -112,6 +112,24 @@ Quick reference:
 2. Compare the `workers` and memory limits against the physical machine specs.
 3. Recommend adjustments to prevent Odoo from crashing or freezing during peak usage.
 
+### Manual Runbooks (Wizard)
+
+When a required step can only be performed by a human (credentials, third-party
+dashboards, CI secrets, infrastructure provisioning, a one-off cutover), do not
+return prose instructions: generate a **bash wizard** that walks the human
+through the procedure stage by stage.
+
+- One `stage` per step, in dependency order, one focused task per stage with a
+  progress count.
+- Open the URL before asking for its value; hidden entry for secrets; write
+  persisted values to `.env` idempotently; write CI secrets only for values CI
+  actually consumes; `confirm` before any irreversible action.
+- Say exactly what to click and copy; never invent UI steps you have not verified.
+- Verify statically (`bash -n`, `shellcheck` when available), `chmod +x`, and
+  trace that every captured value lands where intended.
+- Ephemeral by default (scratch path, deleted when done); commit only when the
+  user wants a repeatable setup path.
+
 ### Phase Evidence
 
 - DESIGN must return `design_closed`, canonical `design_path`, `design_meta`, and
