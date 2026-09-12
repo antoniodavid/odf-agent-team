@@ -137,6 +137,27 @@ describe("cross-root-write", () => {
     const r = block("echo x > /etc/evil")
     expect(r.classes).not.toContain("cross-root-write")
   })
+  it("allows prose with write-command words but no path target", () => {
+    const r = block("do not touch staging and do not run destructive commands", { authorized_roots: ["/home/dev/proj"] })
+    expect(r.blocked).toBe(false)
+  })
+  it("allows relative write targets", () => {
+    const r = block("write the plan: cat > openspec/changes/x/qa-plan.md", { authorized_roots: ["/home/dev/proj"] })
+    expect(r.blocked).toBe(false)
+  })
+  it("allows read-only commands with external paths", () => {
+    const r = block("cat /etc/hosts for reference", { authorized_roots: ["/home/dev/proj"] })
+    expect(r.blocked).toBe(false)
+  })
+  it("blocks a copy escaping roots even when a root is mentioned", () => {
+    const r = block("cp config/odoo.conf /etc/odoo.conf  # root /home/dev/proj", { authorized_roots: ["/home/dev/proj"] })
+    expect(r.blocked).toBe(true)
+    expect(r.classes).toContain("cross-root-write")
+  })
+  it("blocks traversal targets outside roots", () => {
+    const r = block("cp x ../../etc/evil", { authorized_roots: ["/home/dev/proj"] })
+    expect(r.blocked).toBe(true)
+  })
 })
 
 describe("corpus-false-positive-rate", () => {

@@ -57,8 +57,10 @@ const JAILBREAK = [
 
 // ponytail: cross-root-write has NO standalone pattern here — a raw
 // "echo/cat/mkdir/>" scan is a false-positive machine (any normal write would
-// block). It is evaluated ONLY against authorized_roots in inspectToolArgs.
-// Add a standalone pattern only if a real arg-level gap appears later.
+// block). It is evaluated ONLY against authorized_roots in inspectToolArgs,
+// and only when a write expression targets a path-like token (absolute or
+// traversal) outside every root. Prose mentions ("do not touch staging") and
+// relative targets are not escapes.
 export const SAFETY_RULES = [
   {
     id: "destructive-dropdb",
@@ -137,6 +139,38 @@ function rootsPattern(roots) {
   return new RegExp(`(^|[\\s;&|(])(${escaped})`, "i")
 }
 
+// Path-like target: absolute (~/ or /...) or traversal (../, ..\). Relative
+// targets resolve inside the workspace root and are not escapes.
+const PATH_LIKE = /(^|[\s"'`=(])((?:~|\/)[^\s"'`;|&)>]*|[^\s"'`;|&)>]*\.\.[/\\][^\s"'`;|&)>]*)/g
+
+// Commands whose arguments are write targets. echo/printf/cat write only
+// through a redirect (handled by REDIRECT_TARGET); scanning them as commands
+// would flag reads like `cat /etc/hosts`.
+const WRITE_COMMAND = /(^|[\s;&|(])(cp|mv|touch|mkdir|tee|dd|ln|rsync)\b/gi
+
+// Redirect target: `> path` / `>> path`. A bare `>` (comparison, blockquote)
+// carries no path-like target and does not match.
+const REDIRECT_TARGET = />>?\s*["']?((?:~|\/)[^\s"'`;|&)>]*|[^\s"'`;|&)>]*\.\.[/\\][^\s"'`;|&)>]*)/g
+
+/**
+ * True when the text contains a write expression targeting a path-like token
+ * outside every authorized root (evaluated lexically; no filesystem access).
+ */
+function crossRootEscape(text, rootRe) {
+  const segments = []
+  for (const match of text.matchAll(WRITE_COMMAND)) {
+    const rest = text.slice(match.index + match[0].length)
+    segments.push(rest.split(/[;|&\n]/)[0])
+  }
+  for (const match of text.matchAll(REDIRECT_TARGET)) segments.push(match[1])
+  for (const segment of segments) {
+    for (const candidate of segment.matchAll(PATH_LIKE)) {
+      if (!rootRe.test(candidate[2])) return true
+    }
+  }
+  return false
+}
+
 /**
  * Inspect tool args against the corpus. args may be a string (or an object
  * whose own args/prompt/command fields are scanned as strings). Non-string /
@@ -169,11 +203,13 @@ export function inspectToolArgs({ tool: toolName, args, authorized_roots = [] })
     }
   }
 
-  // cross-root-write: only when authorized_roots provided and the target
-  // escapes every root.
+  // cross-root-write: only when authorized_roots provided and a write
+  // expression targets a path escaping every root. Prose mentions ("do not
+  // touch staging") carry no path target, and relative targets resolve inside
+  // the workspace root, so neither is an escape.
   if (authorized_roots.length > 0) {
     const rootRe = rootsPattern(authorized_roots)
-    if (rootRe && !rootRe.test(haystack) && /(^|[\s;&|(])(echo|printf|cat|tee|cp|mv|touch|mkdir|>|>>)/i.test(haystack)) {
+    if (rootRe && crossRootEscape(haystack, rootRe)) {
       matched.add("cross-root-write")
       classes.add("cross-root-write")
     }
