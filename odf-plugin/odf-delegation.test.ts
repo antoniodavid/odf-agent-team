@@ -3752,6 +3752,9 @@ ${overrides}`
       reason: "workflow-assess-artifact-not-terminal",
       workflow_materialization: { status: "blocked" },
     })
+    expect((output as any).workflow_materialization.artifacts_seen).toEqual(
+      expect.arrayContaining([expect.stringContaining("assess.yaml")]),
+    )
     expect(YAML.parse(await fs.readFile(path.join(changeDir, "state.yaml"), "utf8"))).toMatchObject({
       canonical_stage: "DECIDE",
       completed_canonical_stages: [],

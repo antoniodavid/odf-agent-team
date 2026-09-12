@@ -7,7 +7,7 @@ import * as fs from "node:fs/promises"
 import * as fsSync from "node:fs"
 import * as path from "node:path"
 import { execFileSync } from "node:child_process"
-import type { ToolContext } from "@opencode-ai/plugin"
+import { tool, type ToolContext } from "@opencode-ai/plugin"
 import type { createOpencodeClient } from "@opencode-ai/sdk"
 type OpencodeClient = ReturnType<typeof createOpencodeClient>
 import {
@@ -554,3 +554,22 @@ function sessionResultFromText(text: string): Record<string, unknown> {
 
 
 
+
+
+// ==========================================
+// HEALTH TOOL
+// ==========================================
+
+export function createODFHealth(client?: OpencodeClient, io: HealthIo = defaultHealthIo): ReturnType<typeof tool> {
+  return tool({
+    description: `Read-only installed/runtime ODF health check.
+
+Checks the installed registry, plugin, command, SDK session delegation capability, and optional
+Engram CLI metadata. It never calls task(), Odoo, PostgreSQL, or engram export;
+task usability remains unverified because probing it would execute work.`,
+    args: {},
+    async execute(_args: Record<string, never>, toolCtx: ToolContext): Promise<string> {
+      return JSON.stringify(await inspectODFHealth(toolCtx, client, io), null, 2)
+    },
+  })
+}

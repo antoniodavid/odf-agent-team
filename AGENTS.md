@@ -71,11 +71,17 @@ Each phase is a sub-agent with a defined input/output contract. The orchestrator
 
 ### Plugin tools (`odf-delegation.ts`)
 
-10 tools injected at runtime into the orchestrator's tool list:
+19 tools injected at runtime into the orchestrator's tool list:
 
 | Tool | Purpose |
 |------|---------|
 | `odf_delegate` | Route phase + prompt to the right sub-agent with skill injection |
+| `odf_parallel_delegate` | Run a cross-domain BUILD as 2-3 parallel branches with one aggregate join |
+| `odf_workflow_route` | Resolve the canonical stage route for a work type |
+| `odf_workflow_advance` | Preview/verify a canonical workflow transition (read-only) |
+| `odf_workflow_override` | Audited skip/re-enter/re-plan for an existing change |
+| `odf_workflow_bind` | Start or bind canonical workflow state in the selected store |
+| `odf_entry_triage` | Classify a change entry (micro/standard/full) and pick the work type |
 | `odf_skill_inject` | Match and inject relevant skill compact rules into a prompt |
 | `odf_skill_resolve` | Preview which skills match a task WITHOUT executing |
 | `odf_registry_read` | Read and cache `odf-registry.json` with TTL and file watcher |
@@ -84,6 +90,10 @@ Each phase is a sub-agent with a defined input/output contract. The orchestrator
 | `odf_community_tool_detect` | Check if a community tool (e.g., CodeGraph) is available |
 | `odf_community_tool_install` | Install and wire a community tool |
 | `odf_status` | Resolve ODF change status from Engram observations |
+| `odf_workflow_status` | Read canonical workflow status (stages, receipts, resumability) |
+| `odf_policy_gate` | Resolve + persist the TDD/risk Policy Gate before IMPLEMENT/VERIFY |
+| `odf_receipt` | Persist a failure-disposition receipt for a change |
+| `odf_health` | Read-only installed/runtime ODF health check |
 
 ### Skills system
 

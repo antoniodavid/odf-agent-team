@@ -40,6 +40,29 @@ import {
   type ODFSkill,
 } from "../odf-plugin/odf-delegation-shared.js"
 import {
+  REGISTRY_PATH,
+  computePermissionsFingerprint,
+  hasSkillsChanged,
+  loadRegistry,
+  loadRegistryCache,
+  resetRegistryCache,
+  saveRegistryCache,
+  type RegistryCache,
+} from "../odf-plugin/odf-registry-io.js"
+import {
+  createODFSkillInject,
+  createODFSkillResolve,
+  detectOdooVersion,
+  formatCompactRules,
+  formatProfileBlock,
+  getProfileByPhase,
+  matchSkills,
+} from "../odf-plugin/odf-skills.js"
+import {
+  createODFCommunityToolDetect,
+  createODFCommunityToolInstall,
+} from "../odf-plugin/odf-community-tools.js"
+import {
   type DelegationMetrics,
   flushMetricsSync,
   getMetricsBufferCap,
@@ -64,6 +87,7 @@ import {
   inspectODFHealth,
   type HealthIo,
   type TaskApi,
+  createODFHealth,
 } from "../odf-plugin/odf-delegation-health.js"
 import {
   classifyRiskTier,
@@ -106,8 +130,18 @@ import {
   writeParallelJoinArtifact,
   type ParallelJoinArtifact,
 } from "../odf-plugin/odf-parallel-join.js"
-import { buildCandidateManifest, computeCandidateDigest, extractChangedPaths } from "../odf-plugin/candidate-manifest.js"
-import { classifyEntryTriage, type EntryTriageInput } from "../odf-plugin/entry-triage.js"
+import {
+  candidateDigestOrNull,
+  createODFReceipt,
+  mergeReceipt,
+  saveReceiptJson,
+  type ODFReceipt,
+} from "../odf-plugin/odf-delegation-receipts.js"
+
+// Kept exported for the plugin public surface and unit tests.
+export { createODFReceipt, mergeReceipt, saveReceiptJson }
+export type { ODFReceipt }
+import { classifyEntryTriage, createODFEntryTriage, type EntryTriageInput } from "../odf-plugin/entry-triage.js"
 import { validateExpectations, validDate } from "../odf-plugin/odf-expectations.js"
 import { sanitizeChangeName, validatePreflight, type PreflightRecord } from "../scripts/lib/preflight.js"
 import { inspectToolArgs } from "../scripts/odf-safety.js"
@@ -127,113 +161,6 @@ import {
 
 
 // ==========================================
-// ==========================================
-// ODF REGISTRY
-// ==========================================
-
-const REGISTRY_PATH = path.join(getOdfConfigDir(), "odf-registry.json")
-
-// Registry cache with TTL (5 seconds) to avoid disk reads on every tool call
-let registryCache: ODFRegistry | null = null
-let registryCacheTime = 0
-const REGISTRY_CACHE_TTL_MS = 5000
-
-// Hot-reload: watch registry file for changes
-let registryWatcher: fsSync.FSWatcher | null = null
-function startRegistryWatcher(): void {
-  if (registryWatcher) return
-  try {
-    registryWatcher = fsSync.watch(REGISTRY_PATH, (eventType) => {
-      if (eventType === "change") {
-        registryCache = null
-        registryCacheTime = 0
-        debugLog(`[odf-delegation] Registry changed on disk. Cache invalidated.`)
-      }
-    })
-  } catch {
-    // Registry file may not exist yet — watcher will be started on first load
-  }
-}
-
-async function loadRegistry(): Promise<ODFRegistry | null> {
-  const now = Date.now()
-  if (registryCache && (now - registryCacheTime) < REGISTRY_CACHE_TTL_MS) {
-    return registryCache
-  }
-  try {
-    const data = await fs.readFile(REGISTRY_PATH, "utf8")
-    const parsed = JSON.parse(data) as ODFRegistry
-    const registryDir = path.dirname(REGISTRY_PATH)
-
-    // Resolve relative skill/agent paths against the registry directory
-    for (const skill of parsed.skills || []) {
-      skill.path = resolvePath(registryDir, skill.path)
-    }
-    for (const agent of parsed.agents || []) {
-      agent.path = resolvePath(registryDir, agent.path)
-    }
-
-    registryCache = parsed
-    registryCacheTime = now
-    startRegistryWatcher()
-    return parsed
-  } catch (err) {
-    if (err && (err as NodeJS.ErrnoException).code === "ENOENT") {
-      return null
-    }
-    console.warn(`[odf-delegation] Registry at ${REGISTRY_PATH} is unreadable or corrupt: ${err}`)
-    return null
-  }
-}
-
-// ==========================================
-// VERSION DETECTION
-// ==========================================
-
-async function detectOdooVersion(projectDir: string): Promise<number | null> {
-  try {
-    // Try to find __manifest__.py in project or subdirectories
-    const manifestPaths = [
-      path.join(projectDir, "__manifest__.py"),
-      path.join(projectDir, "*", "__manifest__.py"),
-    ]
-    
-    for (const pattern of manifestPaths) {
-      if (pattern.includes("*")) {
-        // Glob-like: check direct children
-        const entries = await fs.readdir(projectDir, { withFileTypes: true })
-        for (const entry of entries) {
-          if (entry.isDirectory()) {
-            const manifestPath = path.join(projectDir, entry.name, "__manifest__.py")
-            try {
-              const content = await fs.readFile(manifestPath, "utf8")
-              const versionMatch = content.match(/['"]version['"]\s*:\s*['"](\d+)\.\d+/)
-              if (versionMatch) {
-                return parseInt(versionMatch[1], 10)
-              }
-            } catch {
-              // Continue to next directory
-            }
-          }
-        }
-      } else {
-        try {
-          const content = await fs.readFile(pattern, "utf8")
-          const versionMatch = content.match(/['"]version['"]\s*:\s*['"](\d+)\.\d+/)
-          if (versionMatch) {
-            return parseInt(versionMatch[1], 10)
-          }
-        } catch {
-          // Continue
-        }
-      }
-    }
-  } catch {
-    // Could not detect version
-  }
-  return null
-}
-
 // ==========================================
 // AUTO-DISCOVERY
 // ==========================================
@@ -258,88 +185,6 @@ async function discoverUnregisteredSkills(registry: ODFRegistry): Promise<string
   }
 
   return unregistered
-}
-
-// ==========================================
-// CACHE FINGERPRINT (P0.3: Startup perf)
-// ==========================================
-
-const CACHE_FILE = path.join(getOdfConfigDir(), ".registry-cache.json")
-
-interface CacheEntry {
-  path: string
-  mtime: string
-  size: number
-}
-
-interface RegistryCache {
-  timestamp: string
-  last_refresh: string
-  skills: CacheEntry[]
-  permissions_fingerprint: string
-}
-
-async function loadRegistryCache(): Promise<RegistryCache | null> {
-  try {
-    const data = await fs.readFile(CACHE_FILE, "utf8")
-    return JSON.parse(data)
-  } catch {
-    return null
-  }
-}
-
-async function saveRegistryCache(cache: RegistryCache): Promise<void> {
-  try {
-    await fs.writeFile(CACHE_FILE, JSON.stringify(cache, null, 2), "utf8")
-  } catch {
-    // Cache file is optional
-  }
-}
-
-async function computePermissionsFingerprint(registry: ODFRegistry): Promise<string> {
-  // Include rule content so cache invalidation follows behavior, not only metadata.
-  const parts = registry.skills.map(s => JSON.stringify({
-    name: s.name,
-    version: (s as any).version || "1.0",
-    triggers: s.triggers,
-    compact_rules: s.compact_rules,
-  })).sort()
-  const hash = await crypto.subtle?.digest?.("SHA-256", new TextEncoder().encode(parts.join("|")))
-  if (hash) {
-    return Array.from(new Uint8Array(hash)).slice(0, 8).map(b => b.toString(16)).join("")
-  }
-  return parts.length.toString()
-}
-
-async function hasSkillsChanged(): Promise<boolean> {
-  const cache = await loadRegistryCache()
-  if (!cache) return true
-
-  const skillsDir = path.join(getOdfConfigDir(), "skills")
-  try {
-    const entries = await fs.readdir(skillsDir, { recursive: true })
-    const skillFiles = entries.filter(e => e.endsWith("SKILL.md"))
-
-    for (const file of skillFiles) {
-      const fullPath = path.join(skillsDir, file)
-      try {
-        const stat = await fs.stat(fullPath)
-        const cached = cache.skills.find(c => c.path === fullPath)
-        if (!cached || cached.mtime !== stat.mtime.toISOString() || cached.size !== stat.size) {
-          return true
-        }
-      } catch {
-        return true
-      }
-    }
-
-    // Check for removed skills
-    if (skillFiles.length !== cache.skills.length) return true
-
-    return false
-  } catch {
-    return false
-  }
 }
 
 // ==========================================
@@ -401,154 +246,6 @@ async function learnFromMetrics(): Promise<LearningInsight[]> {
 
   result.sort((a, b) => b.success_rate - a.success_rate)
   return result
-}
-
-async function getProfileByPhase(
-  registry: ODFRegistry,
-  phase: string,
-  profileName?: string
-): Promise<{ model: string; temperature: number; reasoning?: boolean; name?: string } | null> {
-  if (!registry.profiles) return null
-
-  // Find active profile first
-  const profiles = registry.profiles as any[]
-  const selectedProfile = profileName
-    ? profiles.find(p => p.name === profileName)
-    : profiles.find(p => p.active === true) || profiles.find(p => p.name === "default") || profiles[0]
-
-  if (selectedProfile && selectedProfile.phases && selectedProfile.phases[phase.toUpperCase()]) {
-    return {
-      ...selectedProfile.phases[phase.toUpperCase()],
-      name: selectedProfile.name,
-    }
-  }
-
-  // Fall back to flat profile structure
-  const flatProfile = registry.profiles.find(p => (p as any).phase === phase.toUpperCase())
-  if (flatProfile) {
-    return {
-      model: (flatProfile as any).model,
-      temperature: (flatProfile as any).temperature,
-      reasoning: (flatProfile as any).reasoning,
-    }
-  }
-
-  return null
-}
-
-function formatProfileBlock(
-  profile: { model: string; temperature: number; reasoning?: boolean; name?: string },
-  phase: string
-): string {
-  return `## SDD Profile (auto-resolved)
-Profile: ${profile.name || "default"}
-Phase: ${phase}
-Model: ${profile.model ?? "current (inherited)"}
-Temperature: ${profile.temperature}
-Reasoning: ${profile.reasoning ? "enabled" : "disabled"}`
-}
-
-// ==========================================
-// SKILL MATCHING
-// ==========================================
-
-function matchSkills(
-  registry: ODFRegistry,
-  phase: string | null,
-  context: { files?: string[]; task?: string; odooVersion?: number | null }
-): ODFSkill[] {
-  const matches: ODFSkill[] = []
-  const taskLower = context.task?.toLowerCase() || ""
-  const normalizedPhase = phase?.toUpperCase() || null
-  const canonicalName = normalizedPhase === "QA-PLAN"
-    ? "odf-qa"
-    : normalizedPhase
-      ? `odf-${normalizedPhase.toLowerCase()}`
-      : null
-
-  for (const skill of registry.skills) {
-    const isOdfSkill = skill.category === "odf" || skill.category.startsWith("odf/")
-    if (isOdfSkill && normalizedPhase && skill.sdd_phase && skill.sdd_phase.toUpperCase() !== normalizedPhase) {
-      continue
-    }
-
-    const isCanonical = skill.name === canonicalName
-    // Version pinning: skip skills that don't support the detected version
-    if (context.odooVersion && skill.odoo_versions.length > 0) {
-      if (!skill.odoo_versions.includes(context.odooVersion)) {
-        continue
-      }
-    }
-
-    let score = 0
-
-    // Match by file context
-    if (context.files) {
-      for (const file of context.files) {
-        const fileLower = file.toLowerCase()
-        for (const trigger of skill.triggers) {
-          if (fileLower.includes(trigger.toLowerCase())) {
-            score += 2
-          }
-        }
-      }
-    }
-
-    // Match by task context
-    for (const trigger of skill.triggers) {
-      if (taskLower.includes(trigger.toLowerCase())) {
-        score += 1
-      }
-    }
-
-    if (score > 0 || isCanonical) {
-      matches.push({ ...skill, _score: score, _canonical: isCanonical } as ODFSkill & { _score: number; _canonical: boolean })
-    }
-  }
-
-  // Sort by score (desc) then by compact_rules length (more specific first)
-  matches.sort((a: any, b: any) => {
-    if (b._canonical !== a._canonical) {
-      return Number(b._canonical) - Number(a._canonical)
-    }
-    if (b._score !== a._score) {
-      return b._score - a._score
-    }
-    return b.compact_rules.length - a.compact_rules.length
-  })
-
-  return matches.slice(0, 5)
-}
-
-// Karpathy-inspired precision guardrails — always injected first
-const KARPATHY_COMPACT_RULES = [
-  "- State assumptions explicitly before implementing. If uncertain, ask.",
-  "- If multiple interpretations exist, present all — do NOT pick silently.",
-  "- No features beyond what was asked. No abstractions for single-use code.",
-  "- No 'flexibility' or 'configurability' that wasn't requested.",
-  "- Don't 'improve' adjacent code, comments, or formatting.",
-  "- Don't refactor things that aren't broken. Match existing style.",
-  "- Every changed line must trace directly to the task requirement.",
-  "- Transform 'fix bug' → 'write failing test first, then make it pass'.",
-  "- For multi-step: state plan with verification per step.",
-  "- If 200 lines could be 50, rewrite it smaller.",
-].join("\n")
-
-function formatCompactRules(skills: ODFSkill[]): string {
-  const sections: string[] = ["## Project Standards (auto-resolved)\n"]
-
-  // Precision guardrails always injected first (karpathy-precision)
-  sections.push("### Precision Guardrails")
-  sections.push(KARPATHY_COMPACT_RULES)
-  sections.push("")
-
-  for (const skill of skills) {
-    sections.push(`### ${skill.title}`)
-    sections.push(skill.compact_rules)
-    sections.push("")
-  }
-
-  return sections.join("\n")
 }
 
 // ==========================================
@@ -962,12 +659,6 @@ function withAttemptLedgerLock<T>(ledgerPath: string, operation: () => T): Attem
   }
 }
 
-/** Candidate digest of a workspace, or null when git is unavailable (T3 makes it mandatory). */
-function candidateDigestOrNull(workspaceDir: string): string | null {
-  const manifest = buildCandidateManifest(workspaceDir)
-  return manifest.base_head !== null ? computeCandidateDigest(manifest) : null
-}
-
 function acquireAttempt(opts: {
   workspaceDir: string
   change: string
@@ -1252,161 +943,6 @@ export function validateValidationEvidence(opts: {
     commands_validated: checked,
     ...(expectationsIds?.length ? { expectations_ids: expectationsIds } : {}),
   }
-}
-
-// ==========================================
-// RECEIPT + FAILURE DISPOSITION (slice 4)
-// ==========================================
-
-export interface ODFReceipt {
-  change: string
-  phase: "PROPOSE" | "ASSESS" | "QA-PLAN" | "DESIGN" | "IMPLEMENT" | "VERIFY" | "EXPLORE" | "FIX"
-  status: "ok" | "warning" | "blocked" | "failed"
-  cause: "validation-failed" | "error" | "timeout" | "scope-change" | "re-plan" | "abandon" | null
-  evidence: {
-    summary: string
-    frozen_diff_ref: string | null
-    failing: string[]
-    refs: string[]
-  } | null
-  action: { committed: "scope-change" | "re-plan" | "abandon" | "retry" | "none"; user_decision?: string } | null
-  review_gate: { attempts_used: number; budget_lines: number | null; verdict: "FAIL" | "PASS" | "PASS_WITH_WARNINGS" } | null
-  frozen_diff_ref: string | null
-  candidate_digest?: string | null
-  expectations_ids?: string[]
-  resolved_at: string
-  parallel?: {
-    branch_ids: string[]
-    summaries: Record<string, string>
-    attempt_ledger_refs: string[]
-    validation_evidence_refs: string[]
-  }
-}
-
-export function saveReceiptJson(workspaceDir: string, receipt: ODFReceipt): void {
-  try {
-    const dir = path.join(workspaceDir, ".odf")
-    fsSync.mkdirSync(dir, { recursive: true })
-    fsSync.writeFileSync(
-      path.join(dir, `receipt-${receipt.change}.json`),
-      JSON.stringify(receipt, null, 2),
-      "utf8"
-    )
-  } catch (err) {
-    console.warn(`[odf-delegation] Failed to persist receipt for ${receipt.change}: ${err}`)
-  }
-}
-
-/**
- * Upsert a receipt without clobbering a resolved one. A receipt whose `action`
- * is set is terminal until a deliberate transition; an update with `action:
- * null` never overwrites an existing set action.
- *
- * A written receipt is bound to the candidate digest current at write time
- * (stamped over any caller value), so a later write for the same change after a
- * candidate mutation never inherits the old candidate's binding.
- */
-export function mergeReceipt(
-  workspaceDir: string,
-  incoming: ODFReceipt
-): ODFReceipt {  try {
-    const existing = JSON.parse(
-      fsSync.readFileSync(path.join(workspaceDir, ".odf", `receipt-${incoming.change}.json`), "utf8")
-    ) as ODFReceipt
-    if (existing.action && !incoming.action) {
-      return existing
-    }
-    if (existing.action && incoming.action && incoming.action.committed !== "retry") {
-      return existing
-    }
-  } catch {
-    // No prior receipt or unreadable → write incoming.
-  }
-  incoming.candidate_digest = candidateDigestOrNull(workspaceDir)
-  saveReceiptJson(workspaceDir, incoming)
-  return incoming
-}
-
-export function createODFReceipt(): ReturnType<typeof tool> {
-  return tool({    description: `Persist an ODF receipt (failure disposition) for a change.
-
-Writes/merges <worktree>/.odf/receipt-{change}.json. Use after a phase fails or
-blocked: record the cause, evidence refs, and the committed action
-(scope-change | re-plan | abandon | retry). A receipt with an action set is
-terminal until a deliberate transition — an update without action never
-overwrites it. Best-effort like the policy gate: never blocks the flow.`,
-    args: {
-      change: tool.schema
-        .string()
-        .describe("Change name (kebab-case)"),
-      phase: tool.schema
-        .enum(["PROPOSE", "ASSESS", "QA-PLAN", "DESIGN", "IMPLEMENT", "VERIFY", "EXPLORE", "FIX"])
-        .describe("Phase that produced the receipt"),
-      status: tool.schema
-        .enum(["ok", "warning", "blocked", "failed"])
-        .describe("Phase outcome (result-contract status)"),
-      cause: tool.schema
-        .enum(["validation-failed", "error", "timeout", "scope-change", "re-plan", "abandon"])
-        .optional()
-        .describe("Why the phase failed/blocked"),
-      evidence_summary: tool.schema
-        .string()
-        .optional()
-        .describe("Short decision-grade summary of the evidence"),
-      failing: tool.schema
-        .array(tool.schema.string())
-        .optional()
-        .describe("Commands/tests that failed"),
-      refs: tool.schema
-        .array(tool.schema.string())
-        .optional()
-        .describe("Topic keys / paths of the evidence (e.g. odf/{change}/verify-report)"),
-      action: tool.schema
-        .enum(["scope-change", "re-plan", "abandon", "retry", "none"])
-        .optional()
-        .describe("Committed next step (set when the user decides)"),
-      workspace_dir: tool.schema
-        .string()
-        .optional()
-        .describe("Project directory (defaults to cwd)"),
-    },
-    async execute(args: {
-      change: string
-      phase: ODFReceipt["phase"]
-      status: ODFReceipt["status"]
-      cause?: ODFReceipt["cause"]
-      evidence_summary?: string
-      failing?: string[]
-      refs?: string[]
-      action?: "scope-change" | "re-plan" | "abandon" | "retry" | "none"
-      workspace_dir?: string
-    }): Promise<string> {
-      const workspace = resolveWorkspaceRoot(args.workspace_dir || process.cwd())
-      const receipt: ODFReceipt = {
-        change: args.change,
-        phase: args.phase,
-        status: args.status,
-        cause: args.cause || null,
-        evidence:
-          args.evidence_summary || args.failing?.length || args.refs?.length
-            ? {
-                summary: args.evidence_summary || "",
-                frozen_diff_ref: gitHead(workspace),
-                failing: args.failing || [],
-                refs: args.refs || [],
-              }
-            : null,
-      action: args.action ? { committed: args.action } : null,
-      review_gate: args.phase === "VERIFY" ? { attempts_used: 1, budget_lines: null, verdict: args.status === "ok" ? "PASS" : args.status === "warning" ? "PASS_WITH_WARNINGS" : "FAIL" } : null,
-      frozen_diff_ref: gitHead(workspace),
-      resolved_at: new Date().toISOString(),
-    }
-    const merged = mergeReceipt(workspace, receipt)
-    const mergedAction = merged.action?.committed || "pending"
-    debugLog(`[odf-delegation] odf_receipt: change=${merged.change} phase=${merged.phase} status=${merged.status} cause=${merged.cause} action=${mergedAction}`)
-    return JSON.stringify(merged, null, 2)
-  },
-})
 }
 
 function createODFPolicyGate(): ReturnType<typeof tool> {
@@ -2400,6 +1936,7 @@ Use this instead of generic task() for ODF workflow delegation.`,
             reason,
             phase: args.phase,
             agent: agentName,
+            skills_injected: skills.map(s => s.name),
             profile: profilePayload,
             policy_gate: policyGate,
             validation: null,
@@ -3368,49 +2905,6 @@ must not overlap. VERIFY remains sequential after the aggregate join is complete
   })
 }
 
-function createODFSkillInject(): ReturnType<typeof tool> {
-  return tool({
-    description: `Read the ODF registry and return compact rules for matching skills.
-
-Use this to manually inject standards into a sub-agent prompt when not using odf_delegate.`,
-    args: {
-      context_files: tool.schema
-        .array(tool.schema.string())
-        .optional()
-        .describe("Files being worked on"),
-      task_description: tool.schema
-        .string()
-        .optional()
-        .describe("Description of the task"),
-      max_skills: tool.schema
-        .number()
-        .optional()
-        .describe("Max skills to return (default: 5)"),
-    },
-    async execute(args: { context_files?: string[]; task_description?: string; max_skills?: number }): Promise<string> {
-      const registry = await loadRegistry()
-      if (!registry) {
-        return "❌ ODF registry not found"
-      }
-
-       const skills = matchSkills(registry, null, {
-        files: args.context_files,
-        task: args.task_description,
-      })
-      debugLog(`[odf-delegation] odf_skill_inject: matched ${skills.length} skills`)
-
-      const limit = args.max_skills || 5
-      const limited = skills.slice(0, limit)
-
-      if (limited.length === 0) {
-        return "No matching skills found in registry for the given context."
-      }
-
-      return formatCompactRules(limited)
-    },
-  })
-}
-
 function createODFNotebookLMLookup(): ReturnType<typeof tool> {
   return tool({
     description: `Resolve an Odoo domain to its NotebookLM notebook ID.
@@ -3472,113 +2966,6 @@ Reasoning: ${profile.reasoning ? "enabled" : "disabled"}`
   })
 }
 
-function createODFSkillResolve(): ReturnType<typeof tool> {
-  return tool({
-    description: `Preview what skills, agent, and profile would be selected for a task WITHOUT executing.
-
-Use this for debugging:
-- "Why was agent X chosen?"
-- "What skills would match?"
-- "Which profile applies?"`,
-    args: {
-      phase: tool.schema
-        .string()
-        .describe("ODF phase: PROPOSE, ASSESS, QA-PLAN, DESIGN, IMPLEMENT, VERIFY, EXPLORE"),
-      task: tool.schema
-        .string()
-        .describe("Task description to analyze"),
-      context_files: tool.schema
-        .array(tool.schema.string())
-        .optional()
-        .describe("Files involved (for skill matching)"),
-      odoo_version: tool.schema
-        .number()
-        .optional()
-        .describe("Odoo version (auto-detected if not provided)"),
-    },
-    async execute(args: { phase: string; task: string; context_files?: string[]; odoo_version?: number }): Promise<string> {
-      const registry = await loadRegistry()
-      if (!registry) {
-        return "❌ ODF registry not found"
-      }
-
-      // Detect version if not provided
-      let version = args.odoo_version || null
-      if (!version) {
-        // Try to detect from current working directory
-        version = await detectOdooVersion(process.cwd())
-      }
-
-      // Resolve agent
-      const keywords = args.task.split(/\s+/).slice(0, 10)
-      const agentName = resolveAgent(registry, args.phase, keywords)
-      const agent = registry.agents.find(a => a.name === agentName)
-
-      // Match skills
-       const skills = matchSkills(registry, args.phase, {
-        files: args.context_files,
-        task: args.task,
-        odooVersion: version,
-      })
-
-      // Get profile (named profile format)
-      const profile = await getProfileByPhase(registry, args.phase)
-
-      const lines: string[] = [
-        "## ODF Skill Resolution (Preview)",
-        "",
-        `**Phase:** ${args.phase}`,
-        `**Odoo Version:** ${version || "not detected (no version filter applied)"}`,
-        "",
-        "### Agent Resolution",
-        `**Selected:** ${agentName || "none"}`,
-      ]
-
-      if (agent) {
-        lines.push(`**Description:** ${agent.description}`)
-        lines.push(`**Phases:** ${agent.phases.join(", ")}`)
-        lines.push(`**Installed:** ${agent.installed}`)
-      } else {
-        lines.push(`**Status:** ⚠️ Agent not found in registry`)
-      }
-
-      lines.push("")
-      lines.push("### Skill Matching")
-      lines.push(`**Matched:** ${skills.length} skill(s)`)
-
-      if (skills.length > 0) {
-        for (const skill of skills) {
-          const score = (skill as any)._score || "?"
-          const versionNote = skill.odoo_versions.length > 0
-            ? ` [v${skill.odoo_versions.join(",")}]`
-            : " [all versions]"
-          lines.push(`- **${skill.title}** (${skill.name}) — score: ${score}${versionNote}`)
-        }
-      } else {
-        lines.push("_No skills matched the task/files/version._")
-      }
-
-      lines.push("")
-      lines.push("### SDD Profile")
-      if (profile) {
-        lines.push(`**Model:** ${profile.model ?? "current (inherited)"}`)
-        lines.push(`**Temperature:** ${profile.temperature}`)
-        lines.push(`**Reasoning:** ${profile.reasoning ? "enabled" : "disabled"}`)
-      } else {
-        lines.push("_No profile for this phase._")
-      }
-
-      lines.push("")
-      lines.push("### Filtered Keywords")
-      const filtered = filterStopWords(keywords)
-      lines.push(`Original: [${keywords.join(", ")}]`)
-      lines.push(`Filtered: [${filtered.join(", ")}]`)
-
-      return lines.join("\n")
-    },
-  })
-}
-
 function createODFRegistryRead(): ReturnType<typeof tool> {
   return tool({
     description: `Read the full ODF registry or query specific entries.`,
@@ -3622,184 +3009,6 @@ function createODFRegistryRead(): ReturnType<typeof tool> {
       return results.join("\n")
     },
   })
-}
-
-function createODFHealth(client?: OpencodeClient, io: HealthIo = defaultHealthIo): ReturnType<typeof tool> {
-  return tool({
-    description: `Read-only installed/runtime ODF health check.
-
-Checks the installed registry, plugin, command, SDK session delegation capability, and optional
-Engram CLI metadata. It never calls task(), Odoo, PostgreSQL, or engram export;
-task usability remains unverified because probing it would execute work.`,
-    args: {},
-    async execute(_args: Record<string, never>, toolCtx: ToolContext): Promise<string> {
-      return JSON.stringify(await inspectODFHealth(toolCtx, client, io), null, 2)
-    },
-  })
-}
-
-// ==========================================
-// COMMUNITY TOOLS
-// ==========================================
-
-const COMMUNITY_TOOL_GUIDANCE: Record<string, string> = {
-  codegraph: `## CodeGraph
-
-When answering structural or codebase questions about Odoo, use CodeGraph before broad filesystem searches. This is a hard ordering rule for repo maps, architecture, call flow, dependencies, symbol references, and impact analysis.
-
-Required order for structural/codebase questions:
-
-1. Resolve the project root with \`git rev-parse --show-toplevel || pwd\`.
-2. Confirm the root is a real project/workspace. Do not initialize CodeGraph in \$HOME or temporary directories.
-3. Check for <project-root>/.codegraph/ before any broad Read/Glob/Grep exploration.
-4. If .codegraph/ is missing and codegraph CLI is available, run \`codegraph init <project-root>\` once, then use \`codegraph_explore\`.
-5. Only fall back to normal filesystem tools after CodeGraph init or CodeGraph use fails.
-
-Broad Read/Glob/Grep before this CodeGraph check is explicitly discouraged for structural questions.`,
-}
-
-function createODFCommunityToolDetect(): ReturnType<typeof tool> {
-  return tool({
-    description: `Detect the status of a community tool: CLI availability, npm package, and agent guidance wiring.
-
-Returns structured JSON with CLI path, installed version, and agent wiring status.`,
-    args: {
-      tool_name: tool.schema
-        .string()
-        .describe("Community tool name from registry: codegraph"),
-    },
-    async execute(args: { tool_name: string }): Promise<string> {
-      const registry = await loadRegistry()
-      if (!registry) {
-        return JSON.stringify({ status: "error", message: "ODF registry not found" })
-      }
-
-      const def = registry.community_tools?.find(t => t.name === args.tool_name)
-      if (!def) {
-        return JSON.stringify({ status: "error", message: `Unknown community tool "${args.tool_name}"` })
-      }
-
-      const result: Record<string, any> = {
-        tool: def.name,
-        title: def.title,
-        package: def.package_name,
-        command: def.command_name,
-        cli: { available: false, path: null, version: null },
-        npm: { installed: false },
-        guidance: { configured: false },
-      }
-
-      // Check CLI availability
-      try {
-        const which = process.platform === "win32" ? "where" : "which"
-        const cliPath = execFileSync(which, [def.command_name], { encoding: "utf8" }).trim()
-        if (cliPath) {
-          result.cli = { available: true, path: cliPath.split("\n")[0], version: null }
-          try {
-            const ver = execFileSync(def.command_name, ["--version"], { encoding: "utf8" }).trim()
-            if (ver) result.cli.version = ver.split("\n")[0]
-          } catch {
-            // version not available
-          }
-        }
-      } catch {
-        // CLI not found
-      }
-
-      // Check npm package locally
-      try {
-        const pkgPath = path.join(getOdfConfigDir(), "node_modules", def.package_name.split("@")[1] || def.package_name)
-        await fs.access(pkgPath)
-        result.npm = { installed: true }
-      } catch {
-        // Not installed in ODF config dir
-      }
-
-      return JSON.stringify(result, null, 2)
-    },
-  })
-}
-
-function createODFCommunityToolInstall(): ReturnType<typeof tool> {
-  return tool({
-    description: `Install a community tool (npm package) and inject guidance into ODF agent instructions.
-
-Runs npm install for the tool package and writes the CodeGraph-style guidance block
-into the orchestrator's agent instructions for lazy-init wiring.`,
-    args: {
-      tool_name: tool.schema
-        .string()
-        .describe("Community tool name from registry: codegraph"),
-      workspace_dir: tool.schema
-        .string()
-        .optional()
-        .describe("Project directory to init codegraph index in (codegraph only)"),
-    },
-    async execute(args: { tool_name: string; workspace_dir?: string }): Promise<string> {
-      const registry = await loadRegistry()
-      if (!registry) {
-        return "❌ ODF registry not found"
-      }
-
-      const def = registry.community_tools?.find(t => t.name === args.tool_name)
-      if (!def) {
-        return `❌ Unknown community tool "${args.tool_name}"`
-      }
-
-      const results: string[] = []
-
-      // Step 1: npm install
-      try {
-        execFileSync("npm", ["install", "--no-audit", "--no-fund", def.package_name], {
-          cwd: getOdfConfigDir(),
-          encoding: "utf8",
-          timeout: 120_000,
-        })
-        results.push(`✅ npm install ${def.package_name} succeeded`)
-      } catch (err) {
-        results.push(`⚠️ npm install ${def.package_name}: ${(err as Error).message || String(err)}`)
-      }
-
-      // Step 2: Mark installed in registry cache
-      if (registry.community_tools) {
-        const idx = registry.community_tools.findIndex(t => t.name === args.tool_name)
-        if (idx >= 0) {
-          registry.community_tools[idx].installed = true
-        }
-      }
-
-      // Step 3: Init codegraph index if workspace dir provided
-      if (args.tool_name === "codegraph" && args.workspace_dir) {
-        try {
-          execFileSync("codegraph", ["init", args.workspace_dir], { encoding: "utf8", timeout: 60_000 })
-          results.push(`✅ codegraph init ${args.workspace_dir} succeeded`)
-        } catch (err) {
-          results.push(`⚠️ codegraph init skipped: ${(err as Error).message || String(err)}`)
-        }
-      }
-
-      return results.join("\n")
-    },
-  })
-}
-
-function injectCommunityToolGuidance(prompt: string, registry: ODFRegistry): string {
-  if (!registry.community_tools) return prompt
-
-  let guidance = ""
-  for (const tool of registry.community_tools) {
-    if (tool.installed && COMMUNITY_TOOL_GUIDANCE[tool.name]) {
-      guidance += `\n\n${COMMUNITY_TOOL_GUIDANCE[tool.name]}`
-    }
-  }
-  if (!guidance) return prompt
-
-  // Inject after ## Project Standards or at the top
-  const marker = "## Project Standards (auto-resolved)"
-  if (prompt.includes(marker)) {
-    return prompt.replace(marker, `${marker}\n${guidance}`)
-  }
-  return `${guidance}\n\n---\n\n${prompt}`
 }
 
 // ==========================================
@@ -4144,6 +3353,8 @@ interface LegacyWorkflowMaterialization {
   state_ref: string
   canonical_stage: WorkflowStage | null
   completed_stages: CanonicalStage[]
+  /** P2 adapter diagnostics: what the harness saw when a phase boundary blocked. */
+  artifacts_seen?: string[]
 }
 
 const LEGACY_CANONICAL_BOUNDARIES: Partial<Record<"ASSESS" | "DESIGN", CanonicalStage>> = {
@@ -4338,14 +3549,23 @@ async function materializeLegacyCanonicalBoundary(opts: {
       source: store,
     })
     if (!expectedPrefix.every(stage => artifactStatus.completed_canonical_stages.includes(stage))) {
+      // Adapter diagnostics (P2): show what the harness saw so a naming
+      // mismatch (e.g. assessment.md vs assess.md) is visible at the block.
+      const artifactsSeen = read.snapshot.artifacts.map((artifact) => {
+        const normalized = normalizeArtifactKey(artifact.key)
+        return normalized.group
+          ? `${normalized.original} (${normalized.type} → ${normalized.group})`
+          : `${normalized.original} (unrecognized phase artifact)`
+      }).slice(0, 12)
       return {
         status: "blocked",
         reason: `workflow-${opts.phase.toLowerCase()}-artifact-not-terminal`,
-        message: `${opts.phase} requires terminal artifacts for ${expectedPrefix.join(" and ")}; persist and complete the phase artifacts before continuing.`,
+        message: `${opts.phase} requires terminal artifacts for ${expectedPrefix.join(" and ")}; persist and complete the phase artifacts before continuing. Artifacts seen: ${artifactsSeen.length ? artifactsSeen.join("; ") : "none"}`,
         store,
         state_ref: stateRef,
         canonical_stage: read.snapshot.status.canonical_stage,
         completed_stages: persistedCompletedStages(read.snapshot, route),
+        artifacts_seen: artifactsSeen,
       }
     }
 
@@ -6010,71 +5230,6 @@ function createODFWorkflowRoute(): ReturnType<typeof tool> {
   })
 }
 
-function createODFEntryTriage(): ReturnType<typeof tool> {
-  return tool({
-    description: `Classify an ODF change entry as micro, standard, or full and select an existing canonical work type.
-
-Pure and read-only: no disk, registry, delegation, or side effects. If needs_question
-is true, ask one grouped question for the missing facts and re-run.`,
-    args: {
-      command: tool.schema
-        .string()
-        .optional()
-        .describe("Origin command (odf-new or odf-fix)"),
-      change: tool.schema
-        .string()
-        .optional()
-        .describe("Change name in kebab-case"),
-      description: tool.schema
-        .string()
-        .describe("User description of the change"),
-      explicit_work_type: tool.schema
-        .enum([...WORK_TYPES])
-        .optional()
-        .describe("Explicit canonical work type to honor"),
-      module: tool.schema
-        .string()
-        .optional()
-        .describe("Primary Odoo module (micro eligibility)"),
-      domain: tool.schema
-        .string()
-        .optional()
-        .describe("Functional domain (micro eligibility)"),
-      expected_files: tool.schema
-        .number()
-        .optional()
-        .describe("Forecast number of files to change (micro eligibility)"),
-      expectations_clear: tool.schema
-        .boolean()
-        .optional()
-        .describe("Whether expectations are clear (micro eligibility)"),
-      risk_signals: tool.schema
-        .array(tool.schema.string())
-        .optional()
-        .describe("Risk signals detected by the caller (security, migration, payment, public-api, data-loss, pii)"),
-      known_modules: tool.schema
-        .array(tool.schema.string())
-        .optional()
-        .describe("Project module names from odf-init/{project}; unknown modules are flagged as warnings"),
-    },
-    async execute(args: Omit<EntryTriageInput, "change"> & { change?: string }): Promise<string> {
-      const result = classifyEntryTriage({
-        command: args.command,
-        change: args.change || "",
-        description: args.description || "",
-        explicit_work_type: args.explicit_work_type,
-        module: args.module,
-        domain: args.domain,
-        expected_files: args.expected_files,
-        expectations_clear: args.expectations_clear,
-        risk_signals: args.risk_signals,
-        known_modules: args.known_modules,
-      })
-      return JSON.stringify(result, null, 2)
-    },
-  })
-}
-
 /**
  * Audited phase override: skip (DECIDE/PLAN only), re-enter, or re-plan (with
  * an approved Expectations revision). Requires an explicit human-approved
@@ -6410,8 +5565,7 @@ export const OdfDelegationPlugin: Plugin = async (ctx) => {
   const needsRefresh = await hasSkillsChanged()
   if (needsRefresh) {
     debugLog(`[odf-delegation] Skills changed since last refresh. Invalidating registry cache.`)
-    registryCache = null
-    registryCacheTime = 0
+    resetRegistryCache()
   }
 
   // Update permissions cache (P0.3)

@@ -11,6 +11,7 @@
  */
 
 import { WORK_TYPES, type WorkType } from "./odf-workflow.js"
+import { tool } from "@opencode-ai/plugin"
 
 export type EntryLevel = "micro" | "standard" | "full"
 export type EntryClarity = "clear" | "unclear"
@@ -261,4 +262,70 @@ export function classifyEntryTriage(input: EntryTriageInput): EntryTriageResult 
     clarity,
     ...(warnings.length ? { warnings } : {}),
   }
+}
+
+
+export function createODFEntryTriage(): ReturnType<typeof tool> {
+  return tool({
+    description: `Classify an ODF change entry as micro, standard, or full and select an existing canonical work type.
+
+Pure and read-only: no disk, registry, delegation, or side effects. If needs_question
+is true, ask one grouped question for the missing facts and re-run.`,
+    args: {
+      command: tool.schema
+        .string()
+        .optional()
+        .describe("Origin command (odf-new or odf-fix)"),
+      change: tool.schema
+        .string()
+        .optional()
+        .describe("Change name in kebab-case"),
+      description: tool.schema
+        .string()
+        .describe("User description of the change"),
+      explicit_work_type: tool.schema
+        .enum([...WORK_TYPES])
+        .optional()
+        .describe("Explicit canonical work type to honor"),
+      module: tool.schema
+        .string()
+        .optional()
+        .describe("Primary Odoo module (micro eligibility)"),
+      domain: tool.schema
+        .string()
+        .optional()
+        .describe("Functional domain (micro eligibility)"),
+      expected_files: tool.schema
+        .number()
+        .optional()
+        .describe("Forecast number of files to change (micro eligibility)"),
+      expectations_clear: tool.schema
+        .boolean()
+        .optional()
+        .describe("Whether expectations are clear (micro eligibility)"),
+      risk_signals: tool.schema
+        .array(tool.schema.string())
+        .optional()
+        .describe("Risk signals detected by the caller (security, migration, payment, public-api, data-loss, pii)"),
+      known_modules: tool.schema
+        .array(tool.schema.string())
+        .optional()
+        .describe("Project module names from odf-init/{project}; unknown modules are flagged as warnings"),
+    },
+    async execute(args: Omit<EntryTriageInput, "change"> & { change?: string }): Promise<string> {
+      const result = classifyEntryTriage({
+        command: args.command,
+        change: args.change || "",
+        description: args.description || "",
+        explicit_work_type: args.explicit_work_type,
+        module: args.module,
+        domain: args.domain,
+        expected_files: args.expected_files,
+        expectations_clear: args.expectations_clear,
+        risk_signals: args.risk_signals,
+        known_modules: args.known_modules,
+      })
+      return JSON.stringify(result, null, 2)
+    },
+  })
 }
