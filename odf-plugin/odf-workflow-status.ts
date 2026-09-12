@@ -101,6 +101,7 @@ function artifactType(key: string): string {
   const type = normalizeName(raw.replace(/\.(json|ya?ml|md)$/i, ""))
   if (type === "proposal") return "propose"
   if (type === "spec") return "assess"
+  if (type === "assessment") return "assess"
   if (type.startsWith("verify-report-")) return "verify-report"
   return type
 }

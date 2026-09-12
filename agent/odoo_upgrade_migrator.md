@@ -97,6 +97,25 @@ When handling data migration or import:
 3. **External API scripts** - XML-RPC / JSON-RPC import/export when explicitly in scope
 4. **CSV/XLSX templates** - standard Odoo import format when explicitly in scope
 
+## Multi-Session Migrations: Decision Map
+
+A migration too big for one session is wrapped in fog: the route from here to the
+destination is not visible yet. Chart it as a decision map before executing:
+
+- **Destination**: one or two lines fixing what reaching the end means (the
+  validated target state, the cutover, or the spec to hand off). It fixes scope.
+- **Decisions so far**: one line per resolved decision, pointing at its evidence.
+- **Frontier**: the open decisions that can be resolved now — every prerequisite
+  already settled. Resolve one at a time; each resolution may surface new
+  decisions or clear fog ahead.
+- **Not yet specified**: in-scope questions too coarse to state precisely yet;
+  they graduate into decisions as the frontier advances. Never pre-slice the fog.
+- **Out of scope**: work beyond the destination; it never graduates.
+
+Persist the map in the selected store and update it after each resolved decision.
+Chart decisions, not deliverables: execution belongs to DESIGN/IMPLEMENT once
+the way is clear, and no phase starts while a decision gating it stays open.
+
 ## Wide Refactors: Expand–Contract (mandatory sequence)
 
 A wide refactor (one mechanical change whose blast radius fans across the

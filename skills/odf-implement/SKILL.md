@@ -4,7 +4,7 @@ description: "Implement Odoo tasks from design artifact. Write code following sp
 license: MIT
 metadata:
   author: adruban
-  version: "2.2"
+  version: "2.3"
 ---
 
 ## Activation Contract
@@ -24,6 +24,7 @@ Use after DESIGN returns approved task breakdown. Implement assigned tasks in ba
 |------|-------------|
 | Specs are acceptance criteria | Read REQ-XX from assess before implementing each task |
 | Follow design decisions | If design is wrong, NOTE IT — don't silently deviate |
+| Project context | Name per `project_context.glossary` and follow `project_context.principles` from `odf-init/{project}`; a conflict with the design or a principle is reported and blocked — never silently deviated |
 | Tests with code | Tests belong in the same commit as the behavior they verify |
 | Smoke tests per batch | Run pre-commit + pylint-odoo on changed files after each batch |
 | Stop-validation evidence | After each batch, run the tier's stop-validation commands and write `<worktree>/.odf/validation-evidence-{change}.json` — a batch WITHOUT verified evidence does NOT close |

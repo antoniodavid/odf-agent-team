@@ -71,6 +71,7 @@ const dba = read("../agent/odoo_dba_devops.md")
 const migrator = read("../agent/odoo_upgrade_migrator.md")
 const explore = read("../skills/odf-explore/SKILL.md")
 const styleGuide = read("../docs/skill-style-guide.md")
+const implement = read("../skills/odf-implement/SKILL.md")
 
 describe("operations contracts", () => {
   it("dba generates wizards for human-only steps", () => {
@@ -91,5 +92,32 @@ describe("operations contracts", () => {
   it("style guide carries the writing-for-agents rules", () => {
     expect(styleGuide).toContain("Leading words")
     expect(styleGuide).toContain("Positive framing")
+  })
+})
+
+describe("context wiring contract", () => {
+  it("migrator charts multi-session migrations as a decision map", () => {
+    expect(migrator).toContain("Decision Map")
+    expect(migrator).toContain("Frontier")
+  })
+
+  it("design and implement consume project context", () => {
+    expect(design).toContain("project_context.principles")
+    expect(design).toContain("project_context.glossary")
+    expect(implement).toContain("project_context")
+  })
+})
+
+const fixCommand = read("../command/odf-fix.md")
+
+describe("supervised-auto contracts", () => {
+  it("orchestrator runs fix/small-change in supervised auto with bounded retry", () => {
+    expect(orchestrator).toContain("Supervised Auto")
+    expect(orchestrator).toContain("AT MOST ONE automatic relaunch")
+  })
+
+  it("fix escalates bounded multi-file fixes instead of stopping", () => {
+    expect(fix).toContain("Scope escalation")
+    expect(fixCommand).toContain("supervised auto")
   })
 })

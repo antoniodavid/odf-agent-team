@@ -128,6 +128,7 @@ describe("workflow status adapter", () => {
     })
     expect(normalizeArtifactKey("openspec/changes/change/proposal.yaml")).toMatchObject({ group: "DECIDE", type: "propose" })
     expect(normalizeArtifactKey("openspec/changes/change/spec.yaml")).toMatchObject({ group: "DECIDE", type: "assess" })
+    expect(normalizeArtifactKey("openspec/changes/change/assessment.md")).toMatchObject({ group: "DECIDE", type: "assess" })
     expect(normalizeArtifactKey("openspec/changes/change/verify-report-slice1.yaml")).toMatchObject({ group: "VERIFY", type: "verify-report" })
   })
 

@@ -78,6 +78,23 @@ approvals. The mandatory gates listed above still apply in `auto` — preflight,
 human Expectations approval, the Policy Gate, validation evidence, VERIFY, and
 failure disposition are never skipped.
 
+### Supervised Auto (FIX and small-change)
+
+FIX runs without human phase approvals by design; micro and `small-change`
+routes default their voluntary gates to auto when no explicit mode was chosen.
+The human approves once at entry only when intent/Expectations are missing, then
+supervises.
+
+- Stops are limited to genuine decisions: product/scope, destructive-operation
+  consent, architectural escalation that changes the route, or an unrecoverable
+  failure after the bounded retry. Mechanical hiccups self-heal — they never stop
+  the run.
+- Preflight defaults for these routes: derive `execution_mode: auto`,
+  `artifact_store`, `odoo_version`, `review_budget_lines: 400`,
+  `delivery_strategy: ask-on-risk`, `chain_strategy: none`, and `tdd_mode` from
+  `odf-init/{project}` and the Policy Gate; ask only genuinely missing facts in
+  ONE grouped question.
+
 ## Sources of Truth
 
 | Data | Source |
@@ -152,11 +169,11 @@ At `/odf-new`, classify the change with `odf_entry_triage` before resolving work
 7. If an agent reports `self-discovered`, `none`, or a skill cache miss, reload the registry, inject standards in later calls, and warn the user.
 8. Pass the forwarding fields defined below and require the inner `## ODF Result` as the last section.
 9. Use `odf_parallel_delegate` for cross-domain BUILD only. It requires `phase: IMPLEMENT`, `work_type: cross-domain`, one shared `change`, explicit `artifact_store`, the exact `workflow_advance` proof advancing to `BUILD`, and 2-3 independent branches with unique safe branch IDs/attempt IDs and non-overlapping context paths. Branches do not commit workflow state individually. A persisted `parallel_join` with `join.status: running` is live runtime evidence: inspect its running/completed/failed counts and branch statuses, do not close BUILD, and do not relaunch active branches. Require `join.status: complete`, every branch delegated successfully, and every branch `validation.status: verified`; then commit the selected store once. VERIFY is always sequential after the aggregate join. All other routes remain sequential through `odf_delegate`.
-10. Keep a session launch log keyed by `(phase, task fingerprint)`; do not launch the same pair twice.
+10. Keep a session launch log keyed by `(phase, task fingerprint)`. A transport-class failure (timeout, empty/malformed task result, no committed artifacts) allows AT MOST ONE automatic relaunch of that pair with a fresh `attempt_id`; a second transport failure stops the run for the user. Never relaunch a phase that already committed artifacts or duplicate a successful launch.
 
 11. On `/odf-continue` for a cross-domain BUILD join, use `odf_workflow_status.parallel_join` as supplemental runtime evidence only; OpenSpec/Engram remains primary. If `parallel_join.join.status` is `running`, do not call continuation against it: the scheduler is active, and any resume attempt must fail closed with `reason: parallel-join-running`. Otherwise call `odf_parallel_delegate` with `resume_from_join: true`, the exact shared transition proof, and no branch descriptors. Completed and verified branches are reused without relaunching; only retryable/incomplete branches receive fresh attempt IDs. Preserve the artifact's aggregate `join.expected` and completed semantics. One remaining retry branch is valid only for continuation. Malformed, mismatched, oversized, or unsafe join reads block closed.
 
-12. **Timeout budget**: pass an explicit `timeout_ms` for known-heavy delegations — 900000 for ASSESS, QA-PLAN, and DESIGN; 600000 for bounded IMPLEMENT batches. A timed-out task is a transport failure with no committed artifacts; report it per the result contract and keep the launch log — never loop retries or duplicate the same `(phase, fingerprint)` launch.
+12. **Timeout budget**: pass an explicit `timeout_ms` for known-heavy delegations — 900000 for ASSESS, QA-PLAN, and DESIGN; 600000 for bounded IMPLEMENT batches. A timed-out task is a transport failure with no committed artifacts: apply the single automatic relaunch from rule 10, then stop and report. Never loop retries beyond that one relaunch.
 
 The plugin resolves profiles only for SDD phases. If `task()` is unavailable,
 the plugin returns a structured `blocked` envelope with

@@ -4,7 +4,7 @@ description: "Lightweight 3-step bugfix flow: DIAGNOSE → FIX → VERIFY. Trigg
 license: MIT
 metadata:
   author: adruban
-  version: "2.2"
+  version: "2.3"
 ---
 
 ## Activation Contract
@@ -24,7 +24,7 @@ Use odf-fix for targeted bugs where the problem is known and scope is small (1-3
 | No gates | No human phase-approval pauses: run DIAGNOSE → FIX → VERIFY continuously. This does not remove policy gates, validation evidence, VERIFY, or risk escalation; `odf_policy_gate` and those checks remain mandatory and may block |
 | Root cause first | Identify root cause BEFORE modifying any code |
 | Test validates fix | Include a test that fails without the fix |
-| Scope bound | If diagnosis reveals >3 files affected, STOP and suggest /odf-new |
+| Scope escalation | If diagnosis reveals >3 files or an architectural change, never improvise: finish the diagnosis, report the scope, and escalate the route — continue under the same supervised-auto flow with an inline plan when the fix stays bounded (one root cause, no schema/security/data-loss signals, ≤8 files), or stop for a scope decision when architectural or high-risk |
 | One fix per invocation | Do not fix multiple unrelated bugs in one run |
 
 ## Decision Gates
@@ -32,7 +32,8 @@ Use odf-fix for targeted bugs where the problem is known and scope is small (1-3
 | Condition | Action |
 |-----------|--------|
 | Root cause found, fix is 1-3 files | Proceed to FIX |
-| Root cause involves architecture change | Stop, recommend /odf-new |
+| Root cause found, 4-8 bounded files (single root cause, no schema/security/data-loss signals) | Proceed to FIX under the same route with an inline plan; note the scope in the result |
+| Root cause involves architecture change or unbounded scope | Escalate to DECIDE → PLAN before editing; stop only for the scope decision |
 | Fix affects security or data integrity | Add CRITICAL flag in report |
 | Can't reproduce the bug | Stop, report reproduction steps attempted |
 

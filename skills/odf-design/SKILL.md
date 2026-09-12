@@ -4,7 +4,7 @@ description: "Create a CLOSED technical design document + IMPLEMENT plan for Odo
 license: MIT
 metadata:
   author: adruban
-  version: "3.3"
+  version: "3.4"
 ---
 
 ## Activation Contract
@@ -35,7 +35,8 @@ plan from it. The orchestrator will approve before IMPLEMENT.
 | Reference by ID | Reference EXP-XX/REQ-XX by ID; do not restate the full expectation statement (it lives in expectations.yaml) |
 | Fix the module | Decide the exact target module (new vs inherit) in DESIGN — never leave it to IMPLEMENT |
 | Traceability | Every task links to a REQ-XX and the EXP-XX it resolves |
-| Decisions (ADR-lite) | Record a decision only when ALL three hold: hard to reverse, surprising without context, and the result of a real trade-off (real options existed). Format: decision / options / choice / consequence. Omit decisions failing any condition — no ADR spam |
+| Decisions (ADR-lite) | Record a decision only when ALL three hold: hard to reverse, surprising without context, and the result of a real trade-off (real options existed). Format: decision / options / choice / consequence. Omit decisions failing any condition — no ADR spam. A qualifying decision that outlives the change MAY be promoted to `docs/adr/` in the worktree on user request |
+| Project context | Use `project_context.glossary` terms for module/model/field names and honor `project_context.principles` (from `odf-init/{project}`); when a design choice conflicts with a principle, resolve it explicitly or return `blocked` — never silently violate it |
 | Security required | Every new model MUST have ir.model.access.csv (per group) + ir.rule if applicable |
 | Tests required | Every feature MUST have at least one test task |
 | OCA conventions | File structure, naming, manifest follow OCA standards |
