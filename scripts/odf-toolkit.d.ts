@@ -65,6 +65,84 @@ export interface MetricsSummary {
     total_duration_ms: number
     avg_duration_ms: number
   }>
+  baseline: MetricsBaseline
+}
+
+export interface MetricsDuration {
+  sample_count: number
+  avg_ms: number | null
+  p50_ms: number | null
+  p95_ms: number | null
+}
+
+export interface MetricsOutcomes {
+  sample_count: number
+  counts: Record<"ok" | "blocked" | "error" | "timeout" | "unknown", number>
+  rates: Record<"ok" | "blocked" | "error" | "timeout" | "unknown", number | null>
+}
+
+export interface MetricsCoverage {
+  records: number
+  reported: number
+  coverage: number | null
+  unknown: number
+}
+
+export interface MetricsEntryToFinalGate {
+  status: "available" | "unavailable"
+  sample_count: number
+  p50_ms: number | null
+  p95_ms: number | null
+  changes: number
+  calls_per_change: number | null
+  verified_completions: number
+  verified_completions_per_hour: number | null
+  outcomes: MetricsOutcomes
+  receipts: MetricsCoverage
+  escalations: MetricsCoverage & { rate: number | null }
+  validation: MetricsCoverage
+  by_workspace: Record<string, number>
+  by_source_authority: {
+    with_source_authority: number
+    without_source_authority: number
+    unknown: number
+  }
+  by_odoo_version: Record<string, number>
+  cohorts: {
+    workspace: Record<string, MetricsEntryToFinalGateCohort>
+    source_authority: Record<string, MetricsEntryToFinalGateCohort>
+    odoo_version: Record<string, MetricsEntryToFinalGateCohort>
+  }
+}
+
+export interface MetricsEntryToFinalGateCohort {
+  sample_count: number
+  p50_ms: number | null
+  p95_ms: number | null
+  verified_completions: number
+}
+
+export interface MetricsBaseline {
+  sample_count: number
+  duration: MetricsDuration
+  outcomes: MetricsOutcomes
+  by_phase: Record<string, {
+    calls: number
+    duration: MetricsDuration
+    outcomes: MetricsOutcomes
+  }>
+  coverage: {
+    work_type: MetricsCoverage & { values: Record<string, number> }
+    model: MetricsCoverage & { available: number; unavailable: number }
+    validation: {
+      task_calls: MetricsCoverage
+      scheduler_joins: MetricsCoverage
+    }
+    receipt: MetricsCoverage
+    escalation: MetricsCoverage & { rate: number | null }
+  }
+  coverage_gaps: string[]
+  entry_to_final_gate: MetricsEntryToFinalGate
 }
 
 export interface ManualEvidence {

@@ -130,6 +130,54 @@ describe("odf-toolkit metrics", () => {
       expect(summary.by_phase.DESIGN).toMatchObject({ calls: 2, ok: 1, timeout: 1 })
       expect(summary.by_phase.DESIGN.avg_duration_ms).toBe(210_000)
       expect(summary.by_phase.VERIFY).toMatchObject({ calls: 1, ok: 1 })
+      expect(summary.baseline).toMatchObject({ sample_count: 3 })
+      expect(summary.baseline.duration).toMatchObject({ p50_ms: 120_000, p95_ms: 282_000 })
+      expect(summary.baseline.outcomes.rates.ok).toBeCloseTo(2 / 3)
+      expect(summary.baseline.coverage).toMatchObject({
+        work_type: { coverage: 0 },
+        validation: { task_calls: { coverage: 0 } },
+        receipt: { coverage: 0 },
+        escalation: { coverage: 0 },
+      })
+    } finally {
+      if (previous === undefined) delete process.env.ODF_CONFIG_DIR
+      else process.env.ODF_CONFIG_DIR = previous
+      await fs.rm(configDir, { recursive: true, force: true })
+    }
+  })
+
+  it("reads the end-to-end gate from synthetic JSONL and keeps old fields compatible", async () => {
+    const configDir = await fs.mkdtemp(path.join(os.tmpdir(), "odf-metrics-flow-"))
+    const previous = process.env.ODF_CONFIG_DIR
+    process.env.ODF_CONFIG_DIR = configDir
+    try {
+      await fs.mkdir(path.join(configDir, "metrics"), { recursive: true })
+      const utcDay = new Date().toISOString().split("T")[0]
+      const stages = ["entry_started", "intent_approved", "policy_selected", "build_started", "verify_started", "verified_completed"]
+      const lines = stages.map((flow_stage, index) => JSON.stringify({
+        event: "run",
+        lifecycle: "finished",
+        run_id: `fixture-${index}`,
+        change: "fixture-change",
+        flow_stage,
+        timestamp: new Date(Date.parse("2026-01-01T00:00:00Z") + index * 1000).toISOString(),
+        phase: index < 2 ? "ASSESS" : index < 4 ? "IMPLEMENT" : "VERIFY",
+        status: "ok",
+        workspace: "fixture-repo",
+        source_authority: true,
+        odoo_version: 18,
+      }))
+      await fs.writeFile(path.join(configDir, "metrics", `delegations-${utcDay}.jsonl`), lines.join("\n"), "utf8")
+      const summary = metricsSummary(1)
+      expect(summary.baseline.entry_to_final_gate).toMatchObject({
+        status: "available",
+        sample_count: 1,
+        p50_ms: 5000,
+        p95_ms: 5000,
+        calls_per_change: 6,
+      })
+      expect(summary.baseline.entry_to_final_gate.by_workspace).toEqual({ "fixture-repo": 1 })
+      expect(summary.baseline.entry_to_final_gate.by_odoo_version).toEqual({ "18": 1 })
     } finally {
       if (previous === undefined) delete process.env.ODF_CONFIG_DIR
       else process.env.ODF_CONFIG_DIR = previous

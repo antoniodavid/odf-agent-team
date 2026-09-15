@@ -162,6 +162,347 @@ function aggregationRecords(records) {
   }))
 }
 
+const BASELINE_OUTCOMES = ["ok", "blocked", "error", "timeout", "unknown"]
+
+function durationValue(record) {
+  return typeof record.duration_ms === "number" && Number.isFinite(record.duration_ms) && record.duration_ms >= 0
+    ? record.duration_ms
+    : null
+}
+
+function percentile(values, percentileValue) {
+  if (values.length === 0) return null
+  const sorted = [...values].sort((a, b) => a - b)
+  const index = (sorted.length - 1) * percentileValue
+  const lower = Math.floor(index)
+  const upper = Math.ceil(index)
+  if (lower === upper) return sorted[lower]
+  return sorted[lower] + (sorted[upper] - sorted[lower]) * (index - lower)
+}
+
+function durationStats(records) {
+  const durations = records.map(durationValue).filter(value => value !== null)
+  return {
+    sample_count: durations.length,
+    avg_ms: durations.length ? durations.reduce((sum, value) => sum + value, 0) / durations.length : null,
+    p50_ms: percentile(durations, 0.5),
+    p95_ms: percentile(durations, 0.95),
+  }
+}
+
+function outcomeStats(records) {
+  const counts = Object.fromEntries(BASELINE_OUTCOMES.map(status => [status, 0]))
+  for (const record of records) {
+    const status = VALID_OUTCOME_STATUSES.has(record.status) ? record.status : "unknown"
+    counts[status] += 1
+  }
+  return {
+    sample_count: records.length,
+    counts,
+    rates: Object.fromEntries(BASELINE_OUTCOMES.map(status => [
+      status,
+      records.length > 0 ? counts[status] / records.length : null,
+    ])),
+  }
+}
+
+function coverageStats(records, predicate) {
+  const reported = records.filter(predicate).length
+  return {
+    records: records.length,
+    reported,
+    coverage: records.length > 0 ? reported / records.length : null,
+    unknown: records.length - reported,
+  }
+}
+
+function phaseBaseline(records) {
+  const byPhase = new Map()
+  for (const record of records) {
+    const phase = safeToken(record.phase) || "unknown"
+    if (!byPhase.has(phase)) byPhase.set(phase, [])
+    byPhase.get(phase).push(record)
+  }
+  return Object.fromEntries([...byPhase.entries()]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([phase, phaseRecords]) => [
+      phase,
+      {
+        calls: phaseRecords.length,
+        duration: durationStats(phaseRecords),
+        outcomes: outcomeStats(phaseRecords),
+      },
+    ]))
+}
+
+/**
+ * Honest baseline metrics over completed, non-span task calls. Started markers,
+ * spans, and scheduler joins are excluded using the same aggregation rules as
+ * the dashboard. Missing dimensions stay unknown instead of being inferred.
+ */
+export function baselineSummary(records, days = 1) {
+  const aggregate = aggregationRecords(records)
+  const samples = records.filter(record => aggregate.has(record))
+  const joins = records.filter(joinRecord)
+  const gate = entryToFinalGate(records, days)
+  const workTypes = {}
+  for (const record of samples) {
+    const workType = safeToken(record.work_type)
+    if (workType) workTypes[workType] = (workTypes[workType] || 0) + 1
+  }
+
+  const coverage = {
+    work_type: { ...coverageStats(samples, record => safeToken(record.work_type) !== null), values: workTypes },
+    model: {
+      ...coverageStats(samples, record => typeof record.model_available === "boolean"),
+      available: samples.filter(record => record.model_available === true).length,
+      unavailable: samples.filter(record => record.model_available === false).length,
+    },
+    validation: {
+      task_calls: coverageStats(samples, record => boundedRatio(record.validation_ratio) !== null),
+      scheduler_joins: coverageStats(joins, record => boundedRatio(record.validation_ratio) !== null),
+    },
+    receipt: coverageStats(samples, record => safeToken(record.receipt_ref) !== null),
+    escalation: (() => {
+      const stats = coverageStats(samples, record => typeof record.escalated === "boolean")
+      return { ...stats, rate: stats.reported > 0 ? samples.filter(record => record.escalated === true).length / stats.reported : null }
+    })(),
+  }
+  const coverageGaps = [
+    ...(coverage.work_type.unknown > 0 ? ["work_type"] : []),
+    ...(coverage.model.unavailable > 0 ? ["model_identity"] : []),
+    ...(coverage.validation.task_calls.reported === 0 ? ["validation_evidence"] : []),
+    ...(coverage.receipt.reported === 0 ? ["receipt"] : []),
+    "escalation",
+    ...(gate.status === "unavailable" ? ["entry_to_final_gate"] : []),
+  ]
+
+  return {
+    sample_count: samples.length,
+    duration: durationStats(samples),
+    outcomes: outcomeStats(samples),
+    by_phase: phaseBaseline(samples),
+    coverage,
+    coverage_gaps: [...new Set(coverageGaps)],
+    entry_to_final_gate: gate,
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* M0 Slice 2 — entry → final-gate funnel over bounded flow stages      */
+/* ------------------------------------------------------------------ */
+
+const FLOW_STAGES = ["entry_started", "intent_approved", "policy_selected", "build_started", "verify_started", "verified_completed"]
+
+function flowStage(value) {
+  return typeof value === "string" && FLOW_STAGES.includes(value) ? value : null
+}
+
+function boundedOdooVersion(value) {
+  return Number.isInteger(value) && value >= 14 && value <= 19 ? value : null
+}
+
+function validTimestampMs(value) {
+  if (typeof value !== "string" || !value) return null
+  const ms = Date.parse(value)
+  return Number.isFinite(ms) ? ms : null
+}
+
+// Flow-staged lifecycle records attributable to one change. Join records never
+// anchor funnel timing. Task/branch spans are a fallback for old producers that
+// emitted the bounded stages only on child spans.
+function flowRunRecords(records) {
+  return records.filter(record =>
+    !joinRecord(record) &&
+    !isSpanRecord(record) &&
+    (record.lifecycle === "started" || record.lifecycle === "finished") &&
+    flowStage(record.flow_stage) !== null &&
+    safeToken(record.change) !== null &&
+    validTimestampMs(record.timestamp) !== null
+  )
+}
+
+function flowSpanCohortRecords(records) {
+  return records.filter(record =>
+    !joinRecord(record) &&
+    isSpanRecord(record) &&
+    flowStage(record.flow_stage) !== null &&
+    safeToken(record.change) !== null &&
+    validTimestampMs(record.timestamp) !== null
+  )
+}
+
+function completeFlowSamples(records, sampleRecords = records) {
+  const byChange = new Map()
+  for (const record of records) {
+    const change = safeToken(record.change)
+    if (!byChange.has(change)) byChange.set(change, [])
+    byChange.get(change).push(record)
+  }
+
+  const latestByChange = new Map()
+  for (const [change, changeRecords] of byChange) {
+    const stageRecords = changeRecords
+      .filter(record => flowStage(record.flow_stage) !== null)
+      .sort((a, b) => validTimestampMs(a.timestamp) - validTimestampMs(b.timestamp))
+    let nextStage = 0
+    let sequence = []
+    for (const record of stageRecords) {
+      const stage = flowStage(record.flow_stage)
+      if (stage === "entry_started") {
+        if (nextStage !== 0) {
+          // A second entry before the current sequence completes is an
+          // interleaved retry, not a safe restart of the same sample.
+          nextStage = 0
+          sequence = []
+          continue
+        }
+        nextStage = 1
+        sequence = [record]
+        continue
+      }
+      if (nextStage === 0) continue
+      if (stage !== FLOW_STAGES[nextStage]) {
+        // An unexpected bounded stage means retries may have been interleaved;
+        // do not manufacture a sample from records with ambiguous ownership.
+        nextStage = 0
+        sequence = []
+        continue
+      }
+      sequence.push(record)
+      nextStage += 1
+      if (nextStage === FLOW_STAGES.length) {
+        const start = validTimestampMs(sequence[0].timestamp)
+        const end = validTimestampMs(sequence[sequence.length - 1].timestamp)
+        if (start !== null && end !== null && end >= start) {
+          const boundedRecords = sampleRecords
+            .filter(candidate => safeToken(candidate.change) === change)
+            .map(candidate => ({ candidate, timestamp: validTimestampMs(candidate.timestamp) }))
+            .filter(({ timestamp }) => timestamp !== null && timestamp >= start && timestamp <= end)
+            .sort((a, b) => a.timestamp - b.timestamp)
+            .map(({ candidate }) => candidate)
+          const sample = { change, records: boundedRecords, duration_ms: end - start }
+          const previous = latestByChange.get(change)
+          const previousEnd = previous ? validTimestampMs(previous.records[previous.records.length - 1].timestamp) : null
+          if (previousEnd === null || end >= previousEnd) latestByChange.set(change, sample)
+        }
+        nextStage = 0
+        sequence = []
+      }
+    }
+  }
+  return [...latestByChange.values()]
+}
+
+function sampleField(sample, field) {
+  if (field === "source_authority") {
+    if (sample.records.some(record => record[field] === true)) return true
+    if (sample.records.some(record => record[field] === false)) return false
+    return undefined
+  }
+  const isValid = field === "workspace"
+    ? value => safeToken(value) !== null
+    : field === "odoo_version"
+      ? value => boundedOdooVersion(value) !== null
+      : value => value !== undefined && value !== null
+  return sample.records.map(record => record[field]).find(isValid)
+}
+
+function latestFlowSamples(samples) {
+  const latest = new Map()
+  for (const sample of samples) {
+    const previous = latest.get(sample.change)
+    const sampleEnd = validTimestampMs(sample.records[sample.records.length - 1].timestamp)
+    const previousEnd = previous ? validTimestampMs(previous.records[previous.records.length - 1].timestamp) : null
+    if (!previous || sampleEnd >= previousEnd) latest.set(sample.change, sample)
+  }
+  return [...latest.values()]
+}
+
+function cohortStats(samples, field, key = value => value) {
+  const groups = new Map()
+  for (const sample of samples) {
+    const value = key(sampleField(sample, field))
+    if (!groups.has(value)) groups.set(value, [])
+    groups.get(value).push(sample)
+  }
+  return Object.fromEntries([...groups.entries()]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([value, group]) => [value, {
+      sample_count: group.length,
+      p50_ms: percentile(group.map(sample => sample.duration_ms), 0.5),
+      p95_ms: percentile(group.map(sample => sample.duration_ms), 0.95),
+      verified_completions: group.length,
+    }]))
+}
+
+/**
+ * End-to-end funnel: a complete ordered sequence of all six stages per change.
+ * Status is "available" whenever at least one complete sequence exists and
+ * "unavailable" only when zero samples exist — never hardcoded. Old JSONL
+ * without flow stages parses unchanged and yields zero samples.
+ */
+export function entryToFinalGate(records, days = 1) {
+  const samples = latestFlowSamples([
+    ...completeFlowSamples(flowRunRecords(records), records),
+    ...completeFlowSamples(flowSpanCohortRecords(records), records),
+  ])
+  const completedChanges = new Set(samples.map(sample => sample.change))
+  const aggregate = aggregationRecords(records)
+  const sampleWindows = new Map(samples.map(sample => [sample.change, {
+    start: validTimestampMs(sample.records[0].timestamp),
+    end: validTimestampMs(sample.records[sample.records.length - 1].timestamp),
+  }]))
+  const completedCalls = records.filter(record => {
+    const change = safeToken(record.change)
+    const window = change !== null ? sampleWindows.get(change) : undefined
+    const timestamp = validTimestampMs(record.timestamp)
+    return aggregate.has(record) && window && timestamp !== null && window.start !== null && window.end !== null &&
+      timestamp >= window.start && timestamp <= window.end
+  })
+  const hours = typeof days === "number" && Number.isFinite(days) && days > 0 ? days * 24 : null
+  const byWorkspace = Object.fromEntries(Object.entries(cohortStats(samples, "workspace", value => safeToken(value) || "unknown"))
+    .map(([key, value]) => [key, value.sample_count]))
+  const bySourceAuthority = { with_source_authority: 0, without_source_authority: 0, unknown: 0 }
+  for (const sample of samples) {
+    if (sampleField(sample, "source_authority") === true) bySourceAuthority.with_source_authority += 1
+    else if (sampleField(sample, "source_authority") === false) bySourceAuthority.without_source_authority += 1
+    else bySourceAuthority.unknown += 1
+  }
+  const byOdooVersion = Object.fromEntries(Object.entries(cohortStats(samples, "odoo_version", value => {
+    const version = boundedOdooVersion(value)
+    return version === null ? "unknown" : String(version)
+  })).map(([key, value]) => [key, value.sample_count]))
+  return {
+    status: samples.length > 0 ? "available" : "unavailable",
+    sample_count: samples.length,
+    p50_ms: percentile(samples.map(sample => sample.duration_ms), 0.5),
+    p95_ms: percentile(samples.map(sample => sample.duration_ms), 0.95),
+    changes: completedChanges.size,
+    calls_per_change: completedChanges.size > 0 ? completedCalls.length / completedChanges.size : null,
+    verified_completions: samples.length,
+    verified_completions_per_hour: hours !== null ? samples.length / hours : null,
+    outcomes: outcomeStats(completedCalls),
+    receipts: coverageStats(completedCalls, record => safeToken(record.receipt_ref) !== null),
+    escalations: (() => {
+      const stats = coverageStats(completedCalls, record => typeof record.escalated === "boolean")
+      return { ...stats, rate: stats.reported > 0 ? completedCalls.filter(record => record.escalated === true).length / stats.reported : null }
+    })(),
+    validation: coverageStats(completedCalls, record => boundedRatio(record.validation_ratio) !== null),
+    by_workspace: byWorkspace,
+    by_source_authority: bySourceAuthority,
+    by_odoo_version: byOdooVersion,
+    cohorts: {
+      workspace: cohortStats(samples, "workspace", value => safeToken(value) || "unknown"),
+      source_authority: cohortStats(samples, "source_authority", value => value === true ? "true" : value === false ? "false" : "unknown"),
+      odoo_version: cohortStats(samples, "odoo_version", value => {
+        const version = boundedOdooVersion(value)
+        return version === null ? "unknown" : String(version)
+      }),
+    },
+  }
+}
+
 /* ------------------------------------------------------------------ */
 /* C2 — learning / estimation progress (MAPE + library stats)           */
 /* ------------------------------------------------------------------ */
@@ -244,6 +585,7 @@ export function learningProgress(library) {
 export function buildDashboard(records, days, library = null) {
   const lifecycle = lifecycleState(records)
   const aggregate = aggregationRecords(records)
+  const baseline = baselineSummary(records, days)
   let total = 0
   const byAgent = new Map()
   const byWorkType = new Map()
@@ -431,6 +773,7 @@ export function buildDashboard(records, days, library = null) {
     skillRows,
     errorRows,
     days,
+    baseline,
     learning: learningProgress(library),
   }
 }
@@ -442,6 +785,9 @@ export function renderDashboard(d) {
     "=== Overall ===",
     `  Total delegations: ${d.total}`,
     `  Avg duration: ${d.total > 0 ? `${Math.round(d.avgDurationMs / 1000)}s` : "N/A"}`,
+    `  Baseline calls: ${d.baseline.sample_count}`,
+    `  Baseline p50/p95: ${d.baseline.duration.p50_ms === null ? "N/A" : `${Math.round(d.baseline.duration.p50_ms)}ms`} / ${d.baseline.duration.p95_ms === null ? "N/A" : `${Math.round(d.baseline.duration.p95_ms)}ms`}`,
+    `  Entry to final gate: ${d.baseline.entry_to_final_gate.status === "available" ? `p50 ${Math.round(d.baseline.entry_to_final_gate.p50_ms)}ms / p95 ${Math.round(d.baseline.entry_to_final_gate.p95_ms)}ms (n=${d.baseline.entry_to_final_gate.sample_count})` : "N/A"}`,
     `  Avg tokens: ${d.total > 0 ? `${Math.round(d.avgTokens)}` : "N/A"}`,
     `  Skill resolution rate: ${d.skillInjectionPctLabel} injected`,
     `  Validation ratio: ${d.validationRatio === null ? "n/a" : `${Math.round(d.validationRatio * 100)}%`}`,

@@ -158,6 +158,46 @@ export function savePolicyGateJson(workspaceDir: string, decision: PolicyGateDec
   }
 }
 
+function resolveReadableWorkspaceRoot(workspaceDir: string | undefined): string | null {
+  const requested = workspaceDir === undefined ? process.cwd() : workspaceDir.trim()
+  if (!requested) return null
+  try {
+    const selected = path.resolve(requested)
+    const selectedStat = fsSync.statSync(selected)
+    if (!selectedStat.isDirectory()) return null
+    fsSync.accessSync(selected, fsSync.constants.R_OK | fsSync.constants.X_OK)
+    const workspace = fsSync.realpathSync(resolveWorkspaceRoot(selected))
+    const workspaceStat = fsSync.statSync(workspace)
+    if (!workspaceStat.isDirectory()) return null
+    fsSync.accessSync(workspace, fsSync.constants.R_OK | fsSync.constants.X_OK)
+    return workspace
+  } catch {
+    return null
+  }
+}
+
+function blockedWorkspaceDecision(opts: {
+  change: string
+  phase: "IMPLEMENT" | "VERIFY"
+  registry: ODFRegistry
+}): PolicyGateDecision {
+  return {
+    change: opts.change || "",
+    phase: opts.phase,
+    gate: "block",
+    reason: "unsafe-workspace-path — selected workspace root is blank, missing, or unreadable",
+    tdd: { global: opts.registry.flags?.strict_tdd === true, local_readable: false, local_off: false, effective: "off" },
+    risk_tier: "MEDIUM",
+    frozen_diff_ref: null,
+    candidate_digest: null,
+    base_head: null,
+    changed_lines: null,
+    correction_budget_lines: null,
+    changed_paths: [],
+    resolved_at: new Date().toISOString(),
+  }
+}
+
 /**
  * Resolve and persist the Policy Gate for a change before IMPLEMENT/VERIFY.
  * Resolves effective TDD and, for VERIFY, freezes the diff ref, counts changed
@@ -173,7 +213,8 @@ export function computePolicyGate(opts: {
   workspaceDir?: string
   registry: ODFRegistry
 }): PolicyGateDecision {
-  const workspace = resolveWorkspaceRoot(opts.workspaceDir || process.cwd())
+  const workspace = resolveReadableWorkspaceRoot(opts.workspaceDir)
+  if (!workspace) return blockedWorkspaceDecision(opts)
   const tdd = resolveTddEffective(opts.registry, workspace)
 
   if (!opts.change || !opts.change.trim()) {
@@ -288,4 +329,3 @@ export function computePolicyGate(opts: {
   savePolicyGateJson(workspace, decision)
   return decision
 }
-

@@ -23,6 +23,19 @@ import { WORK_TYPES, type WorkType } from "./odf-workflow.js"
 export type TelemetryEvent = "run" | "span"
 export type TelemetryLifecycle = "started" | "finished"
 export type TelemetrySpanKind = "branch" | "task"
+// M0 Slice 2: bounded end-to-end funnel stages. Each stage is derived from an
+// existing phase lifecycle at the current emit sites (no new workflow):
+// PROPOSE started → entry_started, successful PROPOSE → intent_approved,
+// successful ASSESS → policy_selected, IMPLEMENT started →
+// VERIFY started → verify_started, VERIFY finished → verified_completed.
+// Finished milestones only count on ok/warning.
+export type TelemetryFlowStage =
+  | "entry_started"
+  | "intent_approved"
+  | "policy_selected"
+  | "build_started"
+  | "verify_started"
+  | "verified_completed"
 
 export interface TelemetryTokens {
   /** Real input tokens from the host, when exposed. */
@@ -74,7 +87,14 @@ export interface DelegationMetrics {
   retry_count?: number
   candidate_digest?: string
   receipt_ref?: string
+  escalated?: boolean
   warnings?: string[]
+  // M0 Slice 2: end-to-end funnel + cohorts. workspace is the project basename
+  // (never a raw path); odoo_version is the detected manifest major.
+  flow_stage?: TelemetryFlowStage
+  odoo_version?: number
+  workspace?: string
+  source_authority?: boolean
 }
 
 export type DelegationMetricInput = Omit<DelegationMetrics, "session_hash"> & {
@@ -126,6 +146,55 @@ export function sanitizeMetricJoinStatus(value: unknown): DelegationMetrics["joi
 
 export function sanitizeMetricSpanKind(value: unknown): TelemetrySpanKind | undefined {
   return value === "branch" || value === "task" ? value : undefined
+}
+
+/** Funnel stage allowlist — anything outside the six stages is dropped. */
+export const FLOW_STAGES: readonly TelemetryFlowStage[] = [
+  "entry_started",
+  "intent_approved",
+  "policy_selected",
+  "build_started",
+  "verify_started",
+  "verified_completed",
+]
+
+export function sanitizeMetricFlowStage(value: unknown): TelemetryFlowStage | undefined {
+  return typeof value === "string" && (FLOW_STAGES as readonly string[]).includes(value)
+    ? (value as TelemetryFlowStage)
+    : undefined
+}
+
+/** Detected Odoo major, bounded to the supported manifest range. */
+export function sanitizeMetricOdooVersion(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isInteger(value) && value >= 14 && value <= 19
+    ? value
+    : undefined
+}
+
+/**
+ * Map an existing phase lifecycle to its funnel stage. Started milestones tag
+ * entries and build/verify starts; finished milestones only tag accepted
+ * (ok/warning) outcomes so blocked/error runs never close a funnel step.
+ */
+export function resolveFlowStage(
+  phase: unknown,
+  lifecycle: unknown,
+  status?: unknown,
+): TelemetryFlowStage | undefined {
+  if (lifecycle === "started") {
+    if (phase === "PROPOSE") return "entry_started"
+    if (phase === "IMPLEMENT") return "build_started"
+    if (phase === "VERIFY") return "verify_started"
+    return undefined
+  }
+  if (lifecycle === "finished") {
+    if (status !== "ok" && status !== "warning") return undefined
+    if (phase === "PROPOSE") return "intent_approved"
+    if (phase === "ASSESS") return "policy_selected"
+    if (phase === "VERIFY") return "verified_completed"
+    return undefined
+  }
+  return undefined
 }
 
 export function sanitizeMetricJoinCount(value: unknown): number | undefined {
@@ -303,6 +372,11 @@ export function recordMetrics(metric: DelegationMetricInput): void {
     trace_id,
     span_id,
     parent_span_id,
+    flow_stage,
+    odoo_version,
+    workspace,
+    source_authority,
+    escalated,
     ...rest
   } = metric
   const isSpan = event === "span"
@@ -349,6 +423,14 @@ export function recordMetrics(metric: DelegationMetricInput): void {
     ...(sanitizeMetricRetryCount(retry_count) !== undefined ? { retry_count: sanitizeMetricRetryCount(retry_count) } : {}),
     ...(sanitizeMetricDigest(candidate_digest) ? { candidate_digest: sanitizeMetricDigest(candidate_digest) } : {}),
     ...(sanitizeMetricSafeToken(receipt_ref) ? { receipt_ref: sanitizeMetricSafeToken(receipt_ref) } : {}),
+    // New span fields ride the existing allowlist: bounded stage enum, bounded
+    // version int, workspace as a safe token (basename, never a raw path),
+    // source-authority cohort as a plain boolean. Anything else is dropped.
+    ...(sanitizeMetricFlowStage(flow_stage) ? { flow_stage: sanitizeMetricFlowStage(flow_stage) } : {}),
+    ...(sanitizeMetricOdooVersion(odoo_version) !== undefined ? { odoo_version: sanitizeMetricOdooVersion(odoo_version) } : {}),
+    ...(sanitizeMetricToken(workspace) ? { workspace: sanitizeMetricToken(workspace) } : {}),
+    ...(sanitizeMetricBool(source_authority) !== undefined ? { source_authority: sanitizeMetricBool(source_authority) } : {}),
+    ...(sanitizeMetricBool(escalated) !== undefined ? { escalated: sanitizeMetricBool(escalated) } : {}),
   }
   if (isSpan && (
     !sanitized.lifecycle ||

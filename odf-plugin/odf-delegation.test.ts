@@ -23,6 +23,7 @@ import {
   recordMetrics,
   getMetricsBuffer,
   clearMetricsBuffer,
+  resolveFlowStage,
   ALLOWED_PHASES,
   classifyRiskTier,
   classifyRiskTierWithContent,
@@ -41,6 +42,9 @@ import {
   createODFEntryTriage,
   createODFRuntimeHooks,
   createStableDiscoveryGuard,
+  contextPressureThreshold,
+  contextPressureNotice,
+  CONTEXT_PRESSURE_DEFAULT_TOKENS,
   ODF_REGISTERED_TOOLS,
   type PolicyGateDecision,
   type ODFRegistry,
@@ -544,6 +548,35 @@ describe("createODFWorkflowBind", () => {
     }
   })
 
+  it("emits the bounded terminal funnel prefix for small-change after bind validation", async () => {
+    clearMetricsBuffer()
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "odf-micro-metrics-"))
+    try {
+      const changeDir = path.join(root, "openspec", "changes", "micro-metrics")
+      await fs.mkdir(changeDir, { recursive: true })
+      await fs.writeFile(path.join(changeDir, "state.yaml"), "preflight:\n  solution_strategy: standard\n", "utf8")
+      const output = JSON.parse(await createODFWorkflowBind().execute({
+        change_name: "micro-metrics",
+        work_type: "small-change",
+        terminal_stage: "DECIDE",
+        intent: "Add the discount field",
+        expectations_approved: true,
+        workspace_dir: root,
+      }, { sessionID: "micro-metrics-session" } as any) as string)
+
+      expect(output.status).toBe("bound")
+      expect(getMetricsBuffer().map(metric => metric.flow_stage)).toEqual([
+        "entry_started",
+        "intent_approved",
+        "policy_selected",
+      ])
+      expect(getMetricsBuffer().every(metric => metric.event === "span")).toBe(true)
+    } finally {
+      clearMetricsBuffer()
+      await fs.rm(root, { recursive: true, force: true })
+    }
+  })
+
   it("creates and materializes terminal FIX only through an authorized start", async () => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), "odf-fix-bind-"))
     const changeDir = path.join(root, "openspec", "changes", "fix-change")
@@ -571,6 +604,34 @@ describe("createODFWorkflowBind", () => {
         regression: "Add a zero-quantity regression test",
       })
     } finally {
+      await fs.rm(root, { recursive: true, force: true })
+    }
+  })
+
+  it("emits the bounded terminal funnel prefix for bugfix after root-cause bind validation", async () => {
+    clearMetricsBuffer()
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "odf-fix-metrics-"))
+    const { bind, context } = authorizedWorkflowBind("fix-metrics", root)
+    try {
+      const output = JSON.parse(await bind.execute({
+        change_name: "fix-metrics",
+        work_type: "bugfix",
+        preflight: completePreflight("fix-metrics"),
+        terminal_stage: "FIX",
+        root_cause: "The quantity guard ran after rounding",
+        regression: "Add a zero-quantity regression test",
+        workspace_dir: root,
+      }, context) as string)
+
+      expect(output.status).toBe("bound")
+      expect(getMetricsBuffer().map(metric => metric.flow_stage)).toEqual([
+        "entry_started",
+        "intent_approved",
+        "policy_selected",
+      ])
+      expect(getMetricsBuffer().every(metric => metric.event === "span")).toBe(true)
+    } finally {
+      clearMetricsBuffer()
       await fs.rm(root, { recursive: true, force: true })
     }
   })
@@ -1526,6 +1587,11 @@ describe("recordMetrics", () => {
       join_failed: 1,
       join_running: 0,
       validation_ratio: 0.5,
+      flow_stage: "verified_completed",
+      odoo_version: 18,
+      workspace: "odf-agent-team",
+      source_authority: true,
+      escalated: false,
     }))
     expect(getMetricsBuffer()[0]).toMatchObject({
       work_type: "cross-domain",
@@ -1536,6 +1602,11 @@ describe("recordMetrics", () => {
       join_failed: 1,
       join_running: 0,
       validation_ratio: 0.5,
+      flow_stage: "verified_completed",
+      odoo_version: 18,
+      workspace: "odf-agent-team",
+      source_authority: true,
+      escalated: false,
     })
 
     recordMetrics(makeMetric({
@@ -1543,11 +1614,32 @@ describe("recordMetrics", () => {
       branch_id: "../secret" as any,
       join_expected: 99 as any,
       validation_ratio: 2 as any,
+      flow_stage: "not-a-stage" as any,
+      odoo_version: 99 as any,
+      workspace: "/home/user/private" as any,
+      source_authority: "yes" as any,
+      escalated: "yes" as any,
     }))
     expect(getMetricsBuffer()[1]).not.toHaveProperty("work_type")
     expect(getMetricsBuffer()[1]).not.toHaveProperty("branch_id")
     expect(getMetricsBuffer()[1]).not.toHaveProperty("join_expected")
     expect(getMetricsBuffer()[1]).not.toHaveProperty("validation_ratio")
+    expect(getMetricsBuffer()[1]).not.toHaveProperty("flow_stage")
+    expect(getMetricsBuffer()[1]).not.toHaveProperty("odoo_version")
+    expect(getMetricsBuffer()[1]).not.toHaveProperty("workspace")
+    expect(getMetricsBuffer()[1]).not.toHaveProperty("source_authority")
+    expect(getMetricsBuffer()[1]).not.toHaveProperty("escalated")
+  })
+
+  it("maps lifecycle calls to the six bounded end-to-end stages", () => {
+    expect(resolveFlowStage("PROPOSE", "started")).toBe("entry_started")
+    expect(resolveFlowStage("PROPOSE", "finished", "ok")).toBe("intent_approved")
+    expect(resolveFlowStage("ASSESS", "started")).toBeUndefined()
+    expect(resolveFlowStage("ASSESS", "finished", "ok")).toBe("policy_selected")
+    expect(resolveFlowStage("IMPLEMENT", "started")).toBe("build_started")
+    expect(resolveFlowStage("VERIFY", "started")).toBe("verify_started")
+    expect(resolveFlowStage("VERIFY", "finished", "warning")).toBe("verified_completed")
+    expect(resolveFlowStage("VERIFY", "finished", "blocked")).toBeUndefined()
   })
 
   it("sanitizes lifecycle identity fields and preserves start/finish correlation", () => {
@@ -1990,6 +2082,14 @@ describe("computePolicyGate", () => {
     expect(d.reason).toContain("missing change name")
   })
 
+  it.each(["", "   ", "missing-workspace"]) ("fails closed before creating .odf for an invalid workspace root (%j)", workspaceDir => {
+    const selectedWorkspace = workspaceDir.trim() ? path.join(tmp, workspaceDir) : workspaceDir
+    const d = computePolicyGate({ change: "invalid-root", phase: "IMPLEMENT", workspaceDir: selectedWorkspace, registry: registryWithTdd(true) })
+    expect(d).toMatchObject({ gate: "block", reason: expect.stringContaining("unsafe-workspace-path") })
+    expect(fsSync.existsSync(path.join(tmp, "missing-workspace", ".odf"))).toBe(false)
+    expect(fsSync.existsSync(path.join(tmp, ".odf"))).toBe(false)
+  })
+
   it("computes the correction budget at half the changed lines (n=100 → 50)", () => {
     const repo = path.join(tmp, "repo100")
     initGitRepo(repo)
@@ -2152,8 +2252,8 @@ function viewAuthorityResult(source: string, targetOverride?: string): Record<st
   }
 }
 
-async function createViewAuthorityFixture(): Promise<string> {
-  const source = await fs.mkdtemp(path.join(os.tmpdir(), "odf-view-authority-"))
+async function createViewAuthorityFixture(parent = os.tmpdir()): Promise<string> {
+  const source = await fs.mkdtemp(path.join(parent, "odf-view-authority-"))
   await fs.mkdir(path.join(source, "custom"), { recursive: true })
   await fs.mkdir(path.join(source, "base"), { recursive: true })
   await fs.writeFile(path.join(source, "custom", "views.xml"), `<record id="view_child" model="ir.ui.view">
@@ -2339,9 +2439,9 @@ describe("createODFDelegate", () => {
     )
   }
 
-  const writeEvidenceAt = async (workspace: string, change: string) => {
+  const writeEvidenceAt = async (workspace: string, change: string, fileName = `validation-evidence-${change}.json`) => {
     await fs.mkdir(path.join(workspace, ".odf"), { recursive: true })
-    await fs.writeFile(path.join(workspace, ".odf", `validation-evidence-${change}.json`), JSON.stringify({
+    await fs.writeFile(path.join(workspace, ".odf", fileName), JSON.stringify({
       change,
       phase: "IMPLEMENT",
       batch: 1,
@@ -2355,6 +2455,13 @@ describe("createODFDelegate", () => {
     }), "utf8")
   }
 
+  const writeParallelEvidenceAt = (workspace: string, change: string, branchIds: string[]) =>
+    Promise.all(branchIds.map(branchId => writeEvidenceAt(
+      workspace,
+      change,
+      `validation-evidence-${change}-${branchId}.json`,
+    )))
+
   const writeValidationEvidence = (change: string) =>
     writeEvidenceFile(change, `validation-evidence-${change}.json`)
 
@@ -2363,10 +2470,10 @@ describe("createODFDelegate", () => {
       writeEvidenceFile(change, `validation-evidence-${change}-${branchId}.json`)
     ))
 
-  const prepareWorkflowState = async (change: string, phase: "IMPLEMENT" | "VERIFY", workType = "feature") => {
+  const prepareWorkflowState = async (change: string, phase: "IMPLEMENT" | "VERIFY", workType = "feature", workspace = tempHome) => {
     const completed = workType === "verify-only" ? [] : phase === "IMPLEMENT" ? ["DECIDE", "PLAN"] : ["DECIDE", "PLAN", "BUILD"]
     const canonicalStage = phase === "IMPLEMENT" ? "BUILD" : "VERIFY"
-    const changeDir = path.join(tempHome, "openspec", "changes", change)
+    const changeDir = path.join(workspace, "openspec", "changes", change)
     await fs.mkdir(changeDir, { recursive: true })
     await fs.writeFile(path.join(changeDir, "state.yaml"), [
       `work_type: ${workType}`,
@@ -5026,6 +5133,92 @@ ${overrides}`
     expect(taskApi).toHaveBeenCalledTimes(1)
   })
 
+  it("prefers workspace_dir for context files and relative source authority roots", async () => {
+    const { createODFDelegate } = await import("./odf-delegation.js")
+    const workspace = await fs.mkdtemp(path.join(os.tmpdir(), "odf-external-workspace-"))
+    try {
+      initGitRepo(workspace)
+      commitFile(workspace, "README.md", 1)
+      await fs.writeFile(path.join(workspace, "context.txt"), "external context\n", "utf8")
+      const source = await createViewAuthorityFixture(workspace)
+      const taskApi = vi.fn().mockResolvedValue(viewAuthorityResult(source))
+      const delegateTool = createODFDelegate(undefined, tempHome)
+
+      expect((delegateTool as any).args).toHaveProperty("workspace_dir")
+      const output = JSON.parse(await delegateTool.execute({
+        phase: "DESIGN",
+        workspace_dir: workspace,
+        prompt: "Design view inheritance with inherit_id for custom.view_child",
+        context_files: ["context.txt"],
+        odoo_source_root: path.relative(workspace, source),
+      }, { sessionID: "external-sequential", task: taskApi } as any) as string)
+
+      expect(output).toMatchObject({
+        status: "delegated",
+        result: { source_authority: { ok: true, target_xmlid: "base.view_parent" } },
+      })
+      expect(taskApi).toHaveBeenCalledWith(expect.objectContaining({
+        context_files: [path.join(workspace, "context.txt")],
+        prompt: expect.stringContaining(`Odoo source root: ${fsSync.realpathSync(source)}`),
+      }))
+      expect(fsSync.existsSync(path.join(tempHome, ".odf"))).toBe(false)
+    } finally {
+      await fs.rm(workspace, { recursive: true, force: true })
+    }
+  })
+
+  it("fails closed for invalid workspace and source roots without touching the plugin workspace", async () => {
+    const { createODFDelegate } = await import("./odf-delegation.js")
+    const taskApi = vi.fn().mockResolvedValue({ status: "ok", design_closed: true })
+    const delegateTool = createODFDelegate(undefined, tempHome)
+
+    const invalidWorkspace = JSON.parse(await delegateTool.execute({
+      phase: "DESIGN",
+      workspace_dir: path.join(tempHome, "missing-workspace"),
+      prompt: "Design a model",
+      context_files: [],
+    }, { sessionID: "invalid-workspace", task: taskApi } as any) as string)
+    expect(invalidWorkspace).toMatchObject({ status: "blocked", reason: "unsafe-workspace-path" })
+
+    const invalidSource = JSON.parse(await delegateTool.execute({
+      phase: "DESIGN",
+      workspace_dir: tempHome,
+      prompt: "Design view inheritance with inherit_id for custom.view_child",
+      context_files: [],
+      odoo_source_root: "missing-source",
+    }, { sessionID: "invalid-source", task: taskApi } as any) as string)
+    expect(invalidSource).toMatchObject({ status: "blocked", reason: "source-authority-unavailable" })
+    expect(taskApi).not.toHaveBeenCalled()
+    expect(fsSync.existsSync(path.join(tempHome, ".odf"))).toBe(false)
+  })
+
+  it("rejects attempt-ledger writes through an escaping .odf symlink", async () => {
+    const { createODFDelegate } = await import("./odf-delegation.js")
+    const outside = await fs.mkdtemp(path.join(os.tmpdir(), "odf-ledger-outside-"))
+    const odfPath = path.join(tempHome, ".odf")
+    try {
+      await prepareWorkflowState("unsafe-ledger", "IMPLEMENT")
+      await fs.symlink(outside, odfPath, "dir")
+      const taskApi = vi.fn().mockResolvedValue({ status: "ok", executive_summary: "should not run" })
+      const result = JSON.parse(await createODFDelegate(undefined, tempHome).execute({
+        phase: "IMPLEMENT",
+        change: "unsafe-ledger",
+        prompt: "Implement the task",
+        context_files: [],
+        artifact_store: "openspec",
+        workflow_advance: workflowAdvance("IMPLEMENT"),
+        attempt_id: "unsafe-ledger-attempt",
+      }, { sessionID: "unsafe-ledger-session", task: taskApi } as any) as string)
+
+      expect(result).toMatchObject({ status: "blocked", reason: "attempt-ledger-unsafe-path" })
+      expect(taskApi).not.toHaveBeenCalled()
+      expect(fsSync.existsSync(path.join(outside, "attempt-ledger-unsafe-ledger.jsonl"))).toBe(false)
+    } finally {
+      await fs.unlink(odfPath).catch(() => undefined)
+      await fs.rm(outside, { recursive: true, force: true })
+    }
+  })
+
   it("returns timeout status when task() exceeds timeout_ms", async () => {
     const { createODFDelegate, clearMetricsBuffer, getMetricsBuffer } = await import("./odf-delegation.js")
     clearMetricsBuffer()
@@ -5139,6 +5332,7 @@ ${overrides}`
     clearMetricsBuffer()
     const branches = parallelBranches("success")
     await prepareWorkflowState("parallel-success", "IMPLEMENT", "cross-domain")
+    await fs.writeFile(path.join(tempHome, "__manifest__.py"), "{'version': '18.0.1'}\n", "utf8")
     await writeParallelEvidence("parallel-success", branches.map(branch => branch.branch_id))
     const taskApi = vi.fn().mockResolvedValue({ status: "ok", executive_summary: "branch implemented" })
     const parallelTool = createODFParallelDelegate(undefined, tempHome)
@@ -5166,7 +5360,15 @@ ${overrides}`
     const metrics = await readPersistedMetrics()
     const lifecycleMetrics = metrics.filter(metric => metric.lifecycle)
     const schedulerRun = lifecycleMetrics.find(metric => metric.event === "run" && metric.lifecycle === "started")
-    expect(schedulerRun).toMatchObject({ agent: "scheduler", run_id: expect.any(String), span_id: expect.any(String), trace_id: expect.any(String) })
+    expect(schedulerRun).toMatchObject({
+      agent: "scheduler",
+      run_id: expect.any(String),
+      span_id: expect.any(String),
+      trace_id: expect.any(String),
+      workspace: path.basename(tempHome),
+      odoo_version: 18,
+      source_authority: false,
+    })
     expect(lifecycleMetrics.filter(metric => metric.event === "run").map(metric => metric.lifecycle)).toEqual(["started", "finished"])
     expect(new Set(lifecycleMetrics.map(metric => metric.trace_id)).size).toBe(1)
     const branchSpans = lifecycleMetrics.filter(metric => metric.event === "span" && metric.agent === "branch")
@@ -5187,6 +5389,9 @@ ${overrides}`
     expect(metrics.filter(metric => metric.branch_id).every(metric => metric.work_type === "cross-domain")).toBe(true)
     expect(metrics.filter(metric => metric.join_status).map(metric => metric.join_status)).toEqual(["running", "complete"])
     expect(metrics.filter(metric => metric.join_status).map(metric => metric.validation_ratio)).toEqual([0, 1])
+    expect(metrics.filter(metric => metric.join_status).every(metric =>
+      metric.workspace === path.basename(tempHome) && metric.odoo_version === 18 && metric.source_authority === false,
+    )).toBe(true)
     expect(JSON.stringify(metrics.filter(metric => metric.join_status))).not.toContain("Implement the backend branch")
     const joinArtifact = JSON.parse(await fs.readFile(path.join(tempHome, ".odf", "parallel-join-parallel-success.json"), "utf8"))
     expect(joinArtifact).toMatchObject({
@@ -5208,6 +5413,53 @@ ${overrides}`
       .trim().split("\n").map(line => JSON.parse(line))
     expect(ledger.filter((record: any) => record.status === "completed")).toHaveLength(2)
     expect(ledger.map((record: any) => record.branch_id)).toEqual(expect.arrayContaining(["backend-success", "frontend-success"]))
+  })
+
+  it("passes the selected workspace and resolved source roots to parallel branches", async () => {
+    const { createODFParallelDelegate } = await import("./odf-delegation.js")
+    const workspace = await fs.mkdtemp(path.join(os.tmpdir(), "odf-external-parallel-"))
+    const change = "parallel-external-workspace"
+    try {
+      initGitRepo(workspace)
+      commitFile(workspace, "README.md", 1)
+      await fs.writeFile(path.join(workspace, "backend.py"), "# backend\n", "utf8")
+      await fs.writeFile(path.join(workspace, "frontend.js"), "// frontend\n", "utf8")
+      const source = await createViewAuthorityFixture(workspace)
+      const branches = [
+        { branch_id: "backend-external", attempt_id: "backend-external-attempt", prompt: "Implement view inheritance with inherit_id for custom.view_child", context_files: ["backend.py"] },
+        { branch_id: "frontend-external", attempt_id: "frontend-external-attempt", prompt: "Implement view inheritance with inherit_id for custom.view_child", context_files: ["frontend.js"] },
+      ]
+      await prepareWorkflowState(change, "IMPLEMENT", "cross-domain", workspace)
+      await writeParallelEvidenceAt(workspace, change, branches.map(branch => branch.branch_id))
+      const taskApi = vi.fn().mockResolvedValue(viewAuthorityResult(source))
+      const parallelTool = createODFParallelDelegate(undefined, tempHome)
+
+      expect((parallelTool as any).args).toHaveProperty("workspace_dir")
+      const output = JSON.parse(await parallelTool.execute({
+        work_type: "cross-domain",
+        phase: "IMPLEMENT",
+        change,
+        workspace_dir: workspace,
+        artifact_store: "openspec",
+        odoo_source_root: path.relative(workspace, source),
+        workflow_advance: parallelWorkflowAdvance(),
+        branches,
+      }, { sessionID: "external-parallel", task: taskApi } as any) as string)
+
+      expect(output).toMatchObject({ status: "parallel-delegated", join: { status: "complete", completed: 2 } })
+      const calls = taskApi.mock.calls.map(call => call[0] as { prompt: string; context_files: string[] })
+      expect(calls).toHaveLength(2)
+      expect(calls.every(call => call.prompt.includes(`Odoo source root: ${fsSync.realpathSync(source)}`))).toBe(true)
+      expect(calls.map(call => call.context_files[0]).sort()).toEqual([
+        path.join(workspace, "backend.py"),
+        path.join(workspace, "frontend.js"),
+      ])
+      expect(fsSync.existsSync(path.join(workspace, ".odf", `parallel-join-${change}.json`))).toBe(true)
+      expect(fsSync.existsSync(path.join(workspace, ".odf", `attempt-ledger-${change}.jsonl`))).toBe(true)
+      expect(fsSync.existsSync(path.join(tempHome, ".odf"))).toBe(false)
+    } finally {
+      await fs.rm(workspace, { recursive: true, force: true })
+    }
   })
 
   it("isolates parallel validation evidence by branch and records each ref", async () => {
@@ -5807,6 +6059,25 @@ describe("validateValidationEvidence", () => {
   it("returns missing when the evidence file does not exist", () => {
     const verdict = validateValidationEvidence({ workspaceDir: tmp, change: "nope", tier: "MEDIUM", frozenDiffRef: null, now })
     expect(verdict.status).toBe("missing")
+  })
+
+  it("rejects evidence behind an escaping .odf directory or file symlink", async () => {
+    const outside = await fs.mkdtemp(path.join(os.tmpdir(), "odf-evidence-outside-"))
+    const odfPath = path.join(tmp, ".odf")
+    const evidenceName = "validation-evidence-ev-change.json"
+    try {
+      await fs.writeFile(path.join(outside, evidenceName), JSON.stringify(validEvidence()), "utf8")
+      await fs.symlink(outside, odfPath, "dir")
+      expect(validateValidationEvidence({ workspaceDir: tmp, change: "ev-change", tier: "LOW", frozenDiffRef: null, now }).status).toBe("invalid")
+
+      await fs.unlink(odfPath)
+      await fs.mkdir(odfPath)
+      await fs.symlink(path.join(outside, evidenceName), path.join(odfPath, evidenceName), "file")
+      expect(validateValidationEvidence({ workspaceDir: tmp, change: "ev-change", tier: "LOW", frozenDiffRef: null, now }).status).toBe("invalid")
+    } finally {
+      await fs.rm(odfPath, { recursive: true, force: true })
+      await fs.rm(outside, { recursive: true, force: true })
+    }
   })
 
   it("returns invalid for unparsable JSON", async () => {
@@ -6425,9 +6696,10 @@ describe("stable discovery runtime guard", () => {
 
   function setup(workspaceDir = process.cwd()) {
     const abort = vi.fn().mockResolvedValue({ data: true })
+    const showToast = vi.fn().mockResolvedValue({ data: true })
     const authorizations = new Map()
     const generations = new Map()
-    const hooks = createStableDiscoveryGuard({ session: { abort } } as any, authorizations, generations, workspaceDir)
+    const hooks = createStableDiscoveryGuard({ session: { abort }, tui: { showToast } } as any, authorizations, generations, workspaceDir)
     const activate = async (sessionID: string, messageID: string, agent = "odoo_orchestrator", text = "continue") => {
       await hooks["chat.message"]?.(
         { sessionID, messageID, agent },
@@ -6452,7 +6724,7 @@ describe("stable discovery runtime guard", () => {
       await hooks["tool.execute.after"]?.({ tool, sessionID, callID, args }, output)
       return output
     }
-    return { abort, authorizations, generations, hooks, activate, activateCommand, before, after }
+    return { abort, showToast, authorizations, generations, hooks, activate, activateCommand, before, after }
   }
 
   it("allows the initial read and stops after the first stable repetition", async () => {
@@ -6846,5 +7118,104 @@ describe("stable discovery runtime guard", () => {
     expect(output.system).toHaveLength(1)
     expect(output.system[0]).toContain("base")
     expect(output.system[0]).toContain("<odf-system>")
+  })
+
+  it("warns once when estimated context pressure crosses the threshold", async () => {
+    const previous = process.env.ODF_CONTEXT_WARN_TOKENS
+    process.env.ODF_CONTEXT_WARN_TOKENS = "1000"
+    try {
+      const { showToast, hooks, activate, after } = setup()
+      await activate("s1", "m1")
+      const big = "x".repeat(20_000)
+      await after("s1", "c1", { filePath: "a" }, big)
+      expect(showToast).toHaveBeenCalledTimes(1)
+      expect(showToast.mock.calls[0][0]).toMatchObject({ body: { variant: "warning" } })
+      expect(String(showToast.mock.calls[0][0].body.message)).toContain("grown large")
+
+      await after("s1", "c2", { filePath: "b" }, big)
+      expect(showToast).toHaveBeenCalledTimes(1)
+
+      const notice = hooks.consumeContextPressureNotice("s1")
+      expect(notice).toContain("<odf-context-pressure>")
+      expect(notice).toContain("Do not silently continue")
+      expect(hooks.consumeContextPressureNotice("s1")).toBeNull()
+      expect(hooks.consumeContextPressureNotice("unrelated")).toBeNull()
+    } finally {
+      if (previous === undefined) delete process.env.ODF_CONTEXT_WARN_TOKENS
+      else process.env.ODF_CONTEXT_WARN_TOKENS = previous
+    }
+  })
+
+  it("keeps pressure out of non-orchestrator sessions", async () => {
+    const previous = process.env.ODF_CONTEXT_WARN_TOKENS
+    process.env.ODF_CONTEXT_WARN_TOKENS = "1000"
+    try {
+      const { showToast, hooks, activate, after } = setup()
+      await activate("child", "m1", "build")
+      await after("child", "c1", { query: "x" }, "y".repeat(20_000))
+      expect(showToast).not.toHaveBeenCalled()
+      expect(hooks.consumeContextPressureNotice("child")).toBeNull()
+    } finally {
+      if (previous === undefined) delete process.env.ODF_CONTEXT_WARN_TOKENS
+      else process.env.ODF_CONTEXT_WARN_TOKENS = previous
+    }
+  })
+
+  it("keeps a warned session through idle and clears it when the session is deleted", async () => {
+    const previous = process.env.ODF_CONTEXT_WARN_TOKENS
+    process.env.ODF_CONTEXT_WARN_TOKENS = "1000"
+    try {
+      const { hooks, activate, after } = setup()
+      const big = "z".repeat(20_000)
+      await activate("s1", "m1")
+      await after("s1", "c1", {}, big)
+      await activate("s2", "m2")
+      await after("s2", "c2", {}, big)
+
+      await hooks.event?.({ event: { type: "session.idle", properties: { sessionID: "s1" } } as any })
+      expect(hooks.consumeContextPressureNotice("s1")).toContain("<odf-context-pressure>")
+
+      await hooks.event?.({ event: { type: "session.deleted", properties: { info: { id: "s2" } } } as any })
+      expect(hooks.consumeContextPressureNotice("s2")).toBeNull()
+    } finally {
+      if (previous === undefined) delete process.env.ODF_CONTEXT_WARN_TOKENS
+      else process.env.ODF_CONTEXT_WARN_TOKENS = previous
+    }
+  })
+
+  it("parses the context pressure threshold with a safe default", () => {
+    expect(contextPressureThreshold({})).toBe(CONTEXT_PRESSURE_DEFAULT_TOKENS)
+    expect(contextPressureThreshold({ ODF_CONTEXT_WARN_TOKENS: "2500" })).toBe(2500)
+    expect(contextPressureThreshold({ ODF_CONTEXT_WARN_TOKENS: "0" })).toBe(CONTEXT_PRESSURE_DEFAULT_TOKENS)
+    expect(contextPressureThreshold({ ODF_CONTEXT_WARN_TOKENS: "many" })).toBe(CONTEXT_PRESSURE_DEFAULT_TOKENS)
+    expect(contextPressureNotice(250_000)).toContain("250k")
+  })
+
+  it("injects the context pressure notice into the system prompt exactly once", async () => {
+    const previous = process.env.ODF_CONTEXT_WARN_TOKENS
+    process.env.ODF_CONTEXT_WARN_TOKENS = "1000"
+    try {
+      const showToast = vi.fn().mockResolvedValue({})
+      const hooks = createODFRuntimeHooks({ session: { abort: vi.fn() }, tui: { showToast } } as any)
+      await hooks["chat.message"]?.(
+        { sessionID: "s1", messageID: "m1", agent: "odoo_orchestrator" },
+        { message: { id: "m1", sessionID: "s1", agent: "odoo_orchestrator" } as any, parts: [{ type: "text", text: "go" } as any] },
+      )
+      await hooks["tool.execute.after"]?.(
+        { tool: "read", sessionID: "s1", callID: "c1", args: { filePath: "a" } },
+        { title: "t", output: "y".repeat(20_000), metadata: {} },
+      )
+      const first = { system: ["base"] }
+      await hooks["experimental.chat.system.transform"]?.({ sessionID: "s1" } as any, first)
+      expect(first.system).toHaveLength(1)
+      expect(first.system[0]).toContain("<odf-context-pressure>")
+
+      const second = { system: ["base"] }
+      await hooks["experimental.chat.system.transform"]?.({ sessionID: "s1" } as any, second)
+      expect(second.system[0]).not.toContain("<odf-context-pressure>")
+    } finally {
+      if (previous === undefined) delete process.env.ODF_CONTEXT_WARN_TOKENS
+      else process.env.ODF_CONTEXT_WARN_TOKENS = previous
+    }
   })
 })

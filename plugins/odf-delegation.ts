@@ -73,8 +73,10 @@ import {
   getMetricsDir,
   metricsBuffer,
   recordMetrics,
+  resolveFlowStage,
   startMetricsFlusher,
   type DelegationMetricInput,
+  type TelemetryFlowStage,
 } from "../odf-plugin/odf-delegation-metrics.js"
 import {
   EXECUTOR_BOUNDARY,
@@ -99,6 +101,9 @@ import {
 } from "../odf-plugin/odf-delegation-policy.js"
 import {
   canonicalLoopGuardValue,
+  CONTEXT_PRESSURE_DEFAULT_TOKENS,
+  contextPressureNotice,
+  contextPressureThreshold,
   createStableDiscoveryGuard,
   type LoopGuardHooks,
 } from "../odf-plugin/odf-delegation-loopguard.js"
@@ -411,6 +416,20 @@ function validateContextFiles(workspaceRoot: string, contextFiles: string[]): { 
   return { error: null, paths }
 }
 
+function resolveSelectedWorkspaceRoot(workspaceDir?: string, canonicalDirectory?: string): string | null {
+  const selected = typeof workspaceDir === "string" && workspaceDir.trim()
+    ? workspaceDir
+    : typeof canonicalDirectory === "string" && canonicalDirectory.trim()
+      ? canonicalDirectory
+      : process.cwd()
+  try {
+    const root = canonicalWorkspaceRoot(selected)
+    return fsSync.statSync(root).isDirectory() ? root : null
+  } catch {
+    return null
+  }
+}
+
 const ALLOWED_PHASES = ["PROPOSE", "ASSESS", "QA-PLAN", "DESIGN", "IMPLEMENT", "VERIFY", "EXPLORE", "FIX"]
 const PARALLEL_BUILD_CONCURRENCY = 3
 
@@ -425,6 +444,7 @@ interface ODFDelegateArgs {
   prompt: string
   agent?: string
   context_files?: string[]
+  workspace_dir?: string
   odoo_source_root?: string
   odoo_source_repos?: string
   profile?: string
@@ -502,6 +522,7 @@ interface AttemptLedgerRecord {
 }
 
 interface AcquiredAttempt {
+  workspaceRoot: string
   ledgerPath: string
   record: AttemptLedgerRecord
 }
@@ -521,6 +542,67 @@ type AttemptAcquisitionResult = AttemptAcquisitionAllowed | AttemptAcquisitionBl
 
 function attemptLedgerPath(workspaceDir: string, change: string): string {
   return path.join(workspaceDir, ".odf", `attempt-ledger-${change}.jsonl`)
+}
+
+function safeWorkspaceStatePath(workspaceRoot: string, candidatePath: string): string | null {
+  const root = path.resolve(workspaceRoot)
+  const candidate = path.resolve(candidatePath)
+  if (!isWithinRoot(candidate, root)) return null
+
+  let realRoot: string
+  try {
+    realRoot = fsSync.realpathSync(root)
+  } catch {
+    return null
+  }
+
+  let current = root
+  const relative = path.relative(root, candidate)
+  if (!relative) return candidate
+  for (const component of relative.split(path.sep)) {
+    current = path.join(current, component)
+    try {
+      const stat = fsSync.lstatSync(current)
+      if (stat.isSymbolicLink() || current !== candidate && !stat.isDirectory()) return null
+      if (!isWithinRoot(fsSync.realpathSync(current), realRoot)) return null
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return candidate
+      return null
+    }
+  }
+  return candidate
+}
+
+function ensureSafeOdfDirectory(workspaceRoot: string): string | null {
+  const root = path.resolve(workspaceRoot)
+  const directory = path.join(root, ".odf")
+  let realRoot: string
+  try {
+    realRoot = fsSync.realpathSync(root)
+  } catch {
+    return null
+  }
+
+  try {
+    const stat = fsSync.lstatSync(directory)
+    if (stat.isSymbolicLink() || !stat.isDirectory()) return null
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") return null
+    try {
+      fsSync.mkdirSync(directory)
+    } catch (createError) {
+      if ((createError as NodeJS.ErrnoException).code !== "EEXIST") return null
+    }
+  }
+
+  try {
+    const stat = fsSync.lstatSync(directory)
+    return !stat.isSymbolicLink() && stat.isDirectory() && isWithinRoot(fsSync.realpathSync(directory), realRoot)
+      ? directory
+      : null
+  } catch {
+    return null
+  }
 }
 
 function isSafeToken(value: unknown): value is string {
@@ -556,10 +638,12 @@ function attemptBranchId(record: AttemptLedgerRecord): string {
   return record.branch_id || "default"
 }
 
-function readAttemptLedger(ledgerPath: string): { records: AttemptLedgerRecord[]; error?: string } {
+function readAttemptLedger(workspaceRoot: string, ledgerPath: string): { records: AttemptLedgerRecord[]; error?: string } {
+  const safePath = safeWorkspaceStatePath(workspaceRoot, ledgerPath)
+  if (!safePath) return { records: [], error: "attempt-ledger-unsafe-path" }
   let stat: fsSync.Stats
   try {
-    stat = fsSync.statSync(ledgerPath)
+    stat = fsSync.statSync(safePath)
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code === "ENOENT") return { records: [] }
     return { records: [], error: "attempt-ledger-read-failed" }
@@ -571,7 +655,7 @@ function readAttemptLedger(ledgerPath: string): { records: AttemptLedgerRecord[]
 
   let content: string
   try {
-    content = fsSync.readFileSync(ledgerPath, "utf8")
+    content = fsSync.readFileSync(safePath, "utf8")
   } catch {
     return { records: [], error: "attempt-ledger-read-failed" }
   }
@@ -596,29 +680,31 @@ function readAttemptLedger(ledgerPath: string): { records: AttemptLedgerRecord[]
   return { records }
 }
 
-function appendAttemptLedgerRecord(ledgerPath: string, record: AttemptLedgerRecord): string | null {
+function appendAttemptLedgerRecord(workspaceRoot: string, ledgerPath: string, record: AttemptLedgerRecord): string | null {
   const line = JSON.stringify(record)
   const lineBytes = Buffer.byteLength(line, "utf8") + 1
   if (lineBytes > ATTEMPT_LEDGER_MAX_LINE_BYTES) return "attempt-ledger-limit"
 
   try {
-    fsSync.mkdirSync(path.dirname(ledgerPath), { recursive: true })
+    if (!ensureSafeOdfDirectory(workspaceRoot)) return "attempt-ledger-unsafe-path"
+    const safePath = safeWorkspaceStatePath(workspaceRoot, ledgerPath)
+    if (!safePath) return "attempt-ledger-unsafe-path"
     let currentBytes = 0
     try {
-      currentBytes = fsSync.statSync(ledgerPath).size
+      currentBytes = fsSync.statSync(safePath).size
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code !== "ENOENT") return "attempt-ledger-read-failed"
     }
     if (currentBytes + lineBytes > ATTEMPT_LEDGER_MAX_BYTES) return "attempt-ledger-limit"
     if (currentBytes > 0) {
-      const existing = fsSync.readFileSync(ledgerPath, "utf8")
+      const existing = fsSync.readFileSync(safePath, "utf8")
       const existingLines = existing.split(/\r?\n/)
       if (existingLines.at(-1) === "") existingLines.pop()
       if (existingLines.length >= ATTEMPT_LEDGER_MAX_LINES) return "attempt-ledger-limit"
     }
 
     // appendFileSync opens with O_APPEND, keeping each bounded record append-only.
-    fsSync.appendFileSync(ledgerPath, `${line}\n`, { encoding: "utf8", flag: "a" })
+    fsSync.appendFileSync(safePath, `${line}\n`, { encoding: "utf8", flag: "a" })
     return null
   } catch {
     return "attempt-ledger-write-failed"
@@ -629,12 +715,14 @@ type AttemptLedgerLockResult<T> =
   | { locked: true; value: T }
   | { locked: false; error: string }
 
-function withAttemptLedgerLock<T>(ledgerPath: string, operation: () => T): AttemptLedgerLockResult<T> {
+function withAttemptLedgerLock<T>(workspaceRoot: string, ledgerPath: string, operation: () => T): AttemptLedgerLockResult<T> {
   const lockPath = `${ledgerPath}${ATTEMPT_LEDGER_LOCK_SUFFIX}`
   let lockFd: number | null = null
 
   try {
-    fsSync.mkdirSync(path.dirname(ledgerPath), { recursive: true })
+    if (!ensureSafeOdfDirectory(workspaceRoot) || !safeWorkspaceStatePath(workspaceRoot, ledgerPath) || !safeWorkspaceStatePath(workspaceRoot, lockPath)) {
+      return { locked: false, error: "attempt-ledger-unsafe-path" }
+    }
     try {
       // O_EXCL makes acquisition atomic across processes; contention fails closed.
       lockFd = fsSync.openSync(lockPath, "wx")
@@ -669,8 +757,8 @@ function acquireAttempt(opts: {
 }): AttemptAcquisitionResult {
   const ledgerPath = attemptLedgerPath(opts.workspaceDir, opts.change)
   const branchId = opts.branchId || "default"
-  const result = withAttemptLedgerLock<AttemptAcquisitionResult>(ledgerPath, (): AttemptAcquisitionResult => {
-    const ledger = readAttemptLedger(ledgerPath)
+  const result = withAttemptLedgerLock<AttemptAcquisitionResult>(opts.workspaceDir, ledgerPath, (): AttemptAcquisitionResult => {
+    const ledger = readAttemptLedger(opts.workspaceDir, ledgerPath)
     if (ledger.error) {
       return { acquired: false, reason: ledger.error, message: "The attempt ledger could not be read safely." }
     }
@@ -703,11 +791,11 @@ function acquireAttempt(opts: {
       result_status: "running",
       candidate_digest: candidateDigestOrNull(opts.workspaceDir),
     }
-    const appendError = appendAttemptLedgerRecord(ledgerPath, record)
+    const appendError = appendAttemptLedgerRecord(opts.workspaceDir, ledgerPath, record)
     if (appendError) {
       return { acquired: false, reason: appendError, message: "The attempt could not be acquired safely." }
     }
-    return { acquired: true, handle: { ledgerPath, record } }
+    return { acquired: true, handle: { workspaceRoot: opts.workspaceDir, ledgerPath, record } }
   })
   if (!result.locked) {
     return { acquired: false, reason: result.error, message: "The attempt could not be acquired safely." }
@@ -730,7 +818,7 @@ function settleAttempt(
     reason,
     result_status: resultStatus,
   }
-  const result = withAttemptLedgerLock(attempt.ledgerPath, () => appendAttemptLedgerRecord(attempt.ledgerPath, settled))
+  const result = withAttemptLedgerLock(attempt.workspaceRoot, attempt.ledgerPath, () => appendAttemptLedgerRecord(attempt.workspaceRoot, attempt.ledgerPath, settled))
   if (!result.locked) {
     console.warn(`[odf-delegation] Failed to settle attempt ledger: ${result.error}`)
   } else if (result.value) {
@@ -830,8 +918,8 @@ export function validateValidationEvidence(opts: {
   if (path.isAbsolute(evidencePath) || evidencePath.split(/[\\/]/).includes("..")) {
     return { status: "invalid", reason: "validation-evidence path is unsafe", commands_validated: 0 }
   }
-  const filePath = path.resolve(opts.workspaceDir, evidencePath)
-  if (!isWithinRoot(filePath, path.resolve(opts.workspaceDir))) {
+  const filePath = safeWorkspaceStatePath(opts.workspaceDir, path.resolve(opts.workspaceDir, evidencePath))
+  if (!filePath) {
     return { status: "invalid", reason: "validation-evidence path escapes workspace root", commands_validated: 0 }
   }
 
@@ -1003,6 +1091,56 @@ frozen diff ref). The gate documents — the sub-agent applies, never recomputes
 // TOOL CREATORS
 // ==========================================
 
+function recordTerminalFlowMarkers(
+  sessionId: string | undefined,
+  workspaceRoot: string,
+  change: string,
+  workType: WorkType,
+  terminalStage: "DECIDE" | "FIX" | undefined,
+): void {
+  const validTerminal = workType === "small-change" && terminalStage === "DECIDE" ||
+    workType === "bugfix" && terminalStage === "FIX"
+  if (!sessionId || !validTerminal) return
+
+  const traceId = createTelemetryTraceId()
+  const runId = createTelemetryRunId()
+  let parentSpanId = createTelemetrySpanId()
+  const prefix: Array<{ phase: string; lifecycle: "started" | "finished"; flowStage: TelemetryFlowStage }> = [
+    { phase: "PROPOSE", lifecycle: "started", flowStage: "entry_started" },
+    { phase: "PROPOSE", lifecycle: "finished", flowStage: "intent_approved" },
+    { phase: "ASSESS", lifecycle: "finished", flowStage: "policy_selected" },
+  ]
+
+  for (const marker of prefix) {
+    const spanId = createTelemetrySpanId()
+    recordMetrics({
+      timestamp: new Date().toISOString(),
+      session_id: sessionId,
+      phase: marker.phase,
+      agent: "workflow-bind",
+      skills_injected: [],
+      skill_resolution: "none",
+      duration_ms: 0,
+      token_estimate: 0,
+      status: "ok",
+      task_api_source: "unavailable",
+      work_type: workType,
+      event: "span",
+      lifecycle: marker.lifecycle,
+      span_kind: "task",
+      change,
+      run_id: runId,
+      trace_id: traceId,
+      span_id: spanId,
+      parent_span_id: parentSpanId,
+      flow_stage: marker.flowStage,
+      workspace: workspaceProjectName(workspaceRoot),
+      tool: "odf_workflow_bind",
+    })
+    parentSpanId = spanId
+  }
+}
+
 function createODFDelegate(
   client?: OpencodeClient,
   canonicalDirectory?: string,
@@ -1032,6 +1170,10 @@ Use this instead of generic task() for ODF workflow delegation.`,
         .array(tool.schema.string())
         .optional()
         .describe("Files the agent will work with (for skill matching)"),
+      workspace_dir: tool.schema
+        .string()
+        .optional()
+        .describe("Selected project directory (defaults to the plugin directory, then cwd)"),
       odoo_source_root: tool.schema
         .string()
         .optional()
@@ -1185,7 +1327,14 @@ Use this instead of generic task() for ODF workflow delegation.`,
         }
       }
 
-      const workspaceRoot = resolveWorkspaceRoot(canonicalDirectory || process.cwd())
+      const workspaceRoot = resolveSelectedWorkspaceRoot(args.workspace_dir, canonicalDirectory)
+      if (!workspaceRoot) {
+        return blockWorkflow(
+          "unsafe-workspace-path",
+          "The workspace directory does not resolve to a safe existing root.",
+          null,
+        )
+      }
       const changeName = args.change?.trim() || extractChangeName(args.prompt)
       const sourceAuthorityRequired = isViewAuthorityWork(args.phase, args.prompt, args.context_files || [])
 
@@ -1447,6 +1596,16 @@ Use this instead of generic task() for ODF workflow delegation.`,
         debugLog(`[odf-delegation] Detected Odoo version: ${odooVersion}`)
       }
 
+      // M0 Slice 2: end-to-end funnel cohorts, tagged on every lifecycle and
+      // task span below. Workspace is the project basename (never the raw
+      // path); all three ride the existing sanitize allowlist in
+      // recordMetrics, so out-of-range values are dropped, never stored.
+      const flowContext: Partial<DelegationMetricInput> = {
+        ...(odooVersion ? { odoo_version: odooVersion } : {}),
+        workspace: workspaceProjectName(workspaceRoot),
+        source_authority: Boolean(sourceAuthorityRequired && sourceAuthorityRoots),
+      }
+
       // Match skills (with version filter)
       const skills = matchSkills(registry, args.phase, {
         files: args.context_files,
@@ -1591,6 +1750,7 @@ Use this instead of generic task() for ODF workflow delegation.`,
         overrides: Partial<DelegationMetricInput> = {},
       ): void => {
         if (!taskSpanId) return
+        const flowStage = resolveFlowStage(args.phase, lifecycle, overrides.status)
         recordMetrics({
           timestamp: new Date().toISOString(),
           session_id: toolCtx.sessionID,
@@ -1603,6 +1763,8 @@ Use this instead of generic task() for ODF workflow delegation.`,
           status: "ok",
           task_api_source: taskApiInfo?.source || "unavailable",
           ...metricContext,
+          ...flowContext,
+          ...(flowStage ? { flow_stage: flowStage } : {}),
            ...overrides,
            event: "span",
            span_kind: "task",
@@ -1630,6 +1792,7 @@ Use this instead of generic task() for ODF workflow delegation.`,
       ): void => {
         if (lifecycle === "finished") finishTaskSpan(overrides)
         if (!emitTelemetryLifecycle) return
+        const flowStage = resolveFlowStage(args.phase, lifecycle, overrides.status)
         const metric: DelegationMetricInput = {
           timestamp: new Date().toISOString(),
           session_id: toolCtx.sessionID,
@@ -1642,6 +1805,8 @@ Use this instead of generic task() for ODF workflow delegation.`,
           status: "ok",
           task_api_source: taskApiInfo?.source || "unavailable",
           ...metricContext,
+          ...flowContext,
+          ...(flowStage ? { flow_stage: flowStage } : {}),
           ...overrides,
           event: telemetryContext.event,
           lifecycle,
@@ -1997,6 +2162,8 @@ interface ParallelBranchOutcome {
   policy_gate: PolicyGateDecision | null
 }
 
+type ParallelTelemetryCohort = Pick<DelegationMetricInput, "odoo_version" | "workspace" | "source_authority">
+
 function savedParallelOutcome(branch: ParallelJoinArtifact["branches"][number]): ParallelBranchOutcome {
   return {
     branch_id: branch.branch_id,
@@ -2145,6 +2312,7 @@ function recordParallelJoinMetrics(
   expected: number,
   outcomes: ParallelBranchOutcome[],
   telemetryContext: TelemetryExecutionContext | null = null,
+  telemetryCohort: ParallelTelemetryCohort = {},
 ): void {
   if (!sessionId || expected < 2 || expected > PARALLEL_BUILD_CONCURRENCY) return
   const completed = Math.min(expected, outcomes.filter(outcome => outcome.successful).length)
@@ -2169,6 +2337,7 @@ function recordParallelJoinMetrics(
     join_failed: failed,
     join_running: running,
     validation_ratio: validated / expected,
+    ...telemetryCohort,
     ...(telemetryContext ? {
       event: "run" as const,
       run_id: telemetryContext.run_id,
@@ -2185,8 +2354,14 @@ function recordSchedulerLifecycle(
   startTime: number,
   status: DelegationMetrics["status"],
   error?: string,
+  change?: string,
+  telemetryCohort: ParallelTelemetryCohort = {},
 ): void {
   if (!sessionId || !telemetryContext) return
+  // M0 Slice 2: the scheduler run is the parallel BUILD funnel anchor. The
+  // change tag lets the reader pair it with the sequential entry/verify
+  // milestones; only the start maps to a funnel stage (build_started).
+  const flowStage = resolveFlowStage("IMPLEMENT", lifecycle)
   recordMetrics({
     timestamp: new Date().toISOString(),
     session_id: sessionId,
@@ -2199,8 +2374,11 @@ function recordSchedulerLifecycle(
     status,
     task_api_source: "unavailable",
     work_type: "cross-domain",
+    ...telemetryCohort,
     event: "run",
     lifecycle,
+    ...(change ? { change } : {}),
+    ...(flowStage ? { flow_stage: flowStage } : {}),
     run_id: telemetryContext.run_id,
     trace_id: telemetryContext.trace_id,
     span_id: telemetryContext.span_id,
@@ -2217,6 +2395,7 @@ function recordBranchLifecycle(
   spanId: string,
   status: DelegationMetrics["status"],
   error?: string,
+  telemetryCohort: ParallelTelemetryCohort = {},
 ): void {
   if (!sessionId || !telemetryContext) return
   recordMetrics({
@@ -2231,6 +2410,7 @@ function recordBranchLifecycle(
     status,
     task_api_source: "unavailable",
     work_type: "cross-domain",
+    ...telemetryCohort,
      branch_id: branch.branch_id,
      attempt_id: branch.attempt_id,
      event: "span",
@@ -2304,6 +2484,10 @@ must not overlap. VERIFY remains sequential after the aggregate join is complete
       change: tool.schema
         .string()
         .describe("Shared change name (kebab-case)"),
+      workspace_dir: tool.schema
+        .string()
+        .optional()
+        .describe("Selected project directory (defaults to the plugin directory, then cwd)"),
       odoo_source_root: tool.schema
         .string()
         .optional()
@@ -2346,6 +2530,7 @@ must not overlap. VERIFY remains sequential after the aggregate join is complete
       work_type: "cross-domain"
       phase: "IMPLEMENT"
       change: string
+      workspace_dir?: string
       odoo_source_root?: string
       odoo_source_repos?: string
       artifact_store: ArtifactStore
@@ -2356,6 +2541,19 @@ must not overlap. VERIFY remains sequential after the aggregate join is complete
       const startTime = Date.now()
       let expected = Array.isArray(args.branches) ? args.branches.length : 0
       let persistedJoinRef: string | null = null
+      const workspaceRoot = resolveSelectedWorkspaceRoot(args.workspace_dir, canonicalDirectory)
+      const detectedOdooVersion = workspaceRoot ? await detectOdooVersion(workspaceRoot) : null
+      const sourceAuthorityRequiredForTelemetry = Array.isArray(args.branches) && args.branches.some(branch =>
+        isViewAuthorityWork("IMPLEMENT", branch.prompt, branch.context_files || []))
+      const schedulerTelemetryCohort: ParallelTelemetryCohort = {
+        ...(workspaceRoot ? { workspace: workspaceProjectName(workspaceRoot) } : {}),
+        ...(detectedOdooVersion ? { odoo_version: detectedOdooVersion } : {}),
+        source_authority: Boolean(workspaceRoot && sourceAuthorityRequiredForTelemetry && establishSourceAuthorityRoots({
+          workspaceRoot,
+          sourceRoot: args.odoo_source_root,
+          reposRoot: args.odoo_source_repos,
+        }).ok),
+      }
       const schedulerTelemetryContext: TelemetryExecutionContext | null = toolCtx?.sessionID
         ? {
           event: "run",
@@ -2368,9 +2566,9 @@ must not overlap. VERIFY remains sequential after the aggregate join is complete
       const finishScheduler = (status: DelegationMetrics["status"], error?: string): void => {
         if (schedulerLifecycleFinished) return
         schedulerLifecycleFinished = true
-        recordSchedulerLifecycle(toolCtx?.sessionID, schedulerTelemetryContext, "finished", startTime, status, error)
+        recordSchedulerLifecycle(toolCtx?.sessionID, schedulerTelemetryContext, "finished", startTime, status, error, args.change, schedulerTelemetryCohort)
       }
-      recordSchedulerLifecycle(toolCtx?.sessionID, schedulerTelemetryContext, "started", startTime, "ok")
+      recordSchedulerLifecycle(toolCtx?.sessionID, schedulerTelemetryContext, "started", startTime, "ok", undefined, args.change, schedulerTelemetryCohort)
       flushMetricsSync()
       const blocked = (
         reason: string,
@@ -2379,7 +2577,7 @@ must not overlap. VERIFY remains sequential after the aggregate join is complete
         receipt: ODFReceipt | null = null,
         joinStatus: "blocked" | "running" = "blocked",
       ): string => {
-        recordParallelJoinMetrics(toolCtx?.sessionID, startTime, joinStatus, expected, outcomes, schedulerTelemetryContext)
+        recordParallelJoinMetrics(toolCtx?.sessionID, startTime, joinStatus, expected, outcomes, schedulerTelemetryContext, schedulerTelemetryCohort)
         finishScheduler("blocked", message)
         const completed = outcomes.filter(outcome => outcome.successful).length
         const running = outcomes.filter(outcome => outcome.status === "running").length
@@ -2414,7 +2612,9 @@ must not overlap. VERIFY remains sequential after the aggregate join is complete
         return blocked("artifact-store-required", "Parallel proof-backed BUILD requires an explicit artifact_store: openspec, engram, or hybrid.")
       }
 
-      const workspaceRoot = resolveWorkspaceRoot(canonicalDirectory || process.cwd())
+      if (!workspaceRoot) {
+        return blocked("unsafe-workspace-path", "The workspace directory does not resolve to a safe existing root.")
+      }
       if (!args.workflow_advance || args.workflow_advance.work_type !== "cross-domain") {
         return blocked("parallel-workflow-proof-mismatch", "The workflow_advance proof must use work_type cross-domain.")
       }
@@ -2568,7 +2768,7 @@ must not overlap. VERIFY remains sequential after the aggregate join is complete
           const mergedReceipt = mergeReceipt(workspaceRoot, receipt)
           return blocked(workflowCommit.reason, workflowCommit.message, savedJoin.branches.map(savedParallelOutcome), mergedReceipt)
         }
-        recordParallelJoinMetrics(toolCtx.sessionID, startTime, savedJoin.join.status, expected, savedJoin.branches.map(savedParallelOutcome), schedulerTelemetryContext)
+        recordParallelJoinMetrics(toolCtx.sessionID, startTime, savedJoin.join.status, expected, savedJoin.branches.map(savedParallelOutcome), schedulerTelemetryContext, schedulerTelemetryCohort)
         finishScheduler("ok")
         return JSON.stringify({
           status: "parallel-delegated",
@@ -2623,6 +2823,7 @@ must not overlap. VERIFY remains sequential after the aggregate join is complete
           )
         }
         sourceAuthorityRoots = roots.roots
+        schedulerTelemetryCohort.source_authority = true
       }
 
       const acquired = new Map<string, AcquiredAttempt>()
@@ -2716,7 +2917,7 @@ must not overlap. VERIFY remains sequential after the aggregate join is complete
         return blocked("parallel-join-persist-failed", runningArtifact.error, settledOutcomes)
       }
       persistedJoinRef = runningArtifact.ref
-      recordParallelJoinMetrics(toolCtx.sessionID, startTime, "running", expected, outcomes, schedulerTelemetryContext)
+      recordParallelJoinMetrics(toolCtx.sessionID, startTime, "running", expected, outcomes, schedulerTelemetryContext, schedulerTelemetryCohort)
 
       const persistRunningProgress = (): void => {
         const running = outcomes.filter(outcome => outcome.status === "running").length
@@ -2741,6 +2942,10 @@ must not overlap. VERIFY remains sequential after the aggregate join is complete
           const validationEvidenceRef = validationEvidenceRelativePath(args.change, branch.branch_id)
           const branchSpanId = createTelemetrySpanId()
           const branchStartTime = Date.now()
+          const branchTelemetryCohort: ParallelTelemetryCohort = {
+            ...schedulerTelemetryCohort,
+            source_authority: Boolean(sourceAuthorityRoots && isViewAuthorityWork("IMPLEMENT", branch.prompt, branch.context_files || [])),
+          }
           recordBranchLifecycle(
             toolCtx.sessionID,
             schedulerTelemetryContext,
@@ -2749,6 +2954,8 @@ must not overlap. VERIFY remains sequential after the aggregate join is complete
             branchStartTime,
             branchSpanId,
             "ok",
+            undefined,
+            branchTelemetryCohort,
           )
           flushMetricsSync()
           try {
@@ -2772,6 +2979,7 @@ must not overlap. VERIFY remains sequential after the aggregate join is complete
               phase: "IMPLEMENT",
               prompt: `${branch.prompt}\n\nStop-validation evidence: write \`${validationEvidenceRef}\`.`,
               context_files: branch.context_files,
+              workspace_dir: workspaceRoot,
                change: args.change,
                artifact_store: args.artifact_store,
                odoo_source_root: sourceAuthorityRoots?.source,
@@ -2791,6 +2999,7 @@ must not overlap. VERIFY remains sequential after the aggregate join is complete
               branchSpanId,
               outcome.successful ? "ok" : outcome.status === "timeout" ? "timeout" : outcome.status === "blocked" ? "blocked" : "error",
               outcome.successful ? undefined : outcome.summary,
+              branchTelemetryCohort,
             )
             persistRunningProgress()
           } catch (error) {
@@ -2812,6 +3021,7 @@ must not overlap. VERIFY remains sequential after the aggregate join is complete
               branchSpanId,
               isCancellationMessage(message) ? "blocked" : message.includes("timed out") ? "timeout" : "error",
               message,
+              branchTelemetryCohort,
             )
             persistRunningProgress()
           }
@@ -2861,7 +3071,7 @@ must not overlap. VERIFY remains sequential after the aggregate join is complete
           return blocked(workflowCommit.reason, workflowCommit.message, outcomes, mergedReceipt)
         }
         for (const handle of acquired.values()) settleAttempt(handle, "completed", "delegated", "task-completed")
-        recordParallelJoinMetrics(toolCtx.sessionID, startTime, "complete", expected, outcomes, schedulerTelemetryContext)
+        recordParallelJoinMetrics(toolCtx.sessionID, startTime, "complete", expected, outcomes, schedulerTelemetryContext, schedulerTelemetryCohort)
         finishScheduler("ok")
         return JSON.stringify({
           status: "parallel-delegated",
@@ -3853,10 +4063,9 @@ function workflowArtifactGate(snapshot: SelectedWorkflowSnapshot, expectedStage:
  */
 function verifyEvidenceVerdict(workspaceRoot: string, changeName: string, expectationsIds?: string[]): ValidationVerdict {
   let gate: Partial<PolicyGateDecision> | null = null
+  const gatePath = safeWorkspaceStatePath(workspaceRoot, path.join(workspaceRoot, ".odf", `policy-gate-${changeName}.json`))
   try {
-    gate = JSON.parse(
-      fsSync.readFileSync(path.join(workspaceRoot, ".odf", `policy-gate-${changeName}.json`), "utf8")
-    ) as Partial<PolicyGateDecision>
+    if (gatePath) gate = JSON.parse(fsSync.readFileSync(gatePath, "utf8")) as Partial<PolicyGateDecision>
   } catch {
     gate = null
   }
@@ -4582,7 +4791,7 @@ function attachRuntimeStatus(status: Omit<ODFChangeStatus, "observability">, wor
   } else if (loaded.artifact) {
     status.workflowStatus.parallel_join = loaded.artifact
   }
-  const ledger = readAttemptLedger(attemptLedgerPath(workspaceRoot, status.change))
+  const ledger = readAttemptLedger(workspaceRoot, attemptLedgerPath(workspaceRoot, status.change))
   const observability = buildObservabilityTimeline({
     change: status.change,
     workflow: status.workflowStatus,
@@ -5088,6 +5297,7 @@ only after canonical state exists. Existing state and Expectations are reused on
             const artifactError = saveEngramTopic(workspaceRoot, project, `odf/${changeName}/${artifactType}`, JSON.stringify(artifact))
             if (artifactError) return blocked(artifactError, "Canonical state exists, but the terminal artifact could not be persisted.")
           }
+          recordTerminalFlowMarkers(sessionID, workspaceRoot, changeName, args.work_type as WorkType, terminalStage)
           return JSON.stringify({
             status: "bound",
             change_name: changeName,
@@ -5177,6 +5387,7 @@ only after canonical state exists. Existing state and Expectations are reused on
             return blocked("terminal-artifact-write-failed", "Canonical state exists, but the terminal artifact could not be persisted.")
           }
         }
+        recordTerminalFlowMarkers(sessionID, workspaceRoot, changeName, args.work_type as WorkType, terminalStage)
         return JSON.stringify({
           status: "bound",
           change_name: changeName,
@@ -5532,11 +5743,14 @@ export function createODFRuntimeHooks(
   entryGenerations: ODFEntryGenerations = new Map(),
   workspaceDir = process.cwd(),
 ): LoopGuardHooks & Pick<Hooks, "experimental.chat.system.transform"> {
+  const { consumeContextPressureNotice, ...guardHooks } = createStableDiscoveryGuard(client, entryAuthorizations, entryGenerations, workspaceDir)
   return {
-    ...createStableDiscoveryGuard(client, entryAuthorizations, entryGenerations, workspaceDir),
-    "experimental.chat.system.transform": async (_input, output) => {
-      const combined = [...output.system, ODF_SYSTEM_RULES].join("\n\n---\n\n")
-      output.system = [combined]
+    ...guardHooks,
+    "experimental.chat.system.transform": async (input, output) => {
+      const parts = [...output.system, ODF_SYSTEM_RULES]
+      const pressureNotice = input.sessionID ? consumeContextPressureNotice(input.sessionID) : null
+      if (pressureNotice) parts.push(pressureNotice)
+      output.system = [parts.join("\n\n---\n\n")]
     },
   }
 }
@@ -5673,6 +5887,7 @@ export {
   flushMetricsSync,
   getMetricsBufferCap,
   recordMetrics,
+  resolveFlowStage,
   ALLOWED_PHASES,
   createODFPolicyGate,
   classifyRiskTier,
@@ -5681,6 +5896,9 @@ export {
   gitHead,
   savePolicyGateJson,
   createStableDiscoveryGuard,
+  contextPressureThreshold,
+  contextPressureNotice,
+  CONTEXT_PRESSURE_DEFAULT_TOKENS,
   type PolicyGateDecision,
   ODF_REGISTERED_TOOLS,
   type ODFRegistry,

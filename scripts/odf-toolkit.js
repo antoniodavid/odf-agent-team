@@ -25,7 +25,7 @@ import { createHash } from "node:crypto"
 import { StringDecoder } from "node:string_decoder"
 import { pathToFileURL } from "node:url"
 import YAML from "yaml"
-import { collectDelegations, resolveMetricsDir } from "./odf-metrics.js"
+import { buildDashboard, collectDelegations, resolveMetricsDir } from "./odf-metrics.js"
 
 const CONFIG_DIR = process.env.ODF_CONFIG_DIR || path.join(os.homedir(), ".config", "opencode")
 const REGISTRY_PATH = path.join(CONFIG_DIR, "odf-registry.json")
@@ -253,6 +253,7 @@ export function contextPack(repoDir, task, maxFiles = 8) {
 export function metricsSummary(days = 14) {
   const dir = resolveMetricsDir()
   const records = collectDelegations(dir, days)
+  const baseline = buildDashboard(records, days).baseline
   const byPhase = {}
   for (const record of records) {
     const key = record.phase || "?"
@@ -265,7 +266,7 @@ export function metricsSummary(days = 14) {
   for (const bucket of Object.values(byPhase)) {
     bucket.avg_duration_ms = bucket.calls ? Math.round(bucket.total_duration_ms / bucket.calls) : 0
   }
-  return { days, records: records.length, by_phase: byPhase }
+  return { days, records: records.length, by_phase: byPhase, baseline }
 }
 
 function renderMetrics(summary) {
@@ -273,6 +274,10 @@ function renderMetrics(summary) {
   for (const [phase, bucket] of Object.entries(summary.by_phase)) {
     lines.push(`  ${phase}: ${bucket.calls} calls (ok ${bucket.ok}, blocked ${bucket.blocked}, error ${bucket.error}, timeout ${bucket.timeout}) avg ${bucket.avg_duration_ms}ms`)
   }
+  const gate = summary.baseline?.entry_to_final_gate
+  lines.push(gate?.status === "available"
+    ? `  entry to final gate: p50 ${Math.round(gate.p50_ms)}ms / p95 ${Math.round(gate.p95_ms)}ms (n=${gate.sample_count})`
+    : `  entry to final gate: N/A`)
   return lines.join("\n")
 }
 
