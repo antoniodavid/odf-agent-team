@@ -7,6 +7,7 @@
 import type { Hooks, ToolContext } from "@opencode-ai/plugin"
 import * as nodeCrypto from "node:crypto"
 import { canonicalChangeName, canonicalWorkspaceRoot, ODF_REGISTERED_TOOLS, type ODFEntryAuthorizations, type ODFEntryGenerations, type OpencodeClient } from "./odf-delegation-shared.js"
+import { estimateTokens } from "./odf-delegation-metrics.js"
 
 // STABLE DISCOVERY LOOP GUARD
 // ==========================================
@@ -33,7 +34,46 @@ export const ENGRAM_READ_ONLY_TOOLS = new Set([
   "engram_mem_current_project", "engram_mem_doctor",
 ])
 
+// ==========================================
+// CONTEXT PRESSURE WARNING
+// ==========================================
+
+/**
+ * Heuristic context-growth warning. The host exposes no real token counts, so
+ * this accumulates the len/4 estimate of observed tool arguments and results
+ * per orchestrator session. Crossing the threshold fires one best-effort TUI
+ * toast and one one-shot system-prompt notice so the orchestrator can offer a
+ * close-with-summary vs. continue choice. Calibrate with
+ * ODF_CONTEXT_WARN_TOKENS only when the default is too chatty or too quiet.
+ */
+export const CONTEXT_PRESSURE_DEFAULT_TOKENS = 150_000
+
+export function contextPressureThreshold(env: Record<string, string | undefined> = process.env): number {
+  const parsed = parseInt(env.ODF_CONTEXT_WARN_TOKENS || "", 10)
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : CONTEXT_PRESSURE_DEFAULT_TOKENS
+}
+
+export interface ContextPressureState {
+  tokens: number
+  warned: boolean
+  notified: boolean
+}
+
+export function contextPressureNotice(tokens: number): string {
+  const estimate = `${Math.round(tokens / 1000)}k`
+  return `<odf-context-pressure>
+The ODF harness estimates this session's context is large (~${estimate} estimated tokens of observed tool I/O; heuristic only, not a real token count).
+Relay this to the user once, in their language: the session is long, and all ODF state is persisted (artifacts, commits, session summaries), so nothing is lost if they close. Offer the choice — (a) continue in this session, or (b) close now with a mem_session_summary plus one concrete first step to resume. Do not silently continue. Delegated subagents: ignore this note.
+</odf-context-pressure>`
+}
+
 export type LoopGuardHooks = Pick<Hooks, "dispose" | "event" | "chat.message" | "command.execute.before" | "tool.execute.before" | "tool.execute.after">
+
+export type LoopGuardRuntime = LoopGuardHooks & {
+  /** Consume the one-shot context-pressure notice for a session (null when none pending). */
+  consumeContextPressureNotice: (sessionID: string) => string | null
+}
+
 export type LoopGuardState = {
   intentID: string
   generation: number
@@ -97,7 +137,7 @@ export function createStableDiscoveryGuard(
   entryAuthorizations: ODFEntryAuthorizations = new Map(),
   entryGenerations: ODFEntryGenerations = new Map(),
   workspaceDir = process.cwd(),
-): LoopGuardHooks {
+): LoopGuardRuntime {
   const sessions = new Map<string, LoopGuardState>()
   const pendingCommands = new Map<string, { partsDigest: string; changeName: string; generation: number }>()
   const workspaceRoot = canonicalWorkspaceRoot(workspaceDir)
@@ -124,6 +164,47 @@ export function createStableDiscoveryGuard(
     entryAuthorizations.delete(sessionID)
     if (clearGeneration) entryGenerations.delete(sessionID)
   }
+  const contextPressure = new Map<string, ContextPressureState>()
+  const pressureThreshold = contextPressureThreshold()
+  const pressureCeiling = pressureThreshold * 10
+  const notifyContextPressure = (tokens: number): void => {
+    const tui = (client as any)?.tui
+    if (!tui || typeof tui.showToast !== "function") return
+    const body = {
+      title: "ODF context warning",
+      message: `ODF: this session has grown large (~${Math.round(tokens / 1000)}k estimated tokens of tool I/O). State is persisted — consider closing with a saved summary and resuming in a fresh session.`,
+      variant: "warning" as const,
+      duration: 10_000,
+    }
+    try {
+      void Promise.resolve(tui.showToast({ body })).catch(() => undefined)
+    } catch {
+      // Best-effort: the one-shot system-prompt notice still reaches the orchestrator.
+    }
+  }
+  const observeContextPressure = (sessionID: string, args: unknown, result: unknown): void => {
+    const pressure = contextPressure.get(sessionID)
+    if (!pressure) return
+    const resultText = typeof result === "string" ? result : ""
+    let delta = 0
+    try {
+      const argsText = typeof args === "string" ? args : JSON.stringify(args) ?? ""
+      delta = estimateTokens(argsText) + estimateTokens(resultText)
+    } catch {
+      delta = estimateTokens(resultText)
+    }
+    pressure.tokens = Math.min(pressure.tokens + delta, pressureCeiling)
+    if (!pressure.warned && pressure.tokens >= pressureThreshold) {
+      pressure.warned = true
+      notifyContextPressure(pressure.tokens)
+    }
+  }
+  const consumeContextPressureNotice = (sessionID: string): string | null => {
+    const pressure = contextPressure.get(sessionID)
+    if (!pressure?.warned || pressure.notified) return null
+    pressure.notified = true
+    return contextPressureNotice(pressure.tokens)
+  }
 
   return {
     dispose: async () => {
@@ -131,6 +212,7 @@ export function createStableDiscoveryGuard(
       pendingCommands.clear()
       entryAuthorizations.clear()
       entryGenerations.clear()
+      contextPressure.clear()
     },
     event: async ({ event }) => {
       if (event.type === "server.instance.disposed") {
@@ -138,10 +220,14 @@ export function createStableDiscoveryGuard(
         pendingCommands.clear()
         entryAuthorizations.clear()
         entryGenerations.clear()
+        contextPressure.clear()
       }
       if (event.type === "session.deleted") {
         const deletedID = event.properties?.info?.id
-        if (deletedID) clearSession(deletedID, true)
+        if (deletedID) {
+          contextPressure.delete(deletedID)
+          clearSession(deletedID, true)
+        }
         return
       }
       // session.idle and session.error clear the transient loop-guard state but preserve the
@@ -181,6 +267,8 @@ export function createStableDiscoveryGuard(
         sessions.delete(input.sessionID)
         return
       }
+      const existingPressure = contextPressure.get(input.sessionID)
+      boundedSet(contextPressure, input.sessionID, existingPressure ?? { tokens: 0, warned: false, notified: false }, LOOP_GUARD_MAX_SESSIONS)
       boundedSet(sessions, input.sessionID, {
         intentID: input.messageID ?? output.message.id,
         generation,
@@ -226,6 +314,7 @@ export function createStableDiscoveryGuard(
       }, LOOP_GUARD_MAX_CALLS)
     },
     "tool.execute.after": async (input, output) => {
+      observeContextPressure(input.sessionID, input.args, output.output)
       const state = sessions.get(input.sessionID)
       const call = state?.calls.get(input.callID)
       if (!state || !call || call.intentID !== state.intentID || call.generation !== state.generation ||
@@ -276,6 +365,7 @@ export function createStableDiscoveryGuard(
       output.metadata = { odf_loop_guard: { status: "stopped", reason: "stable-discovery-repeat" } }
       await abortSession(input.sessionID)
     },
+    consumeContextPressureNotice,
   }
 }
 
