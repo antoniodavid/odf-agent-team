@@ -26,7 +26,7 @@ remains authoritative.
 
 ## Automatable checks
 
-- If AI assisted commit development, the commit MUST include one
+- If AI assisted commit development, the commit SHOULD include one
   `Assisted-by:` trailer per model or agent. The same disclosure SHOULD appear
   in the PR description. AI tools MUST NOT appear in `Co-authored-by:`.
 - Tooling SHOULD record minimal provenance and MUST reject path traversal and
