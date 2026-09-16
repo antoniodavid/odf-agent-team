@@ -1244,6 +1244,7 @@ describe("createODFEntryTriage", () => {
     expect(result.work_type).toBe("small-change")
     expect(result.reason).toBeTruthy()
     expect(result.needs_question).toBe(false)
+    expect(result.shadow).toMatchObject({ version: 1, mode: "shadow", advisory: true, execution_unchanged: true })
   })
 
   it("flags needs_question for ambiguous entries", async () => {

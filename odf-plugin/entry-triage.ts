@@ -10,7 +10,7 @@
  * carries signals + clarity for auditability.
  */
 
-import { WORK_TYPES, type WorkType } from "./odf-workflow.js"
+import { resolveWorkflowRoute, WORK_TYPES, type CanonicalStage, type WorkType } from "./odf-workflow.js"
 import { tool } from "@opencode-ai/plugin"
 
 export type EntryLevel = "micro" | "standard" | "full"
@@ -71,6 +71,39 @@ export interface EntryTriageInput {
   known_modules?: string[]
   /** Optional reference-only context assembled from existing project facts. */
   ice_context?: ICEContextEnvelope
+  /** Optional explicit facts used only by the advisory shadow prediction. */
+  shadow_context?: EntryTriageShadowContext
+}
+
+export interface EntryTriageShadowContext {
+  expectations_approved?: boolean
+  diagnosis_evidence?: boolean
+  root_cause_evidence?: boolean
+  regression_evidence?: boolean
+  architecture_signals?: string[]
+  scope_signals?: string[]
+  prior_learning_contradiction?: boolean
+  prior_learning?: "consistent" | "contradictory" | "unknown"
+  blast_radius?: "low" | "medium" | "high" | "unknown" | number
+  reversibility?: "high" | "medium" | "low" | "unknown"
+  source_authority?: "complete" | "incomplete" | "unknown"
+  protected_signals?: string[]
+  protected_domains?: string[]
+}
+
+export type ShadowMicroPolicy = "eligible" | "ineligible" | "unknown" | "not-applicable"
+
+export interface EntryRouteShadow {
+  version: 1
+  mode: "shadow"
+  advisory: true
+  execution_unchanged: true
+  predicted_route: WorkType
+  predicted_stages: CanonicalStage[]
+  micro_policy: ShadowMicroPolicy
+  required_checks: string[]
+  missing_facts: string[]
+  blocking_reasons: string[]
 }
 
 export interface EntryTriageResult {
@@ -84,6 +117,13 @@ export interface EntryTriageResult {
   /** Intent clarity of the description. */
   clarity: EntryClarity
   warnings?: string[]
+  shadow: EntryRouteShadow
+}
+
+type EntryTriageClassification = Omit<EntryTriageResult, "shadow">
+type EntryTriageToolInput = Omit<EntryTriageInput, "change" | "ice_context"> & {
+  change?: string
+  ice_context?: Omit<ICEContextEnvelope, "version"> & { version?: number }
 }
 
 export type RiskSignal = "security" | "migration" | "payment" | "public-api" | "data-loss" | "pii"
@@ -115,6 +155,67 @@ const MAX_ICE_CONTEXT_FILES = 1000
 
 const ACTION_VERBS = /\b(add|implement|fix|create|extend|show|display|allow|remove|change|update|import|export|configure|enable|disable|validate|compute|route|track|split|merge|filter|search|sort|print|send|approve|cancel|confirm)\b/i
 const OBJECT_NOUNS = /\b(field|model|view|button|report|screen|form|wizard|module|setting|rule|constraint|domain|method|function|service|endpoint|flow|process|list|tree|kanban|widget|component|template|asset|test|data|record|partner|product|order|invoice|picking|lot|serial|stock|sale|purchase|account|payment|tax|barcode|scanner)\b/i
+
+const SHADOW_REQUIRED_CHECKS = [
+  "approved Expectations",
+  "known module",
+  "single functional domain",
+  "expected files <=3",
+  "clear intent",
+  "no protected risk or domain",
+  "no architecture or scope signal",
+  "no contradictory prior learning",
+  "low blast radius",
+  "high reversibility",
+  "complete source authority",
+] as const
+
+const SHADOW_CONTEXT_KEYS = [
+  "expectations_approved", "diagnosis_evidence", "root_cause_evidence", "regression_evidence",
+  "architecture_signals", "scope_signals", "prior_learning_contradiction", "prior_learning",
+  "blast_radius", "reversibility", "source_authority", "protected_signals", "protected_domains",
+]
+
+const SHADOW_PROTECTED_SIGNALS = new Set([
+  "security", "migration", "payment", "public-api", "data-loss", "pii", "schema", "database", "finance", "external-impact",
+])
+
+function shadowTokenList(value: unknown): value is string[] {
+  return Array.isArray(value) && value.length <= 8 && value.every(token =>
+    typeof token === "string" && token.length > 0 && token.length <= 64 && /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(token)
+  )
+}
+
+function normalizeShadowContext(raw: unknown): { context: EntryTriageShadowContext; malformed: boolean } {
+  if (raw === undefined) return { context: {}, malformed: false }
+  if (!isRecord(raw) || !hasOnlyKeys(raw, SHADOW_CONTEXT_KEYS)) return { context: {}, malformed: true }
+
+  const booleanKeys = ["expectations_approved", "diagnosis_evidence", "root_cause_evidence", "regression_evidence", "prior_learning_contradiction"]
+  if (booleanKeys.some(key => raw[key] !== undefined && typeof raw[key] !== "boolean")) return { context: {}, malformed: true }
+  if (raw.architecture_signals !== undefined && !shadowTokenList(raw.architecture_signals)) return { context: {}, malformed: true }
+  if (raw.scope_signals !== undefined && !shadowTokenList(raw.scope_signals)) return { context: {}, malformed: true }
+  if (raw.protected_signals !== undefined && !shadowTokenList(raw.protected_signals)) return { context: {}, malformed: true }
+  if (raw.protected_domains !== undefined && !shadowTokenList(raw.protected_domains)) return { context: {}, malformed: true }
+  if (raw.prior_learning !== undefined && !["consistent", "contradictory", "unknown"].includes(raw.prior_learning as string)) return { context: {}, malformed: true }
+  if (raw.reversibility !== undefined && !["high", "medium", "low", "unknown"].includes(raw.reversibility as string)) return { context: {}, malformed: true }
+  if (raw.source_authority !== undefined && !["complete", "incomplete", "unknown"].includes(raw.source_authority as string)) return { context: {}, malformed: true }
+  if (raw.blast_radius !== undefined && !(
+    (typeof raw.blast_radius === "number" && Number.isInteger(raw.blast_radius) && raw.blast_radius >= 0 && raw.blast_radius <= 1_000) ||
+    (typeof raw.blast_radius === "string" && ["low", "medium", "high", "unknown"].includes(raw.blast_radius))
+  )) return { context: {}, malformed: true }
+
+  return { context: raw as EntryTriageShadowContext, malformed: false }
+}
+
+function approvedExpectations(input: EntryTriageInput, context: EntryTriageShadowContext): boolean | undefined {
+  if (context.expectations_approved !== undefined) return context.expectations_approved
+  const expectations = input.ice_context?.metadata?.expectations
+  return expectations?.approved
+}
+
+function addUnique(list: string[], value: string): void {
+  if (!list.includes(value)) list.push(value)
+}
 
 export function detectRiskSignals(description: string): string[] {
   return RISK_SIGNAL_PATTERNS
@@ -347,7 +448,7 @@ function iceQuestion(input: EntryTriageInput, missing: string[], unclear: boolea
     : "Para clasificar este cambio, describe el resultado esperado, el comportamiento actual afectado y cómo se verifica."
 }
 
-export function classifyEntryTriage(input: EntryTriageInput): EntryTriageResult {
+function classifyEntryTriageBase(input: EntryTriageInput): EntryTriageClassification {
   const normalized = normalizeEntryInput(input)
   input = normalized.input
   const signals = [...new Set([
@@ -467,6 +568,120 @@ export function classifyEntryTriage(input: EntryTriageInput): EntryTriageResult 
   }
 }
 
+export function predictEntryRouteShadow(input: EntryTriageInput): EntryRouteShadow {
+  const triage = classifyEntryTriage(input, false)
+  const route = resolveWorkflowRoute(triage.work_type)
+  const normalizedShadow = normalizeShadowContext(input.shadow_context)
+  const context = normalizedShadow.context
+  const iceMalformed = Boolean(triage.warnings?.some(warning => warning.startsWith("ICE context ignored:")))
+  const malformed = normalizedShadow.malformed || iceMalformed
+  const missingFacts: string[] = []
+  const blockingReasons: string[] = []
+  const missing = (fact: string): void => addUnique(missingFacts, fact)
+  const block = (reason: string): void => addUnique(blockingReasons, reason)
+
+  if (iceMalformed) block("malformed context")
+  if (normalizedShadow.malformed) block("malformed shadow context")
+  if (triage.signals.length > 0) block("protected risk signal")
+
+  const requiredChecks: string[] = [...SHADOW_REQUIRED_CHECKS]
+  if (triage.work_type === "bugfix") {
+    requiredChecks.push("diagnosis evidence", "root-cause evidence", "regression evidence")
+  }
+  const finish = (micro_policy: ShadowMicroPolicy): EntryRouteShadow => ({
+    version: 1,
+    mode: "shadow",
+    advisory: true,
+    execution_unchanged: true,
+    predicted_route: route.work_type,
+    predicted_stages: [...route.stages],
+    micro_policy,
+    required_checks: requiredChecks,
+    missing_facts: missingFacts,
+    blocking_reasons: blockingReasons,
+  })
+
+  if (triage.work_type === "standard-config") {
+    block("standard-config is a DECIDE-only route")
+    return finish("not-applicable")
+  }
+
+  if (triage.work_type === "bugfix") {
+    if (context.diagnosis_evidence !== true) missing("diagnosis evidence")
+    if (context.root_cause_evidence !== true) missing("root-cause evidence")
+    if (context.regression_evidence !== true) missing("regression evidence")
+    if (missingFacts.length > 0) block("diagnosis, root-cause, and regression evidence are required before predicting a bugfix route")
+    else block("FAST is restricted to the existing small-change route")
+    return finish(malformed || missingFacts.length > 0 ? "unknown" : "ineligible")
+  }
+
+  if (typeof input.expected_files === "number" && input.expected_files > 3) {
+    block("blast radius exceeds the <=3 file boundary")
+  }
+  if (triage.work_type !== "small-change") {
+    if (triage.needs_question) missing("complete entry facts")
+    block("predicted route is not the existing small-change route")
+    return finish(malformed || missingFacts.length > 0 ? "unknown" : "ineligible")
+  }
+
+  if (typeof input.module !== "string" || !input.module.trim()) missing("affected module")
+  if (typeof input.domain !== "string" || !input.domain.trim()) missing("functional domain")
+  if (typeof input.expected_files !== "number" || !Number.isInteger(input.expected_files)) missing("expected file count")
+  else if (input.expected_files < 0) missing("valid expected file count")
+  if (!Array.isArray(input.known_modules) || input.known_modules.length === 0) missing("known module membership")
+  else if (!input.known_modules.includes(input.module || "")) block("unknown module")
+  const expectationsApproved = approvedExpectations(input, context)
+  if (expectationsApproved !== true) {
+    if (expectationsApproved === false) block("approved Expectations are not approved")
+    else missing("approved Expectations")
+  }
+  if (triage.clarity !== "clear") missing("clear intent")
+
+  const rawSignals = (Array.isArray(input.risk_signals) ? input.risk_signals : [])
+    .filter((signal): signal is string => typeof signal === "string").map(signal => signal.toLowerCase())
+  if (triage.signals.length > 0 || rawSignals.some(signal => SHADOW_PROTECTED_SIGNALS.has(signal))) {
+    block("protected risk signal")
+  }
+  if (context.protected_signals?.length) block("protected risk signal")
+  if (context.protected_domains?.length) block("protected domain")
+  if ((typeof input.domain === "string" && /[,;|/]\s*\S+/.test(input.domain)) ||
+    (typeof input.domain === "string" && /\s+(?:and|&)\s+/i.test(input.domain))) {
+    block("multiple functional domains")
+  }
+  if (context.architecture_signals?.length) block("architecture signal")
+  if (context.scope_signals?.length) block("scope signal")
+  if (context.prior_learning_contradiction === true || context.prior_learning === "contradictory") {
+    block("contradictory prior learning")
+  } else if (context.prior_learning !== "consistent") {
+    missing("prior learning")
+    block("prior learning is missing or uncertain")
+  }
+  if (context.blast_radius === "high" || context.blast_radius === "medium" ||
+    (typeof context.blast_radius === "number" && context.blast_radius > 3)) {
+    block("high blast radius")
+  } else if (context.blast_radius === undefined || context.blast_radius === "unknown") {
+    missing("blast radius")
+  }
+  if (context.reversibility === "low") block("low reversibility")
+  else if (context.reversibility !== "high") missing("high reversibility")
+  if (context.source_authority === "incomplete") block("incomplete source authority")
+  else if (context.source_authority !== "complete") missing("complete source authority")
+
+  const microPolicy: ShadowMicroPolicy = malformed || missingFacts.length > 0
+    ? "unknown"
+    : blockingReasons.length > 0
+      ? "ineligible"
+      : "eligible"
+  return finish(microPolicy)
+}
+
+export function classifyEntryTriage(input: EntryTriageInput): EntryTriageResult
+export function classifyEntryTriage(input: EntryTriageInput, includeShadow: false): EntryTriageClassification
+export function classifyEntryTriage(input: EntryTriageInput, includeShadow = true): EntryTriageResult | EntryTriageClassification {
+  const result = classifyEntryTriageBase(input)
+  return includeShadow ? { ...result, shadow: predictEntryRouteShadow(input) } : result
+}
+
 
 export function createODFEntryTriage(): ReturnType<typeof tool> {
   return tool({
@@ -537,8 +752,23 @@ is true, ask one grouped question for the missing facts and re-run.`,
           }).optional(),
         }).optional(),
       }).optional().describe("Bounded reference-only ICE context; malformed context is ignored with a warning"),
+      shadow_context: tool.schema.object({
+        expectations_approved: tool.schema.boolean().optional(),
+        diagnosis_evidence: tool.schema.boolean().optional(),
+        root_cause_evidence: tool.schema.boolean().optional(),
+        regression_evidence: tool.schema.boolean().optional(),
+        architecture_signals: tool.schema.array(tool.schema.string()).optional(),
+        scope_signals: tool.schema.array(tool.schema.string()).optional(),
+        prior_learning_contradiction: tool.schema.boolean().optional(),
+        prior_learning: tool.schema.enum(["consistent", "contradictory", "unknown"]).optional(),
+        blast_radius: tool.schema.enum(["low", "medium", "high", "unknown"]).optional(),
+        reversibility: tool.schema.enum(["high", "medium", "low", "unknown"]).optional(),
+        source_authority: tool.schema.enum(["complete", "incomplete", "unknown"]).optional(),
+        protected_signals: tool.schema.array(tool.schema.string()).optional(),
+        protected_domains: tool.schema.array(tool.schema.string()).optional(),
+      }).optional().describe("Explicit bounded facts for the advisory shadow prediction only"),
     },
-    async execute(args: Omit<EntryTriageInput, "change"> & { change?: string }): Promise<string> {
+    async execute(args: EntryTriageToolInput): Promise<string> {
       const result = classifyEntryTriage({
         command: args.command,
         change: args.change || "",
@@ -550,7 +780,8 @@ is true, ask one grouped question for the missing facts and re-run.`,
         expectations_clear: args.expectations_clear,
         risk_signals: args.risk_signals,
         known_modules: args.known_modules,
-        ice_context: args.ice_context,
+        ice_context: args.ice_context as ICEContextEnvelope | undefined,
+        shadow_context: args.shadow_context,
       })
       return JSON.stringify(result, null, 2)
     },
