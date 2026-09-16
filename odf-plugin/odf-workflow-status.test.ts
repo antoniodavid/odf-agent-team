@@ -218,6 +218,28 @@ describe("workflow status adapter", () => {
     expect(status.warnings).toContain("Workflow state is missing; Expectations alone are not resumable.")
   })
 
+  it("keeps the optional Expectations extension supplemental to workflow status", () => {
+    const expectations = {
+      ...JSON.parse(expectationsContent("extended-expectations")),
+      constraints: ["Keep the existing route."],
+      success_scenarios: [{ id: "SUC-01", statement: "The feature succeeds.", testable: true, owned_by: "human" }],
+      failure_scenarios: [{ id: "FAL-01", statement: "Invalid input is rejected.", testable: true, owned_by: "human" }],
+      connections: [{ id: "CON-01", relation: "supports", reference: "EXP-01" }],
+    }
+    const status = deriveWorkflowStatus({
+      change: "extended-expectations",
+      artifacts: [{ key: "odf/extended-expectations/expectations", content: JSON.stringify(expectations) }],
+      source: { state: "none", artifacts: ["odf/extended-expectations/expectations"] },
+    })
+
+    expect(status).toMatchObject({
+      canonical_stage: "INIT",
+      state_kind: "expectations-only",
+      resumable: false,
+      work_type: null,
+    })
+  })
+
   it("lets canonical artifacts win over legacy aliases", () => {
     const status = deriveWorkflowStatus({
       change: "canonical-first",

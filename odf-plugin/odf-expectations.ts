@@ -8,19 +8,47 @@ export interface ExpectationsVerdict {
   ids: string[]
 }
 
-interface ExpectationsDocument {
-  change?: unknown
-  intent?: unknown
-  expectations?: unknown
-  approved?: unknown
-  approved_by?: unknown
-  approved_at?: unknown
-  immutable_since?: unknown
-  /** Revision metadata (optional for compatibility): versioned supersession. */
-  revision?: unknown
-  supersedes?: unknown
-  replan_from?: unknown
+export interface ExpectationsEntry {
+  id: string
+  statement: string
+  testable: boolean
+  owned_by: "human"
 }
+
+export interface ExpectationsConnection {
+  id: string
+  relation: string
+  reference: string
+}
+
+export interface ExpectationsDocument {
+  change?: string
+  intent?: string
+  expectations?: ExpectationsEntry[]
+  approved?: boolean
+  approved_by?: string
+  approved_at?: string
+  immutable_since?: string
+  /** Revision metadata (optional for compatibility): versioned supersession. */
+  revision?: number
+  supersedes?: string
+  replan_from?: string
+  constraints?: string[]
+  success_scenarios?: ExpectationsEntry[]
+  failure_scenarios?: ExpectationsEntry[]
+  connections?: ExpectationsConnection[]
+}
+
+export const EXPECTATIONS_MAX_AUX_ENTRIES = 32
+export const EXPECTATIONS_MAX_TEXT_LENGTH = 512
+export const EXPECTATIONS_MAX_REFERENCE_LENGTH = 256
+
+const CONTROL_CHARACTERS = /[\u0000-\u001f\u007f-\u009f\u2028\u2029]/
+const SCENARIO_ID_PATTERNS = {
+  success: /^SUC-[0-9]{1,3}$/,
+  failure: /^FAL-[0-9]{1,3}$/,
+  connection: /^CON-[0-9]{1,3}$/,
+} as const
 
 export interface ExpectationsValidationInput {
   change: string
@@ -64,9 +92,68 @@ export function validDate(value: unknown): boolean {
 function expectationIds(document: ExpectationsDocument | null): string[] {
   return Array.isArray(document?.expectations)
     ? document.expectations
-      .map((entry) => entry && typeof entry === "object" && !Array.isArray(entry) ? (entry as Record<string, unknown>).id : null)
+      .map((entry) => entry && typeof entry === "object" && !Array.isArray(entry) ? (entry as unknown as Record<string, unknown>).id : null)
       .filter((id): id is string => typeof id === "string")
     : []
+}
+
+function exactKeys(value: Record<string, unknown>, keys: string[]): boolean {
+  const actual = Object.keys(value)
+  return actual.length === keys.length && keys.every((key) => Object.prototype.hasOwnProperty.call(value, key))
+}
+
+function safeHumanText(value: unknown, maxLength = EXPECTATIONS_MAX_TEXT_LENGTH): value is string {
+  return typeof value === "string" && value.length > 0 && value.length <= maxLength &&
+    value.trim() === value && !CONTROL_CHARACTERS.test(value)
+}
+
+function validConstraints(value: unknown): boolean {
+  if (value === undefined) return true
+  if (!Array.isArray(value) || value.length > EXPECTATIONS_MAX_AUX_ENTRIES) return false
+  const normalized = value.map((item) => typeof item === "string" ? item.trim() : item)
+  return value.every((item) => safeHumanText(item)) && new Set(normalized).size === value.length
+}
+
+function validScenarioEntries(value: unknown, idPattern: RegExp): boolean {
+  if (value === undefined) return true
+  if (!Array.isArray(value) || value.length > EXPECTATIONS_MAX_AUX_ENTRIES) return false
+  const ids: string[] = []
+  const valid = value.every((entry) => {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) return false
+    const item = entry as unknown as Record<string, unknown>
+    if (!exactKeys(item, ["id", "statement", "testable", "owned_by"]) ||
+      typeof item.id !== "string" || !idPattern.test(item.id) ||
+      !safeHumanText(item.statement) || typeof item.testable !== "boolean" || item.owned_by !== "human") {
+      return false
+    }
+    ids.push(item.id)
+    return true
+  })
+  return valid && new Set(ids).size === ids.length
+}
+
+function safeReference(value: unknown): value is string {
+  return typeof value === "string" && value.length > 0 && value.length <= EXPECTATIONS_MAX_REFERENCE_LENGTH &&
+    value.trim() === value && !value.includes("..") && /^[A-Za-z0-9][A-Za-z0-9._:/#?=&+%@-]*$/.test(value)
+}
+
+function validConnections(value: unknown): boolean {
+  if (value === undefined) return true
+  if (!Array.isArray(value) || value.length > EXPECTATIONS_MAX_AUX_ENTRIES) return false
+  const ids: string[] = []
+  const valid = value.every((entry) => {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) return false
+    const item = entry as unknown as Record<string, unknown>
+    if (!exactKeys(item, ["id", "relation", "reference"]) ||
+      typeof item.id !== "string" || !SCENARIO_ID_PATTERNS.connection.test(item.id) ||
+      typeof item.relation !== "string" || item.relation.length > 32 ||
+      !/^[a-z][a-z0-9-]*$/.test(item.relation) || !safeReference(item.reference)) {
+      return false
+    }
+    ids.push(item.id)
+    return true
+  })
+  return valid && new Set(ids).size === ids.length
 }
 
 function validDocument(document: ExpectationsDocument | null, change: string): boolean {
@@ -74,7 +161,7 @@ function validDocument(document: ExpectationsDocument | null, change: string): b
   const entries = document.expectations
   return Array.isArray(entries) && entries.length > 0 && entries.every((entry) => {
     if (!entry || typeof entry !== "object" || Array.isArray(entry)) return false
-    const item = entry as Record<string, unknown>
+    const item = entry as unknown as Record<string, unknown>
     return typeof item.id === "string" && /^EXP-\d+$/.test(item.id) &&
       typeof item.statement === "string" && item.statement.trim() &&
       typeof item.testable === "boolean" && item.owned_by === "human"
@@ -83,11 +170,23 @@ function validDocument(document: ExpectationsDocument | null, change: string): b
     validDate(document.approved_at) && validDate(document.immutable_since) &&
     (document.revision === undefined || (typeof document.revision === "number" && Number.isInteger(document.revision) && document.revision >= 1)) &&
     (document.supersedes === undefined || typeof document.supersedes === "string") &&
-    (document.replan_from === undefined || typeof document.replan_from === "string")
+    (document.replan_from === undefined || typeof document.replan_from === "string") &&
+    validConstraints(document.constraints) &&
+    validScenarioEntries(document.success_scenarios, SCENARIO_ID_PATTERNS.success) &&
+    validScenarioEntries(document.failure_scenarios, SCENARIO_ID_PATTERNS.failure) &&
+    validConnections(document.connections)
 }
 
 function protectedExpectations(document: ExpectationsDocument | null): string {
-  return JSON.stringify(document?.expectations || [])
+  return JSON.stringify({
+    change: document?.change,
+    intent: document?.intent,
+    expectations: document?.expectations,
+    constraints: document?.constraints,
+    success_scenarios: document?.success_scenarios,
+    failure_scenarios: document?.failure_scenarios,
+    connections: document?.connections,
+  })
 }
 
 /** Pure contract gate; the next caller is VERIFY, not this work unit. */

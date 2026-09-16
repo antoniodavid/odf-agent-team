@@ -147,7 +147,7 @@ import {
 export { createODFReceipt, mergeReceipt, saveReceiptJson }
 export type { ODFReceipt }
 import { createODFEntryTriage as createEntryTriageTool } from "../odf-plugin/entry-triage.js"
-import { validateExpectations, validDate } from "../odf-plugin/odf-expectations.js"
+import { validateExpectations, validDate, type ExpectationsConnection, type ExpectationsEntry } from "../odf-plugin/odf-expectations.js"
 import { sanitizeChangeName, validatePreflight, type PreflightRecord } from "../scripts/lib/preflight.js"
 import { inspectToolArgs } from "../scripts/odf-safety.js"
 import {
@@ -3503,22 +3503,12 @@ export function evaluateExpectations(snapshot: Pick<SelectedWorkflowSnapshot, "a
   }
 
   const value = parseExpectationsArtifact(artifact.content)
-  const entries = value?.expectations
-  const ids = Array.isArray(entries)
-    ? entries.map((entry) => entry && typeof entry === "object" && !Array.isArray(entry) ? (entry as Record<string, unknown>).id : null)
-      .filter((id): id is string => typeof id === "string")
-    : []
-  const validEntries = Array.isArray(entries) && entries.length > 0 && entries.every((entry) => {
-    if (!entry || typeof entry !== "object" || Array.isArray(entry)) return false
-    const item = entry as Record<string, unknown>
-    return typeof item.id === "string" && /^EXP-\d+$/.test(item.id) &&
-      typeof item.statement === "string" && item.statement.trim().length > 0 &&
-      typeof item.testable === "boolean" && item.owned_by === "human"
-  }) && new Set(ids).size === ids.length
-  const matchesChange = value?.change === snapshot.status.change
-  if (!value || !matchesChange || !validEntries || value.approved !== true ||
-    typeof value.approved_by !== "string" || !value.approved_by.trim() ||
-    !validDate(value.approved_at) || !validDate(value.immutable_since)) {
+  const verdict = validateExpectations({
+    change: snapshot.status.change,
+    artifacts: [{ key: artifact.key, content: artifact.content }],
+  })
+  if (verdict.status !== "approved") {
+    const ids = verdict.ids
     const reason = value?.approved === false ? "expectations-not-approved" : "expectations-invalid"
     return {
       status: "invalid",
@@ -3529,7 +3519,7 @@ export function evaluateExpectations(snapshot: Pick<SelectedWorkflowSnapshot, "a
       ids,
     }
   }
-  return { status: "approved", reason: "approved", message: `Approved human Expectations: ${ids.join(", ")}.`, ids }
+  return { status: "approved", reason: "approved", message: `Approved human Expectations: ${verdict.ids.join(", ")}.`, ids: verdict.ids }
 }
 
 interface SelectedWorkflowRead {
@@ -4894,11 +4884,33 @@ function isCanonicalWorkType(value: unknown): value is WorkType {
 interface WorkflowBindExpectations {
   change: string
   intent: string
-  expectations: Array<{ id: string; statement: string; testable: boolean; owned_by: "human" }>
+  expectations: ExpectationsEntry[]
+  constraints?: string[]
+  success_scenarios?: ExpectationsEntry[]
+  failure_scenarios?: ExpectationsEntry[]
+  connections?: ExpectationsConnection[]
   approved: boolean
   approved_by: string
   approved_at: string
   immutable_since: string
+}
+
+const workflowExpectationEntrySchema = tool.schema.object({
+  id: tool.schema.string(),
+  statement: tool.schema.string(),
+  testable: tool.schema.boolean(),
+  owned_by: tool.schema.enum(["human"]),
+})
+
+const workflowExpectationExtensionSchema = {
+  constraints: tool.schema.array(tool.schema.string()).optional(),
+  success_scenarios: tool.schema.array(workflowExpectationEntrySchema).optional(),
+  failure_scenarios: tool.schema.array(workflowExpectationEntrySchema).optional(),
+  connections: tool.schema.array(tool.schema.object({
+    id: tool.schema.string(),
+    relation: tool.schema.string(),
+    reference: tool.schema.string(),
+  })).optional(),
 }
 
 interface WorkflowBindArgs {
@@ -5039,12 +5051,8 @@ only after canonical state exists. Existing state and Expectations are reused on
       expectations: tool.schema.object({
         change: tool.schema.string(),
         intent: tool.schema.string(),
-        expectations: tool.schema.array(tool.schema.object({
-          id: tool.schema.string(),
-          statement: tool.schema.string(),
-          testable: tool.schema.boolean(),
-          owned_by: tool.schema.enum(["human"]),
-        })),
+        expectations: tool.schema.array(workflowExpectationEntrySchema),
+        ...workflowExpectationExtensionSchema,
         approved: tool.schema.boolean(),
         approved_by: tool.schema.string(),
         approved_at: tool.schema.string(),
@@ -5470,12 +5478,8 @@ Requires a human-approved reason (>=20 chars). Every call is appended to the ove
       expectations_revision: tool.schema.object({
         change: tool.schema.string(),
         intent: tool.schema.string(),
-        expectations: tool.schema.array(tool.schema.object({
-          id: tool.schema.string(),
-          statement: tool.schema.string(),
-          testable: tool.schema.boolean(),
-          owned_by: tool.schema.enum(["human"]),
-        })),
+        expectations: tool.schema.array(workflowExpectationEntrySchema),
+        ...workflowExpectationExtensionSchema,
         approved: tool.schema.boolean(),
         approved_by: tool.schema.string(),
         approved_at: tool.schema.string(),

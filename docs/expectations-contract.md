@@ -27,6 +27,14 @@ expectations:
     statement: "La configuración solo es editable por el manager de ventas."
     testable: true
     owned_by: "human"
+constraints:
+  - "No modificar los totales de factura."
+success_scenarios:
+  - { id: "SUC-01", statement: "Un descuento válido se aplica al confirmar la orden.", testable: true, owned_by: "human" }
+failure_scenarios:
+  - { id: "FAL-01", statement: "Un descuento inválido es rechazado.", testable: true, owned_by: "human" }
+connections:
+  - { id: "CON-01", relation: "supports", reference: "EXP-01" }
 approved: true
 approved_by: "user"
 approved_at: "2026-08-17T00:00:00Z"
@@ -44,10 +52,28 @@ immutable_since: "2026-08-17T00:00:00Z"
 | `expectations[].statement` | string | Criterio verificable redactado como afirmación del usuario. |
 | `expectations[].testable` | boolean | Si es comprobable por tests/evidencia. |
 | `expectations[].owned_by` | string | Siempre `"human"`. Nunca `"model"`/`"ai"`. |
+| `constraints` | string array | Opcional; máximo 32 cadenas no vacías, sin controles y de hasta 512 caracteres. No se permiten duplicados. |
+| `success_scenarios` | array | Opcional; máximo 32 entradas exactas con IDs únicos `SUC-1`–`SUC-999`. |
+| `failure_scenarios` | array | Opcional; máximo 32 entradas exactas con IDs únicos `FAL-1`–`FAL-999`. |
+| `success_scenarios[]` / `failure_scenarios[]` | object | Exactamente `{ id, statement, testable, owned_by }`; `owned_by` siempre `"human"`. |
+| `connections` | array | Opcional; máximo 32 entradas exactas con IDs únicos `CON-1`–`CON-999`. |
+| `connections[].relation` | string | Relación en minúsculas con guiones, de hasta 32 caracteres. |
+| `connections[].reference` | string | Referencia ASCII segura, de hasta 256 caracteres y sin `..`. |
 | `approved` | boolean | `true` solo tras confirmación explícita del usuario. |
 | `approved_by` | string | Identificador de quién aprobó (el usuario). |
 | `approved_at` | ISO date | Cuándo se aprobó. |
 | `immutable_since` | ISO date | Desde cuándo los `statement` no pueden reescribirse. |
+| `revision`, `supersedes`, `replan_from` | metadatos opcionales | Metadatos de revisión existentes; la extensión no agrega historial. |
+
+Las entradas de escenarios tienen exactamente `{ id, statement, testable, owned_by }`;
+las conexiones, `{ id, relation, reference }`. Claves desconocidas, valores
+nulos o malformados, IDs/referencias inseguras, duplicados y valores fuera de
+los límites son rechazados. Omitir los campos opcionales mantiene válidos los
+artefactos legacy.
+
+El contenido humano protegido incluye `change`, `intent`, `expectations`,
+`constraints`, `success_scenarios`, `failure_scenarios` y `connections`.
+La aprobación y los metadatos de revisión conservan su comportamiento actual.
 
 ## Origen (quién redacta las EXP)
 
@@ -64,10 +90,11 @@ las reformula como afirmaciones verificables y pide confirmación explícita.
 
 Una vez `approved: true`:
 
-- Ningún agente puede reescribir el `statement` de una `EXP`.
+- Ningún agente puede reescribir el `statement` de una `EXP` ni sus campos
+  opcionales.
 - Solo una **aprobación humana posterior explícita** puede modificar una
-  `EXP`: se marca `approved: false`, se edita el `statement`, y se vuelve a
-  aprobar con nuevo `approved_at` / `immutable_since`.
+  `EXP` o un campo opcional: se marca `approved: false`, se edita, y se vuelve
+  a aprobar con nuevos timestamps.
 
 El mecanismo es un **contrato documentado** en las instrucciones de los
 agentes (orquestador, QA, assess) — no se construye ninguna DB ni lock de
@@ -94,6 +121,9 @@ Si no existe artefacto `expectations` (cambios iniciados antes de T9):
 - VERIFY añade un **warning explícito**: `missing-expectations` — faltan
   Expectations humanas; la evaluación es sobre plan generado y puede tener
   autoevaluación circular.
+
+La omisión de los campos opcionales, el manejo de aprobación, las revisiones,
+el fallback y las rutas canónicas no cambian.
 
 ## Evaluación de goldens
 

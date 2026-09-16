@@ -39,6 +39,7 @@ import {
   mergeReceipt,
   createODFWorkflowAdvance,
   createODFWorkflowBind,
+  evaluateExpectations,
   createODFEntryTriage,
   createODFRuntimeHooks,
   createStableDiscoveryGuard,
@@ -389,14 +390,17 @@ describe("createODFWorkflowOverride", () => {
     const revision = {
       change: "ov-change", intent: "i2",
       expectations: [{ id: "EXP-01", statement: "s2", testable: true, owned_by: "human" }],
+      constraints: ["Keep the existing route."],
+      success_scenarios: [{ id: "SUC-01", statement: "The revised behavior succeeds.", testable: true, owned_by: "human" }],
+      failure_scenarios: [{ id: "FAL-01", statement: "Invalid input remains rejected.", testable: true, owned_by: "human" }],
+      connections: [{ id: "CON-01", relation: "supports", reference: "EXP-01" }],
       approved: true, approved_by: "user", approved_at: "2026-08-22T01:00:00.000Z", immutable_since: "2026-08-22T01:00:00.000Z",
       revision: 2, supersedes, replan_from: "DECIDE",
     }
     const output = JSON.parse(await tool.execute(baseArgs({ action: "re-plan", target_stage: "DECIDE", expectations_revision: revision }), {} as any) as string)
     expect(output).toMatchObject({ status: "overridden", action: "re-plan", target_stage: "DECIDE", completed_stages: [] })
     const persisted = JSON.parse(await fs.readFile(path.join(root, "openspec", "changes", "ov-change", "expectations.yaml"), "utf8"))
-    expect(persisted.revision).toBe(2)
-    expect(persisted.supersedes).toBe(supersedes)
+    expect(persisted).toMatchObject(revision)
   })
 
   it("requires a human-approved reason and rejects a wrong supersedes digest", async () => {
@@ -846,6 +850,49 @@ describe("createODFWorkflowBind", () => {
     } finally {
       await fs.rm(root, { recursive: true, force: true })
     }
+  })
+
+  it("round-trips bounded optional Expectations through OpenSpec bind", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "odf-openspec-extension-"))
+    const change = "extension-feature"
+    const expectations = {
+      ...approvedExpectations(change),
+      constraints: ["Keep the existing route."],
+      success_scenarios: [{ id: "SUC-01", statement: "The feature succeeds.", testable: true, owned_by: "human" as const }],
+      failure_scenarios: [{ id: "FAL-01", statement: "Invalid input is rejected.", testable: true, owned_by: "human" as const }],
+      connections: [{ id: "CON-01", relation: "supports", reference: "EXP-01" }],
+    }
+    const { bind, context } = authorizedWorkflowBind(change, root)
+
+    try {
+      const output = JSON.parse(await bind.execute({
+        change_name: change,
+        work_type: "feature",
+        artifact_store: "openspec",
+        workspace_dir: root,
+        preflight: completePreflight(change),
+        expectations,
+      }, context) as string)
+      expect(output).toMatchObject({ status: "bound", expectations_action: "persisted" })
+      expect(YAML.parse(await fs.readFile(path.join(root, "openspec", "changes", change, "expectations.yaml"), "utf8"))).toEqual(expectations)
+    } finally {
+      await fs.rm(root, { recursive: true, force: true })
+    }
+  })
+
+  it("keeps the public evaluator aligned with the canonical Expectations validator", () => {
+    const change = "evaluator-extension"
+    const expectations = {
+      ...approvedExpectations(change),
+      constraints: ["Keep the existing route."],
+      success_scenarios: [{ id: "SUC-01", statement: "The feature succeeds.", testable: true, owned_by: "human" as const }],
+      failure_scenarios: [{ id: "FAL-01", statement: "Invalid input is rejected.", testable: true, owned_by: "human" as const }],
+      connections: [{ id: "CON-01", relation: "supports", reference: "EXP-01" }],
+    }
+    expect(evaluateExpectations({
+      artifacts: [{ key: `odf/${change}/expectations`, content: JSON.stringify(expectations), created: null, source: "openspec" }],
+      status: { change } as any,
+    })).toMatchObject({ status: "approved", ids: ["EXP-01"] })
   })
 
   it("starts hybrid workflows in OpenSpec authority without Engram-only artifacts", async () => {

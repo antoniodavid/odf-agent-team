@@ -85,6 +85,19 @@ describe("harness smoke: core determinism", () => {
     expect(validateExpectations({ change: "c", artifacts: [{ key: "x/expectations", content: { ...approved, approved: false } }] }).status).toBe("invalid")
   })
 
+  it("expectations: accepts the bounded optional human-owned fields without changing legacy routing", () => {
+    const approved = {
+      change: "c", intent: "i", expectations: [{ id: "EXP-01", statement: "s", testable: true, owned_by: "human" }],
+      constraints: ["Keep the existing route."],
+      success_scenarios: [{ id: "SUC-01", statement: "The feature succeeds.", testable: true, owned_by: "human" }],
+      failure_scenarios: [{ id: "FAL-01", statement: "Invalid input is rejected.", testable: true, owned_by: "human" }],
+      connections: [{ id: "CON-01", relation: "supports", reference: "EXP-01" }],
+      approved: true, approved_by: "user", approved_at: "2026-08-22T00:00:00.000Z", immutable_since: "2026-08-22T00:00:00.000Z",
+    }
+    expect(validateExpectations({ change: "c", artifacts: [{ key: "x/expectations", content: approved }] }).status).toBe("approved")
+    expect(classifyEntryTriage({ change: "c", description: "Add a computed discount field.", module: "sale", domain: "sales", expected_files: 2, expectations_clear: true })).toMatchObject({ level: "micro", work_type: "small-change" })
+  })
+
   it("agent resolution: applies every phase, specialist routing, and bounded T8/T9/T10 routing", () => {
     const registry = JSON.parse(fsSyncRead(path.join(REPO, "odf-registry.json")))
     expect(resolveAgent(registry, "PROPOSE", ["migration", "scope"])).toBe("odoo_proposer")
