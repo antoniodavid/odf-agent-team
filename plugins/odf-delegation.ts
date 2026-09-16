@@ -147,6 +147,7 @@ import {
 export { createODFReceipt, mergeReceipt, saveReceiptJson }
 export type { ODFReceipt }
 import { createODFEntryTriage as createEntryTriageTool } from "../odf-plugin/entry-triage.js"
+import { createODFContextManifest } from "../odf-plugin/odf-context-manifest.js"
 import { validateExpectations, validDate, type ExpectationsConnection, type ExpectationsEntry } from "../odf-plugin/odf-expectations.js"
 import { sanitizeChangeName, validatePreflight, type PreflightRecord } from "../scripts/lib/preflight.js"
 import { inspectToolArgs } from "../scripts/odf-safety.js"
@@ -5851,6 +5852,7 @@ export const OdfDelegationPlugin: Plugin = async (ctx) => {
       odf_workflow_override: createODFWorkflowOverride(),
       odf_workflow_bind: createODFWorkflowBind(entryAuthorizations, entryGenerations),
       odf_entry_triage: createODFEntryTriage(),
+      odf_context_manifest: createODFContextManifest(),
       odf_skill_inject: createODFSkillInject(),
       odf_skill_resolve: createODFSkillResolve(),
       odf_registry_read: createODFRegistryRead(),

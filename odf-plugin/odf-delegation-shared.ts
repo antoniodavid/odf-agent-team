@@ -198,6 +198,7 @@ export const ODF_REGISTERED_TOOLS = [
   "odf_workflow_override",
   "odf_workflow_bind",
   "odf_entry_triage",
+  "odf_context_manifest",
   "odf_skill_inject",
   "odf_registry_read",
   "odf_notebooklm_lookup",
