@@ -16,8 +16,9 @@ remains authoritative.
   wrote it” is not an answer.
 - Reviewers and contributors MUST engage with review feedback rather than
   regenerate and resubmit without addressing it.
-- AI-generated review comments or summaries MUST be fact-checked by a human
-  before publication; that human owns the result.
+- AI-generated review comments MUST NOT be posted.
+- AI-generated summaries MAY be posted only after a human verifies all content
+  and assumes responsibility for the result.
 - A human MUST assess relevance, scope, quantity, rate, and quality. Humans
   SHOULD wait for acknowledgement before sending another contribution.
 - Human acknowledgement is required before commit, review, or PR publication;

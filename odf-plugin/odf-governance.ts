@@ -9,6 +9,8 @@ export const GOVERNANCE_SCHEMA_VERSION = 1 as const
 
 const GOVERNANCE_PHASES = ["PROPOSE", "ASSESS", "QA-PLAN", "DESIGN", "IMPLEMENT", "VERIFY", "EXPLORE", "FIX"] as const
 type GovernancePhase = typeof GOVERNANCE_PHASES[number]
+const PROVENANCE_LOCK_ATTEMPTS = 20
+const PROVENANCE_LOCK_RETRY_MS = 10
 
 export interface AiProvenanceRecord {
   target: "oca"
@@ -206,6 +208,30 @@ function writeAtomically(file: string, content: string): void {
   }
 }
 
+function withProvenanceLock<T>(file: string, operation: () => T): T {
+  const lockPath = `${file}.lock`
+  const waitBuffer = new Int32Array(new SharedArrayBuffer(4))
+  let locked = false
+  for (let attempt = 0; attempt < PROVENANCE_LOCK_ATTEMPTS; attempt++) {
+    try {
+      fsSync.mkdirSync(lockPath, { mode: 0o700 })
+      locked = true
+      break
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error
+      if (attempt + 1 < PROVENANCE_LOCK_ATTEMPTS) Atomics.wait(waitBuffer, 0, 0, PROVENANCE_LOCK_RETRY_MS)
+    }
+  }
+  if (!locked) throw new Error("provenance lock unavailable")
+  try {
+    return operation()
+  } finally {
+    try { fsSync.rmdirSync(lockPath) } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") { /* best effort */ }
+    }
+  }
+}
+
 export function recordAiProvenance(workspaceDir: string, input: AiProvenanceInput): AiProvenanceDocument {
   const root = resolveGovernanceRoot(workspaceDir)
   if (input.target !== "oca" || typeof input.phase !== "string" || !GOVERNANCE_PHASES.includes(input.phase as GovernancePhase)) throw new Error("target or phase is invalid")
@@ -221,14 +247,17 @@ export function recordAiProvenance(workspaceDir: string, input: AiProvenanceInpu
     files: [...new Set(files as string[])].sort(),
     recorded_at: new Date().toISOString(),
   }
-  const existing = readExistingProvenance(root)
-  const records = existing ? [...existing.records] : []
-  const index = records.findIndex(item => sameRecordIdentity(item, record))
-  if (index >= 0) records[index] = record
-  else records.push(record)
-  const document: AiProvenanceDocument = { schema_version: 1, updated_at: new Date().toISOString(), records }
-  writeAtomically(provenancePath(root, true), `${JSON.stringify(document, null, 2)}\n`)
-  return document
+  const file = provenancePath(root, true)
+  return withProvenanceLock(file, () => {
+    const existing = readExistingProvenance(root)
+    const records = existing ? [...existing.records] : []
+    const index = records.findIndex(item => sameRecordIdentity(item, record))
+    if (index >= 0) records[index] = record
+    else records.push(record)
+    const document: AiProvenanceDocument = { schema_version: 1, updated_at: new Date().toISOString(), records }
+    writeAtomically(file, `${JSON.stringify(document, null, 2)}\n`)
+    return document
+  })
 }
 
 export interface GovernanceTrailers {
@@ -239,7 +268,19 @@ export interface GovernanceTrailers {
 export function parseGovernanceTrailers(message: string | null): GovernanceTrailers {
   const result: GovernanceTrailers = { assisted_by: [], coauthored_by: [] }
   if (typeof message !== "string") return result
-  for (const line of message.split(/\r?\n/)) {
+  let trailerBlock = ""
+  try {
+    trailerBlock = execFileSync("git", ["interpret-trailers", "--parse"], {
+      input: message,
+      encoding: "utf8",
+      timeout: 10_000,
+      maxBuffer: 1024 * 1024,
+      stdio: ["pipe", "pipe", "ignore"],
+    })
+  } catch {
+    return result
+  }
+  for (const line of trailerBlock.split(/\r?\n/)) {
     const match = /^\s*(Assisted-by|Co-authored-by):\s*(.+?)\s*$/i.exec(line)
     if (!match) continue
     const key = match[1].toLowerCase() === "assisted-by" ? "assisted_by" : "coauthored_by"
@@ -268,26 +309,60 @@ function runGit(root: string, args: string[]): string | null {
   }
 }
 
+function runGitRaw(root: string, args: string[]): string | null {
+  try {
+    return execFileSync("git", ["-C", root, ...args], {
+      encoding: "utf8",
+      timeout: 10_000,
+      maxBuffer: 8 * 1024 * 1024,
+      stdio: ["ignore", "pipe", "ignore"],
+    })
+  } catch {
+    return null
+  }
+}
+
+function untrackedNumstat(root: string, relativePath: string): string | null {
+  try {
+    return execFileSync("git", ["-C", root, "diff", "--no-ext-diff", "--no-index", "--numstat", "--", "/dev/null", path.resolve(root, relativePath)], {
+      encoding: "utf8",
+      timeout: 10_000,
+      maxBuffer: 8 * 1024 * 1024,
+      stdio: ["ignore", "pipe", "ignore"],
+    })
+  } catch (error) {
+    const stdout = (error as { stdout?: string | Buffer }).stdout
+    return stdout ? String(stdout) : null
+  }
+}
+
 function listLines(value: string | null): string[] {
   return value ? value.split(/\r?\n/).filter(Boolean) : []
+}
+
+function listNullTerminated(value: string | null): string[] {
+  return value ? value.split("\0").filter(Boolean) : []
+}
+
+function addNumstat(value: string | null, totals: { additions: number; deletions: number }): void {
+  for (const line of listLines(value)) {
+    const [added, deleted] = line.split("\t")
+    if (added === "-" || deleted === "-") continue
+    totals.additions += Number(added) || 0
+    totals.deletions += Number(deleted) || 0
+  }
 }
 
 function readDiff(root: string) {
   const available = runGit(root, ["rev-parse", "--git-dir"]) !== null
   if (!available) return { git_available: false, additions: 0, deletions: 0, changed_lines: 0, files: [], untracked_files: [] }
   const trackedFiles = listLines(runGit(root, ["diff", "--no-ext-diff", "--name-only", "HEAD", "--"]))
-  const untrackedFiles = listLines(runGit(root, ["ls-files", "--others", "--exclude-standard"]))
-  const additionsAndDeletions = listLines(runGit(root, ["diff", "--no-ext-diff", "--numstat", "HEAD", "--"]))
-  let additions = 0
-  let deletions = 0
-  for (const line of additionsAndDeletions) {
-    const [added, deleted] = line.split("\t")
-    if (added === "-") continue
-    additions += Number(added) || 0
-    deletions += Number(deleted) || 0
-  }
+  const untrackedFiles = listNullTerminated(runGitRaw(root, ["ls-files", "--others", "--exclude-standard", "-z"]))
+  const totals = { additions: 0, deletions: 0 }
+  addNumstat(runGit(root, ["diff", "--no-ext-diff", "--numstat", "HEAD", "--"]), totals)
+  for (const file of untrackedFiles) addNumstat(untrackedNumstat(root, file), totals)
   const files = [...new Set([...trackedFiles, ...untrackedFiles])].sort()
-  return { git_available: true, additions, deletions, changed_lines: additions + deletions, files, untracked_files: untrackedFiles.sort() }
+  return { git_available: true, additions: totals.additions, deletions: totals.deletions, changed_lines: totals.additions + totals.deletions, files, untracked_files: untrackedFiles.sort() }
 }
 
 export interface GovernanceCheckResult {
@@ -335,7 +410,9 @@ export function inspectOcaGovernance(workspaceDir: string, commitMessage?: strin
   if (diff.changed_lines >= 30 || diff.files.length > 1) recommendations.push("Review the OCA quantity reference point: under 30 changed lines in one file.")
   if (diff.changed_lines > 500) recommendations.push("Obtain prior maintainer agreement for a contribution over 500 changed lines.")
   if (!diff.git_available) warnings.push("Current diff could not be inspected because the workspace is not a readable Git worktree.")
-  const status = aiCoauthoredBy.length || provenanceError ? "blocked" : recommendations.length ? "warning" : "ok"
+  const humanAckRequired = true
+  warnings.push("Human acknowledgment is unresolved; readiness and publication remain blocked.")
+  const status = aiCoauthoredBy.length || provenanceError || humanAckRequired ? "blocked" : recommendations.length ? "warning" : "ok"
   const disclosureLabels = [...new Set(labels)]
   const prDisclosure = [
     "## AI disclosure",
@@ -351,7 +428,7 @@ export function inspectOcaGovernance(workspaceDir: string, commitMessage?: strin
     diff,
     provenance: { path: ".odf/ai-provenance.json", present: provenance !== null, record_count: provenance?.records.length || 0, ...(provenanceError ? { error: provenanceError } : {}) },
     trailers: { ...parsedTrailers, ai_coauthored_by: aiCoauthoredBy, recommendations },
-    human_ack_required: true,
+    human_ack_required: humanAckRequired,
     human_actions_required: [
       "A human must review and acknowledge the contribution before commit, review, or PR publication.",
       "A human must assess OCA quantity, rate, and quality guardrails.",

@@ -452,6 +452,7 @@ interface ODFDelegateArgs {
   prompt: string
   agent?: string
   context_files?: string[]
+  target?: string
   workspace_dir?: string
   odoo_source_root?: string
   odoo_source_repos?: string
@@ -1178,6 +1179,10 @@ Use this instead of generic task() for ODF workflow delegation.`,
         .array(tool.schema.string())
         .optional()
         .describe("Files the agent will work with (for skill matching)"),
+      target: tool.schema
+        .string()
+        .optional()
+        .describe("Explicit governance target, such as oca"),
       workspace_dir: tool.schema
         .string()
         .optional()
@@ -1616,9 +1621,10 @@ Use this instead of generic task() for ODF workflow delegation.`,
 
       // Match skills (with version filter)
       const skills = matchSkills(registry, args.phase, {
-        files: args.context_files,
-        task: args.prompt,
-        odooVersion: odooVersion,
+      files: args.context_files,
+      task: args.prompt,
+      target: args.target,
+      odooVersion: odooVersion,
       })
 
       // Resolve agent and profile

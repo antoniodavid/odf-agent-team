@@ -122,11 +122,15 @@ export function normalizeResult(raw, opts = {}) {
 import { resolveAgent } from "./lib/agent-resolve.js"
 export { resolveAgent, filterStopWords } from "./lib/agent-resolve.js"
 
+const EXPLICIT_OCA_TARGET = /(?:^|[\s([{,;])target\s*=\s*oca(?:$|[\s)\]},;.!?])/i
+
 export function matchSkills(registry, phase, context) {
   const taskLower = String(context.task || "").toLowerCase()
+  const ocaTargeted = String(context.target || "").trim().toLowerCase() === "oca" || EXPLICIT_OCA_TARGET.test(String(context.task || ""))
   const matches = []
   for (const skill of registry.skills || []) {
     if (skill.removed) continue
+    if (skill.name === "odf-oca-governance" && !ocaTargeted) continue
     if (context.odooVersion && skill.odoo_versions?.length > 0 && !skill.odoo_versions.includes(context.odooVersion)) continue
     let score = 0
     for (const file of context.files || []) {
@@ -134,7 +138,7 @@ export function matchSkills(registry, phase, context) {
       for (const trigger of skill.triggers || []) if (fileLower.includes(String(trigger).toLowerCase())) score += 2
     }
     for (const trigger of skill.triggers || []) if (taskLower.includes(String(trigger).toLowerCase())) score += 1
-    if (score > 0) matches.push({ name: skill.name, _score: score })
+    if (score > 0 || (skill.name === "odf-oca-governance" && ocaTargeted)) matches.push({ name: skill.name, _score: score })
   }
   matches.sort((a, b) => (b._score || 0) - (a._score || 0))
   return matches.slice(0, 5).map(m => m.name)
@@ -144,12 +148,12 @@ export function loadRegistry() {
   return readJson(REGISTRY_PATH)
 }
 
-function resolvePreview(phase, task, files, odooVersion) {
+function resolvePreview(phase, task, files, odooVersion, target) {
   const registry = loadRegistry()
   if (!registry) return { status: "error", warnings: [`registry not found at ${REGISTRY_PATH}`] }
   const keywords = task.split(/\s+/)
   const agent = resolveAgent(registry, phase, keywords)
-  const skills = matchSkills(registry, phase, { task, files, odooVersion })
+  const skills = matchSkills(registry, phase, { task, files, target, odooVersion })
   const profile = (registry.profiles || []).find(p => p.name === "default")?.phases?.[phase] || null
   return { status: "ok", agent, skills, profile }
 }
@@ -891,10 +895,11 @@ function main(argv) {
     case "resolve": {
       const phase = argValue(argv, "--phase")
       const task = argValue(argv, "--task")
-      if (!phase || !task) return usage("resolve --phase <PHASE> --task \"<prompt>\" [--files a.py,b.js] [--odoo-version 18]")
-      const files = argValue(argv, "--files", "")?.split(",").filter(Boolean) || []
-      const version = Number(argValue(argv, "--odoo-version")) || null
-      result = resolvePreview(phase, task, files, version)
+if (!phase || !task) return usage("resolve --phase <PHASE> --task \"<prompt>\" [--target oca] [--files a.py,b.js] [--odoo-version 18]")
+const files = argValue(argv, "--files", "")?.split(",").filter(Boolean) || []
+const version = Number(argValue(argv, "--odoo-version")) || null
+const target = argValue(argv, "--target")
+result = resolvePreview(phase, task, files, version, target)
       break
     }
     case "state": {

@@ -1,6 +1,6 @@
 ---
 name: odf-oca-governance
-description: "Trigger: target=oca, OCA contribution, OCA commit, OCA PR, OCA review, Assisted-by. Apply the OCA AI governance gate before publication."
+description: "Trigger: target=oca or an explicit governance target context. Apply the OCA AI governance gate before publication."
 license: MIT
 metadata:
   author: "odf-agent-team"

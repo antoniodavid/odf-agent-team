@@ -1176,13 +1176,7 @@
       "title": "OCA AI Governance",
       "category": "governance",
       "triggers": [
-        "target=oca",
-        "OCA contribution",
-        "OCA commit",
-        "OCA PR",
-        "OCA review",
-        "Assisted-by",
-        "Co-authored-by"
+        "target=oca"
       ],
       "compact_rules": "Apply the explicit target=oca OCA AI governance gate before publication.\n- Load policies/oca-ai-policy.md and policies/oca/rules.yaml\n- Record minimal agent/model provenance with affected relative files\n- Recommend one Assisted-by trailer per AI model or agent; reject AI Co-authored-by\n- Require human acknowledgement; never auto-commit, auto-publish, or issue the ODF VERIFY verdict",
       "path": "skills/odf-oca-governance/SKILL.md",

@@ -46,12 +46,16 @@ function loadRegistry() {
   }
 }
 
+const EXPLICIT_OCA_TARGET = /(?:^|[\s([{,;])target\s*=\s*oca(?:$|[\s)\]},;.!?])/i;
+
 function matchSkills(registry, _phase, context) {
   const matches = [];
   const taskLower = context.task?.toLowerCase() || '';
+  const ocaTargeted = context.target?.trim().toLowerCase() === 'oca' || EXPLICIT_OCA_TARGET.test(context.task || '');
 
   for (const skill of registry.skills) {
     if (skill.removed) continue;
+    if (skill.name === 'odf-oca-governance' && !ocaTargeted) continue;
     if (context.odooVersion && skill.odoo_versions?.length > 0) {
       if (!skill.odoo_versions.includes(context.odooVersion)) continue;
     }
@@ -67,7 +71,7 @@ function matchSkills(registry, _phase, context) {
     for (const trigger of skill.triggers || []) {
       if (taskLower.includes(trigger.toLowerCase())) score += 1;
     }
-    if (score > 0) matches.push({ ...skill, _score: score });
+    if (score > 0 || (skill.name === 'odf-oca-governance' && ocaTargeted)) matches.push({ ...skill, _score: score });
   }
 
   matches.sort((a, b) => (b._score || 0) - (a._score || 0) || (b.compact_rules?.length || 0) - (a.compact_rules?.length || 0));
@@ -117,12 +121,13 @@ function runTestSuite(suite) {
     const task = tc.input.task;
     const contextFiles = tc.input.context?.files || [];
     const version = tc.input.context?.version;
+    const target = tc.input.target || tc.input.context?.target;
     const phase = tc.input.phase || suite.phase || 'DESIGN';
 
     // Test 1: skill resolution
     test('resolves correct skill_resolution', () => {
       // Keep skill matching contextual; phase is used for agent resolution.
-      const skills = matchSkills(registry, null, { task, files: contextFiles, odooVersion: version });
+      const skills = matchSkills(registry, null, { task, files: contextFiles, target, odooVersion: version });
       const resolution = skills.length > 0 ? 'self-discovered' : 'none';
       return resolution === tc.expected.skill_resolution;
     });
@@ -130,7 +135,7 @@ function runTestSuite(suite) {
     // Test 2: expected skills injected
     if (tc.expected.expected_skills) {
       test('injects expected skills', () => {
-        const skills = matchSkills(registry, null, { task, files: contextFiles, odooVersion: version });
+        const skills = matchSkills(registry, null, { task, files: contextFiles, target, odooVersion: version });
         const skillNames = skills.map(s => s.name);
         return tc.expected.expected_skills.every(es => skillNames.includes(es));
       });
