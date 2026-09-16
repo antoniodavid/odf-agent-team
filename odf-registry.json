@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "last_updated": "2026-08-27T00:00:00Z",
+  "last_updated": "2026-09-16T00:00:00Z",
   "package": {
     "name": "odf-agent-team",
     "version": "1.2.1",
@@ -1170,6 +1170,34 @@
         }
       ],
       "last_updated": "2026-05-14"
+    },
+    {
+      "name": "odf-oca-governance",
+      "title": "OCA AI Governance",
+      "category": "governance",
+      "triggers": [
+        "target=oca"
+      ],
+      "compact_rules": "Apply the explicit target=oca OCA AI governance gate before publication.\n- Load policies/oca-ai-policy.md and policies/oca/rules.yaml\n- Record minimal agent/model provenance with affected relative files\n- Recommend one Assisted-by trailer per AI model or agent; reject AI Co-authored-by\n- Require human acknowledgement; never auto-commit, auto-publish, or issue the ODF VERIFY verdict",
+      "path": "skills/odf-oca-governance/SKILL.md",
+      "odoo_versions": [
+        14,
+        15,
+        16,
+        17,
+        18,
+        19
+      ],
+      "sdd_phase": null,
+      "version": "1.0",
+      "changelog": [
+        {
+          "version": "1.0",
+          "date": "2026-09-16",
+          "change": "Initial OCA AI governance profile with provenance and human-acknowledgement checks"
+        }
+      ],
+      "last_updated": "2026-09-16"
     }
   ],
   "notebooklm_sources": {

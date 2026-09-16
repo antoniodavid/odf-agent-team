@@ -280,7 +280,7 @@ create_backup() {
   mkdir -p "$BACKUP_DIR"
 
   [[ -f "$ODF_DIR/odf-registry.json" ]] && cp "$ODF_DIR/odf-registry.json" "$BACKUP_DIR/"
-  for dir in agent skills plugins odf-plugin command scripts; do
+  for dir in agent skills plugins odf-plugin command scripts policies; do
     if [[ -d "$ODF_DIR/$dir" ]]; then
       cp -r "$ODF_DIR/$dir" "$BACKUP_DIR/" 2>/dev/null || true
     fi
@@ -344,7 +344,7 @@ install_files() {
     log_warn "📁 [dry-run] Would install ODF files to ${ODF_DIR}"
   else
     log_warn "📁 Installing ODF files to ${ODF_DIR}..."
-    mkdir -p "$ODF_DIR"/{agent,skills,plugins,odf-plugin,command,scripts,docs,backups}
+    mkdir -p "$ODF_DIR"/{agent,skills,plugins,odf-plugin,command,scripts,policies,docs,backups}
   fi
 
   log_info "    Plugin entrypoint: ${PLUGIN_ENTRYPOINT}"
@@ -378,6 +378,7 @@ install_files() {
   copy_dir "$src_dir/odf-plugin" "$PLUGIN_SUPPORT_DIR"
   copy_dir "$src_dir/command" "$ODF_DIR/command"
   copy_dir "$src_dir/scripts" "$ODF_DIR/scripts"
+  copy_dir "$src_dir/policies" "$ODF_DIR/policies"
   copy_dir "$src_dir/openspec" "$ODF_DIR/openspec"
   # Install only the contracts consumed by ODF phases.
   copy_dir "$src_dir/docs/design-contract.md" "$ODF_DIR/docs/design-contract.md"

@@ -1,0 +1,30 @@
+id: oca-governance-v1
+target: oca
+source: "https://github.com/OCA/.github/blob/master/AI_POLICY.md"
+version: "1.0"
+human_ack_required: true
+checks:
+  - id: human-responsibility
+    severity: error
+    human_ack_required: true
+  - id: supervised-agents
+    severity: error
+    human_ack_required: true
+  - id: assisted-by-trailer
+    severity: warning
+    human_ack_required: false
+  - id: no-ai-coauthored-by
+    severity: error
+    human_ack_required: false
+  - id: explain-every-line
+    severity: error
+    human_ack_required: true
+  - id: review-engagement
+    severity: error
+    human_ack_required: true
+  - id: verified-ai-output
+    severity: error
+    human_ack_required: true
+  - id: quantity-rate-quality
+    severity: warning
+    human_ack_required: true

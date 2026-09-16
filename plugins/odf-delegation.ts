@@ -164,6 +164,10 @@ import {
   validateSourceAuthority,
   type SourceAuthorityRoots,
 } from "../odf-plugin/odf-source-authority.js"
+import {
+  createODFGovernanceCheck,
+  createODFGovernanceProvenance,
+} from "../odf-plugin/odf-governance.js"
 
 /** Keep the reference-only ICE envelope scoped to the entry-triage tool. */
 export function createODFEntryTriage(): ReturnType<typeof createEntryTriageTool> {
@@ -449,6 +453,7 @@ interface ODFDelegateArgs {
   prompt: string
   agent?: string
   context_files?: string[]
+  target?: string
   workspace_dir?: string
   odoo_source_root?: string
   odoo_source_repos?: string
@@ -1175,6 +1180,10 @@ Use this instead of generic task() for ODF workflow delegation.`,
         .array(tool.schema.string())
         .optional()
         .describe("Files the agent will work with (for skill matching)"),
+      target: tool.schema
+        .string()
+        .optional()
+        .describe("Explicit governance target, such as oca"),
       workspace_dir: tool.schema
         .string()
         .optional()
@@ -1613,9 +1622,10 @@ Use this instead of generic task() for ODF workflow delegation.`,
 
       // Match skills (with version filter)
       const skills = matchSkills(registry, args.phase, {
-        files: args.context_files,
-        task: args.prompt,
-        odooVersion: odooVersion,
+      files: args.context_files,
+      task: args.prompt,
+      target: args.target,
+      odooVersion: odooVersion,
       })
 
       // Resolve agent and profile
@@ -5865,6 +5875,8 @@ export const OdfDelegationPlugin: Plugin = async (ctx) => {
       odf_policy_gate: createODFPolicyGate(),
       odf_receipt: createODFReceipt(),
       odf_health: createODFHealth(client),
+      odf_governance_provenance: createODFGovernanceProvenance(),
+      odf_governance_check: createODFGovernanceCheck(),
     },
   }
 }
@@ -5892,6 +5904,8 @@ export {
   createODFStatus,
   createODFWorkflowStatus,
   createODFHealth,
+  createODFGovernanceCheck,
+  createODFGovernanceProvenance,
   getProfileByPhase,
   flushMetricsSync,
   getMetricsBufferCap,

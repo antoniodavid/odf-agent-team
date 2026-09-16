@@ -1392,6 +1392,29 @@ describe("matchSkills", () => {
     })
     expect(skills.map((skill) => skill.name)).toContain("oca-python-style")
   })
+
+  it("activates OCA AI governance only for an explicit target", () => {
+    const registry = {
+      ...baseRegistry,
+      skills: [...baseRegistry.skills, {
+        name: "odf-oca-governance",
+        title: "OCA AI Governance",
+        category: "governance",
+        triggers: ["target=oca", "OCA PR"],
+        compact_rules: "OCA governance rules",
+        path: "/tmp/odf-oca-governance.md",
+        odoo_versions: [16],
+        sdd_phase: null,
+      } as ODFSkill],
+    }
+
+    expect(matchSkills(registry, null, { task: "Prepare an OCA PR", files: [] }).map(skill => skill.name))
+      .not.toContain("odf-oca-governance")
+    expect(matchSkills(registry, null, { task: "Prepare an OCA PR target=oca", files: [] }).map(skill => skill.name))
+      .toContain("odf-oca-governance")
+    expect(matchSkills(registry, null, { task: "Prepare an OCA PR", target: "oca", files: [] }).map(skill => skill.name))
+      .toContain("odf-oca-governance")
+  })
 })
 
 describe("ALLOWED_PHASES", () => {
