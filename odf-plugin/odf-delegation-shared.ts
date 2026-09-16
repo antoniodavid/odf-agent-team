@@ -210,6 +210,8 @@ export const ODF_REGISTERED_TOOLS = [
   "odf_policy_gate",
   "odf_receipt",
   "odf_health",
+  "odf_governance_provenance",
+  "odf_governance_check",
 ] as const
 
 export type OpencodeClient = ReturnType<typeof createOpencodeClient>

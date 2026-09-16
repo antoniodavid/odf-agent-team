@@ -163,6 +163,10 @@ import {
   validateSourceAuthority,
   type SourceAuthorityRoots,
 } from "../odf-plugin/odf-source-authority.js"
+import {
+  createODFGovernanceCheck,
+  createODFGovernanceProvenance,
+} from "../odf-plugin/odf-governance.js"
 
 /** Keep the reference-only ICE envelope scoped to the entry-triage tool. */
 export function createODFEntryTriage(): ReturnType<typeof createEntryTriageTool> {
@@ -5863,6 +5867,8 @@ export const OdfDelegationPlugin: Plugin = async (ctx) => {
       odf_policy_gate: createODFPolicyGate(),
       odf_receipt: createODFReceipt(),
       odf_health: createODFHealth(client),
+      odf_governance_provenance: createODFGovernanceProvenance(),
+      odf_governance_check: createODFGovernanceCheck(),
     },
   }
 }
@@ -5890,6 +5896,8 @@ export {
   createODFStatus,
   createODFWorkflowStatus,
   createODFHealth,
+  createODFGovernanceCheck,
+  createODFGovernanceProvenance,
   getProfileByPhase,
   flushMetricsSync,
   getMetricsBufferCap,

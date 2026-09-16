@@ -71,6 +71,11 @@ This agent can:
 
 First, identify the module's target Odoo version:
 
+- Pin the exact review revision and comparison base before reading the diff.
+  Record both commit hashes and use only that checkout for source and context.
+- Do not treat current-master guidance as valid for every Odoo version; verify
+  the rule against the pinned target revision.
+
 ```python
 # Check __manifest__.py for version string
 # Format: 'version': '18.0.1.0.0'
@@ -87,6 +92,24 @@ Based on detected version, load:
 ### Step 3: Load the spec sources
 
 Locate the originating artifacts before reviewing: the `assess` (REQ-XX), `expectations` (EXP-XX), `proposal`, and `design` artifacts from the selected store, or the paths given in the prompt. If no spec is available, report `Spec: no spec available` and review only the Standards axis.
+
+### Step 3a: Map the review surface
+
+List every changed file with at least one applicable guideline section before
+the first finding. Map `static/` files to the web guidelines, security-facing
+surfaces to the security sweep, and tests to Tests; an unmapped file is a
+reviewer error, not a file without rules. Check the matching enterprise or
+community repository half and all available consumers of changed methods,
+fields, templates, data keys, and exports; report unavailable halves rather
+than assuming compatibility.
+
+### Review passes: rules and merits
+
+Run a distinct **Rules pass** against the mapped sections, security sweep, and
+version-specific rules. Then run a distinct **Merits pass** for edge values,
+empty and multi-record calls, concurrency, second runs, test effectiveness,
+consumer contracts, and cost at scale. Give both passes equal legwork and
+report their findings separately when useful.
 
 ### Step 4: Systematic Review (Standards)
 
@@ -282,6 +305,10 @@ When uncertain about patterns, verify against official Odoo repository using Web
 3. **Search for the pattern** in the returned content
 4. **Compare** with the code being reviewed
 5. **Report discrepancies** with references to official code
+
+Pin fetched source to the review revision whenever possible. The Odoo
+`master` URL is current-master/reference-only and MUST NOT become a blanket
+rule for Odoo 14-18; preserve and check version-specific local guidance.
 
 ### Example Verification Workflow
 
