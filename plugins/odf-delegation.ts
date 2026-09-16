@@ -146,7 +146,7 @@ import {
 // Kept exported for the plugin public surface and unit tests.
 export { createODFReceipt, mergeReceipt, saveReceiptJson }
 export type { ODFReceipt }
-import { classifyEntryTriage, createODFEntryTriage, type EntryTriageInput } from "../odf-plugin/entry-triage.js"
+import { createODFEntryTriage as createEntryTriageTool } from "../odf-plugin/entry-triage.js"
 import { validateExpectations, validDate } from "../odf-plugin/odf-expectations.js"
 import { sanitizeChangeName, validatePreflight, type PreflightRecord } from "../scripts/lib/preflight.js"
 import { inspectToolArgs } from "../scripts/odf-safety.js"
@@ -164,6 +164,10 @@ import {
   type SourceAuthorityRoots,
 } from "../odf-plugin/odf-source-authority.js"
 
+/** Keep the reference-only ICE envelope scoped to the entry-triage tool. */
+export function createODFEntryTriage(): ReturnType<typeof createEntryTriageTool> {
+  return createEntryTriageTool()
+}
 
 // ==========================================
 // ==========================================
@@ -5880,7 +5884,6 @@ export {
   createODFWorkflowOverride,
   createODFWorkflowBind,
   createODFStatus,
-  createODFEntryTriage,
   createODFWorkflowStatus,
   createODFHealth,
   getProfileByPhase,

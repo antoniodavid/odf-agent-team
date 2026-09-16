@@ -16,6 +16,47 @@ import { tool } from "@opencode-ai/plugin"
 export type EntryLevel = "micro" | "standard" | "full"
 export type EntryClarity = "clear" | "unclear"
 
+export const ICE_CONTEXT_SOURCES = [
+  "project",
+  "project-scan",
+  "odf-init",
+  "codegraph",
+  "odoo-source",
+  "tests",
+  "conventions",
+  "prior-learning",
+] as const
+
+export type ICEContextSource = (typeof ICE_CONTEXT_SOURCES)[number]
+
+export interface ICEContextReference {
+  source: ICEContextSource
+  reference: string
+}
+
+export interface ICEContextMetadata {
+  module?: string
+  domain?: string
+  expected_files?: number
+  risk_signals?: string[]
+  known_modules?: string[]
+  /** Reference-only intent metadata; the user description remains authoritative. */
+  intent?: { reference: string }
+  /** Reference-only Expectations metadata; content remains in the canonical artifact. */
+  expectations?: { approved: boolean; reference: string }
+}
+
+/**
+ * Bounded, reference-only ICE context. It is constructed once at entry and is
+ * never persisted or treated as a replacement for user intent/Expectations.
+ */
+export interface ICEContextEnvelope {
+  version?: 1
+  provenance: ICEContextReference
+  references?: ICEContextReference[]
+  metadata?: ICEContextMetadata
+}
+
 export interface EntryTriageInput {
   command?: string
   change: string
@@ -28,6 +69,8 @@ export interface EntryTriageInput {
   risk_signals?: string[]
   /** Project module names from odf-init/{project}; used to flag unknown modules. */
   known_modules?: string[]
+  /** Optional reference-only context assembled from existing project facts. */
+  ice_context?: ICEContextEnvelope
 }
 
 export interface EntryTriageResult {
@@ -63,6 +106,13 @@ const CONTEXT_SIGNAL_PATTERNS: Array<{ signal: RiskSignal; pattern: RegExp }> = 
 
 const STANDARD_CONFIG_PATTERN = /\b(standard\s*config(?:uration)?|configuration|configure|setup|enable|activate|instal(?:l|laci[oó]n))\b/i
 
+const MAX_ICE_CONTEXT_REFERENCES = 8
+const MAX_ICE_CONTEXT_REFERENCE_LENGTH = 256
+const MAX_ICE_CONTEXT_TOKEN_LENGTH = 96
+const MAX_ICE_CONTEXT_MODULES = 128
+const MAX_ICE_CONTEXT_RISK_SIGNALS = 6
+const MAX_ICE_CONTEXT_FILES = 1000
+
 const ACTION_VERBS = /\b(add|implement|fix|create|extend|show|display|allow|remove|change|update|import|export|configure|enable|disable|validate|compute|route|track|split|merge|filter|search|sort|print|send|approve|cancel|confirm)\b/i
 const OBJECT_NOUNS = /\b(field|model|view|button|report|screen|form|wizard|module|setting|rule|constraint|domain|method|function|service|endpoint|flow|process|list|tree|kanban|widget|component|template|asset|test|data|record|partner|product|order|invoice|picking|lot|serial|stock|sale|purchase|account|payment|tax|barcode|scanner)\b/i
 
@@ -93,6 +143,157 @@ function normalizeRiskSignals(riskSignals: string[] | undefined): string[] {
   return RISK_SIGNAL_PATTERNS
     .map(entry => entry.signal)
     .filter(signal => riskSignals.includes(signal))
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value)
+}
+
+function hasOnlyKeys(value: Record<string, unknown>, keys: string[]): boolean {
+  return Object.keys(value).every(key => keys.includes(key))
+}
+
+function safeContextToken(value: unknown): value is string {
+  return typeof value === "string" && value.length > 0 && value.length <= MAX_ICE_CONTEXT_TOKEN_LENGTH &&
+    /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(value)
+}
+
+function safeContextReference(value: unknown): value is string {
+  return typeof value === "string" && value.length > 0 && value.length <= MAX_ICE_CONTEXT_REFERENCE_LENGTH &&
+    !/[\0\r\n]/.test(value) && !value.startsWith("/") && !value.startsWith("\\") &&
+    !value.split(/[\\/]/).includes("..") && /^[A-Za-z0-9][A-Za-z0-9._:/#@-]*$/.test(value)
+}
+
+function parseICEContextReference(value: unknown): ICEContextReference | null {
+  if (!isRecord(value) || !hasOnlyKeys(value, ["source", "reference"])) return null
+  const source = value.source
+  const reference = value.reference
+  if (typeof source !== "string" || !ICE_CONTEXT_SOURCES.includes(source as ICEContextSource) || !safeContextReference(reference)) {
+    return null
+  }
+  return { source: source as ICEContextSource, reference }
+}
+
+interface NormalizedICEContext {
+  fields: Partial<Pick<EntryTriageInput, "module" | "domain" | "expected_files" | "risk_signals" | "known_modules" | "expectations_clear">>
+  warnings: string[]
+}
+
+function normalizeICEContext(raw: unknown): NormalizedICEContext {
+  if (raw === undefined) return { fields: {}, warnings: [] }
+
+  const invalid = (detail: string): NormalizedICEContext => ({
+    fields: {},
+    warnings: [`ICE context ignored: ${detail}`],
+  })
+
+  if (!isRecord(raw) || !hasOnlyKeys(raw, ["version", "provenance", "references", "metadata"])) {
+    return invalid("the envelope is malformed or contains unsupported fields.")
+  }
+  if (raw.version !== undefined && raw.version !== 1) return invalid("the envelope version is unsupported.")
+  if (!parseICEContextReference(raw.provenance)) return invalid("provenance is missing or unsafe.")
+
+  const references = raw.references
+  if (references !== undefined) {
+    if (!Array.isArray(references) || references.length > MAX_ICE_CONTEXT_REFERENCES ||
+      references.some(reference => !parseICEContextReference(reference))) {
+      return invalid("one or more references are malformed, unsafe, or exceed the bounds.")
+    }
+  }
+
+  const metadata = raw.metadata
+  if (metadata !== undefined && (!isRecord(metadata) || !hasOnlyKeys(metadata, [
+    "module", "domain", "expected_files", "risk_signals", "known_modules", "intent", "expectations",
+  ]))) {
+    return invalid("metadata is malformed or contains unsupported fields.")
+  }
+  if (!isRecord(metadata)) {
+    return {
+      fields: {},
+      warnings: ["ICE context contains no classifier metadata; missing facts remain unknown."],
+    }
+  }
+
+  const moduleName = metadata.module
+  const domainName = metadata.domain
+  const expectedFiles = metadata.expected_files
+  const riskSignals = metadata.risk_signals
+  const knownModules = metadata.known_modules
+  const intent = metadata.intent
+  const expectations = metadata.expectations
+
+  if ((moduleName !== undefined && !safeContextToken(moduleName)) ||
+    (domainName !== undefined && !safeContextToken(domainName))) {
+    return invalid("module and domain metadata must be bounded tokens.")
+  }
+
+  if (expectedFiles !== undefined &&
+    (typeof expectedFiles !== "number" || !Number.isInteger(expectedFiles) || expectedFiles < 0 || expectedFiles > MAX_ICE_CONTEXT_FILES)) {
+    return invalid("expected_files metadata is outside the safe bounds.")
+  }
+
+  if (riskSignals !== undefined &&
+    (!Array.isArray(riskSignals) || riskSignals.length > MAX_ICE_CONTEXT_RISK_SIGNALS ||
+      riskSignals.some(signal => typeof signal !== "string" || !RISK_SIGNAL_PATTERNS.some(entry => entry.signal === signal)))) {
+    return invalid("risk signal metadata is malformed or unsupported.")
+  }
+
+  if (knownModules !== undefined &&
+    (!Array.isArray(knownModules) || knownModules.length > MAX_ICE_CONTEXT_MODULES ||
+      knownModules.some(module => !safeContextToken(module)))) {
+    return invalid("known module metadata is malformed or exceeds the bounds.")
+  }
+
+  if (intent !== undefined &&
+    (!isRecord(intent) || !hasOnlyKeys(intent, ["reference"]) || !safeContextReference(intent.reference))) {
+    return invalid("intent metadata must contain a safe reference only.")
+  }
+
+  if (expectations !== undefined &&
+    (!isRecord(expectations) || !hasOnlyKeys(expectations, ["approved", "reference"]) ||
+      typeof expectations.approved !== "boolean" || !safeContextReference(expectations.reference))) {
+    return invalid("Expectations metadata must contain an approval flag and safe reference only.")
+  }
+
+  const fields: NormalizedICEContext["fields"] = {}
+  if (moduleName !== undefined) fields.module = moduleName
+  if (domainName !== undefined) fields.domain = domainName
+  if (expectedFiles !== undefined) fields.expected_files = expectedFiles
+  if (riskSignals !== undefined) fields.risk_signals = riskSignals
+  if (knownModules !== undefined) fields.known_modules = knownModules
+  if (expectations?.approved === true) fields.expectations_clear = true
+
+  const warnings: string[] = []
+  if (Object.keys(fields).length === 0) {
+    warnings.push("ICE context contains no usable classifier facts; missing facts remain unknown.")
+  }
+  if (expectations && expectations.approved !== true) {
+    warnings.push("ICE context does not reference approved Expectations; Expectations remain unknown.")
+  }
+  return { fields, warnings }
+}
+
+function normalizeEntryInput(input: EntryTriageInput): { input: EntryTriageInput; warnings: string[] } {
+  const context = normalizeICEContext(input.ice_context)
+  const normalized: EntryTriageInput = { ...input }
+  const warnings = [...context.warnings]
+
+  // Current/user-provided flat values win. Context can only fill omissions;
+  // risk signals remain monotonic and may add a safe escalation.
+  if (normalized.module === undefined) normalized.module = context.fields.module
+  if (normalized.domain === undefined) normalized.domain = context.fields.domain
+  if (normalized.expected_files === undefined) normalized.expected_files = context.fields.expected_files
+  if (normalized.expectations_clear === undefined) normalized.expectations_clear = context.fields.expectations_clear
+  if (normalized.known_modules === undefined) normalized.known_modules = context.fields.known_modules
+  if (context.fields.risk_signals) {
+    normalized.risk_signals = [...new Set([...(normalized.risk_signals || []), ...context.fields.risk_signals])]
+  }
+  if (input.ice_context !== undefined && input.expectations_clear === undefined && context.fields.expectations_clear === undefined &&
+    !warnings.some(warning => warning.includes("Expectations remain unknown"))) {
+    warnings.push("ICE context does not reference approved Expectations; Expectations remain unknown.")
+  }
+
+  return { input: normalized, warnings }
 }
 
 function explicitLevel(workType: WorkType): EntryLevel {
@@ -147,13 +348,15 @@ function iceQuestion(input: EntryTriageInput, missing: string[], unclear: boolea
 }
 
 export function classifyEntryTriage(input: EntryTriageInput): EntryTriageResult {
+  const normalized = normalizeEntryInput(input)
+  input = normalized.input
   const signals = [...new Set([
     ...normalizeRiskSignals(input.risk_signals),
     ...detectRiskSignals(input.description || ""),
     ...contextRiskSignals(input.module, input.domain),
   ])]
   const clarity = descriptionClarity(input.description || "")
-  const warnings = unknownModuleWarnings(input)
+  const warnings = [...normalized.warnings, ...unknownModuleWarnings(input)]
 
   const explicit = input.explicit_work_type
   if (explicit && WORK_TYPES.includes(explicit)) {
@@ -311,6 +514,29 @@ is true, ask one grouped question for the missing facts and re-run.`,
         .array(tool.schema.string())
         .optional()
         .describe("Project module names from odf-init/{project}; unknown modules are flagged as warnings"),
+      ice_context: tool.schema.object({
+        version: tool.schema.number().optional().describe("ICE context envelope version; currently 1"),
+        provenance: tool.schema.object({
+          source: tool.schema.enum([...ICE_CONTEXT_SOURCES]),
+          reference: tool.schema.string(),
+        }),
+        references: tool.schema.array(tool.schema.object({
+          source: tool.schema.enum([...ICE_CONTEXT_SOURCES]),
+          reference: tool.schema.string(),
+        })).optional(),
+        metadata: tool.schema.object({
+          module: tool.schema.string().optional(),
+          domain: tool.schema.string().optional(),
+          expected_files: tool.schema.number().optional(),
+          risk_signals: tool.schema.array(tool.schema.string()).optional(),
+          known_modules: tool.schema.array(tool.schema.string()).optional(),
+          intent: tool.schema.object({ reference: tool.schema.string() }).optional(),
+          expectations: tool.schema.object({
+            approved: tool.schema.boolean(),
+            reference: tool.schema.string(),
+          }).optional(),
+        }).optional(),
+      }).optional().describe("Bounded reference-only ICE context; malformed context is ignored with a warning"),
     },
     async execute(args: Omit<EntryTriageInput, "change"> & { change?: string }): Promise<string> {
       const result = classifyEntryTriage({
@@ -324,6 +550,7 @@ is true, ask one grouped question for the missing facts and re-run.`,
         expectations_clear: args.expectations_clear,
         risk_signals: args.risk_signals,
         known_modules: args.known_modules,
+        ice_context: args.ice_context,
       })
       return JSON.stringify(result, null, 2)
     },

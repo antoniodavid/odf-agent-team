@@ -1205,6 +1205,24 @@ describe("createODFEntryTriage", () => {
     expect(result.needs_question).toBe(true)
     expect(result.question).toBeTruthy()
   })
+
+  it("forwards ICE context only through entry triage without changing its canonical route", async () => {
+    const output = await createODFEntryTriage().execute({
+      description: "Add a computed discount field to sale.order.",
+      ice_context: {
+        provenance: { source: "project-scan", reference: "odf/project/context.json" },
+        metadata: {
+          module: "sale",
+          domain: "sales",
+          expected_files: 2,
+          expectations: { approved: true, reference: "odf/triage-test/expectations" },
+        },
+      },
+    }, {} as any)
+    const result = JSON.parse(output as string)
+    expect(result.work_type).toBe("small-change")
+    expect(resolveWorkflowRoute(result.work_type).stages).toEqual(["DECIDE", "BUILD", "VERIFY"])
+  })
 })
 
 describe("resolvePath", () => {

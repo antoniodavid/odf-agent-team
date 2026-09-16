@@ -206,6 +206,71 @@ describe("ICE triage improvements", () => {
     const risky = classifyEntryTriage(base({ description: "Expose a public API webhook endpoint." }))
     expect(risky.signals).toEqual(["public-api"])
   })
+
+  it("normalizes valid reference-only ICE context into legacy classifier fields", () => {
+    const r = classifyEntryTriage(base({
+      ice_context: {
+        version: 1,
+        provenance: { source: "project-scan", reference: "odf/project/context.json" },
+        references: [{ source: "odf-init", reference: "odf/project/config.json" }],
+        metadata: {
+          module: "sale",
+          domain: "sales",
+          expected_files: 2,
+          expectations: { approved: true, reference: "odf/triage-test/expectations" },
+        },
+      },
+    }))
+    expect(r).toMatchObject({ level: "micro", work_type: "small-change", needs_question: false })
+    expect(r.warnings).toBeUndefined()
+  })
+
+  it("keeps explicit flat input and approved Expectations ahead of context metadata", () => {
+    const r = classifyEntryTriage(base({
+      module: "stock",
+      domain: "inventory",
+      expected_files: 8,
+      expectations_clear: false,
+      ice_context: {
+        provenance: { source: "project", reference: "project/profile" },
+        metadata: {
+          module: "sale",
+          domain: "sales",
+          expected_files: 1,
+          expectations: { approved: true, reference: "odf/other/expectations" },
+        },
+      },
+    }))
+    expect(r).toMatchObject({ level: "standard", work_type: "feature", needs_question: false })
+  })
+
+  it("fails closed for unsafe context references", () => {
+    const r = classifyEntryTriage(base({
+      ice_context: {
+        provenance: { source: "project", reference: "../outside/context" },
+        metadata: {
+          module: "sale",
+          domain: "sales",
+          expected_files: 1,
+          expectations: { approved: true, reference: "odf/triage-test/expectations" },
+        },
+      },
+    }))
+    expect(r.needs_question).toBe(true)
+    expect(r.warnings?.some(warning => warning.includes("ICE context ignored"))).toBe(true)
+  })
+
+  it("keeps missing context facts unknown instead of making a micro decision", () => {
+    const r = classifyEntryTriage(base({
+      ice_context: {
+        provenance: { source: "project-scan", reference: "odf/project/context.json" },
+        metadata: { module: "sale" },
+      },
+    }))
+    expect(r.needs_question).toBe(true)
+    expect(r.question).toContain("functional domain")
+    expect(r.warnings?.some(warning => warning.includes("Expectations remain unknown"))).toBe(true)
+  })
 })
 
 describe("contextRiskSignals + descriptionClarity", () => {
