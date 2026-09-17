@@ -412,10 +412,10 @@ const DEP_IMPACT = {
   python3: "Install summary counts degrade; nothing else breaks",
 }
 
-function renderDeps(deps) {
+export function renderDeps(deps) {
   const lines = ["dependencies:"]
   for (const [tool, status] of Object.entries(deps)) {
-    lines.push(`  ${status === "available" ? "✓" : "✗"} ${tool}: ${DEP_IMPACT[tool] || ""}`)
+    lines.push(`  ${status === "available" ? "✓" : "✗"} ${tool}: ${status === "available" ? "available" : DEP_IMPACT[tool] || ""}`)
   }
   return lines.join("\n")
 }

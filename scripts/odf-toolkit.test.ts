@@ -9,7 +9,7 @@ async function writeFile(dir: string, rel: string, content: string): Promise<voi
   await fs.writeFile(file, content, "utf8")
 }
 
-import { asBoolean, authorityLookup, buildManualEvidence, evidencePack, loadRegistry, matchSkills, metricsSummary, normalizeResult, redundancyCheck, resolveAgent, sourceLookup, stateBundle, verifyRefs } from "./odf-toolkit.js"
+import { asBoolean, authorityLookup, buildManualEvidence, evidencePack, loadRegistry, matchSkills, metricsSummary, normalizeResult, redundancyCheck, renderDeps, resolveAgent, sourceLookup, stateBundle, verifyRefs } from "./odf-toolkit.js"
 
 describe("odf-toolkit result", () => {
   it("normalizes design_closed as string or boolean and flags missing on DESIGN/PLAN", () => {
@@ -187,6 +187,16 @@ describe("odf-toolkit metrics", () => {
 })
 
 describe("odf-toolkit deps", () => {
+  it("labels available dependencies as healthy and keeps impact for missing ones", () => {
+    const output = renderDeps({
+      engram_cli: "available", codegraph_cli: "available", git: "available",
+      node: "available", docker: "missing", python3: "available",
+    })
+    expect(output).toContain("✓ node: available")
+    expect(output).not.toContain("CLIs and the plugin host require Node 18+")
+    expect(output).toContain("✗ docker: Odoo test command is not detected (compose runner)")
+  })
+
   it("executes the deps subcommand through the current CLI dispatch", () => {
     const output = execFileSync(process.execPath, [path.resolve("scripts/odf-toolkit.js"), "deps", "--json"], { encoding: "utf8" })
     expect(JSON.parse(output)).toMatchObject({
