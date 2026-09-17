@@ -8,7 +8,7 @@ ODF is an OpenCode skill/agent pack that turns a generic AI assistant into a str
 
 - A **registry** of 31 skills and 12 agents.
 - A **conversational orchestrator** that runs a preflight gate, resolves the thin-spine workflow route, and delegates work stages.
-- A **plugin** (`odf-delegation.ts`) that resolves skills/agents, enforces the Policy Gate and validation evidence, invokes OpenCode's native `task()` API, and derives canonical status from OpenSpec/Engram.
+- A **plugin** (`odf-delegation.ts`) that resolves skills/agents, enforces the Policy Gate and validation evidence, uses a native task adapter when the host exposes one, falls back to an SDK child session, and derives canonical status from OpenSpec/Engram.
 - An **installer** that deploys the pack idempotently into `~/.config/opencode`.
 
 ## When to Use Each Entry Point
@@ -99,7 +99,8 @@ rewritten automatically.
 Existing ODF users keep working:
 
 - Absolute paths in old `odf-registry.json` entries still resolve.
-- The plugin returns a structured `blocked` envelope with `reason: task-api-unavailable` when `task()` is unavailable; it never returns an executable fallback prompt.
+- The plugin adapts a native-shaped `toolCtx.task` only when the host exposes it; otherwise the supported current fallback uses SDK child sessions. If neither is available, it returns a structured `blocked` envelope with `reason: task-api-unavailable` and never returns an executable fallback prompt.
+- SDK child sessions receive the parent session, agent, known model, and validated workspace-relative context references. SDK transport cannot reproduce native task permission derivation, so native host permissions remain authoritative when available.
 - Older slash commands (`/odf-init`, `/odf-fix`, etc.) remain unchanged.
 - Legacy phase IDs (`PROPOSE`, `ASSESS`, `QA-PLAN`, `DESIGN`, `IMPLEMENT`, `VERIFY`) map to the thin-spine adapters.
 

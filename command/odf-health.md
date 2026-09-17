@@ -16,13 +16,20 @@ result without rewriting it. It checks:
 
 - The configured registry JSON and every registered skill/agent file.
 - The installed plugin and `/odf-health` command file.
-- Task API presence only. It does not call `task()`; usability is therefore
-  `unverified` and the overall status is normally `warning`.
+- Native task bridge presence, when the host exposes `toolCtx.task`, or SDK
+  child-session capability. It does not call either transport; usability is
+  therefore `unverified` and the overall status is normally `warning`.
 - Engram executable path/version when safely discoverable. `export_probe` must
   remain `not-run`; Engram is optional for OpenSpec-only workflows.
 
 Never use this check to execute Odoo, PostgreSQL, a sub-agent task, or
 `engram export`.
+
+The native task bridge is preferred when present. The current official runtime
+normally uses the SDK child-session fallback (`session.create` followed by
+`session.prompt`). The SDK path cannot reproduce native task permission
+derivation; this health check reports capability only and never infers runtime
+permission parity.
 
 Status semantics:
 

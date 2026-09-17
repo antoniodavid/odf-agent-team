@@ -95,6 +95,75 @@ supervises.
   `odf-init/{project}` and the Policy Gate; ask only genuinely missing facts in
   ONE grouped question.
 
+### Future inline BUILD contract (FL-06; shadow-only by default)
+
+This section defines a future executor contract only. It does not enable an executor, canary,
+rollout, or performance claim. Until an explicit future policy and rollout decision exists, the
+deterministic shadow result is advisory telemetry: it cannot select an executor, start BUILD,
+skip a phase, alter a default route, or bypass a gate.
+
+#### Eligibility and route boundary
+
+An inline BUILD is eligible only when both conditions are true:
+
+- the deterministic shadow result is exactly `shadow.micro_policy === "eligible"`;
+- the persisted canonical `work_type` is exactly `small-change`.
+
+`standard-config` is DECIDE-only and never has a BUILD. `bugfix` stays on the existing
+`FIX -> BUILD -> VERIFY` route unless explicit persisted root-cause and minimal-regression
+evidence exists **and** a future policy explicitly allows bounded treatment. Shadow output alone
+never changes that route. Every other work type keeps its existing canonical route.
+
+#### Single bounded IMPLEMENT prompt
+
+When a future policy explicitly enables this contract, create exactly one bounded IMPLEMENT
+prompt for the canonical `small-change` BUILD. Carry these fields as explicit values or
+unambiguous artifact references; do not ask the implementation agent to infer them:
+
+- approved human `Expectations` and `intent` references;
+- exactly one known Odoo module and exactly one functional domain;
+- a predicted changed-file set of `<=3` files and only relevant `context_files`;
+- the exact `odoo_source_root` and optional exact `odoo_source_repos`, passed both in the prompt
+  and as the `odf_delegate` tool arguments;
+- the exact configured `testing.test_command` and the exact currently authorized `test_db`;
+- the validation-evidence path, normally `.odf/validation-evidence-{change}.json`;
+- source-authority requirements: use the named local Odoo source, resolve every view XML ID,
+  model, and `_inherit` with `odf-toolkit lookup`, and return the structured authority evidence
+  required by the existing DESIGN/IMPLEMENT gate;
+- a no-out-of-scope guard limiting edits to the approved intent/Expectations, named module and
+  domain, and predicted file bound; no extra module, file, dependency, schema, security, or
+  architectural change may be absorbed silently;
+- escalation conditions covering any missing, unknown, or contradictory fact, scope expansion or
+  file-bound breach, protected or architectural signal, source-authority failure, missing
+  database authorization, task failure, or missing/invalid validation evidence.
+
+Any escalation promotes the work to standard/full handling or blocks it. It must never silently
+downgrade the risk, change the work type, or bypass a gate.
+
+#### Existing invocation, tests, and gates
+
+Send that prompt through the existing canonical path: call `odf_delegate` with `phase:
+"IMPLEMENT"`, the persisted `change`, the exact `workflow_advance` proof for the existing
+`small-change` BUILD transition, an explicit selected `artifact_store` (`openspec`, `engram`, or
+`hybrid`), a fresh opaque `attempt_id`, the bounded `context_files`, and the exact source-root
+arguments. Resolve `odf_policy_gate(change, phase: "IMPLEMENT")` first. The proof must be the
+exact transition input accepted by `odf_workflow_advance`, not a reconstructed equivalent. Never
+call `task()` directly and never add a WorkType, workflow, phase, or gate.
+
+The existing Policy Gate, attempt ledger, receipt handling, source-authority validation, and
+validation-evidence seal remain mandatory; BUILD closes only with a verified validation seal and
+no pending failure receipt. Targeted inner-loop Odoo evidence uses the existing
+exact templates:
+
+- `odoo-bin -d <test_db> --test-tags /<module> --stop-after-init`
+- `odoo-bin -d <test_db> --test-file <path> --stop-after-init`
+
+The configured full module/CI test remains the final gate after targeted tests; targeted
+evidence alone is insufficient. The exact database must be named and authorized, with the
+existing non-isolated database warning when applicable. A missing/unknown/contradictory input,
+scope or protected-risk signal, authority failure, missing authorization, task failure, or
+validation failure promotes or blocks before any silent downgrade.
+
 ## Sources of Truth
 
 | Data | Source |

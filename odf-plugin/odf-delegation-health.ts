@@ -1,6 +1,6 @@
 /**
- * Read-only health inspection and the task() API adapters (toolCtx.task /
- * SDK child session). Extracted from plugins/odf-delegation.ts.
+ * Read-only health inspection and the task transport adapters (native
+ * toolCtx.task / SDK child session). Extracted from plugins/odf-delegation.ts.
  */
 
 import * as fs from "node:fs/promises"
@@ -321,6 +321,49 @@ export type TaskApi = ((input: TaskApiInput) => Promise<unknown>) & {
   abort?: (invocation: Promise<unknown>) => Promise<void>
 }
 
+type NativeTaskInput = {
+  description: string
+  prompt: string
+  subagent_type: string
+  background: false
+}
+
+type NativeTaskFunction = ((input: NativeTaskInput) => Promise<unknown>) & {
+  abort?: TaskApi["abort"]
+}
+
+export function normalizeNativeTaskResult(response: unknown): unknown {
+  if (isCancellation(response)) throw new Error("task-cancelled: task() was cancelled")
+  if (isEmptyTaskResult(response)) throw new Error("empty-task-result: task() returned no usable result")
+
+  const nativeEnvelope = response && typeof response === "object" && !Array.isArray(response) && "output" in response
+  if (!nativeEnvelope && typeof response === "object" && response !== null && !Array.isArray(response)) return response
+  const output = nativeEnvelope ? (response as Record<string, unknown>).output : response
+  if (isCancellation(output)) throw new Error("task-cancelled: task() was cancelled")
+  if (isEmptyTaskResult(output)) throw new Error("empty-task-result: task() returned no usable output")
+  if (typeof output === "string") {
+    const taskResult = output.match(/<task_result>\s*([\s\S]*?)\s*<\/task_result>/i)?.[1] || output
+    if (isCancellation(taskResult)) throw new Error("task-cancelled: task() was cancelled")
+    return sessionResultFromText(taskResult)
+  }
+  if (!output || typeof output !== "object" || Array.isArray(output)) {
+    throw new Error("invalid-task-result: task() returned an invalid output")
+  }
+  if (typeof (output as Record<string, unknown>).status === "string") return output
+  return sessionPromptResult(output)
+}
+
+function createNativeTaskApi(nativeTask: NativeTaskFunction): TaskApi {
+  const taskApi = (async (input: TaskApiInput): Promise<unknown> => normalizeNativeTaskResult(await nativeTask({
+    description: `ODF delegation: ${input.agent}`,
+    prompt: appendValidatedContextFiles(input.prompt, input.context_files),
+    subagent_type: input.agent,
+    background: false,
+  }))) as TaskApi
+  if (typeof nativeTask.abort === "function") taskApi.abort = nativeTask.abort.bind(nativeTask)
+  return taskApi
+}
+
 export const EXECUTOR_BOUNDARY = `## Executor Boundary (non-negotiable)
 - Executor only: do not delegate, call nested agents, or ask whether to proceed.
 - Return a complete ODF Result as the last section of the response.
@@ -333,6 +376,28 @@ export const EXECUTOR_BOUNDARY = `## Executor Boundary (non-negotiable)
 export function createSDKSessionTaskApi(toolCtx: ToolContext, session: SDKSessionApi): TaskApi {
   const pending = new WeakMap<Promise<unknown>, { childID?: string; abortRequested: boolean; aborting?: Promise<void> }>()
   const directory = typeof (toolCtx as any).directory === "string" ? (toolCtx as any).directory : process.cwd()
+  const context = toolCtx as Record<string, unknown>
+  const model = (() => {
+    const validModelPart = (value: unknown): value is string =>
+      typeof value === "string" && value.trim().length > 0 && !/\s/.test(value)
+    const rawModel = context.model
+    if (rawModel && typeof rawModel === "object" && !Array.isArray(rawModel)) {
+      const candidate = rawModel as Record<string, unknown>
+      if (validModelPart(candidate.providerID) && validModelPart(candidate.modelID)) {
+        return { providerID: candidate.providerID.trim(), modelID: candidate.modelID.trim() }
+      }
+    }
+    if (typeof rawModel === "string") {
+      const [providerID, modelID, ...extra] = rawModel.trim().split("/")
+      if (extra.length === 0 && validModelPart(providerID) && validModelPart(modelID)) {
+        return { providerID: providerID.trim(), modelID: modelID.trim() }
+      }
+    }
+    if (validModelPart(context.providerID) && validModelPart(context.modelID)) {
+      return { providerID: context.providerID.trim(), modelID: context.modelID.trim() }
+    }
+    return undefined
+  })()
 
   const taskApi = ((input: TaskApiInput): Promise<unknown> => {
     const invocation = { abortRequested: false } as { childID?: string; abortRequested: boolean; aborting?: Promise<void> }
@@ -359,6 +424,21 @@ export function createSDKSessionTaskApi(toolCtx: ToolContext, session: SDKSessio
       if (typeof invocation.childID !== "string" || invocation.childID.length === 0) {
         throw new Error("session-create-error: session.create returned no child session id")
       }
+      if (typeof context.metadata === "function") {
+        try {
+          await Promise.resolve(context.metadata.call(toolCtx, {
+            title: `ODF delegation: ${input.agent}`,
+            metadata: {
+              parentSessionId: toolCtx.sessionID,
+              sessionId: invocation.childID,
+              transport: "sdk.session",
+              ...(model ? { model } : {}),
+            },
+          }))
+        } catch {
+          // Child metadata is observability only; delegation must remain usable.
+        }
+      }
       if (invocation.abortRequested) {
         await abortChild()
         throw new Error("task-cancelled: child session was aborted")
@@ -371,6 +451,7 @@ export function createSDKSessionTaskApi(toolCtx: ToolContext, session: SDKSessio
           query: { directory },
           body: {
             agent: input.agent,
+            ...(model ? { model } : {}),
             parts: [{ type: "text", text: appendValidatedContextFiles(input.prompt, input.context_files) }],
           },
         })
@@ -401,8 +482,9 @@ export function createSDKSessionTaskApi(toolCtx: ToolContext, session: SDKSessio
 }
 
 export function findTaskApi(toolCtx: ToolContext, client?: OpencodeClient): { taskApi: TaskApi; source: DelegationMetrics["task_api_source"] } | null {
-  if (typeof (toolCtx as any).task === "function") {
-    return { taskApi: (toolCtx as any).task as TaskApi, source: "toolCtx.task" }
+  const nativeTask = (toolCtx as Record<string, unknown>).task
+  if (typeof nativeTask === "function") {
+    return { taskApi: createNativeTaskApi(nativeTask as NativeTaskFunction), source: "toolCtx.task" }
   }
   const session = client && (client as any).session
   if (session && typeof session.create === "function" && typeof session.prompt === "function" && typeof session.abort === "function") {
@@ -564,7 +646,7 @@ export function createODFHealth(client?: OpencodeClient, io: HealthIo = defaultH
   return tool({
     description: `Read-only installed/runtime ODF health check.
 
-Checks the installed registry, plugin, command, SDK session delegation capability, and optional
+Checks the installed registry, plugin, command, native task bridge or SDK session capability, and optional
 Engram CLI metadata. It never calls task(), Odoo, PostgreSQL, or engram export;
 task usability remains unverified because probing it would execute work.`,
     args: {},

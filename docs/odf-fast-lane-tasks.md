@@ -14,17 +14,20 @@ This is an executable **future** task breakdown. Every item is intentionally unc
 ### FL-01 — Establish the latency baseline
 
 - **Depends on:** none.
+- **Status:** Partial / in progress. The task-call baseline exists, but the end-to-end entry-to-final-gate baseline is unavailable.
 - **Likely files:** `odf-plugin/odf-delegation-metrics.ts`, `plugins/odf-delegation.ts` (only if current events cannot reconstruct entry-to-final-gate timing).
 - **Intent:** Use existing run/span JSONL telemetry to measure `/odf-new` and `/odf-fix` p50/p95, task-call count, phase duration, outcome, work type, model availability, validation, receipts, and escalation. Add only bounded allowlisted dimensions for entry level, micro-policy result, validation mode, and redundancy-scan disposition when required.
-- **Verification commands/evidence:** `node "$PACK/scripts/odf-toolkit.js" metrics --days 14 --json`; attach a dated baseline report with sample size, cohort definition, p50, p95, success/block/timeout rates, and Odoo version. Confirm no raw prompt, path, secret, database value, or PII is emitted.
+- **Verification commands/evidence:** `node "$PACK/scripts/odf-toolkit.js" metrics --days 14 --json`; [2026-09-16 baseline report](odf-fast-lane-baseline-2026-09-16.md) records the available task-call evidence and the end-to-end measurement gap. Confirm no raw prompt, path, secret, database value, or PII is emitted.
 - **Out of scope:** New telemetry storage, generic tracing framework, speculative cache, or behavior changes.
 
 ### FL-02 — Define the comparison cohort and rollback signal
 
 - **Depends on:** FL-01.
+- **Status:** Proposed / in progress. The cohort and rollback definition is documented, but it has not been executed or approved for canary use.
 - **Likely files:** `docs/odf-fast-lane-plan.md`, rollout configuration file identified by the implementation owner (no new framework).
-- **Intent:** Freeze the baseline window and define equivalent pre/post cohorts. Set the kill criteria: p95 regression, validation/evidence failures, receipt rate, timeout rate, incorrect risk downgrade, or missing artifact.
-- **Verification commands/evidence:** Reviewable baseline table and a dry-run dashboard/query definition; no code execution required for the documentation artifact.
+- **Intent:** Freeze the baseline window and define comparable cohorts from complete `entry_started` → `verified_completed` flows with matching `work_type`, Odoo version, workspace, and source-authority dimensions when available. Exclude lifecycle markers, spans, and joins from the denominator.
+- **Proposed hold/rollback signals:** >10% matched-cohort p95 regression; any protected/architectural risk incorrectly downgraded; any candidate/evidence/receipt binding failure; missing final-gate evidence; telemetry coverage below 95%; or an unexplained increase in errors, timeouts, or receipts. These thresholds are proposed and require explicit maintainer approval before canary.
+- **Verification commands/evidence:** Reviewable [baseline table and cohort/rollback definition](odf-fast-lane-baseline-2026-09-16.md) plus a dry-run dashboard/query definition; no code execution required for the documentation artifact.
 - **Out of scope:** Claiming an improvement before a canary or changing default rollout state.
 
 ## 2. Entry-triage optimization
@@ -58,9 +61,10 @@ This is an executable **future** task breakdown. Every item is intentionally unc
 ### FL-06 — Define the inline BUILD contract
 
 - **Depends on:** FL-05.
+- **Status:** Defined / in progress. Contract locations: [`command/odf-new.md`](../command/odf-new.md), [`command/odf-fix.md`](../command/odf-fix.md), and [`agent/odoo_orchestrator.md`](../agent/odoo_orchestrator.md#future-inline-build-contract-fl-06-shadow-only-by-default). No executor, canary, or rollout is enabled.
 - **Likely files:** `command/odf-new.md`, `command/odf-fix.md`, `agent/odoo_orchestrator.md`, `plugins/odf-delegation.ts`.
 - **Intent:** For eligible `small-change`, create one bounded BUILD prompt containing approved intent/Expectations, module/domain, file budget, targeted context, exact Odoo source roots, test command, source-authority requirements, evidence path, and executor/database guard. For `/odf-fix`, retain FIX/root-cause/regression evidence before applying the bounded BUILD policy.
-- **Verification commands/evidence:** Captured prompt contract has all required fields; missing source roots, missing database authorization, missing Expectations, and missing test command block before implementation; normal capable agent routing remains available.
+- **Verification commands/evidence:** Documentation evidence is the linked contract above; no runtime evidence, canary, rollout, or performance claim exists in this slice. Future captured-prompt verification must cover all required fields and must block or promote on missing source roots, database authorization, Expectations, test command, scope, authority, task, or validation evidence.
 - **Out of scope:** Direct generic `task()` calls, bypassing `odf_delegate`, or allowing implementation to choose its own policy.
 
 ### FL-07 — Integrate the policy without a parallel workflow

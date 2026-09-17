@@ -22,6 +22,16 @@ adapter; there is no valid bypass through a direct task outside the workflow.
 (`odf_policy_gate`, validation evidence, VERIFY, and risk escalation) remain
 mandatory and run silently.
 
+## Future inline BUILD boundary (FL-06)
+
+The shadow micro-policy does not create a bugfix fast lane. `/odf-fix` stays on the existing
+`FIX -> BUILD -> VERIFY` route unless explicit persisted root-cause and minimal-regression
+evidence exists **and** a future policy explicitly allows bounded treatment. Until then,
+`shadow.micro_policy` cannot qualify a bugfix or replace diagnosis. If that future policy is
+enabled, use the single bounded prompt and unchanged gates in [the orchestrator contract](../agent/odoo_orchestrator.md#future-inline-build-contract-fl-06-shadow-only-by-default);
+missing/unknown/contradictory facts, scope or risk escalation, source-authority/database/task/
+validation failure, or missing evidence promotes to standard/full handling or blocks.
+
 The flow runs in **supervised auto**: no voluntary questions and no per-phase
 pauses; the human approves once at entry when intent/Expectations are missing,
 then supervises. It stops only for a genuine product/scope decision, a

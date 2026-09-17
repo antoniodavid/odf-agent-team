@@ -62,6 +62,28 @@ Standard configuration terminates after DECIDE and has no BUILD or VERIFY stage.
 may use an inline plan before BUILD. Existing public phase commands and legacy phase IDs remain
 available for compatibility; they have not disappeared.
 
+## Future inline BUILD boundary (FL-06)
+
+This is a documentation-only contract for a future eligible `small-change` BUILD. It is
+shadow-only by default: `shadow.micro_policy === "eligible"` is advisory and does not select an
+executor, start BUILD, change the default route, or enable a canary. Eligibility requires that
+exact shadow result **and** the existing persisted `work_type: small-change`. `standard-config`
+remains DECIDE-only and never enters BUILD. `bugfix` remains on `FIX -> BUILD -> VERIFY`; only
+explicit persisted root-cause/regression evidence plus a future policy may allow a bounded
+treatment, and the shadow result alone never changes that route.
+
+If a future policy enables the contract, follow the single bounded IMPLEMENT prompt and existing
+gate requirements in [the orchestrator contract](../agent/odoo_orchestrator.md#future-inline-build-contract-fl-06-shadow-only-by-default).
+The prompt must reference approved human Expectations/intent, one known module, one functional
+domain, no more than three predicted files, only relevant context files, exact source roots,
+the configured test command and authorized test database, validation evidence, source authority,
+an out-of-scope guard, and escalation conditions. It must still call `odf_delegate` at the
+canonical `small-change` BUILD stage with exact `workflow_advance`, an explicit artifact store,
+and a fresh `attempt_id`; never call `task()` directly or invent a workflow, phase, WorkType, or
+gate. Missing or contradictory facts, risk, scope expansion, authority/database/task/validation
+failures promote to standard/full handling or block; they never bypass a gate. This slice makes
+no executor switch, canary, rollout, or performance claim.
+
 ## Routing Contract
 
 - Input: `/odf-new` command with parsed arguments.

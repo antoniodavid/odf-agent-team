@@ -53,14 +53,14 @@ investigation uses EXPLORE).
                │ odf_delegate(phase, prompt, context_files)
                ▼
 ┌──────────────────────────────┐
-│  plugins/odf-delegation.ts   │  ← resolve agent/skills, call task(),
+│  plugins/odf-delegation.ts   │  ← resolve agent/skills, select transport,
 │                              │    route + status adapters, gates
 └───────┬──────────────┬───────┘
         │              │
         ▼              ▼
 ┌──────────────┐ ┌──────────────┐
-│ odf-registry │ │  OpenCode    │
-│    .json     │ │   task()     │
+│ odf-registry │ │  Transport   │
+│    .json     │ │ adapter/SDK  │
 └──────────────┘ └──────┬───────┘
                         │
                         ▼
@@ -123,8 +123,9 @@ self-contained sections live in cohesive modules under `odf-plugin/`:
   registry type model, `ODF_REGISTERED_TOOLS`.
 - `odf-delegation-metrics.ts` — telemetry records, flush loop, token
   estimation.
-- `odf-delegation-health.ts` — read-only health inspection, the `task()`
-  API adapters (toolCtx/session), result normalization helpers.
+- `odf-delegation-health.ts` — read-only health inspection, the native task
+  adapter (when exposed), SDK session fallback, and result normalization
+  helpers.
 
 The entrypoint re-exports their public names, so imports and tests keep
 working unchanged.
@@ -141,11 +142,20 @@ working unchanged.
 5. Enforces the authoritative TDD Policy Gate for IMPLEMENT/VERIFY, the
    stop-validation evidence seal, `design_closed` coercion, and claimed
    `artifact_ref` existence.
-6. Invokes OpenCode's native `task()` API.
+6. Uses the explicit native task adapter when the host exposes `toolCtx.task`;
+   otherwise creates an isolated child with `client.session.create` and sends
+   `client.session.prompt` with the agent, known model, and relative context
+   references. SDK metadata binding is best-effort.
 7. Returns a result envelope with `status` (`delegated`, `blocked`, `error`,
    `timeout`), `agent`, `skills`, and `result`; unavailable task APIs block
    without an executable fallback prompt, and task failures auto-seal a
    receipt.
+
+The SDK session fallback is the supported current-runtime transport because the
+official `ToolContext` does not expose `task`. It preserves ODF's gates,
+receipts, metrics, timeout, cancellation, and result validation, but it cannot
+reproduce native task permission derivation; native host permissions remain the
+authority when the adapter is available.
 
 `odf_workflow_route` resolves the canonical thin-spine route for a work type;
 `odf_workflow_status` derives canonical status (read-only) from
@@ -236,7 +246,8 @@ Regression runner. It:
 4. Preflight record is written to `openspec/changes/{change}/state.yaml`.
 5. Orchestrator resolves the thin-spine route for the work type.
 6. It runs DECIDE through the compatible PROPOSE/ASSESS adapters via `odf_delegate`.
-7. Plugin resolves agent/skills, enforces gates, invokes `task()`, and returns the result.
+7. Plugin resolves agent/skills, enforces gates, selects the native adapter or
+   SDK child-session transport, and returns the result.
 8. Orchestrator updates state and shows an approval gate.
 9. Optional PLAN, then BUILD, then VERIFY repeat the delegate-update-gate cycle according to the resolved route.
 

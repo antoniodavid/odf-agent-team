@@ -400,33 +400,35 @@ async function invokeTask(
   }
 }
 
-function validateContextFiles(workspaceRoot: string, contextFiles: string[]): { error: string | null; paths: string[] } {
+function validateContextFiles(workspaceRoot: string, contextFiles: string[]): { error: string | null; paths: string[]; relativePaths: string[] } {
   const paths: string[] = []
+  const relativePaths: string[] = []
   for (const file of contextFiles) {
     if (typeof file !== "string" || file.split(/[\\/]/).includes("..")) {
-      return { error: `❌ context_files entry "${file}" contains path traversal`, paths: [] }
+      return { error: `❌ context_files entry "${file}" contains path traversal`, paths: [], relativePaths: [] }
     }
     const resolvedFile = path.resolve(workspaceRoot, file)
     if (!isWithinRoot(resolvedFile, workspaceRoot)) {
-      return { error: `❌ context_files entry "${file}" escapes workspace root`, paths: [] }
+      return { error: `❌ context_files entry "${file}" escapes workspace root`, paths: [], relativePaths: [] }
     }
     let comparablePath = path.normalize(resolvedFile)
     if (fsSync.existsSync(resolvedFile)) {
       try {
         if (!fsSync.statSync(resolvedFile).isFile()) {
-          return { error: `❌ context_files entry "${file}" is not a file`, paths: [] }
+          return { error: `❌ context_files entry "${file}" is not a file`, paths: [], relativePaths: [] }
         }
         comparablePath = path.normalize(fsSync.realpathSync(resolvedFile))
         if (!isWithinRoot(comparablePath, workspaceRoot)) {
-          return { error: `❌ context_files entry "${file}" escapes workspace root`, paths: [] }
+          return { error: `❌ context_files entry "${file}" escapes workspace root`, paths: [], relativePaths: [] }
         }
       } catch {
-        return { error: `❌ context_files entry "${file}" cannot be read`, paths: [] }
+        return { error: `❌ context_files entry "${file}" cannot be read`, paths: [], relativePaths: [] }
       }
     }
     paths.push(comparablePath)
+    relativePaths.push(path.relative(workspaceRoot, resolvedFile))
   }
-  return { error: null, paths }
+  return { error: null, paths, relativePaths }
 }
 
 function resolveSelectedWorkspaceRoot(workspaceDir?: string, canonicalDirectory?: string): string | null {
@@ -1851,7 +1853,7 @@ Use this instead of generic task() for ODF workflow delegation.`,
           taskSpanStartTime = Date.now()
           recordTaskSpan("started")
           flushMetricsSync()
-          const taskResult = await invokeTask(taskApiInfo.taskApi, agentName, delegationPrompt, contextValidation.paths, timeoutMs, toolCtx.abort)
+          const taskResult = await invokeTask(taskApiInfo.taskApi, agentName, delegationPrompt, contextValidation.relativePaths, timeoutMs, toolCtx.abort)
           let resultForOutput: unknown = taskResult.result
           // Stop-validation seal (slice 2): after an IMPLEMENT delegation, stamp
           // the envelope with the deterministic evidence verdict. The sub-agent
@@ -4928,8 +4930,6 @@ const workflowExpectationExtensionSchema = {
   })).optional(),
 }
 
-interface WorkflowBindArgs {
-  change_name?: string
 const workflowEntryRouteBindingSchema = tool.schema.object({
   version: tool.schema.literal(1),
   source: tool.schema.literal("odf_entry_triage"),
@@ -4957,14 +4957,16 @@ const workflowEntryRouteBindingSchema = tool.schema.object({
   shadow_digest: tool.schema.string().regex(/^[0-9a-f]{64}$/),
 }).strict()
 
+interface WorkflowBindArgs {
+  change_name?: string
   work_type?: unknown
   workspace_dir?: string
   artifact_store?: "openspec" | "engram"
   preflight?: Record<string, unknown>
   expectations?: WorkflowBindExpectations
+  entry_route_binding?: EntryRouteBinding
   terminal_stage?: "DECIDE" | "FIX"
   intent?: string
-  entry_route_binding?: EntryRouteBinding
   expectations_approved?: boolean
   root_cause?: string
   regression?: string
@@ -5101,9 +5103,9 @@ only after canonical state exists. Existing state and Expectations are reused on
         approved_at: tool.schema.string(),
         immutable_since: tool.schema.string(),
       }).optional().describe("Approved human Expectations to persist after canonical state"),
+      entry_route_binding: workflowEntryRouteBindingSchema.optional().describe("Validated advisory entry-route metadata; execution remains unchanged"),
       terminal_stage: tool.schema
         .enum(["DECIDE", "FIX"])
-      entry_route_binding: workflowEntryRouteBindingSchema.optional().describe("Validated advisory entry-route metadata; execution remains unchanged"),
         .optional()
         .describe("Materialize the terminal micro prefix before BUILD"),
       intent: tool.schema.string().optional().describe("User intent for a terminal DECIDE"),
@@ -5120,11 +5122,11 @@ only after canonical state exists. Existing state and Expectations are reused on
       if (!isCanonicalWorkType(args.work_type)) {
         return blocked("invalid-work-type", "The work_type is not a canonical ODF work type.")
       }
-      if (args.artifact_store !== undefined && args.artifact_store !== "openspec" && args.artifact_store !== "engram") {
-        return blocked("invalid-artifact-store", "The artifact_store must be openspec or engram.")
       if (args.entry_route_binding !== undefined && !validateEntryRouteBinding(args.entry_route_binding, args.work_type)) {
         return blocked("invalid-entry-route-binding", "The supplied entry_route_binding is invalid for the requested work type.")
       }
+      if (args.artifact_store !== undefined && args.artifact_store !== "openspec" && args.artifact_store !== "engram") {
+        return blocked("invalid-artifact-store", "The artifact_store must be openspec or engram.")
       }
 
       let workspaceRoot: string
@@ -5215,8 +5217,6 @@ only after canonical state exists. Existing state and Expectations are reused on
         if (preflight && current.route !== undefined && canonicalWorkflowValue(current.route) !== canonicalWorkflowValue(route)) {
           return { error: "route-conflict" }
         }
-        const explicitStage = typeof current.canonical_stage === "string" ? current.canonical_stage.toUpperCase() : null
-        if (terminalStage && explicitStage && explicitStage !== terminalStage) return { error: "active-state-conflict" }
         const hasStoredEntryRouteBinding = Object.prototype.hasOwnProperty.call(current, "entry_route_binding")
         if (hasStoredEntryRouteBinding && !validateEntryRouteBinding(current.entry_route_binding, args.work_type as WorkType)) {
           return { error: "invalid-entry-route-binding" }
@@ -5225,6 +5225,8 @@ only after canonical state exists. Existing state and Expectations are reused on
           (current.entry_route_binding as EntryRouteBinding).shadow_digest !== args.entry_route_binding.shadow_digest) {
           return { error: "entry-route-binding-conflict" }
         }
+        const explicitStage = typeof current.canonical_stage === "string" ? current.canonical_stage.toUpperCase() : null
+        if (terminalStage && explicitStage && explicitStage !== terminalStage) return { error: "active-state-conflict" }
 
         let persistedPreflight: Record<string, unknown> | null = null
         const currentPreflight = current.preflight && typeof current.preflight === "object" && !Array.isArray(current.preflight)
@@ -5248,11 +5250,11 @@ only after canonical state exists. Existing state and Expectations are reused on
 
         const before = canonicalWorkflowValue(current)
         document.set("work_type", args.work_type)
-        const existingPreflightNode = document.get("preflight", true)
-        if (persistedPreflight) {
         if (!hasStoredEntryRouteBinding && args.entry_route_binding) {
           document.set("entry_route_binding", args.entry_route_binding)
         }
+        const existingPreflightNode = document.get("preflight", true)
+        if (persistedPreflight) {
           document.set("change", changeName)
           document.set("artifact_store", stateArtifactStore)
           document.set("preflight", persistedPreflight)

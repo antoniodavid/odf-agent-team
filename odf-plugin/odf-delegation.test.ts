@@ -1740,13 +1740,32 @@ describe("getProfileByPhase", () => {
 })
 
 describe("findTaskApi", () => {
-  it("prefers toolCtx.task", () => {
+  it("adapts toolCtx.task without exposing the native function as TaskApi", () => {
     const taskFn = vi.fn()
     const session = { create: vi.fn(), prompt: vi.fn(), abort: vi.fn() }
     const toolCtx = { task: taskFn, sessionID: "s1" } as any
     const api = findTaskApi(toolCtx, { session } as any)
     expect(api?.source).toBe("toolCtx.task")
-    expect(api?.taskApi).toBe(taskFn)
+    expect(api?.taskApi).not.toBe(taskFn)
+  })
+
+  it("calls native task fields and normalizes its task_result output", async () => {
+    const taskFn = vi.fn().mockResolvedValue({
+      title: "native task",
+      metadata: {},
+      output: "<task_result>\n{\"status\":\"ok\",\"executive_summary\":\"done\"}\n</task_result>",
+    })
+    const api = findTaskApi({ task: taskFn, sessionID: "s1" } as any)
+
+    const result = await api!.taskApi({ agent: "odoo_backend_engineer", prompt: "Build it", context_files: ["models/x.py"] })
+
+    expect(taskFn).toHaveBeenCalledWith({
+      description: "ODF delegation: odoo_backend_engineer",
+      prompt: expect.stringContaining("- models/x.py"),
+      subagent_type: "odoo_backend_engineer",
+      background: false,
+    })
+    expect(result).toEqual({ status: "ok", executive_summary: "done" })
   })
 
   it("detects sdk.session without toolCtx.task or client.task", () => {
@@ -2871,7 +2890,7 @@ ${overrides}`
     }, { sessionID: "explicit-valid", task: taskApi } as any) as string)
 
     expect(output).toMatchObject({ status: "delegated", agent: "odoo_frontend_engineer" })
-    expect(taskApi).toHaveBeenCalledWith(expect.objectContaining({ agent: "odoo_frontend_engineer" }))
+    expect(taskApi).toHaveBeenCalledWith(expect.objectContaining({ subagent_type: "odoo_frontend_engineer" }))
   })
 
   it.each([
@@ -3098,10 +3117,50 @@ ${overrides}`
       query: { directory: tempHome },
       body: {
         agent: "odoo_functional_consultant",
-        parts: [{ type: "text", text: expect.stringContaining(path.join(tempHome, "models/sale.py")) }],
+        parts: [{ type: "text", text: expect.stringContaining("- models/sale.py") }],
       },
     })
+    expect(session.prompt.mock.calls[0][0].body.parts[0].text).not.toContain(path.join(tempHome, "models/sale.py"))
     expect(session.prompt.mock.calls[0][0].body).not.toHaveProperty("context_files")
+  })
+
+  it.each([
+    ["object", { providerID: "opencode-go", modelID: "kimi-k2.6" }],
+    ["string", "opencode-go/kimi-k2.6"],
+  ])("forwards a valid SDK model from the tool context (%s) and records child metadata", async (_label, hostModel) => {
+    const { createODFDelegate } = await import("./odf-delegation.js")
+    const metadata = vi.fn().mockImplementation(() => {
+      throw new Error("metadata unavailable")
+    })
+    const session = {
+      create: vi.fn().mockResolvedValue(sdkCreateResult("child-model")),
+      prompt: vi.fn().mockResolvedValue(sdkPromptResult({ status: "ok", executive_summary: "modeled" })),
+      abort: vi.fn().mockResolvedValue(true),
+    }
+    const output = await createODFDelegate({ session } as any, tempHome).execute(
+      { phase: "ASSESS", prompt: "Assess a modeled feature", context_files: [] },
+      { sessionID: "parent-model", directory: tempHome, model: hostModel, metadata } as any,
+    )
+
+    expect(JSON.parse(output as string)).toMatchObject({ status: "delegated", result: { executive_summary: "modeled" } })
+    expect(session.prompt).toHaveBeenCalledWith({
+      path: { id: "child-model" },
+      query: { directory: tempHome },
+      body: {
+        agent: "odoo_functional_consultant",
+        model: { providerID: "opencode-go", modelID: "kimi-k2.6" },
+        parts: [{ type: "text", text: expect.any(String) }],
+      },
+    })
+    expect(metadata).toHaveBeenCalledWith({
+      title: "ODF delegation: odoo_functional_consultant",
+      metadata: {
+        parentSessionId: "parent-model",
+        sessionId: "child-model",
+        transport: "sdk.session",
+        model: { providerID: "opencode-go", modelID: "kimi-k2.6" },
+      },
+    })
   })
 
   it.each([
@@ -5389,9 +5448,10 @@ ${overrides}`
         result: { source_authority: { ok: true, target_xmlid: "base.view_parent" } },
       })
       expect(taskApi).toHaveBeenCalledWith(expect.objectContaining({
-        context_files: [path.join(workspace, "context.txt")],
-        prompt: expect.stringContaining(`Odoo source root: ${fsSync.realpathSync(source)}`),
+        subagent_type: "odoo_backend_engineer",
+        prompt: expect.stringContaining("- context.txt"),
       }))
+      expect(taskApi.mock.calls[0][0].prompt).toContain(`Odoo source root: ${fsSync.realpathSync(source)}`)
       expect(fsSync.existsSync(path.join(tempHome, ".odf"))).toBe(false)
     } finally {
       await fs.rm(workspace, { recursive: true, force: true })
@@ -5678,12 +5738,12 @@ ${overrides}`
       }, { sessionID: "external-parallel", task: taskApi } as any) as string)
 
       expect(output).toMatchObject({ status: "parallel-delegated", join: { status: "complete", completed: 2 } })
-      const calls = taskApi.mock.calls.map(call => call[0] as { prompt: string; context_files: string[] })
+      const calls = taskApi.mock.calls.map(call => call[0] as { prompt: string; subagent_type: string })
       expect(calls).toHaveLength(2)
       expect(calls.every(call => call.prompt.includes(`Odoo source root: ${fsSync.realpathSync(source)}`))).toBe(true)
-      expect(calls.map(call => call.context_files[0]).sort()).toEqual([
-        path.join(workspace, "backend.py"),
-        path.join(workspace, "frontend.js"),
+      expect(calls.map(call => call.prompt.match(/- (backend\.py|frontend\.js)/)?.[1]).sort()).toEqual([
+        "backend.py",
+        "frontend.js",
       ])
       expect(fsSync.existsSync(path.join(workspace, ".odf", `parallel-join-${change}.json`))).toBe(true)
       expect(fsSync.existsSync(path.join(workspace, ".odf", `attempt-ledger-${change}.jsonl`))).toBe(true)
