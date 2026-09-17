@@ -54,6 +54,7 @@ import {
 } from "./odf-delegation.js"
 import { advanceWorkflow, resolveWorkflowRoute } from "./odf-workflow.js"
 import { buildCandidateManifest, computeCandidateDigest } from "./candidate-manifest.js"
+import { createEntryRouteBinding, predictEntryRouteShadow, type EntryTriageInput } from "./entry-triage.js"
 import {
   establishSourceAuthorityRoots,
   isViewAuthorityWork,
@@ -271,6 +272,21 @@ function approvedExpectations(change: string, statement = "The requested behavio
     approved_at: "2026-08-19T00:01:00.000Z",
     immutable_since: "2026-08-19T00:01:00.000Z",
   }
+}
+
+function featureEntryRouteBinding(change: string, candidateDigest?: string): ReturnType<typeof createEntryRouteBinding> {
+  const input: EntryTriageInput = {
+    command: "odf-new",
+    change,
+    description: "Implement the sale order pricing feature.",
+    explicit_work_type: "feature",
+    module: "sale",
+    domain: "sales",
+    expected_files: 4,
+    expectations_clear: true,
+    known_modules: ["sale"],
+  }
+  return createEntryRouteBinding(predictEntryRouteShadow(input), candidateDigest)
 }
 
 function authorizedWorkflowBind(changeName: string, workspaceRoot: string) {
@@ -496,6 +512,123 @@ describe("createODFWorkflowBind", () => {
       delete after.work_type
       delete after.preflight.work_type
       expect(after).toEqual(original)
+      expect(after.entry_route_binding).toBeUndefined()
+    } finally {
+      await fs.rm(root, { recursive: true, force: true })
+    }
+  })
+
+  it("persists a validated entry route binding without changing the canonical route", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "odf-workflow-bind-route-binding-"))
+    const change = "route-binding-feature"
+    const changeDir = path.join(root, "openspec", "changes", change)
+    const binding = featureEntryRouteBinding(change)
+    await fs.mkdir(changeDir, { recursive: true })
+    await fs.writeFile(path.join(changeDir, "state.yaml"), "canonical_stage: PLAN\n", "utf8")
+
+    try {
+      const output = JSON.parse(await createODFWorkflowBind().execute({
+        change_name: change,
+        work_type: "feature",
+        workspace_dir: root,
+        entry_route_binding: binding,
+      }, {} as any) as string)
+      expect(output).toMatchObject({ status: "bound", state_action: "updated" })
+      expect(YAML.parse(await fs.readFile(path.join(changeDir, "state.yaml"), "utf8"))).toMatchObject({
+        canonical_stage: "PLAN",
+        work_type: "feature",
+        entry_route_binding: binding,
+      })
+    } finally {
+      await fs.rm(root, { recursive: true, force: true })
+    }
+  })
+
+  it("reuses a semantically identical binding despite stored array order", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "odf-workflow-bind-route-reuse-"))
+    const change = "route-binding-reuse"
+    const changeDir = path.join(root, "openspec", "changes", change)
+    const binding = featureEntryRouteBinding(change)
+    const reordered = {
+      ...binding,
+      predicted_stages: [...binding.predicted_stages].reverse(),
+      required_checks: [...binding.required_checks].reverse(),
+      missing_facts: [...binding.missing_facts].reverse(),
+      blocking_reasons: [...binding.blocking_reasons].reverse(),
+    }
+    await fs.mkdir(changeDir, { recursive: true })
+    await fs.writeFile(path.join(changeDir, "state.yaml"), YAML.stringify({
+      canonical_stage: "PLAN",
+      work_type: "feature",
+      entry_route_binding: reordered,
+    }), "utf8")
+
+    try {
+      const statePath = path.join(changeDir, "state.yaml")
+      const before = await fs.readFile(statePath, "utf8")
+      const output = JSON.parse(await createODFWorkflowBind().execute({
+        change_name: change,
+        work_type: "feature",
+        workspace_dir: root,
+        entry_route_binding: binding,
+      }, {} as any) as string)
+      expect(output).toMatchObject({ status: "bound", state_action: "reused" })
+      expect(await fs.readFile(statePath, "utf8")).toBe(before)
+    } finally {
+      await fs.rm(root, { recursive: true, force: true })
+    }
+  })
+
+  it("blocks a binding digest conflict without changing canonical state", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "odf-workflow-bind-route-conflict-"))
+    const change = "route-binding-conflict"
+    const changeDir = path.join(root, "openspec", "changes", change)
+    const first = featureEntryRouteBinding(change)
+    const conflicting = featureEntryRouteBinding(change, "a".repeat(64))
+    await fs.mkdir(changeDir, { recursive: true })
+    const statePath = path.join(changeDir, "state.yaml")
+    await fs.writeFile(statePath, YAML.stringify({
+      canonical_stage: "PLAN",
+      work_type: "feature",
+      entry_route_binding: first,
+    }), "utf8")
+
+    try {
+      const before = await fs.readFile(statePath, "utf8")
+      const output = JSON.parse(await createODFWorkflowBind().execute({
+        change_name: change,
+        work_type: "feature",
+        workspace_dir: root,
+        entry_route_binding: conflicting,
+      }, {} as any) as string)
+      expect(output).toMatchObject({ status: "blocked", reason: "entry-route-binding-conflict" })
+      expect(await fs.readFile(statePath, "utf8")).toBe(before)
+    } finally {
+      await fs.rm(root, { recursive: true, force: true })
+    }
+  })
+
+  it("blocks an invalid stored binding before rewriting state", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "odf-workflow-bind-route-malformed-"))
+    const change = "route-binding-malformed"
+    const changeDir = path.join(root, "openspec", "changes", change)
+    await fs.mkdir(changeDir, { recursive: true })
+    const statePath = path.join(changeDir, "state.yaml")
+    await fs.writeFile(statePath, YAML.stringify({
+      canonical_stage: "PLAN",
+      work_type: "feature",
+      entry_route_binding: { version: 1 },
+    }), "utf8")
+
+    try {
+      const before = await fs.readFile(statePath, "utf8")
+      const output = JSON.parse(await createODFWorkflowBind().execute({
+        change_name: change,
+        work_type: "feature",
+        workspace_dir: root,
+      }, {} as any) as string)
+      expect(output).toMatchObject({ status: "blocked", reason: "invalid-entry-route-binding" })
+      expect(await fs.readFile(statePath, "utf8")).toBe(before)
     } finally {
       await fs.rm(root, { recursive: true, force: true })
     }
@@ -676,6 +809,12 @@ describe("createODFWorkflowBind", () => {
 
     try {
       const bind = createODFWorkflowBind()
+      await expect(bind.execute({
+        change_name: "missing-change",
+        work_type: "feature",
+        workspace_dir: root,
+        entry_route_binding: { version: 1 } as any,
+      }, {} as any)).resolves.toMatch(/invalid-entry-route-binding/)
       await expect(bind.execute({ change_name: "missing-change", work_type: "feature", workspace_dir: root }, {} as any))
         .resolves.toMatch(/workflow-start-preflight-required/)
       await expect(bind.execute({ change_name: "broken-change", work_type: "feature", workspace_dir: root }, {} as any))
@@ -1117,6 +1256,7 @@ describe("createODFWorkflowBind", () => {
       workspace_dir: root,
       preflight: completePreflight(change, "engram"),
       expectations: approvedExpectations(change),
+      entry_route_binding: featureEntryRouteBinding(change),
     }
     const { bind, context } = authorizedWorkflowBind(change, root)
 
@@ -1130,6 +1270,8 @@ describe("createODFWorkflowBind", () => {
         `odf/${change}/expectations`,
         `odf/${change}/state`,
       ])
+      const firstSave = calls.find(call => call[0] === "save")!
+      expect(JSON.parse(firstSave[2]).entry_route_binding).toEqual(args.entry_route_binding)
       expect(fsSync.existsSync(path.join(root, "openspec"))).toBe(false)
 
       const retry = JSON.parse(await bind.execute(args, context) as string)

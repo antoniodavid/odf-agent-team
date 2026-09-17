@@ -10,6 +10,7 @@
  * carries signals + clarity for auditability.
  */
 
+import { createHash } from "node:crypto"
 import { resolveWorkflowRoute, WORK_TYPES, type CanonicalStage, type WorkType } from "./odf-workflow.js"
 import { tool } from "@opencode-ai/plugin"
 
@@ -106,6 +107,12 @@ export interface EntryRouteShadow {
   blocking_reasons: string[]
 }
 
+export interface EntryRouteBinding extends EntryRouteShadow {
+  source: "odf_entry_triage"
+  candidate_digest?: string | null
+  shadow_digest: string
+}
+
 export interface EntryTriageResult {
   level: EntryLevel
   work_type: WorkType
@@ -180,6 +187,32 @@ const SHADOW_PROTECTED_SIGNALS = new Set([
   "security", "migration", "payment", "public-api", "data-loss", "pii", "schema", "database", "finance", "external-impact",
 ])
 
+const ENTRY_ROUTE_BINDING_KEYS = [
+  "version", "source", "mode", "advisory", "execution_unchanged", "predicted_route", "predicted_stages",
+  "micro_policy", "required_checks", "missing_facts", "blocking_reasons", "candidate_digest", "shadow_digest",
+]
+const ENTRY_ROUTE_BINDING_REQUIRED_KEYS = ENTRY_ROUTE_BINDING_KEYS.filter(key => key !== "candidate_digest")
+const ENTRY_ROUTE_BINDING_SOURCE = "odf_entry_triage" as const
+const SHA256_HEX = /^[0-9a-f]{64}$/
+const MAX_BINDING_LIST_ITEMS = 32
+const MAX_BINDING_STRING_LENGTH = 128
+const CANONICAL_STAGES: CanonicalStage[] = ["DECIDE", "PLAN", "BUILD", "VERIFY", "EXPLORE", "FIX"]
+const SHADOW_MICRO_POLICIES: ShadowMicroPolicy[] = ["eligible", "ineligible", "unknown", "not-applicable"]
+const SHADOW_MISSING_FACTS = new Set([
+  "diagnosis evidence", "root-cause evidence", "regression evidence", "complete entry facts", "affected module",
+  "functional domain", "expected file count", "valid expected file count", "known module membership",
+  "approved Expectations", "clear intent", "prior learning", "blast radius", "high reversibility", "complete source authority",
+])
+const SHADOW_BLOCKING_REASONS = new Set([
+  "malformed context", "malformed shadow context", "protected risk signal", "standard-config is a DECIDE-only route",
+  "diagnosis, root-cause, and regression evidence are required before predicting a bugfix route",
+  "FAST is restricted to the existing small-change route", "blast radius exceeds the <=3 file boundary",
+  "predicted route is not the existing small-change route", "unknown module", "approved Expectations are not approved",
+  "protected domain", "multiple functional domains", "architecture signal", "scope signal", "contradictory prior learning",
+  "prior learning is missing or uncertain", "high blast radius", "low reversibility", "incomplete source authority",
+])
+const SHADOW_BUGFIX_CHECKS = ["diagnosis evidence", "root-cause evidence", "regression evidence"] as const
+
 function shadowTokenList(value: unknown): value is string[] {
   return Array.isArray(value) && value.length <= 8 && value.every(token =>
     typeof token === "string" && token.length > 0 && token.length <= 64 && /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(token)
@@ -252,6 +285,144 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function hasOnlyKeys(value: Record<string, unknown>, keys: string[]): boolean {
   return Object.keys(value).every(key => keys.includes(key))
+}
+
+type EntryRouteBindingPayload = Omit<EntryRouteBinding, "candidate_digest" | "shadow_digest"> & {
+  candidate_digest: string | null
+}
+
+function isBindingWorkType(value: unknown): value is WorkType {
+  return typeof value === "string" && WORK_TYPES.includes(value as WorkType)
+}
+
+function isBindingMicroPolicy(value: unknown): value is ShadowMicroPolicy {
+  return typeof value === "string" && SHADOW_MICRO_POLICIES.includes(value as ShadowMicroPolicy)
+}
+
+function normalizeBindingList(value: unknown, allowed: Set<string>): string[] | null {
+  if (!Array.isArray(value) || value.length > MAX_BINDING_LIST_ITEMS) return null
+  const items = [...value]
+  if (items.some(item => typeof item !== "string" || item.length === 0 || item.length > MAX_BINDING_STRING_LENGTH ||
+    /[\0\r\n]/.test(item) || !allowed.has(item))) return null
+  const unique = new Set(items)
+  return unique.size === items.length ? [...unique].sort() : null
+}
+
+function normalizeBindingStages(value: unknown, route: WorkType): CanonicalStage[] | null {
+  const expected = resolveWorkflowRoute(route).stages
+  if (!Array.isArray(value) || value.length !== expected.length || value.length > CANONICAL_STAGES.length) {
+    return null
+  }
+  const stages = [...value]
+  if (stages.some(stage => typeof stage !== "string" || !CANONICAL_STAGES.includes(stage as CanonicalStage))) return null
+  const unique = new Set(stages)
+  return unique.size === stages.length && [...unique].sort().join("\0") === [...expected].sort().join("\0")
+    ? [...expected]
+    : null
+}
+
+function hasOnlyBindingKeys(value: Record<string, unknown>): boolean {
+  const ownKeys = Reflect.ownKeys(value)
+  return ownKeys.every(key => typeof key === "string" && ENTRY_ROUTE_BINDING_KEYS.includes(key)) &&
+    ENTRY_ROUTE_BINDING_REQUIRED_KEYS.every(key => Object.prototype.hasOwnProperty.call(value, key)) &&
+    (!("candidate_digest" in value) || Object.prototype.hasOwnProperty.call(value, "candidate_digest"))
+}
+
+function canonicalEntryRouteBindingPayload(binding: EntryRouteBinding | EntryRouteBindingPayload): EntryRouteBindingPayload {
+  return {
+    version: 1,
+    source: ENTRY_ROUTE_BINDING_SOURCE,
+    mode: "shadow",
+    advisory: true,
+    execution_unchanged: true,
+    predicted_route: binding.predicted_route,
+    predicted_stages: [...binding.predicted_stages].sort(),
+    micro_policy: binding.micro_policy,
+    required_checks: [...binding.required_checks].sort(),
+    missing_facts: [...binding.missing_facts].sort(),
+    blocking_reasons: [...binding.blocking_reasons].sort(),
+    candidate_digest: binding.candidate_digest ?? null,
+  }
+}
+
+function entryRouteBindingDigest(payload: EntryRouteBindingPayload): string {
+  return createHash("sha256").update(JSON.stringify(payload)).digest("hex")
+}
+
+function normalizedCandidateDigest(value: unknown): string | null {
+  return value === null || value === undefined || typeof value !== "string" || !SHA256_HEX.test(value) ? null : value
+}
+
+function expectedShadowChecks(route: WorkType): Set<string> {
+  return new Set([...SHADOW_REQUIRED_CHECKS, ...(route === "bugfix" ? SHADOW_BUGFIX_CHECKS : [])])
+}
+
+export function createEntryRouteBinding(shadow: EntryRouteShadow, candidateDigest?: string | null): EntryRouteBinding {
+  if (!isRecord(shadow) || shadow.version !== 1 || shadow.mode !== "shadow" || shadow.advisory !== true ||
+    shadow.execution_unchanged !== true || !isBindingWorkType(shadow.predicted_route) || !isBindingMicroPolicy(shadow.micro_policy)) {
+    throw new TypeError("Cannot bind a malformed shadow route.")
+  }
+  const route = shadow.predicted_route
+  const stages = normalizeBindingStages(shadow.predicted_stages, route)
+  const requiredChecks = normalizeBindingList(shadow.required_checks, expectedShadowChecks(route))
+  const missingFacts = normalizeBindingList(shadow.missing_facts, SHADOW_MISSING_FACTS)
+  const blockingReasons = normalizeBindingList(shadow.blocking_reasons, SHADOW_BLOCKING_REASONS)
+  if (!stages || !requiredChecks || requiredChecks.length !== expectedShadowChecks(route).size ||
+    !missingFacts || !blockingReasons) throw new TypeError("Cannot bind a malformed shadow route.")
+
+  const normalizedCandidate = normalizedCandidateDigest(candidateDigest)
+  if (candidateDigest !== null && candidateDigest !== undefined && normalizedCandidate === null) {
+    throw new TypeError("candidate_digest must be a SHA-256 hex digest.")
+  }
+  const payload: EntryRouteBindingPayload = {
+    version: 1,
+    source: ENTRY_ROUTE_BINDING_SOURCE,
+    mode: "shadow",
+    advisory: true,
+    execution_unchanged: true,
+    predicted_route: route,
+    predicted_stages: stages,
+    micro_policy: shadow.micro_policy,
+    required_checks: requiredChecks,
+    missing_facts: missingFacts,
+    blocking_reasons: blockingReasons,
+    candidate_digest: normalizedCandidate,
+  }
+  return { ...payload, shadow_digest: entryRouteBindingDigest(canonicalEntryRouteBindingPayload(payload)) }
+}
+
+export function validateEntryRouteBinding(value: unknown, expectedWorkType?: WorkType): value is EntryRouteBinding {
+  if (!isRecord(value) || !hasOnlyBindingKeys(value) || value.version !== 1 ||
+    value.source !== ENTRY_ROUTE_BINDING_SOURCE || value.mode !== "shadow" || value.advisory !== true ||
+    value.execution_unchanged !== true || !isBindingWorkType(value.predicted_route) ||
+    (expectedWorkType !== undefined && (!isBindingWorkType(expectedWorkType) || value.predicted_route !== expectedWorkType)) ||
+    !isBindingMicroPolicy(value.micro_policy) || typeof value.shadow_digest !== "string" || !SHA256_HEX.test(value.shadow_digest)) {
+    return false
+  }
+  const route = value.predicted_route
+  const stages = normalizeBindingStages(value.predicted_stages, route)
+  const requiredChecks = normalizeBindingList(value.required_checks, expectedShadowChecks(route))
+  const missingFacts = normalizeBindingList(value.missing_facts, SHADOW_MISSING_FACTS)
+  const blockingReasons = normalizeBindingList(value.blocking_reasons, SHADOW_BLOCKING_REASONS)
+  const candidateDigest = normalizedCandidateDigest(value.candidate_digest)
+  if (!stages || !requiredChecks || requiredChecks.length !== expectedShadowChecks(route).size || !missingFacts || !blockingReasons ||
+    (value.candidate_digest !== null && value.candidate_digest !== undefined && candidateDigest === null)) return false
+
+  const payload: EntryRouteBindingPayload = {
+    version: 1,
+    source: ENTRY_ROUTE_BINDING_SOURCE,
+    mode: "shadow",
+    advisory: true,
+    execution_unchanged: true,
+    predicted_route: route,
+    predicted_stages: stages,
+    micro_policy: value.micro_policy,
+    required_checks: requiredChecks,
+    missing_facts: missingFacts,
+    blocking_reasons: blockingReasons,
+    candidate_digest: candidateDigest,
+  }
+  return entryRouteBindingDigest(canonicalEntryRouteBindingPayload(payload)) === value.shadow_digest
 }
 
 function safeContextToken(value: unknown): value is string {

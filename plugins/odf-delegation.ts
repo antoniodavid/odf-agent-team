@@ -146,7 +146,11 @@ import {
 // Kept exported for the plugin public surface and unit tests.
 export { createODFReceipt, mergeReceipt, saveReceiptJson }
 export type { ODFReceipt }
-import { createODFEntryTriage as createEntryTriageTool } from "../odf-plugin/entry-triage.js"
+import {
+  createODFEntryTriage as createEntryTriageTool,
+  validateEntryRouteBinding,
+  type EntryRouteBinding,
+} from "../odf-plugin/entry-triage.js"
 import { createODFContextManifest } from "../odf-plugin/odf-context-manifest.js"
 import { validateExpectations, validDate, type ExpectationsConnection, type ExpectationsEntry } from "../odf-plugin/odf-expectations.js"
 import { sanitizeChangeName, validatePreflight, type PreflightRecord } from "../scripts/lib/preflight.js"
@@ -4926,6 +4930,33 @@ const workflowExpectationExtensionSchema = {
 
 interface WorkflowBindArgs {
   change_name?: string
+const workflowEntryRouteBindingSchema = tool.schema.object({
+  version: tool.schema.literal(1),
+  source: tool.schema.literal("odf_entry_triage"),
+  mode: tool.schema.literal("shadow"),
+  advisory: tool.schema.literal(true),
+  execution_unchanged: tool.schema.literal(true),
+  predicted_route: tool.schema.enum([
+    "question",
+    "investigation",
+    "standard-config",
+    "small-change",
+    "feature",
+    "cross-domain",
+    "bugfix",
+    "migration",
+    "security",
+    "verify-only",
+  ]),
+  predicted_stages: tool.schema.array(tool.schema.enum(["DECIDE", "PLAN", "BUILD", "VERIFY", "EXPLORE", "FIX"])).max(6),
+  micro_policy: tool.schema.enum(["eligible", "ineligible", "unknown", "not-applicable"]),
+  required_checks: tool.schema.array(tool.schema.string().max(128)).max(32),
+  missing_facts: tool.schema.array(tool.schema.string().max(128)).max(32),
+  blocking_reasons: tool.schema.array(tool.schema.string().max(128)).max(32),
+  candidate_digest: tool.schema.string().regex(/^[0-9a-f]{64}$/).nullable().optional(),
+  shadow_digest: tool.schema.string().regex(/^[0-9a-f]{64}$/),
+}).strict()
+
   work_type?: unknown
   workspace_dir?: string
   artifact_store?: "openspec" | "engram"
@@ -4933,6 +4964,7 @@ interface WorkflowBindArgs {
   expectations?: WorkflowBindExpectations
   terminal_stage?: "DECIDE" | "FIX"
   intent?: string
+  entry_route_binding?: EntryRouteBinding
   expectations_approved?: boolean
   root_cause?: string
   regression?: string
@@ -5071,6 +5103,7 @@ only after canonical state exists. Existing state and Expectations are reused on
       }).optional().describe("Approved human Expectations to persist after canonical state"),
       terminal_stage: tool.schema
         .enum(["DECIDE", "FIX"])
+      entry_route_binding: workflowEntryRouteBindingSchema.optional().describe("Validated advisory entry-route metadata; execution remains unchanged"),
         .optional()
         .describe("Materialize the terminal micro prefix before BUILD"),
       intent: tool.schema.string().optional().describe("User intent for a terminal DECIDE"),
@@ -5089,6 +5122,9 @@ only after canonical state exists. Existing state and Expectations are reused on
       }
       if (args.artifact_store !== undefined && args.artifact_store !== "openspec" && args.artifact_store !== "engram") {
         return blocked("invalid-artifact-store", "The artifact_store must be openspec or engram.")
+      if (args.entry_route_binding !== undefined && !validateEntryRouteBinding(args.entry_route_binding, args.work_type)) {
+        return blocked("invalid-entry-route-binding", "The supplied entry_route_binding is invalid for the requested work type.")
+      }
       }
 
       let workspaceRoot: string
@@ -5181,6 +5217,14 @@ only after canonical state exists. Existing state and Expectations are reused on
         }
         const explicitStage = typeof current.canonical_stage === "string" ? current.canonical_stage.toUpperCase() : null
         if (terminalStage && explicitStage && explicitStage !== terminalStage) return { error: "active-state-conflict" }
+        const hasStoredEntryRouteBinding = Object.prototype.hasOwnProperty.call(current, "entry_route_binding")
+        if (hasStoredEntryRouteBinding && !validateEntryRouteBinding(current.entry_route_binding, args.work_type as WorkType)) {
+          return { error: "invalid-entry-route-binding" }
+        }
+        if (hasStoredEntryRouteBinding && args.entry_route_binding &&
+          (current.entry_route_binding as EntryRouteBinding).shadow_digest !== args.entry_route_binding.shadow_digest) {
+          return { error: "entry-route-binding-conflict" }
+        }
 
         let persistedPreflight: Record<string, unknown> | null = null
         const currentPreflight = current.preflight && typeof current.preflight === "object" && !Array.isArray(current.preflight)
@@ -5206,6 +5250,9 @@ only after canonical state exists. Existing state and Expectations are reused on
         document.set("work_type", args.work_type)
         const existingPreflightNode = document.get("preflight", true)
         if (persistedPreflight) {
+        if (!hasStoredEntryRouteBinding && args.entry_route_binding) {
+          document.set("entry_route_binding", args.entry_route_binding)
+        }
           document.set("change", changeName)
           document.set("artifact_store", stateArtifactStore)
           document.set("preflight", persistedPreflight)

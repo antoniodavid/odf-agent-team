@@ -1,5 +1,14 @@
 import { describe, expect, it } from "vitest"
-import { classifyEntryTriage, contextRiskSignals, descriptionClarity, detectRiskSignals, predictEntryRouteShadow, type EntryTriageInput } from "./entry-triage.js"
+import {
+  classifyEntryTriage,
+  contextRiskSignals,
+  createEntryRouteBinding,
+  descriptionClarity,
+  detectRiskSignals,
+  predictEntryRouteShadow,
+  validateEntryRouteBinding,
+  type EntryTriageInput,
+} from "./entry-triage.js"
 
 const base = (overrides: Partial<EntryTriageInput> = {}): EntryTriageInput => ({
   command: "odf-new",
@@ -426,5 +435,67 @@ describe("predictEntryRouteShadow", () => {
     expect(multiple.micro_policy).toBe("ineligible")
     expect(multiple.blocking_reasons).toContain("multiple functional domains")
     expect(predictEntryRouteShadow(shadowReady({ domain: "sales" })).micro_policy).toBe("eligible")
+  })
+})
+
+describe("EntryRouteBinding", () => {
+  it("computes the same digest when shadow arrays arrive in a different order", () => {
+    const shadow = predictEntryRouteShadow(shadowReady())
+    const reordered = {
+      ...shadow,
+      predicted_stages: [...shadow.predicted_stages].reverse(),
+      required_checks: [...shadow.required_checks].reverse(),
+      missing_facts: [...shadow.missing_facts].reverse(),
+      blocking_reasons: [...shadow.blocking_reasons].reverse(),
+    }
+
+    expect(createEntryRouteBinding(shadow).shadow_digest)
+      .toBe(createEntryRouteBinding(reordered).shadow_digest)
+  })
+
+  it("creates a reference-free binding and validates it", () => {
+    const binding = createEntryRouteBinding(predictEntryRouteShadow(shadowReady()), "a".repeat(64))
+
+    expect(binding).toMatchObject({
+      version: 1,
+      source: "odf_entry_triage",
+      mode: "shadow",
+      advisory: true,
+      execution_unchanged: true,
+      predicted_route: "small-change",
+      candidate_digest: "a".repeat(64),
+    })
+    expect(binding).not.toHaveProperty("description")
+    expect(binding).not.toHaveProperty("ice_context")
+    expect(binding).not.toHaveProperty("intent")
+    expect(binding).not.toHaveProperty("paths")
+    expect(validateEntryRouteBinding(binding)).toBe(true)
+  })
+
+  it("rejects a binding whose fields are inherited", () => {
+    const binding = createEntryRouteBinding(predictEntryRouteShadow(shadowReady()))
+    const inheritedBinding = Object.create(binding)
+
+    expect(validateEntryRouteBinding(inheritedBinding)).toBe(false)
+  })
+
+  it("rejects a tampered shadow digest", () => {
+    const binding = createEntryRouteBinding(predictEntryRouteShadow(shadowReady()))
+    expect(validateEntryRouteBinding({ ...binding, shadow_digest: "0".repeat(64) })).toBe(false)
+  })
+
+  it("rejects a binding when the expected work type does not match", () => {
+    const binding = createEntryRouteBinding(predictEntryRouteShadow(shadowReady()))
+    expect(validateEntryRouteBinding(binding, "feature")).toBe(false)
+    expect(validateEntryRouteBinding(binding, "small-change")).toBe(true)
+  })
+
+  it("rejects unsafe, oversized, and unknown fields", () => {
+    const binding = createEntryRouteBinding(predictEntryRouteShadow(shadowReady()))
+
+    expect(validateEntryRouteBinding({ ...binding, candidate_digest: "../candidate" })).toBe(false)
+    expect(validateEntryRouteBinding({ ...binding, missing_facts: ["x".repeat(129)] })).toBe(false)
+    expect(validateEntryRouteBinding({ ...binding, blocking_reasons: ["unknown reason"] })).toBe(false)
+    expect(validateEntryRouteBinding({ ...binding, description: "raw user intent" } as unknown)).toBe(false)
   })
 })
