@@ -58,4 +58,5 @@ The backend DESIGN guidance already enforces closed designs and source checks, b
 - Current design contract and frontend ownership boundary were inspected before editing.
 - Scoped edits were present after the delegated writer cancellation and were verified by the parent.
 - Verification passed: repository registry validation, JSON parsing, whitespace checks, and targeted removal checks.
+- Release evidence: commit `69871db` (`refactor(odf): clarify design prompt contract`) contains the scoped prompt/skill changes; unrelated worktree changes remain excluded.
 - Next step: refresh the installed ODF registry and restart OpenCode before using the updated agent/skill prompts.
