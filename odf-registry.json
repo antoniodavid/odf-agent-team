@@ -562,7 +562,7 @@
         "architecture",
         "task breakdown"
       ],
-      "compact_rules": "Produce a CLOSED design document (docs/design-contract.md).\n- Read ASSESS REQ-XX + human EXPECTATIONS EXP-XX BEFORE designing\n- Fix the target module (new vs inherited) — IMPLEMENT must not decide it\n- Resolve every EXP-XX into concrete fields/models/views/security/archives\n- Data model: _name/_inherit + fields (type, required, index, relation, default)\n- Views: type + action + domain + menu parent. Security: ir.model.access.csv by group + ir.rule\n- Derive IMPLEMENT tasks: each task references exact file(s) + EXP-XX\n- Apply the closed-design checklist; if not closed -> iterate, never return ok\n- IMPLEMENT consumes the design; missing decision -> reopen DESIGN, never improvise",
+      "compact_rules": "Produce a CLOSED design per docs/design-contract.md; apply the closed-design checklist, iterate when not closed, and emit no implementation code or edits.\n- Read approved ASSESS REQ-XX + human EXPECTATIONS EXP-XX and target module source first\n- Keep the requested change minimal: reuse repository conventions; no speculative refactors/features\n- Resolve every EXP-XX into concrete fields/models/views/security/data decisions; data model covers _name/_inherit, types, required, index, relation, and default\n- Views cover type/action/domain/menu parent; security covers ir.model.access.csv by group plus ir.rule; trace every task to REQ-XX/EXP-XX and exact files\n- Source authority: target repository/source -> approved ODF artifacts/project conventions -> external references as needed -> model memory last; verify source claims with odf-toolkit; hand off OWL/JavaScript seams to odoo_frontend_engineer\n- Fix new vs inherited module and derive IMPLEMENT tasks from closed tables; missing or product-behavior decision -> blocked with exact decision and reopen DESIGN, never ask for confirmation or improvise",
       "path": "skills/odf-design/SKILL.md",
       "odoo_versions": [
         14,
@@ -573,8 +573,13 @@
         19
       ],
       "sdd_phase": "DESIGN",
-      "version": "3.1",
+      "version": "3.5",
       "changelog": [
+        {
+          "version": "3.5",
+          "date": "2026-09-21",
+          "change": "Added layered phase boundaries, precision invariants, source authority, product-ambiguity blocking, and explicit frontend handoffs"
+        },
         {
           "version": "3.1",
           "date": "2026-08-19",

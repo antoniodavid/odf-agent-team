@@ -4,7 +4,7 @@ description: "Create a CLOSED technical design document + IMPLEMENT plan for Odo
 license: MIT
 metadata:
   author: adruban
-  version: "3.4"
+  version: "3.5"
 ---
 
 ## Activation Contract
@@ -19,10 +19,30 @@ per `docs/design-contract.md` that resolves EVERYTHING IMPLEMENT will need (modu
 destination, models, views, security, EXP-XX), then derive the IMPLEMENT task
 plan from it. The orchestrator will approve before IMPLEMENT.
 
-## Principle
+## Phase Boundary
 
-> IMPLEMENT does not re-investigate. If IMPLEMENT needs a decision not fixed
-> here, DESIGN is re-opened — never improvised in IMPLEMENT.
+- DESIGN emits and persists only the closed design: no Python/XML/CSV,
+  implementation templates, or implementation-file edits.
+- IMPLEMENT consumes the approved design as its single source of truth. A missing,
+  stale, or unresolved decision or seam returns `blocked` and reopens DESIGN with
+  the exact missing decision; never ask for confirmation or improvise.
+
+## Precision Invariants
+
+- Keep the requested change minimal; reuse repository conventions; add no speculative
+  refactors or features.
+- Trace every design task to its REQ-XX and EXP-XX and to exact target file(s).
+- Resolve technical ambiguity from repository and target-version source evidence. If
+  it could change product behavior, return `blocked` with the exact missing product
+  decision instead of silently choosing, asking, or guessing.
+
+## Source Authority
+
+Use evidence in this order: target repository/source first; approved ODF artifacts
+and project conventions next; external references only when needed; model memory
+last. Resolve Odoo, OWL, and API behavior from target-version source rather than
+hardcoding versions in this skill. Keep the existing `odf-toolkit` verification
+requirements for source-dependent claims.
 
 ## Hard Rules
 
