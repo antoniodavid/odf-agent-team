@@ -4,9 +4,17 @@ import * as fs from "node:fs/promises"
 import * as fsSync from "node:fs"
 import * as os from "node:os"
 import { execSync } from "node:child_process"
-import { buildCandidateManifest, computeCandidateDigest, extractChangedPaths } from "./candidate-manifest.js"
+import {
+  buildCandidateManifest,
+  captureExternalValidationSubjectManifest,
+  computeCandidateDigest,
+  extractChangedPaths,
+} from "./candidate-manifest.js"
 import { classifyRiskTierWithContent, computePolicyGate, validateValidationEvidence, type ODFRegistry } from "./odf-delegation.js"
-import { readPersistedExternalValidationScope } from "./odf-delegation-policy.js"
+import {
+  readPersistedExternalValidationScope,
+  readPersistedExternalValidationSubjects,
+} from "./odf-delegation-policy.js"
 import { candidateDigestOrNull, mergeReceipt, type ODFReceipt } from "./odf-delegation-receipts.js"
 
 function initGitRepo(dir: string): void {
@@ -31,6 +39,30 @@ function registryWithTdd(strict: boolean): ODFRegistry {
     skills: [],
     agents: [],
     flags: { strict_tdd: strict },
+  }
+}
+
+function verifyEvidence(
+  change: string,
+  gate: ReturnType<typeof computePolicyGate>,
+  resolvedAt: Date,
+  subjectManifest?: unknown,
+): Record<string, unknown> {
+  return {
+    change,
+    phase: "VERIFY",
+    batch: 1,
+    risk_tier: gate.risk_tier,
+    frozen_diff_ref: gate.frozen_diff_ref,
+    candidate_digest: gate.candidate_digest,
+    executor: "filesystem-test",
+    test_identity: "external subject test",
+    ...(subjectManifest === undefined ? {} : { external_validation_subject_manifest: subjectManifest }),
+    resolved_at: resolvedAt.toISOString(),
+    commands: [
+      { name: "odoo-tests", command: "odoo-bin -d odf_test_db --test-enable", database: "odf_test_db", exit_code: 0, output_tail: "0 failed" },
+      { name: "git-diff-check", command: "git diff --check", database: "odf_test_db", exit_code: 0, output_tail: "passed" },
+    ],
   }
 }
 
@@ -278,6 +310,93 @@ describe("candidate-manifest", () => {
     expect(reused).toEqual(first)
   })
 
+  it("reuses persisted scope and subjects when a later gate omits both", async () => {
+    const repo = path.join(tmp, "reuse-persisted-declarations")
+    initGitRepo(repo)
+    commitFile(repo, ".gitignore", "probe.py\n")
+    await fs.writeFile(path.join(repo, "workflow.md"), "workflow\n", "utf8")
+    await fs.writeFile(path.join(repo, "probe.py"), "probe\n", "utf8")
+
+    const first = computePolicyGate({
+      change: "reuse-persisted-declarations",
+      phase: "VERIFY",
+      workspaceDir: repo,
+      registry: registryWithTdd(false),
+      externalValidationScope: ["./workflow.md"],
+      externalValidationSubjects: ["./probe.py"],
+    })
+    const reused = computePolicyGate({
+      change: "reuse-persisted-declarations",
+      phase: "VERIFY",
+      workspaceDir: repo,
+      registry: registryWithTdd(false),
+    })
+
+    expect(reused).toEqual(first)
+    expect(reused.external_validation_scope).toEqual(["workflow.md"])
+    expect(reused.external_validation_subjects).toEqual(["probe.py"])
+  })
+
+  it("blocks reuse when a persisted scope or subject declaration is malformed", async () => {
+    for (const kind of ["scope", "subjects"] as const) {
+      const repo = path.join(tmp, `malformed-persisted-${kind}`)
+      initGitRepo(repo)
+      commitFile(repo, ".gitignore", "probe.py\n")
+      await fs.writeFile(path.join(repo, "probe.py"), "probe\n", "utf8")
+      const change = `malformed-persisted-${kind}`
+      const first = computePolicyGate({ change, phase: "VERIFY", workspaceDir: repo, registry: registryWithTdd(false) })
+      const gatePath = path.join(repo, ".odf", `policy-gate-${change}.json`)
+      await fs.writeFile(path.join(repo, ".odf", `policy-gate-${change}.json`), JSON.stringify({
+        ...first,
+        ...(kind === "scope" ? { external_validation_scope: ["../escape"] } : { external_validation_subjects: ["../escape"] }),
+      }), "utf8")
+
+      const blocked = computePolicyGate({ change, phase: "VERIFY", workspaceDir: repo, registry: registryWithTdd(false) })
+      expect(blocked).toMatchObject({
+        gate: "block",
+        reason: `invalid persisted external-validation ${kind} — policy gate must be repaired before reuse`,
+      })
+      expect(JSON.parse(await fs.readFile(gatePath, "utf8"))).toMatchObject(
+        kind === "scope" ? { external_validation_scope: ["../escape"] } : { external_validation_subjects: ["../escape"] },
+      )
+    }
+  })
+
+  it("normalizes and persists explicitly replaced scope and subjects", async () => {
+    const repo = path.join(tmp, "replace-persisted-declarations")
+    initGitRepo(repo)
+    commitFile(repo, ".gitignore", "probe/\n")
+    await fs.writeFile(path.join(repo, "workflow-old.md"), "old\n", "utf8")
+    await fs.writeFile(path.join(repo, "workflow-new.md"), "new\n", "utf8")
+    await fs.mkdir(path.join(repo, "probe"), { recursive: true })
+    await fs.writeFile(path.join(repo, "probe", "old.py"), "old\n", "utf8")
+    await fs.writeFile(path.join(repo, "probe", "new.py"), "new\n", "utf8")
+    const change = "replace-persisted-declarations"
+
+    computePolicyGate({
+      change,
+      phase: "VERIFY",
+      workspaceDir: repo,
+      registry: registryWithTdd(false),
+      externalValidationScope: ["./workflow-old.md"],
+      externalValidationSubjects: ["./probe/old.py"],
+    })
+    const replacement = computePolicyGate({
+      change,
+      phase: "VERIFY",
+      workspaceDir: repo,
+      registry: registryWithTdd(false),
+      externalValidationScope: ["./workflow-new.md"],
+      externalValidationSubjects: ["./probe/new.py"],
+    })
+    const saved = JSON.parse(await fs.readFile(path.join(repo, ".odf", `policy-gate-${change}.json`), "utf8"))
+
+    expect(replacement.external_validation_scope).toEqual(["workflow-new.md"])
+    expect(replacement.external_validation_subjects).toEqual(["probe/new.py"])
+    expect(saved.external_validation_scope).toEqual(["workflow-new.md"])
+    expect(saved.external_validation_subjects).toEqual(["probe/new.py"])
+  })
+
   it("fails closed when an existing policy gate is malformed", async () => {
     const repo = path.join(tmp, "malformed-policy-gate")
     initGitRepo(repo)
@@ -307,6 +426,155 @@ describe("candidate-manifest", () => {
     expect(gate.changed_paths).toEqual(["workflow.md"])
     expect(gate.changed_lines).toBe(3)
     expect(gate.correction_budget_lines).toBe(2)
+  })
+
+  it("captures ignored subjects, expands directories, and orders the manifest deterministically", async () => {
+    const repo = path.join(tmp, "ignored-subjects")
+    initGitRepo(repo)
+    commitFile(repo, ".gitignore", "probe/\n")
+    await fs.mkdir(path.join(repo, "probe", "nested"), { recursive: true })
+    await fs.writeFile(path.join(repo, "probe", "z.txt"), "z\n", "utf8")
+    await fs.writeFile(path.join(repo, "probe", "a.txt"), "a\n", "utf8")
+    await fs.writeFile(path.join(repo, "probe", "nested", "m.txt"), "m\n", "utf8")
+
+    const change = "ignored-subjects"
+    const gate = computePolicyGate({
+      change,
+      phase: "VERIFY",
+      workspaceDir: repo,
+      registry: registryWithTdd(false),
+      externalValidationSubjects: ["./probe"],
+    })
+    const first = captureExternalValidationSubjectManifest(repo, ["probe"])
+    const second = captureExternalValidationSubjectManifest(repo, ["probe"])
+
+    expect(gate.external_validation_subjects).toEqual(["probe"])
+    expect(gate.changed_paths).toEqual([])
+    expect(buildCandidateManifest(repo).entries).toEqual([])
+    expect(readPersistedExternalValidationSubjects(repo, change)).toEqual({ paths: ["probe"], invalid: false })
+    expect(first).toEqual(second)
+    expect(first.manifest?.map(entry => entry.path)).toEqual([
+      "probe/a.txt",
+      "probe/nested/m.txt",
+      "probe/z.txt",
+    ])
+  })
+
+  it("rejects unsafe external subject paths and symlinks", async () => {
+    const repo = path.join(tmp, "unsafe-subjects")
+    initGitRepo(repo)
+    commitFile(repo, "base.txt")
+    await fs.writeFile(path.join(tmp, "outside-subject.txt"), "outside\n", "utf8")
+    await fs.symlink(path.join(tmp, "outside-subject.txt"), path.join(repo, "subject-link"))
+
+    for (const unsafePath of ["../outside", path.resolve(tmp, "outside-subject.txt"), "C:\\outside", "subject-link"]) {
+      expect(captureExternalValidationSubjectManifest(repo, [unsafePath]).error).toEqual(expect.any(String))
+    }
+  })
+
+  it("rejects subject evidence that is missing, malformed, or path-mismatched", async () => {
+    const repo = path.join(tmp, "subject-evidence-shape")
+    initGitRepo(repo)
+    commitFile(repo, ".gitignore", "probe.py\n")
+    await fs.writeFile(path.join(repo, "probe.py"), "probe\n", "utf8")
+    const change = "subject-evidence-shape"
+    const gate = computePolicyGate({
+      change,
+      phase: "VERIFY",
+      workspaceDir: repo,
+      registry: registryWithTdd(false),
+      externalValidationSubjects: ["probe.py"],
+    })
+    const subjectManifest = captureExternalValidationSubjectManifest(repo, ["probe.py"]).manifest
+    const now = new Date("2026-09-20T00:00:00.000Z")
+    const evidencePath = path.join(repo, ".odf", `validation-evidence-${change}.json`)
+    const policyPath = path.join(repo, ".odf", `policy-gate-${change}.json`)
+    await fs.writeFile(policyPath, JSON.stringify({ ...gate, external_validation_subjects: ["../escape"] }), "utf8")
+    expect(readPersistedExternalValidationSubjects(repo, change)).toEqual({ invalid: true })
+    expect(candidateDigestOrNull(repo, change)).toBeNull()
+    await fs.writeFile(policyPath, JSON.stringify(gate), "utf8")
+
+    for (const evidenceSubjects of [undefined, [{ path: "probe.py" }], [{ path: "other.py", mode: 0o644, sha256: "a".repeat(64) }]]) {
+      await fs.writeFile(evidencePath, JSON.stringify(verifyEvidence(change, gate, now, evidenceSubjects)), "utf8")
+      expect(validateValidationEvidence({
+        workspaceDir: repo,
+        change,
+        tier: gate.risk_tier,
+        frozenDiffRef: gate.frozen_diff_ref,
+        now,
+      }).status).toBe("invalid")
+    }
+
+    await fs.writeFile(evidencePath, JSON.stringify(verifyEvidence(change, gate, now, subjectManifest)), "utf8")
+    await fs.rm(path.join(repo, "probe.py"))
+    expect(validateValidationEvidence({
+      workspaceDir: repo,
+      change,
+      tier: gate.risk_tier,
+      frozenDiffRef: gate.frozen_diff_ref,
+      now,
+    }).status).toBe("invalid")
+  })
+
+  it("rejects subject evidence after an ignored file mutates", async () => {
+    const repo = path.join(tmp, "subject-evidence-mismatch")
+    initGitRepo(repo)
+    commitFile(repo, ".gitignore", "probe.py\n")
+    await fs.writeFile(path.join(repo, "probe.py"), "before\n", "utf8")
+    const change = "subject-evidence-mismatch"
+    const gate = computePolicyGate({
+      change,
+      phase: "VERIFY",
+      workspaceDir: repo,
+      registry: registryWithTdd(false),
+      externalValidationSubjects: ["probe.py"],
+    })
+    const now = new Date("2026-09-20T00:00:00.000Z")
+    const subjectManifest = captureExternalValidationSubjectManifest(repo, ["probe.py"]).manifest
+    await fs.writeFile(
+      path.join(repo, ".odf", `validation-evidence-${change}.json`),
+      JSON.stringify(verifyEvidence(change, gate, now, subjectManifest)),
+      "utf8",
+    )
+
+    expect(validateValidationEvidence({
+      workspaceDir: repo,
+      change,
+      tier: gate.risk_tier,
+      frozenDiffRef: gate.frozen_diff_ref,
+      now,
+    }).status).toBe("verified")
+
+    await fs.writeFile(path.join(repo, "probe.py"), "after\n", "utf8")
+    expect(validateValidationEvidence({
+      workspaceDir: repo,
+      change,
+      tier: gate.risk_tier,
+      frozenDiffRef: gate.frozen_diff_ref,
+      now,
+    })).toMatchObject({ status: "invalid", reason: "external-validation subject manifest mismatch" })
+  })
+
+  it("keeps ordinary validation evidence valid without a subject declaration", async () => {
+    const repo = path.join(tmp, "ordinary-evidence")
+    initGitRepo(repo)
+    commitFile(repo, "base.txt")
+    const change = "ordinary-evidence"
+    const gate = computePolicyGate({ change, phase: "VERIFY", workspaceDir: repo, registry: registryWithTdd(false) })
+    const now = new Date("2026-09-20T00:00:00.000Z")
+    await fs.writeFile(
+      path.join(repo, ".odf", `validation-evidence-${change}.json`),
+      JSON.stringify(verifyEvidence(change, gate, now)),
+      "utf8",
+    )
+
+    expect(validateValidationEvidence({
+      workspaceDir: repo,
+      change,
+      tier: gate.risk_tier,
+      frozenDiffRef: gate.frozen_diff_ref,
+      now,
+    }).status).toBe("verified")
   })
 
   it("uses the persisted scope for receipt binding and stable digest mismatch checks", async () => {

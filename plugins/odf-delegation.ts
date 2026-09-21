@@ -96,9 +96,15 @@ import {
   classifyRiskTierWithContent,
   computePolicyGate,
   gitHead,
+  readPersistedExternalValidationSubjects,
   savePolicyGateJson,
   type PolicyGateDecision,
 } from "../odf-plugin/odf-delegation-policy.js"
+import {
+  captureExternalValidationSubjectManifest,
+  normalizeExternalValidationSubjectManifest,
+  type ExternalValidationSubjectManifestEntry,
+} from "../odf-plugin/candidate-manifest.js"
 import {
   canonicalLoopGuardValue,
   CONTEXT_PRESSURE_DEFAULT_TOKENS,
@@ -890,6 +896,7 @@ export interface ValidationEvidenceFile {
   risk_tier: "LOW" | "MEDIUM" | "HIGH"
   frozen_diff_ref: string | null
   candidate_digest?: string | null
+  external_validation_subject_manifest?: ExternalValidationSubjectManifestEntry[]
   executor?: string
   test_identity?: string
   expectations_ids?: string[]
@@ -1021,6 +1028,23 @@ export function validateValidationEvidence(opts: {
     return { status: "invalid", reason: "validation-evidence frozen_diff_ref does not match the policy gate frozen ref", commands_validated: 0 }
   }
 
+  const persistedSubjects = readPersistedExternalValidationSubjects(opts.workspaceDir, opts.change)
+  if (persistedSubjects.invalid) {
+    return { status: "invalid", reason: "external-validation subject declaration is malformed or unreadable", commands_validated: 0 }
+  }
+  if (persistedSubjects.paths) {
+    const currentSubjects = captureExternalValidationSubjectManifest(opts.workspaceDir, persistedSubjects.paths)
+    if (currentSubjects.error || !currentSubjects.manifest) {
+      return { status: "invalid", reason: `external-validation subject unavailable — ${currentSubjects.error || "manifest missing"}`, commands_validated: 0 }
+    }
+    const evidenceSubjects = normalizeExternalValidationSubjectManifest(evidence.external_validation_subject_manifest)
+    if (evidenceSubjects.error || JSON.stringify(evidenceSubjects.manifest) !== JSON.stringify(currentSubjects.manifest)) {
+      return { status: "invalid", reason: "external-validation subject manifest mismatch", commands_validated: 0 }
+    }
+  } else if (evidence.external_validation_subject_manifest !== undefined) {
+    return { status: "invalid", reason: "external-validation subject manifest supplied without a policy declaration", commands_validated: 0 }
+  }
+
   const resolvedAt = new Date(evidence.resolved_at).getTime()
   if (!Number.isFinite(resolvedAt)) {
     return { status: "invalid", reason: "validation-evidence resolved_at is not a valid timestamp", commands_validated: 0 }
@@ -1126,12 +1150,18 @@ frozen diff ref). The gate documents — the sub-agent applies, never recomputes
         .max(64)
         .optional()
         .describe("Optional relative workflow/artifact paths to include in the external-validation candidate"),
+      external_validation_subjects: tool.schema
+        .array(tool.schema.string().max(512))
+        .max(64)
+        .optional()
+        .describe("Optional relative files/directories to hash-bind in validation evidence; may be Gitignored"),
     },
     async execute(args: {
       change: string
       phase: "IMPLEMENT" | "VERIFY"
       workspace_dir?: string
       external_validation_scope?: string[]
+      external_validation_subjects?: string[]
     }): Promise<string> {
       const registry = await loadRegistry()
       if (!registry) {
@@ -1158,6 +1188,7 @@ frozen diff ref). The gate documents — the sub-agent applies, never recomputes
         workspaceDir: args.workspace_dir,
         registry,
         externalValidationScope: args.external_validation_scope,
+        externalValidationSubjects: args.external_validation_subjects,
       })
       debugLog(`[odf-delegation] odf_policy_gate: change=${decision.change} phase=${decision.phase} gate=${decision.gate} tdd=${decision.tdd.effective} tier=${decision.risk_tier}`)
       return JSON.stringify(decision, null, 2)

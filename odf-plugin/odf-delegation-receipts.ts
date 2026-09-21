@@ -7,7 +7,11 @@ import * as fsSync from "node:fs"
 import * as path from "node:path"
 import { tool } from "@opencode-ai/plugin"
 import { buildCandidateManifest, computeCandidateDigest } from "./candidate-manifest.js"
-import { gitHead, readPersistedExternalValidationScope } from "./odf-delegation-policy.js"
+import {
+  gitHead,
+  readPersistedExternalValidationScope,
+  readPersistedExternalValidationSubjects,
+} from "./odf-delegation-policy.js"
 import { debugLog, resolveWorkspaceRoot } from "./odf-delegation-shared.js"
 
 export interface ODFReceipt {
@@ -40,7 +44,10 @@ export function candidateDigestOrNull(workspaceDir: string, change?: string): st
   const persistedScope = change
     ? readPersistedExternalValidationScope(workspaceDir, change)
     : { paths: undefined, invalid: false }
-  if (persistedScope.invalid) return null
+  const persistedSubjects = change
+    ? readPersistedExternalValidationSubjects(workspaceDir, change)
+    : { paths: undefined, invalid: false }
+  if (persistedScope.invalid || persistedSubjects.invalid) return null
   const manifest = buildCandidateManifest(workspaceDir, persistedScope.paths)
   return manifest.base_head !== null ? computeCandidateDigest(manifest) : null
 }

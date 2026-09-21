@@ -153,7 +153,7 @@ export function captureExternalValidationSubjectManifest(
     } catch {
       return `external-validation subject is missing or unreadable: ${relativePath}`
     }
-    entries.sort((left, right) => left.name.localeCompare(right.name))
+    entries.sort((left, right) => (left.name < right.name ? -1 : left.name > right.name ? 1 : 0))
     for (const entry of entries) {
       const child = path.posix.join(relativePath, entry.name)
       const error = visit(child)
@@ -172,6 +172,11 @@ export function captureExternalValidationSubjectManifest(
   for (const relativePath of [...files.keys()].sort()) {
     const absolutePath = files.get(relativePath)!
     try {
+      const initialStat = fsSync.statSync(absolutePath)
+      if (!initialStat.isFile() || initialStat.size > MAX_EXTERNAL_VALIDATION_SUBJECT_BYTES ||
+        totalBytes + initialStat.size > MAX_EXTERNAL_VALIDATION_SUBJECT_BYTES) {
+        return { error: `external-validation subjects may contain at most ${MAX_EXTERNAL_VALIDATION_SUBJECT_BYTES} bytes` }
+      }
       const content = fsSync.readFileSync(absolutePath)
       totalBytes += content.byteLength
       if (totalBytes > MAX_EXTERNAL_VALIDATION_SUBJECT_BYTES) {
@@ -230,7 +235,7 @@ export function normalizeExternalValidationSubjectManifest(
     manifest.push({ path: canonicalPath, mode: entry.mode, sha256: entry.sha256 })
   }
 
-  manifest.sort((left, right) => left.path.localeCompare(right.path))
+  manifest.sort((left, right) => (left.path < right.path ? -1 : left.path > right.path ? 1 : 0))
   return { manifest }
 }
 

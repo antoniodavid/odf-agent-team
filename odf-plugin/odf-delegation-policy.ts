@@ -304,7 +304,31 @@ export function computePolicyGate(opts: {
     }
   }
 
-  const scopeResult = normalizeExternalValidationScope(workspace, opts.externalValidationScope)
+  const persistedScope = readPersistedExternalValidationScope(workspace, opts.change)
+  const persistedSubjects = readPersistedExternalValidationSubjects(workspace, opts.change)
+  if (persistedScope.invalid || persistedSubjects.invalid) {
+    const kind = persistedScope.invalid ? "scope" : "subjects"
+    return {
+      change: opts.change,
+      phase: opts.phase,
+      gate: "block",
+      reason: `invalid persisted external-validation ${kind} — policy gate must be repaired before reuse`,
+      tdd,
+      risk_tier: "MEDIUM",
+      frozen_diff_ref: null,
+      candidate_digest: null,
+      base_head: null,
+      changed_lines: null,
+      correction_budget_lines: null,
+      changed_paths: [],
+      resolved_at: new Date().toISOString(),
+    }
+  }
+
+  const requestedScope = opts.externalValidationScope === undefined
+    ? persistedScope.paths
+    : opts.externalValidationScope
+  const scopeResult = normalizeExternalValidationScope(workspace, requestedScope)
   if (scopeResult.error) {
     return {
       change: opts.change,
@@ -323,7 +347,10 @@ export function computePolicyGate(opts: {
     }
   }
   const externalValidationScope = scopeResult.paths
-  const subjectResult = captureExternalValidationSubjectManifest(workspace, opts.externalValidationSubjects)
+  const requestedSubjects = opts.externalValidationSubjects === undefined
+    ? persistedSubjects.paths
+    : opts.externalValidationSubjects
+  const subjectResult = captureExternalValidationSubjectManifest(workspace, requestedSubjects)
   if (subjectResult.error) {
     return {
       change: opts.change,
@@ -346,25 +373,6 @@ export function computePolicyGate(opts: {
   const gatePath = path.join(workspace, ".odf", `policy-gate-${opts.change}.json`)
   const manifest = buildCandidateManifest(workspace, externalValidationScope)
   const head = manifest.base_head
-
-  const persistedSubjects = readPersistedExternalValidationSubjects(workspace, opts.change)
-  if (persistedSubjects.invalid) {
-    return {
-      change: opts.change,
-      phase: opts.phase,
-      gate: "block",
-      reason: "invalid persisted external-validation subjects — policy gate must be repaired before reuse",
-      tdd,
-      risk_tier: "MEDIUM",
-      frozen_diff_ref: null,
-      candidate_digest: null,
-      base_head: null,
-      changed_lines: null,
-      correction_budget_lines: null,
-      changed_paths: [],
-      resolved_at: new Date().toISOString(),
-    }
-  }
 
   // Idempotency: reuse a frozen decision for the same change + phase only when
   // the candidate bytes are unchanged (digest match), not merely when HEAD is.
