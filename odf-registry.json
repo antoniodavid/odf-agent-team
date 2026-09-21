@@ -1421,7 +1421,12 @@
       ],
       "model": null,
       "path": "agent/odoo_upgrade_migrator.md",
-      "installed": true
+      "installed": true,
+      "routing_triggers": [
+        "migration",
+        "upgrade",
+        "openupgrade"
+      ]
     },
     {
       "name": "odoo_code_reviewer",

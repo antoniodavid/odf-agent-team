@@ -105,11 +105,12 @@ export function resolveAgent(registry, phase, taskKeywords) {
   if (!Object.prototype.hasOwnProperty.call(DEFAULT_AGENTS, phase)) return null
 
   const defaultSelection = validateAgentSelection(registry, phase, DEFAULT_AGENTS[phase])
-  if (FIXED_PHASES.has(phase)) return defaultSelection.valid ? defaultSelection.agent.name : null
+  const fixedPhase = FIXED_PHASES.has(phase)
+  if (fixedPhase && phase !== "ASSESS") return defaultSelection.valid ? defaultSelection.agent.name : null
 
   const filteredKeywords = filterStopWords(Array.isArray(taskKeywords) ? taskKeywords : [])
   if (filteredKeywords.length === 0) {
-    return ROUTABLE_PHASES.has(phase) && phase !== "FIX"
+    return (fixedPhase || (ROUTABLE_PHASES.has(phase) && phase !== "FIX"))
       ? (defaultSelection.valid ? defaultSelection.agent.name : null)
       : null
   }
@@ -123,6 +124,7 @@ export function resolveAgent(registry, phase, taskKeywords) {
     const routingTriggers = Array.isArray(agent.routing_triggers)
       ? agent.routing_triggers.filter(trigger => typeof trigger === "string" && trigger.trim())
       : []
+    if (fixedPhase && routingTriggers.length === 0) continue
     if (
       routingTriggers.length > 0 &&
       !routingTriggers.some(trigger => keywordText.includes(trigger.toLowerCase()))
