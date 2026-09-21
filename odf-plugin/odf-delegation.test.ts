@@ -36,6 +36,7 @@ import {
   commitWorkflowTransition,
   resolveProofBackedLifecycle,
   validateValidationEvidence,
+  type GovernanceAcknowledgment,
   mergeReceipt,
   createODFWorkflowAdvance,
   createODFWorkflowBind,
@@ -52,6 +53,7 @@ import {
   type ODFSkill,
   type ODFAgent,
 } from "./odf-delegation.js"
+import { recordAiProvenance } from "./odf-governance.js"
 import { advanceWorkflow, resolveWorkflowRoute, type CanonicalStage } from "./odf-workflow.js"
 import { buildCandidateManifest, computeCandidateDigest } from "./candidate-manifest.js"
 import { createEntryRouteBinding, predictEntryRouteShadow, type EntryTriageInput } from "./entry-triage.js"
@@ -616,6 +618,42 @@ describe("createODFWorkflowBind", () => {
         work_type: "feature",
         entry_route_binding: binding,
       })
+    } finally {
+      await fs.rm(root, { recursive: true, force: true })
+    }
+  })
+
+  it("persists target=oca at bind time and rejects a conflicting stored target", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "odf-workflow-bind-target-"))
+    const boundChange = "oca-target-bind"
+    const boundDir = path.join(root, "openspec", "changes", boundChange)
+    await fs.mkdir(boundDir, { recursive: true })
+    await fs.writeFile(path.join(boundDir, "state.yaml"), "work_type: feature\ncanonical_stage: PLAN\n", "utf8")
+
+    const conflictingChange = "oca-target-conflict"
+    const conflictingDir = path.join(root, "openspec", "changes", conflictingChange)
+    await fs.mkdir(conflictingDir, { recursive: true })
+    const conflictingState = "work_type: feature\ntarget: github\ncanonical_stage: PLAN\n"
+    await fs.writeFile(path.join(conflictingDir, "state.yaml"), conflictingState, "utf8")
+
+    try {
+      const bound = JSON.parse(await createODFWorkflowBind().execute({
+        change_name: boundChange,
+        work_type: "feature",
+        target: "oca",
+        workspace_dir: root,
+      }, {} as any) as string)
+      expect(bound).toMatchObject({ status: "bound", state_action: "updated" })
+      expect(YAML.parse(await fs.readFile(path.join(boundDir, "state.yaml"), "utf8"))).toMatchObject({ target: "oca" })
+
+      const conflicting = JSON.parse(await createODFWorkflowBind().execute({
+        change_name: conflictingChange,
+        work_type: "feature",
+        target: "oca",
+        workspace_dir: root,
+      }, {} as any) as string)
+      expect(conflicting).toMatchObject({ status: "blocked", reason: "invalid-workflow-target" })
+      expect(await fs.readFile(path.join(conflictingDir, "state.yaml"), "utf8")).toBe(conflictingState)
     } finally {
       await fs.rm(root, { recursive: true, force: true })
     }
@@ -3040,6 +3078,13 @@ describe("createODFDelegate", () => {
       writeEvidenceFile(change, `validation-evidence-${change}-${branchId}.json`)
     ))
 
+  const finalOcaAcknowledgment = (workspace: string, change: string, acknowledgedBy = "release-manager"): GovernanceAcknowledgment => ({
+    target: "oca",
+    acknowledged_by: acknowledgedBy,
+    acknowledged_at: new Date().toISOString(),
+    candidate_digest: computeCandidateDigest(buildCandidateManifest(workspace)),
+  })
+
   const prepareWorkflowState = async (
     change: string,
     phase: "IMPLEMENT" | "VERIFY",
@@ -4880,6 +4925,378 @@ ${overrides}`
       completed_stages: ["DECIDE", "PLAN", "BUILD"],
     })
     expect(await fs.readFile(statePath, "utf8")).toBe(committed)
+  })
+
+  it("requires OCA governance evidence and approved human acknowledgment at BUILD", async () => {
+    const repo = await fs.mkdtemp(path.join(os.tmpdir(), "odf-oca-build-"))
+    initGitRepo(repo)
+    commitFile(repo, "README.md", 1)
+    const change = "oca-build-gate"
+    const changeDir = path.join(repo, "openspec", "changes", change)
+    await fs.mkdir(changeDir, { recursive: true })
+    await fs.writeFile(path.join(changeDir, "state.yaml"), "work_type: feature\ntarget: oca\ncanonical_stage: BUILD\ncompleted_canonical_stages: [DECIDE, PLAN]\nresumable: true\n", "utf8")
+    await fs.writeFile(path.join(changeDir, "implement-progress.md"), "- [x] implementation\n", "utf8")
+    await fs.writeFile(path.join(changeDir, "expectations.yaml"), YAML.stringify({
+      change,
+      intent: "Ship the OCA governed change",
+      expectations: [{ id: "EXP-1", statement: "The change is reviewable", testable: true, owned_by: "human" }],
+      approved: true,
+      approved_by: "release-manager",
+      approved_at: "2026-09-21T00:00:00.000Z",
+      immutable_since: "2026-09-21T00:00:00.000Z",
+    }), "utf8")
+    recordAiProvenance(repo, { target: "oca", phase: "IMPLEMENT", agent: "odoo_backend_engineer", model: "openai/gpt-5", files: ["README.md"] })
+    const proof = workflowAdvance("IMPLEMENT")
+    const result = await commitWorkflowTransition({
+      workspaceRoot: repo,
+      changeName: change,
+      artifactStore: "openspec",
+      proof,
+      expectedStage: "BUILD",
+      callerResult: advanceWorkflow({ route: resolveWorkflowRoute(proof.work_type), ...proof }),
+      phaseResultStatus: "ok",
+      validationStatus: "verified",
+      validation: { status: "verified", reason: "focused evidence", commands_validated: 2 },
+      target: "oca",
+      governance_acknowledgment: finalOcaAcknowledgment(repo, change),
+    })
+
+    expect(result).toMatchObject({ status: "committed", canonical_stage: "BUILD" })
+    expect(YAML.parse(await fs.readFile(path.join(changeDir, "state.yaml"), "utf8"))).toMatchObject({
+      target: "oca",
+      governance_acknowledgment: { target: "oca", acknowledged_by: "release-manager" },
+      governance: { target: "oca", status: "blocked", machine_status: "warning" },
+    })
+    await fs.rm(repo, { recursive: true, force: true })
+  })
+
+  it("blocks OCA BUILD without human acknowledgment and leaves state unchanged", async () => {
+    const repo = await fs.mkdtemp(path.join(os.tmpdir(), "odf-oca-no-ack-"))
+    initGitRepo(repo)
+    commitFile(repo, "README.md", 1)
+    const change = "oca-no-ack"
+    const changeDir = path.join(repo, "openspec", "changes", change)
+    await fs.mkdir(changeDir, { recursive: true })
+    const before = "work_type: feature\ntarget: oca\ncanonical_stage: BUILD\ncompleted_canonical_stages: [DECIDE, PLAN]\nresumable: true\n"
+    await fs.writeFile(path.join(changeDir, "state.yaml"), before, "utf8")
+    await fs.writeFile(path.join(changeDir, "implement-progress.md"), "- [x] implementation\n", "utf8")
+    recordAiProvenance(repo, { target: "oca", phase: "IMPLEMENT", agent: "odoo_backend_engineer", model: "openai/gpt-5", files: ["README.md"] })
+    const proof = workflowAdvance("IMPLEMENT")
+    const result = await commitWorkflowTransition({
+      workspaceRoot: repo, changeName: change, artifactStore: "openspec", proof, expectedStage: "BUILD",
+      callerResult: advanceWorkflow({ route: resolveWorkflowRoute(proof.work_type), ...proof }),
+      phaseResultStatus: "ok", validationStatus: "verified",
+      validation: { status: "verified", reason: "focused evidence", commands_validated: 2 }, target: "oca",
+    })
+
+    expect(result).toMatchObject({ status: "blocked", reason: "oca-human-acknowledgment-missing" })
+    expect(await fs.readFile(path.join(changeDir, "state.yaml"), "utf8")).toBe(before)
+    await fs.rm(repo, { recursive: true, force: true })
+  })
+
+  it("blocks OCA BUILD when governance evidence is missing", async () => {
+    const repo = await fs.mkdtemp(path.join(os.tmpdir(), "odf-oca-no-evidence-"))
+    initGitRepo(repo)
+    commitFile(repo, "README.md", 1)
+    const change = "oca-no-evidence"
+    const changeDir = path.join(repo, "openspec", "changes", change)
+    await fs.mkdir(changeDir, { recursive: true })
+    const before = "work_type: feature\ntarget: oca\ncanonical_stage: BUILD\ncompleted_canonical_stages: [DECIDE, PLAN]\nresumable: true\n"
+    await fs.writeFile(path.join(changeDir, "state.yaml"), before, "utf8")
+    await fs.writeFile(path.join(changeDir, "implement-progress.md"), "- [x] implementation\n", "utf8")
+    await fs.writeFile(path.join(changeDir, "expectations.yaml"), YAML.stringify({
+      change, intent: "Ship the OCA governed change",
+      expectations: [{ id: "EXP-1", statement: "The change is reviewable", testable: true, owned_by: "human" }],
+      approved: true, approved_by: "release-manager", approved_at: "2026-09-21T00:00:00.000Z", immutable_since: "2026-09-21T00:00:00.000Z",
+    }), "utf8")
+    const proof = workflowAdvance("IMPLEMENT")
+    const result = await commitWorkflowTransition({
+      workspaceRoot: repo, changeName: change, artifactStore: "openspec", proof, expectedStage: "BUILD",
+      callerResult: advanceWorkflow({ route: resolveWorkflowRoute(proof.work_type), ...proof }),
+      phaseResultStatus: "ok", validationStatus: "verified",
+      validation: { status: "verified", reason: "focused evidence", commands_validated: 2 }, target: "oca",
+      governance_acknowledgment: finalOcaAcknowledgment(repo, change),
+    })
+
+    expect(result).toMatchObject({ status: "blocked", reason: "oca-governance-failed" })
+    expect(await fs.readFile(path.join(changeDir, "state.yaml"), "utf8")).toBe(before)
+    await fs.rm(repo, { recursive: true, force: true })
+  })
+
+  it("blocks an OCA transition when the latest commit has an AI Co-authored-by trailer", async () => {
+    const repo = await fs.mkdtemp(path.join(os.tmpdir(), "odf-oca-ai-coauthored-"))
+    initGitRepo(repo)
+    commitFile(repo, "README.md", 1)
+    appendLines(repo, "README.md", 1)
+    execSync("git add -A", { cwd: repo })
+    execSync("git commit -q -F -", {
+      cwd: repo,
+      input: "automated change\n\nCo-authored-by: ChatGPT <chatgpt@example.com>\n",
+    })
+    const change = "oca-ai-coauthored"
+    const changeDir = path.join(repo, "openspec", "changes", change)
+    await fs.mkdir(changeDir, { recursive: true })
+    const before = "work_type: feature\ntarget: oca\ncanonical_stage: BUILD\ncompleted_canonical_stages: [DECIDE, PLAN]\nresumable: true\n"
+    await fs.writeFile(path.join(changeDir, "state.yaml"), before, "utf8")
+    await fs.writeFile(path.join(changeDir, "implement-progress.md"), "- [x] implementation\n", "utf8")
+    recordAiProvenance(repo, { target: "oca", phase: "IMPLEMENT", agent: "odoo_backend_engineer", model: "openai/gpt-5", files: ["README.md"] })
+    const proof = workflowAdvance("IMPLEMENT")
+    const result = await commitWorkflowTransition({
+      workspaceRoot: repo, changeName: change, artifactStore: "openspec", proof, expectedStage: "BUILD",
+      callerResult: advanceWorkflow({ route: resolveWorkflowRoute(proof.work_type), ...proof }),
+      phaseResultStatus: "ok", validationStatus: "verified",
+      validation: { status: "verified", reason: "focused evidence", commands_validated: 2 },
+      governance_acknowledgment: finalOcaAcknowledgment(repo, change),
+    })
+
+    expect(result).toMatchObject({ status: "blocked", reason: "oca-governance-failed" })
+    expect(await fs.readFile(path.join(changeDir, "state.yaml"), "utf8")).toBe(before)
+    await fs.rm(repo, { recursive: true, force: true })
+  })
+
+  it("requires a persisted OCA target and rejects conflicting transition targets", async () => {
+    const repo = await fs.mkdtemp(path.join(os.tmpdir(), "odf-oca-target-") )
+    initGitRepo(repo)
+    commitFile(repo, "README.md", 1)
+    const change = "oca-target-binding"
+    const changeDir = path.join(repo, "openspec", "changes", change)
+    await fs.mkdir(changeDir, { recursive: true })
+    await fs.writeFile(path.join(changeDir, "state.yaml"), "work_type: feature\ncanonical_stage: BUILD\ncompleted_canonical_stages: [DECIDE, PLAN]\nresumable: true\n", "utf8")
+    await fs.writeFile(path.join(changeDir, "implement-progress.md"), "- [x] implementation\n", "utf8")
+    recordAiProvenance(repo, { target: "oca", phase: "IMPLEMENT", agent: "odoo_backend_engineer", model: "openai/gpt-5", files: ["README.md"] })
+    const proof = workflowAdvance("IMPLEMENT")
+    const ack = finalOcaAcknowledgment(repo, change)
+    const common = {
+      workspaceRoot: repo,
+      changeName: change,
+      artifactStore: "openspec" as const,
+      proof,
+      expectedStage: "BUILD" as const,
+      callerResult: advanceWorkflow({ route: resolveWorkflowRoute(proof.work_type), ...proof }),
+      phaseResultStatus: "ok" as const,
+      validationStatus: "verified" as const,
+      validation: { status: "verified" as const, reason: "focused evidence", commands_validated: 2 },
+      governance_acknowledgment: ack,
+    }
+    const unbound = await commitWorkflowTransition({ ...common, target: "oca" })
+    expect(unbound).toMatchObject({ status: "blocked", reason: "oca-target-unbound" })
+
+    await fs.writeFile(path.join(changeDir, "state.yaml"), "work_type: feature\ntarget: oca\ncanonical_stage: BUILD\ncompleted_canonical_stages: [DECIDE, PLAN]\nresumable: true\n", "utf8")
+    const conflicting = await commitWorkflowTransition({ ...common, target: "github" })
+    expect(conflicting).toMatchObject({ status: "blocked", reason: "workflow-target-mismatch" })
+    await fs.rm(repo, { recursive: true, force: true })
+  })
+
+  it("rejects a final OCA acknowledgment bound to a stale candidate", async () => {
+    const repo = await fs.mkdtemp(path.join(os.tmpdir(), "odf-oca-stale-ack-"))
+    initGitRepo(repo)
+    commitFile(repo, "README.md", 1)
+    const change = "oca-stale-ack"
+    const changeDir = path.join(repo, "openspec", "changes", change)
+    await fs.mkdir(changeDir, { recursive: true })
+    await fs.writeFile(path.join(changeDir, "state.yaml"), "work_type: feature\ntarget: oca\ncanonical_stage: BUILD\ncompleted_canonical_stages: [DECIDE, PLAN]\nresumable: true\n", "utf8")
+    await fs.writeFile(path.join(changeDir, "implement-progress.md"), "- [x] implementation\n", "utf8")
+    recordAiProvenance(repo, { target: "oca", phase: "IMPLEMENT", agent: "odoo_backend_engineer", model: "openai/gpt-5", files: ["README.md"] })
+    const proof = workflowAdvance("IMPLEMENT")
+    const result = await commitWorkflowTransition({
+      workspaceRoot: repo,
+      changeName: change,
+      artifactStore: "openspec",
+      proof,
+      expectedStage: "BUILD",
+      callerResult: advanceWorkflow({ route: resolveWorkflowRoute(proof.work_type), ...proof }),
+      phaseResultStatus: "ok",
+      validationStatus: "verified",
+      validation: { status: "verified", reason: "focused evidence", commands_validated: 2 },
+      governance_acknowledgment: { ...finalOcaAcknowledgment(repo, change), candidate_digest: "0".repeat(64) },
+    })
+    expect(result).toMatchObject({ status: "blocked", reason: "oca-candidate-digest-mismatch" })
+    await fs.rm(repo, { recursive: true, force: true })
+  })
+
+  it.each([
+    ["fast-lane", "small-change" as const, false],
+    ["parallel", "cross-domain" as const, true],
+  ])("inherits the OCA gate through %s BUILD", async (label, workType, parallel) => {
+    const repo = await fs.mkdtemp(path.join(os.tmpdir(), `odf-oca-${label}-`))
+    initGitRepo(repo)
+    commitFile(repo, "README.md", 1)
+    const change = `oca-${label}-gate`
+    const changeDir = path.join(repo, "openspec", "changes", change)
+    await fs.mkdir(changeDir, { recursive: true })
+    const proof = workType === "small-change" ? workflowAdvance("IMPLEMENT", "small-change") : parallelWorkflowAdvance()
+    await fs.writeFile(path.join(changeDir, "state.yaml"), YAML.stringify({
+      work_type: workType,
+      target: "oca",
+      canonical_stage: "BUILD",
+      completed_canonical_stages: workType === "small-change" ? ["DECIDE"] : ["DECIDE", "PLAN"],
+      resumable: true,
+      ...(workType === "small-change" ? { fast_lane_policy: fastLanePolicy } : {}),
+    }), "utf8")
+    await fs.writeFile(path.join(changeDir, "implement-progress.md"), "- [x] implementation\n", "utf8")
+    recordAiProvenance(repo, { target: "oca", phase: "IMPLEMENT", agent: "odoo_backend_engineer", model: "openai/gpt-5", files: ["README.md"] })
+    const result = await commitWorkflowTransition({
+      workspaceRoot: repo,
+      changeName: change,
+      artifactStore: "openspec",
+      proof,
+      expectedStage: "BUILD",
+      callerResult: advanceWorkflow({ route: resolveWorkflowRoute(proof.work_type), ...proof }),
+      phaseResultStatus: "ok",
+      validationStatus: "verified",
+      validation: { status: "verified", reason: "focused evidence", commands_validated: 2 },
+      parallel,
+    })
+    expect(result).toMatchObject({ status: "blocked", reason: "oca-human-acknowledgment-missing" })
+    await fs.rm(repo, { recursive: true, force: true })
+  })
+
+  it("requires the same OCA governance and VERIFY evidence gates before ARCHIVE", async () => {
+    const repo = await fs.mkdtemp(path.join(os.tmpdir(), "odf-oca-archive-"))
+    initGitRepo(repo)
+    await fs.writeFile(path.join(repo, ".gitignore"), ".odf/\n", "utf8")
+    commitFile(repo, "README.md", 1)
+    const change = "oca-archive-gate"
+    const changeDir = path.join(repo, "openspec", "changes", change)
+    await fs.mkdir(changeDir, { recursive: true })
+    await fs.writeFile(path.join(changeDir, "state.yaml"), "work_type: feature\ntarget: oca\ncanonical_stage: VERIFY\ncompleted_canonical_stages: [DECIDE, PLAN, BUILD, VERIFY]\nresumable: true\n", "utf8")
+    await fs.writeFile(path.join(changeDir, "verify-report.yaml"), "status: passed\n", "utf8")
+    await fs.writeFile(path.join(changeDir, "expectations.yaml"), YAML.stringify({
+      change, intent: "Archive the OCA governed change",
+      expectations: [{ id: "EXP-1", statement: "The change is reviewable", testable: true, owned_by: "human" }],
+      approved: true, approved_by: "release-manager", approved_at: "2026-09-21T00:00:00.000Z", immutable_since: "2026-09-21T00:00:00.000Z",
+    }), "utf8")
+    recordAiProvenance(repo, { target: "oca", phase: "VERIFY", agent: "odoo_qa_engineer", model: "openai/gpt-5", files: ["README.md"] })
+    const head = gitHead(repo)!
+    const digest = computeCandidateDigest(buildCandidateManifest(repo))
+    await fs.mkdir(path.join(repo, ".odf"), { recursive: true })
+    await fs.writeFile(path.join(repo, ".odf", `policy-gate-${change}.json`), JSON.stringify({ risk_tier: "MEDIUM", frozen_diff_ref: head }), "utf8")
+    await fs.writeFile(path.join(repo, ".odf", `validation-evidence-${change}.json`), JSON.stringify({
+      change, phase: "VERIFY", batch: 1, risk_tier: "MEDIUM", frozen_diff_ref: head, candidate_digest: digest,
+      executor: "odoo_qa_engineer", test_identity: "focused suite", resolved_at: new Date().toISOString(),
+      commands: [
+        { name: "git-diff-check", command: "git diff --check", database: "odf_test_db", exit_code: 0, output_tail: "no whitespace errors" },
+        { name: "odoo-tests", command: "odoo-bin -d odf_test_db --test-enable --stop-after-init", database: "odf_test_db", exit_code: 0, output_tail: "2 passed, 0 failed" },
+      ],
+    }), "utf8")
+    const proof = archiveProof
+    const result = await commitWorkflowTransition({
+      workspaceRoot: repo, changeName: change, artifactStore: "openspec", proof, expectedStage: "ARCHIVE",
+      callerResult: advanceWorkflow({ route: resolveWorkflowRoute(proof.work_type), ...proof }),
+      phaseResultStatus: "ok", validationStatus: "verified", validation: null, target: "oca",
+      governance_acknowledgment: finalOcaAcknowledgment(repo, change),
+    })
+
+    expect(result).toMatchObject({ status: "committed", canonical_stage: "ARCHIVED", validation: { status: "verified" } })
+    expect(YAML.parse(await fs.readFile(path.join(changeDir, "state.yaml"), "utf8"))).toMatchObject({
+      target: "oca", canonical_stage: "ARCHIVED",
+      governance_acknowledgment: { target: "oca", acknowledged_by: "release-manager" },
+      governance: { status: "blocked", machine_status: "warning" },
+    })
+    await fs.rm(repo, { recursive: true, force: true })
+  })
+
+  it("blocks OCA ARCHIVE when the VERIFY report is missing", async () => {
+    const repo = await fs.mkdtemp(path.join(os.tmpdir(), "odf-oca-archive-no-report-"))
+    initGitRepo(repo)
+    await fs.writeFile(path.join(repo, ".gitignore"), ".odf/\n", "utf8")
+    commitFile(repo, "README.md", 1)
+    const change = "oca-archive-no-report"
+    const changeDir = path.join(repo, "openspec", "changes", change)
+    await fs.mkdir(changeDir, { recursive: true })
+    const before = "work_type: feature\ntarget: oca\ncanonical_stage: VERIFY\ncompleted_canonical_stages: [DECIDE, PLAN, BUILD, VERIFY]\nresumable: true\n"
+    await fs.writeFile(path.join(changeDir, "state.yaml"), before, "utf8")
+    recordAiProvenance(repo, { target: "oca", phase: "VERIFY", agent: "odoo_qa_engineer", model: "openai/gpt-5", files: ["README.md"] })
+    const proof = archiveProof
+    const result = await commitWorkflowTransition({
+      workspaceRoot: repo, changeName: change, artifactStore: "openspec", proof, expectedStage: "ARCHIVE",
+      callerResult: advanceWorkflow({ route: resolveWorkflowRoute(proof.work_type), ...proof }),
+      phaseResultStatus: "ok", validationStatus: "verified", validation: null, target: "oca",
+      governance_acknowledgment: finalOcaAcknowledgment(repo, change),
+    })
+
+    expect(result).toMatchObject({ status: "blocked", reason: "workflow-verify-report-missing" })
+    expect(await fs.readFile(path.join(changeDir, "state.yaml"), "utf8")).toBe(before)
+    await fs.rm(repo, { recursive: true, force: true })
+  })
+
+  it("blocks OCA ARCHIVE when VERIFY validation evidence is missing", async () => {
+    const repo = await fs.mkdtemp(path.join(os.tmpdir(), "odf-oca-archive-no-evidence-"))
+    initGitRepo(repo)
+    await fs.writeFile(path.join(repo, ".gitignore"), ".odf/\n", "utf8")
+    commitFile(repo, "README.md", 1)
+    const change = "oca-archive-no-evidence"
+    const changeDir = path.join(repo, "openspec", "changes", change)
+    await fs.mkdir(changeDir, { recursive: true })
+    const before = "work_type: feature\ntarget: oca\ncanonical_stage: VERIFY\ncompleted_canonical_stages: [DECIDE, PLAN, BUILD, VERIFY]\nresumable: true\n"
+    await fs.writeFile(path.join(changeDir, "state.yaml"), before, "utf8")
+    await fs.writeFile(path.join(changeDir, "verify-report.yaml"), "status: passed\n", "utf8")
+    recordAiProvenance(repo, { target: "oca", phase: "VERIFY", agent: "odoo_qa_engineer", model: "openai/gpt-5", files: ["README.md"] })
+    const head = gitHead(repo)!
+    await fs.mkdir(path.join(repo, ".odf"), { recursive: true })
+    await fs.writeFile(path.join(repo, ".odf", `policy-gate-${change}.json`), JSON.stringify({ risk_tier: "MEDIUM", frozen_diff_ref: head }), "utf8")
+    const proof = archiveProof
+    const result = await commitWorkflowTransition({
+      workspaceRoot: repo, changeName: change, artifactStore: "openspec", proof, expectedStage: "ARCHIVE",
+      callerResult: advanceWorkflow({ route: resolveWorkflowRoute(proof.work_type), ...proof }),
+      phaseResultStatus: "ok", validationStatus: "verified", validation: null, target: "oca",
+      governance_acknowledgment: finalOcaAcknowledgment(repo, change),
+    })
+
+    expect(result).toMatchObject({ status: "blocked", reason: "verification-evidence-missing", validation: { status: "missing" } })
+    expect(await fs.readFile(path.join(changeDir, "state.yaml"), "utf8")).toBe(before)
+    await fs.rm(repo, { recursive: true, force: true })
+  })
+
+  it("preserves non-OCA ARCHIVE compatibility without OCA VERIFY evidence", async () => {
+    const repo = await fs.mkdtemp(path.join(os.tmpdir(), "odf-non-oca-archive-"))
+    initGitRepo(repo)
+    commitFile(repo, "README.md", 1)
+    const change = "non-oca-archive"
+    const changeDir = path.join(repo, "openspec", "changes", change)
+    await fs.mkdir(changeDir, { recursive: true })
+    await fs.writeFile(path.join(changeDir, "state.yaml"), "work_type: feature\ncanonical_stage: VERIFY\ncompleted_canonical_stages: [DECIDE, PLAN, BUILD, VERIFY]\nresumable: true\n", "utf8")
+
+    const proof = archiveProof
+    const result = await commitWorkflowTransition({
+      workspaceRoot: repo,
+      changeName: change,
+      artifactStore: "openspec",
+      proof,
+      expectedStage: "ARCHIVE",
+      callerResult: advanceWorkflow({ route: resolveWorkflowRoute(proof.work_type), ...proof }),
+      phaseResultStatus: "ok",
+      validationStatus: "not-required",
+      validation: null,
+    })
+
+    expect(result).toMatchObject({ status: "committed", canonical_stage: "ARCHIVED", validation: null })
+    expect(YAML.parse(await fs.readFile(path.join(changeDir, "state.yaml"), "utf8"))).toMatchObject({
+      canonical_stage: "ARCHIVED",
+      archived: true,
+    })
+    await fs.rm(repo, { recursive: true, force: true })
+  })
+
+  it("preserves non-OCA ARCHIVE behavior with a malformed optional fast-lane policy", async () => {
+    const repo = await fs.mkdtemp(path.join(os.tmpdir(), "odf-non-oca-archive-fast-lane-"))
+    initGitRepo(repo)
+    commitFile(repo, "README.md", 1)
+    const change = "non-oca-archive-fast-lane"
+    const changeDir = path.join(repo, "openspec", "changes", change)
+    await fs.mkdir(changeDir, { recursive: true })
+    await fs.writeFile(path.join(changeDir, "state.yaml"), "work_type: feature\ncanonical_stage: VERIFY\ncompleted_canonical_stages: [DECIDE, PLAN, BUILD, VERIFY]\nresumable: true\nfast_lane_policy:\n  malformed: true\n", "utf8")
+
+    const proof = archiveProof
+    const result = await commitWorkflowTransition({
+      workspaceRoot: repo, changeName: change, artifactStore: "openspec", proof, expectedStage: "ARCHIVE",
+      callerResult: advanceWorkflow({ route: resolveWorkflowRoute(proof.work_type), ...proof }),
+      phaseResultStatus: "ok", validationStatus: "not-required", validation: null,
+    })
+
+    expect(result).toMatchObject({ status: "committed", canonical_stage: "ARCHIVED", validation: null })
+    expect(YAML.parse(await fs.readFile(path.join(changeDir, "state.yaml"), "utf8"))).toMatchObject({ archived: true })
+    await fs.rm(repo, { recursive: true, force: true })
   })
 
   it("commits a Hybrid BUILD to BOTH OpenSpec and the Engram mirror", async () => {

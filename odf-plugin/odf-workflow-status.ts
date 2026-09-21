@@ -19,7 +19,7 @@ export type WorkflowArtifacts = Record<string, WorkflowArtifact | string | boole
 export interface WorkflowState {
   canonical_stage?: unknown; canonicalStage?: unknown; current_stage?: unknown; currentStage?: unknown; stage?: unknown
   phase?: unknown; status?: unknown; archived?: unknown; abandoned?: unknown; completed_canonical_stages?: unknown
-  completed_stages?: unknown; work_type?: unknown; artifacts?: unknown; [key: string]: unknown
+  completed_stages?: unknown; work_type?: unknown; target?: unknown; governance?: unknown; artifacts?: unknown; [key: string]: unknown
 }
 export interface WorkflowReceipt {
   status?: unknown; action?: unknown; ref?: unknown; receipt_ref?: unknown; frozen_diff_ref?: unknown; evidence?: unknown; candidate_digest?: unknown; expectations_ids?: unknown; [key: string]: unknown

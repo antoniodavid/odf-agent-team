@@ -15,6 +15,7 @@ export type WorkType = (typeof WORK_TYPES)[number]
 
 export type CanonicalStage = "DECIDE" | "PLAN" | "BUILD" | "VERIFY" | "EXPLORE" | "FIX"
 export type LegacyPhase = "PROPOSE" | "ASSESS" | "QA-PLAN" | "DESIGN" | "IMPLEMENT" | "VERIFY" | "EXPLORE" | "FIX"
+export type WorkflowTarget = "oca"
 export type PlanMode = "none" | "inline" | "required"
 export type VerificationMode = "none" | "optional" | "required"
 export type RiskLevel = "low" | "standard" | "high"
@@ -37,6 +38,7 @@ export type WorkflowReceiptState = "none" | "pending" | "resolved"
 
 export interface WorkflowAdvanceInput {
   route: WorkflowRoute
+  target?: WorkflowTarget
   completed_stages: CanonicalStage[]
   candidate_stage: CanonicalStage | null
   phase_result_status: WorkflowPhaseResultStatus

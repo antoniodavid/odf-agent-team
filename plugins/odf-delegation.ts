@@ -125,6 +125,7 @@ import {
   type WorkflowPhaseResultStatus,
   type WorkflowValidationStatus,
   type WorkflowReceiptState,
+  type WorkflowTarget,
   type WorkflowRoute,
 } from "../odf-plugin/odf-workflow.js"
 import {
@@ -177,6 +178,9 @@ import {
 import {
   createODFGovernanceCheck,
   createODFGovernanceProvenance,
+  inspectOcaGovernance,
+  ocaGovernanceFailure,
+  type GovernanceCheckResult,
 } from "../odf-plugin/odf-governance.js"
 
 /** Keep the reference-only ICE envelope scoped to the entry-triage tool. */
@@ -456,9 +460,17 @@ const PARALLEL_BUILD_CONCURRENCY = 3
 
 type ODFDelegateWorkflowAdvance = Omit<WorkflowAdvanceInput, "route"> & {
   work_type: WorkType
+  governance_acknowledgment?: GovernanceAcknowledgment
 }
 
 type ArtifactStore = "openspec" | "engram" | "hybrid"
+
+export interface GovernanceAcknowledgment {
+  target: "oca"
+  acknowledged_by: string
+  acknowledged_at: string
+  candidate_digest: string
+}
 
 interface ODFDelegateArgs {
   phase: string
@@ -474,6 +486,7 @@ interface ODFDelegateArgs {
   timeout_ms?: number
   attempt_id?: string
   artifact_store?: ArtifactStore
+  governance_acknowledgment?: GovernanceAcknowledgment
   workflow_advance?: ODFDelegateWorkflowAdvance
 }
 
@@ -1315,6 +1328,9 @@ Use this instead of generic task() for ODF workflow delegation.`,
         .enum(["openspec", "engram", "hybrid"])
         .optional()
         .describe("Authoritative workflow store; required when workflow_advance proof is supplied"),
+      governance_acknowledgment: governanceAcknowledgmentSchema
+        .optional()
+        .describe("Explicit final human OCA acknowledgment bound to the current candidate digest"),
       workflow_advance: tool.schema
         .object({
           work_type: tool.schema
@@ -1331,6 +1347,8 @@ Use this instead of generic task() for ODF workflow delegation.`,
               "verify-only",
             ])
             .describe("Resolved work type for the transition"),
+          target: tool.schema.enum(["oca"]).optional().describe("Persisted governance target"),
+          governance_acknowledgment: governanceAcknowledgmentSchema.optional().describe("Explicit final human OCA acknowledgment"),
           completed_stages: tool.schema
             .array(tool.schema.enum(["DECIDE", "PLAN", "BUILD", "VERIFY", "EXPLORE", "FIX"]))
             .describe("Canonical stages already completed before candidate_stage"),
@@ -2177,9 +2195,11 @@ Use this instead of generic task() for ODF workflow delegation.`,
               expectedStage: args.phase === "IMPLEMENT" ? "BUILD" : "VERIFY",
               callerResult: workflowResult!,
               innerResultStatus: actualResultStatus,
-              validationStatus: "verified",
-              validation,
-              expectationsIds,
+               validationStatus: "verified",
+               validation,
+               target: args.target || effectiveWorkflowAdvance?.target,
+               governance_acknowledgment: args.governance_acknowledgment || effectiveWorkflowAdvance?.governance_acknowledgment,
+               expectationsIds,
             })
             const preCommitFailure = !innerDisposition.accepted ||
               args.phase === "IMPLEMENT" && validation?.status !== "verified"
@@ -2659,6 +2679,8 @@ must not overlap. VERIFY remains sequential after the aggregate join is complete
       phase: tool.schema
         .enum(["IMPLEMENT"])
         .describe("Only IMPLEMENT is parallelized; VERIFY remains sequential"),
+      target: tool.schema.enum(["oca"]).optional().describe("Explicit governance target"),
+      governance_acknowledgment: governanceAcknowledgmentSchema.optional().describe("Explicit final human OCA acknowledgment"),
       change: tool.schema
         .string()
         .describe("Shared change name (kebab-case)"),
@@ -2680,6 +2702,7 @@ must not overlap. VERIFY remains sequential after the aggregate join is complete
       workflow_advance: tool.schema
         .object({
           work_type: tool.schema.enum(["cross-domain"]),
+          target: tool.schema.enum(["oca"]).optional(),
           completed_stages: tool.schema.array(tool.schema.enum(["DECIDE", "PLAN", "BUILD", "VERIFY"])),
           candidate_stage: tool.schema.enum(["DECIDE", "PLAN", "BUILD", "VERIFY"]).nullable(),
           phase_result_status: tool.schema.enum(["ok", "warning", "blocked", "failed"]),
@@ -2707,6 +2730,8 @@ must not overlap. VERIFY remains sequential after the aggregate join is complete
     async execute(args: {
       work_type: "cross-domain"
       phase: "IMPLEMENT"
+      target?: "oca"
+      governance_acknowledgment?: GovernanceAcknowledgment
       change: string
       workspace_dir?: string
       odoo_source_root?: string
@@ -2937,9 +2962,11 @@ must not overlap. VERIFY remains sequential after the aggregate join is complete
           expectedStage: "BUILD",
           callerResult: workflowResult,
           innerResultStatus: aggregateStatus,
-          validationStatus: "verified",
-          validation: { status: "verified", reason: "parallel join validation verified", commands_validated: savedJoin.join.expected },
-          parallel: true,
+           validationStatus: "verified",
+           validation: { status: "verified", reason: "parallel join validation verified", commands_validated: savedJoin.join.expected },
+           target: args.target,
+           governance_acknowledgment: args.governance_acknowledgment,
+           parallel: true,
         })
         if (workflowCommit.status === "blocked") {
           const receipt = parallelReceipt(workspaceRoot, args.change, savedJoin.branches.map(savedParallelOutcome))
@@ -3158,9 +3185,10 @@ must not overlap. VERIFY remains sequential after the aggregate join is complete
               prompt: `${branch.prompt}\n\nStop-validation evidence: write \`${validationEvidenceRef}\`.`,
               context_files: branch.context_files,
               workspace_dir: workspaceRoot,
-               change: args.change,
-               artifact_store: args.artifact_store,
-               odoo_source_root: sourceAuthorityRoots?.source,
+                change: args.change,
+                artifact_store: args.artifact_store,
+                governance_acknowledgment: args.governance_acknowledgment,
+                odoo_source_root: sourceAuthorityRoots?.source,
                odoo_source_repos: sourceAuthorityRoots?.repos,
                timeout_ms: branch.timeout_ms,
               attempt_id: branch.attempt_id,
@@ -3228,18 +3256,20 @@ must not overlap. VERIFY remains sequential after the aggregate join is complete
         }
         persistedJoinRef = savedArtifact.ref
         const aggregateStatus = outcomes.some(outcome => outcome.result_status === "warning") ? "warning" : "ok"
-         const workflowCommit = await resolveProofBackedLifecycle({
+        const workflowCommit = await resolveProofBackedLifecycle({
            workspaceRoot,
            changeName: args.change,
            artifactStore: args.artifact_store,
            proof: effectiveWorkflowAdvance,
            expectedStage: "BUILD",
            callerResult: workflowResult,
-           innerResultStatus: aggregateStatus,
+          innerResultStatus: aggregateStatus,
            validationStatus: "verified",
            validation: { status: "verified", reason: "parallel join validation verified", commands_validated: expected },
+           target: args.target,
+           governance_acknowledgment: args.governance_acknowledgment,
            parallel: true,
-         })
+        })
         if (workflowCommit.status === "blocked") {
           for (const handle of acquired.values()) settleAttempt(handle, "failed", "validation-failed", "validation-failed")
           const receipt = parallelReceipt(workspaceRoot, args.change, outcomes)
@@ -3764,6 +3794,8 @@ export interface ExpectationsVerdict {
   reason: "approved" | "missing-expectations" | "expectations-not-approved" | "expectations-invalid"
   message: string
   ids: string[]
+  approved_by?: string
+  approved_at?: string
 }
 
 function parseExpectationsArtifact(content: string): Record<string, unknown> | null {
@@ -3801,7 +3833,140 @@ export function evaluateExpectations(snapshot: Pick<SelectedWorkflowSnapshot, "a
       ids,
     }
   }
-  return { status: "approved", reason: "approved", message: `Approved human Expectations: ${verdict.ids.join(", ")}.`, ids: verdict.ids }
+  return {
+    status: "approved",
+    reason: "approved",
+    message: `Approved human Expectations: ${verdict.ids.join(", ")}.`,
+    ids: verdict.ids,
+    approved_by: typeof value?.approved_by === "string" ? value.approved_by : undefined,
+    approved_at: typeof value?.approved_at === "string" ? value.approved_at : undefined,
+  }
+}
+
+interface OcaGovernanceEvidence {
+  target: "oca"
+  status: GovernanceCheckResult["status"]
+  machine_status: GovernanceCheckResult["status"]
+  checked_at: string
+  check: {
+    status: GovernanceCheckResult["status"]
+    source: string
+    diff: GovernanceCheckResult["diff"]
+    provenance: GovernanceCheckResult["provenance"]
+    trailers: GovernanceCheckResult["trailers"]
+    warnings: string[]
+  }
+}
+
+interface OcaGovernanceGate {
+  active: boolean
+  target?: "oca"
+  evidence?: OcaGovernanceEvidence
+  failure?: { reason: string; message: string }
+}
+
+function normalizedWorkflowTarget(value: unknown): "oca" | null {
+  return typeof value === "string" && value.trim().toLowerCase() === "oca" ? "oca" : null
+}
+
+const GOVERNANCE_IDENTITY_SECRET = /(?:password|passwd|secret|token|credential|api[_-]?key|private[_-]?key)/i
+const GOVERNANCE_AI_IDENTITY = /\b(?:ai|bot|copilot|claude|chatgpt|gpt(?:-[0-9.]+)?|openai|cursor|gemini|anthropic|llama|mistral|codex)\b/i
+
+function safeHumanIdentity(value: unknown): value is string {
+  return typeof value === "string" && value.trim().length > 0 && value.length <= 200 &&
+    !/[\u0000-\u001f\u007f]/.test(value) &&
+    !GOVERNANCE_IDENTITY_SECRET.test(value) &&
+    !GOVERNANCE_AI_IDENTITY.test(value)
+}
+
+function governanceAcknowledgmentFailure(
+  workspaceRoot: string,
+  changeName: string,
+  acknowledgment?: GovernanceAcknowledgment,
+): string | null {
+  if (!acknowledgment) return "oca-human-acknowledgment-missing"
+  const keys = Object.keys(acknowledgment).sort()
+  if (keys.join("\0") !== ["acknowledged_at", "acknowledged_by", "candidate_digest", "target"].join("\0") ||
+    acknowledgment.target !== "oca" ||
+    !safeHumanIdentity(acknowledgment.acknowledged_by) ||
+    !validDate(acknowledgment.acknowledged_at) ||
+    !CANDIDATE_DIGEST_PATTERN.test(acknowledgment.candidate_digest)) {
+    return "oca-human-acknowledgment-invalid"
+  }
+  const currentDigest = candidateDigestOrNull(workspaceRoot, changeName)
+  if (currentDigest === null) return "oca-candidate-digest-unavailable"
+  if (acknowledgment.candidate_digest !== currentDigest) return "oca-candidate-digest-mismatch"
+  return null
+}
+
+function evaluateOcaGovernanceGate(
+  workspaceRoot: string,
+  snapshot: SelectedWorkflowSnapshot,
+  requestedTarget?: string,
+  acknowledgment?: GovernanceAcknowledgment,
+): OcaGovernanceGate {
+  const persistedTarget = snapshot.state.target
+  const persistedOca = normalizedWorkflowTarget(persistedTarget)
+  const explicitTarget = typeof requestedTarget === "string" && requestedTarget.trim()
+    ? requestedTarget.trim().toLowerCase()
+    : null
+  const acknowledgmentTarget = acknowledgment?.target === "oca" ? "oca" : null
+  if (persistedTarget !== undefined && persistedOca === null) {
+    return { active: false, failure: { reason: "workflow-target-invalid", message: "Persisted workflow target is invalid." } }
+  }
+  if (persistedOca === "oca" && explicitTarget && explicitTarget !== "oca") {
+    return { active: false, failure: { reason: "workflow-target-mismatch", message: "The requested target conflicts with persisted target=oca." } }
+  }
+  if ((explicitTarget === "oca" || acknowledgmentTarget === "oca") && persistedOca === null) {
+    return { active: true, target: "oca", failure: { reason: "oca-target-unbound", message: "OCA delivery was requested, but the workflow target is not persistently bound to target=oca." } }
+  }
+  const active = explicitTarget === "oca" || acknowledgmentTarget === "oca" || persistedOca === "oca"
+  if (!active) return { active: false }
+
+  const acknowledgmentFailure = governanceAcknowledgmentFailure(workspaceRoot, snapshot.status.change, acknowledgment)
+  if (acknowledgmentFailure) {
+    return {
+      active: true,
+      target: "oca",
+      failure: {
+        reason: acknowledgmentFailure,
+        message: acknowledgmentFailure === "oca-human-acknowledgment-missing"
+          ? "OCA delivery requires an explicit final human governance_acknowledgment proof."
+          : acknowledgmentFailure === "oca-candidate-digest-mismatch"
+            ? "The final OCA acknowledgment is bound to a different candidate digest than the current workspace."
+            : "The final OCA governance acknowledgment is malformed or cannot be bound to the current workspace.",
+      },
+    }
+  }
+
+  const check = inspectOcaGovernance(workspaceRoot)
+  const machineFailure = ocaGovernanceFailure(check)
+  if (machineFailure) {
+    return { active: true, target: "oca", failure: { reason: "oca-governance-failed", message: machineFailure } }
+  }
+
+  const machineWarnings = check.warnings.filter(warning => !warning.startsWith("Human acknowledgment is unresolved"))
+  const machineStatus: GovernanceCheckResult["status"] = check.trailers.recommendations.length || machineWarnings.length ? "warning" : "ok"
+  return {
+    active: true,
+    target: "oca",
+    evidence: {
+      target: "oca",
+      // Preserve the public check's honest status; it remains blocked until
+      // its human action is completed outside the machine-only check.
+      status: check.status,
+      machine_status: machineStatus,
+      checked_at: new Date().toISOString(),
+      check: {
+        status: check.status,
+        source: check.source,
+        diff: check.diff,
+        provenance: check.provenance,
+        trailers: check.trailers,
+        warnings: check.warnings,
+      },
+    },
+  }
 }
 
 interface SelectedWorkflowRead {
@@ -4410,6 +4575,17 @@ async function withWorkflowLock<T>(
   }
 }
 
+function applyGovernanceState(
+  document: ReturnType<typeof parseDocument>,
+  target?: WorkflowTarget,
+  governance?: OcaGovernanceEvidence,
+  acknowledgment?: GovernanceAcknowledgment,
+): void {
+  if (target) document.set("target", target)
+  if (governance) document.set("governance", governance)
+  if (acknowledgment) document.set("governance_acknowledgment", acknowledgment)
+}
+
 function writeOpenSpecWorkflowState(
   workspaceRoot: string,
   changeName: string,
@@ -4417,6 +4593,9 @@ function writeOpenSpecWorkflowState(
   workType: WorkType,
   canonicalStage: WorkflowStage,
   completedStages: CanonicalStage[],
+  target?: WorkflowTarget,
+  governance?: OcaGovernanceEvidence,
+  acknowledgment?: GovernanceAcknowledgment,
 ): string | null {
   const statePath = path.resolve(workspaceRoot, "openspec", "changes", changeName, "state.yaml")
   if (!isWithinRoot(statePath, path.resolve(workspaceRoot))) return "unsafe-state-path"
@@ -4425,6 +4604,7 @@ function writeOpenSpecWorkflowState(
   parsed.document.set("work_type", workType)
   parsed.document.set("canonical_stage", canonicalStage)
   parsed.document.set("completed_canonical_stages", completedStages)
+  applyGovernanceState(parsed.document, target, governance, acknowledgment)
   if (canonicalStage === "ARCHIVED") {
     parsed.document.set("phase", "archived")
     parsed.document.set("status", "archived")
@@ -4452,12 +4632,16 @@ function writeEngramWorkflowState(
   workType: WorkType,
   canonicalStage: WorkflowStage,
   completedStages: CanonicalStage[],
+  target?: WorkflowTarget,
+  governance?: OcaGovernanceEvidence,
+  acknowledgment?: GovernanceAcknowledgment,
 ): string | null {
   const parsed = parseStateDocument(stateContent)
   if (!parsed) return "malformed-state"
   parsed.document.set("work_type", workType)
   parsed.document.set("canonical_stage", canonicalStage)
   parsed.document.set("completed_canonical_stages", completedStages)
+  applyGovernanceState(parsed.document, target, governance, acknowledgment)
   if (canonicalStage === "ARCHIVED") {
     parsed.document.set("phase", "archived")
     parsed.document.set("status", "archived")
@@ -4503,6 +4687,9 @@ function writeOpenSpecArchive(
   stateContent: string,
   workType: WorkType,
   completedStages: CanonicalStage[],
+  target?: WorkflowTarget,
+  governance?: OcaGovernanceEvidence,
+  acknowledgment?: GovernanceAcknowledgment,
 ): string | null {
   const reportPath = path.resolve(workspaceRoot, "openspec", "changes", changeName, "archive-report.yaml")
   const root = path.resolve(workspaceRoot)
@@ -4515,7 +4702,7 @@ function writeOpenSpecArchive(
     try { fsSync.unlinkSync(reportTemp) } catch { /* best-effort */ }
     return "archive-report-write-failed"
   }
-  return writeOpenSpecWorkflowState(workspaceRoot, changeName, stateContent, workType, "ARCHIVED", completedStages)
+  return writeOpenSpecWorkflowState(workspaceRoot, changeName, stateContent, workType, "ARCHIVED", completedStages, target, governance, acknowledgment)
 }
 
 function writeEngramArchive(
@@ -4524,8 +4711,11 @@ function writeEngramArchive(
   stateContent: string,
   workType: WorkType,
   completedStages: CanonicalStage[],
+  target?: WorkflowTarget,
+  governance?: OcaGovernanceEvidence,
+  acknowledgment?: GovernanceAcknowledgment,
 ): string | null {
-  const stateError = writeEngramWorkflowState(workspaceRoot, changeName, stateContent, workType, "ARCHIVED", completedStages)
+  const stateError = writeEngramWorkflowState(workspaceRoot, changeName, stateContent, workType, "ARCHIVED", completedStages, target, governance, acknowledgment)
   if (stateError) return stateError
   const topicKey = `odf/${changeName}/archive-report`
   const project = workspaceProjectName(resolveWorkspaceRoot(workspaceRoot))
@@ -4548,13 +4738,16 @@ function writeArchiveWorkflow(
   stateContent: string,
   workType: WorkType,
   completedStages: CanonicalStage[],
+  target?: WorkflowTarget,
+  governance?: OcaGovernanceEvidence,
+  acknowledgment?: GovernanceAcknowledgment,
 ): string | null {
-  if (store === "openspec") return writeOpenSpecArchive(workspaceRoot, changeName, stateContent, workType, completedStages)
-  if (store === "engram") return writeEngramArchive(workspaceRoot, changeName, stateContent, workType, completedStages)
+  if (store === "openspec") return writeOpenSpecArchive(workspaceRoot, changeName, stateContent, workType, completedStages, target, governance, acknowledgment)
+  if (store === "engram") return writeEngramArchive(workspaceRoot, changeName, stateContent, workType, completedStages, target, governance, acknowledgment)
   // OpenSpec is the hybrid authority; Engram is an idempotent recovery mirror.
-  const openSpecError = writeOpenSpecArchive(workspaceRoot, changeName, stateContent, workType, completedStages)
+  const openSpecError = writeOpenSpecArchive(workspaceRoot, changeName, stateContent, workType, completedStages, target, governance, acknowledgment)
   if (openSpecError) return openSpecError
-  return writeEngramArchive(workspaceRoot, changeName, stateContent, workType, completedStages)
+  return writeEngramArchive(workspaceRoot, changeName, stateContent, workType, completedStages, target, governance, acknowledgment)
 }
 
 /**
@@ -4602,6 +4795,8 @@ export async function commitWorkflowTransition(opts: {
   phaseResultStatus: WorkflowPhaseResultStatus
   validationStatus: WorkflowValidationStatus
   validation: ValidationVerdict | null
+  target?: string
+  governance_acknowledgment?: GovernanceAcknowledgment
   expectationsIds?: string[]
   parallel?: boolean
 }): Promise<WorkflowCommitResult> {
@@ -4631,7 +4826,7 @@ export async function commitWorkflowTransition(opts: {
     return makeResult(
       "blocked",
       "workflow-stage-unsupported",
-      "Workflow commits may only target BUILD or VERIFY.",
+      "Workflow commits may only target BUILD, VERIFY, or ARCHIVE.",
       null,
       [],
       opts.validation,
@@ -4652,6 +4847,8 @@ export async function commitWorkflowTransition(opts: {
         null,
       )
     }
+    let governanceEvidence: OcaGovernanceEvidence | undefined
+    let governanceTarget: WorkflowTarget | undefined
     if (opts.expectedStage === "ARCHIVE") {
       const route = resolveWorkflowRoute(opts.proof.work_type)
       const completed = persistedCompletedStages(read.snapshot, route)
@@ -4660,17 +4857,57 @@ export async function commitWorkflowTransition(opts: {
       if (alreadyArchived) {
         return makeResult("already-committed", "already-committed", "Workflow is already archived.", read.snapshot, completed, opts.validation, null, "ARCHIVED")
       }
+      const governance = evaluateOcaGovernanceGate(
+        opts.workspaceRoot,
+        read.snapshot,
+        opts.target || opts.proof.target,
+        opts.governance_acknowledgment || opts.proof.governance_acknowledgment,
+      )
+      if (governance.failure) {
+        return makeResult("blocked", governance.failure.reason, governance.failure.message, read.snapshot, completed, opts.validation, null)
+      }
+      governanceEvidence = governance.evidence
+      governanceTarget = governance.target
       if (read.snapshot.status.canonical_stage !== "VERIFY" || !completed.includes("VERIFY")) {
         return makeResult("blocked", "workflow-verify-not-terminal", "ARCHIVE requires a terminal VERIFY state.", read.snapshot, completed, opts.validation, null)
+      }
+      if (governance.active) {
+        const artifactFailure = workflowArtifactGate(read.snapshot, "VERIFY")
+        if (artifactFailure) {
+          return makeResult("blocked", artifactFailure.reason, artifactFailure.message, read.snapshot, completed, opts.validation, null)
+        }
       }
       if (opts.phaseResultStatus !== "ok" && opts.phaseResultStatus !== "warning") {
         return makeResult("blocked", "workflow-result-invalid", "The VERIFY result must have status ok or warning before archiving.", read.snapshot, completed, opts.validation, null)
       }
-      const writeError = writeArchiveWorkflow(opts.artifactStore, opts.workspaceRoot, opts.changeName, read.snapshot.stateContent, opts.proof.work_type, route.stages)
-      if (writeError) {
-        return makeResult("blocked", writeError, "The archive state and report could not be synchronized.", read.snapshot, completed, opts.validation, null)
+      const fastLaneState: { policy: FastLanePolicy | null; reason?: string } = governance.active
+        ? fastLanePolicyFromState(read.snapshot.state, opts.workspaceRoot, opts.changeName)
+        : { policy: null }
+      if (fastLaneState.reason) {
+        return makeResult("blocked", fastLaneState.reason, "The persisted fast-lane policy is malformed and cannot authorize archive.", read.snapshot, completed, opts.validation, null)
       }
-      return makeResult("committed", "committed", `Archived workflow state to ${opts.artifactStore}.`, read.snapshot, route.stages, opts.validation, null, "ARCHIVED")
+      const archiveValidation = governance.active
+        ? verifyEvidenceVerdict(opts.workspaceRoot, opts.changeName, opts.expectationsIds, fastLaneState.policy?.enabled === true)
+        : opts.validation
+      if (governance.active && archiveValidation?.status !== "verified") {
+        const reason = archiveValidation?.status === "missing" ? "verification-evidence-missing" : "verification-evidence-invalid"
+        return makeResult("blocked", reason, archiveValidation?.reason || "Valid VERIFY evidence is required before archiving.", read.snapshot, completed, archiveValidation, null)
+      }
+      const writeError = writeArchiveWorkflow(
+        opts.artifactStore,
+        opts.workspaceRoot,
+        opts.changeName,
+        read.snapshot.stateContent,
+        opts.proof.work_type,
+        route.stages,
+        governanceTarget,
+        governanceEvidence,
+        opts.governance_acknowledgment || opts.proof.governance_acknowledgment,
+      )
+      if (writeError) {
+        return makeResult("blocked", writeError, "The archive state and report could not be synchronized.", read.snapshot, completed, archiveValidation, null)
+      }
+      return makeResult("committed", "committed", `Archived workflow state to ${opts.artifactStore}.`, read.snapshot, route.stages, archiveValidation, null, "ARCHIVED")
     }
     const inspection = inspectPersistedTransition({
       snapshot: read.snapshot,
@@ -4689,6 +4926,18 @@ export async function commitWorkflowTransition(opts: {
         null,
       )
     }
+
+    const governance = evaluateOcaGovernanceGate(
+      opts.workspaceRoot,
+      read.snapshot,
+      opts.target || opts.proof.target,
+      opts.governance_acknowledgment || opts.proof.governance_acknowledgment,
+    )
+    if (governance.failure) {
+      return makeResult("blocked", governance.failure.reason, governance.failure.message, read.snapshot, inspection.completed, opts.validation, null)
+    }
+    governanceEvidence = governance.evidence
+    governanceTarget = governance.target
 
     const fastLaneState = fastLanePolicyFromState(read.snapshot.state, opts.workspaceRoot, opts.changeName)
     if (fastLaneState.reason) {
@@ -4823,11 +5072,11 @@ export async function commitWorkflowTransition(opts: {
     // OpenSpec is the hybrid authority; Engram is an idempotent recovery mirror.
     // Both stores must be written for hybrid, matching writeArchiveWorkflow.
     const writeError = opts.artifactStore === "openspec"
-      ? writeOpenSpecWorkflowState(opts.workspaceRoot, opts.changeName, read.snapshot.stateContent, opts.proof.work_type, opts.expectedStage, postResult.completed_stages)
+      ? writeOpenSpecWorkflowState(opts.workspaceRoot, opts.changeName, read.snapshot.stateContent, opts.proof.work_type, opts.expectedStage, postResult.completed_stages, governanceTarget, governanceEvidence, opts.governance_acknowledgment || opts.proof.governance_acknowledgment)
       : opts.artifactStore === "engram"
-        ? writeEngramWorkflowState(opts.workspaceRoot, opts.changeName, read.snapshot.stateContent, opts.proof.work_type, opts.expectedStage, postResult.completed_stages)
-        : writeOpenSpecWorkflowState(opts.workspaceRoot, opts.changeName, read.snapshot.stateContent, opts.proof.work_type, opts.expectedStage, postResult.completed_stages)
-          ?? writeEngramWorkflowState(opts.workspaceRoot, opts.changeName, read.snapshot.stateContent, opts.proof.work_type, opts.expectedStage, postResult.completed_stages)
+        ? writeEngramWorkflowState(opts.workspaceRoot, opts.changeName, read.snapshot.stateContent, opts.proof.work_type, opts.expectedStage, postResult.completed_stages, governanceTarget, governanceEvidence, opts.governance_acknowledgment || opts.proof.governance_acknowledgment)
+        : writeOpenSpecWorkflowState(opts.workspaceRoot, opts.changeName, read.snapshot.stateContent, opts.proof.work_type, opts.expectedStage, postResult.completed_stages, governanceTarget, governanceEvidence, opts.governance_acknowledgment || opts.proof.governance_acknowledgment)
+          ?? writeEngramWorkflowState(opts.workspaceRoot, opts.changeName, read.snapshot.stateContent, opts.proof.work_type, opts.expectedStage, postResult.completed_stages, governanceTarget, governanceEvidence, opts.governance_acknowledgment || opts.proof.governance_acknowledgment)
     if (writeError) {
       return makeResult(
         "blocked",
@@ -4874,6 +5123,8 @@ export interface ProofBackedLifecycleInput {
   innerResultStatus: WorkflowPhaseResultStatus | null
   validationStatus: WorkflowValidationStatus
   validation: ValidationVerdict | null
+  target?: string
+  governance_acknowledgment?: GovernanceAcknowledgment
   expectationsIds?: string[]
   parallel?: boolean
 }
@@ -4924,6 +5175,8 @@ export async function resolveProofBackedLifecycle(opts: ProofBackedLifecycleInpu
     phaseResultStatus: opts.innerResultStatus,
     validationStatus: opts.validationStatus,
     validation: opts.validation,
+    target: opts.target,
+    governance_acknowledgment: opts.governance_acknowledgment,
     expectationsIds: opts.expectationsIds,
     parallel: opts.parallel,
   })
@@ -5294,9 +5547,17 @@ const workflowFastLanePolicySchema = tool.schema.object({
   validation: tool.schema.literal(FAST_LANE_VALIDATION),
 }).strict()
 
+const governanceAcknowledgmentSchema = tool.schema.object({
+  target: tool.schema.literal("oca"),
+  acknowledged_by: tool.schema.string(),
+  acknowledged_at: tool.schema.string(),
+  candidate_digest: tool.schema.string().regex(CANDIDATE_DIGEST_PATTERN),
+}).strict()
+
 interface WorkflowBindArgs {
   change_name?: string
   work_type?: unknown
+  target?: "oca"
   workspace_dir?: string
   artifact_store?: "openspec" | "engram"
   preflight?: Record<string, unknown>
@@ -5410,6 +5671,7 @@ only after canonical state exists. Existing state and Expectations are reused on
           "verify-only",
         ])
         .describe("Canonical work type to persist"),
+      target: tool.schema.enum(["oca"]).optional().describe("Explicit governance target to persist"),
       workspace_dir: tool.schema
         .string()
         .optional()
@@ -5555,6 +5817,11 @@ only after canonical state exists. Existing state and Expectations are reused on
         const current = document.toJSON() as Record<string, unknown>
         if (current.work_type !== undefined && current.work_type !== args.work_type) return { error: "work-type-conflict" }
         if (current.change !== undefined && current.change !== changeName) return { error: "state-change-conflict" }
+        const currentTarget = current.target === undefined ? null : normalizedWorkflowTarget(current.target)
+        const requestedTarget = args.target === undefined ? null : normalizedWorkflowTarget(args.target)
+        if (current.target !== undefined && currentTarget === null) return { error: "invalid-workflow-target" }
+        if (args.target !== undefined && requestedTarget === null) return { error: "invalid-workflow-target" }
+        if (currentTarget && requestedTarget && currentTarget !== requestedTarget) return { error: "workflow-target-conflict" }
         if (preflight && current.artifact_store !== undefined && current.artifact_store !== stateArtifactStore) return { error: "artifact-store-conflict" }
         if (preflight && current.route !== undefined && canonicalWorkflowValue(current.route) !== canonicalWorkflowValue(route)) {
           return { error: "route-conflict" }
@@ -5602,6 +5869,7 @@ only after canonical state exists. Existing state and Expectations are reused on
 
         const before = canonicalWorkflowValue(current)
         document.set("work_type", args.work_type)
+        if (current.target === undefined && args.target) document.set("target", args.target)
         if (!hasStoredEntryRouteBinding && args.entry_route_binding) {
           document.set("entry_route_binding", args.entry_route_binding)
         }

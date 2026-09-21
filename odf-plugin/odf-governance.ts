@@ -379,6 +379,15 @@ export interface GovernanceCheckResult {
   warnings: string[]
 }
 
+/** Machine-only failures; human acknowledgement is intentionally evaluated by the caller. */
+export function ocaGovernanceFailure(result: GovernanceCheckResult): string | null {
+  if (!result.diff.git_available) return "The OCA governance check could not inspect a readable Git worktree."
+  if (result.provenance.error) return result.provenance.error
+  if (!result.provenance.present) return "OCA governance provenance is missing."
+  if (result.trailers.ai_coauthored_by.length > 0) return "AI identities must not appear in Co-authored-by trailers."
+  return null
+}
+
 export function inspectOcaGovernance(workspaceDir: string, commitMessage?: string): GovernanceCheckResult {
   const root = resolveGovernanceRoot(workspaceDir)
   const diff = readDiff(root)

@@ -169,5 +169,12 @@ describe("OCA governance check", () => {
       expect.objectContaining({ id: "assisted-by-trailer" }),
       expect.objectContaining({ id: "no-ai-coauthored-by" }),
     ]))
+    expect(rules.checks.every((check: Record<string, unknown>) =>
+      typeof check.requirement === "string" &&
+      typeof check.enforcement === "string" &&
+      typeof check.evidence === "string" &&
+      typeof check.control_owner === "string" &&
+      typeof check.blocking === "boolean",
+    )).toBe(true)
   })
 })

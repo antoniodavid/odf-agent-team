@@ -5,26 +5,58 @@ version: "1.0"
 human_ack_required: true
 checks:
   - id: human-responsibility
-    severity: error
-    human_ack_required: true
+    requirement: "A human understands and accepts responsibility for the contribution."
+    enforcement: "Explicit final governance_acknowledgment at the common BUILD, VERIFY, and ARCHIVE transition boundary."
+    evidence: "Typed target=oca acknowledgment with safe human identity, timestamp, and current candidate digest."
+    control_owner: human
+    control_mode: human
+    blocking: true
   - id: supervised-agents
-    severity: error
-    human_ack_required: true
+    requirement: "Agentic tools remain supervised by a human."
+    enforcement: "Explicit final governance_acknowledgment plus the common OCA transition gate."
+    evidence: "Persisted human acknowledgment kept separate from machine governance evidence."
+    control_owner: human
+    control_mode: human
+    blocking: true
   - id: assisted-by-trailer
-    severity: warning
-    human_ack_required: false
+    requirement: "AI assistance is disclosed with Assisted-by trailers."
+    enforcement: "odf_governance_check trailer analysis and disclosure recommendation."
+    evidence: "Machine trailer analysis and disclosure template."
+    control_owner: odf_governance_check
+    control_mode: automated
+    blocking: false
   - id: no-ai-coauthored-by
-    severity: error
-    human_ack_required: false
+    requirement: "AI identities do not appear in Co-authored-by trailers."
+    enforcement: "odf_governance_check trailer analysis at the common OCA transition gate."
+    evidence: "Machine-detected AI identities in Co-authored-by trailers."
+    control_owner: odf_governance_check
+    control_mode: automated
+    blocking: true
   - id: explain-every-line
-    severity: error
-    human_ack_required: true
+    requirement: "A human can explain and defend every contributed line."
+    enforcement: "Explicit final governance_acknowledgment at the common OCA transition boundary."
+    evidence: "Typed human acknowledgment bound to the current candidate digest."
+    control_owner: human
+    control_mode: human
+    blocking: true
   - id: review-engagement
-    severity: error
-    human_ack_required: true
+    requirement: "Humans engage with review feedback."
+    enforcement: "Human review and supervision process; the gate does not fabricate review activity."
+    evidence: "Human acknowledgment and any separately recorded review evidence."
+    control_owner: human
+    control_mode: human
+    blocking: false
   - id: verified-ai-output
-    severity: error
-    human_ack_required: true
+    requirement: "AI-assisted output is reviewed and verified by a human."
+    enforcement: "Explicit final governance_acknowledgment plus terminal VERIFY evidence for active OCA archive."
+    evidence: "Human acknowledgment and validated VERIFY evidence."
+    control_owner: human
+    control_mode: human
+    blocking: true
   - id: quantity-rate-quality
-    severity: warning
-    human_ack_required: true
+    requirement: "Humans assess contribution quantity, rate, and quality."
+    enforcement: "Human assessment informed by the governance diff summary; no automated pass is asserted."
+    evidence: "Machine diff summary and human acknowledgment."
+    control_owner: human
+    control_mode: human
+    blocking: false
