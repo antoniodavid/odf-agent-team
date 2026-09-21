@@ -56,8 +56,13 @@ policy-gate candidate while the gate still freezes unrelated dirty changes.
   failure because the staged `scripts/lib/agent-resolve.js` changes alter ASSESS
   fallback behavior.
 - O19 evidence confirms the ignored-probe and polluted-candidate failure mode.
+- Work unit committed as `94f2edb`; the high-risk four-lens RDD review was
+  acknowledged with no correction required. It left three non-blocking follow-ups:
+  bound subject file count/depth, close the stat/read replacement race, and include
+  subject declarations in the frozen-digest key for subject-only replacements.
 
 ## Next step
 
 Preserve the known baseline resolver failure, keep the ignored probe outside the
-candidate, and commit this work unit on the feature branch.
+candidate, and deliver `94f2edb` under ordinary repository policy. Keep the review
+follow-ups out of this change unless separately authorized.
