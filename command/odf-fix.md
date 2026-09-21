@@ -28,7 +28,7 @@ The shadow micro-policy does not create a bugfix fast lane. `/odf-fix` stays on 
 `FIX -> BUILD -> VERIFY` route unless explicit persisted root-cause and minimal-regression
 evidence exists **and** a future policy explicitly allows bounded treatment. Until then,
 `shadow.micro_policy` cannot qualify a bugfix or replace diagnosis. If that future policy is
-enabled, use the single bounded prompt and unchanged gates in [the orchestrator contract](../agent/odoo_orchestrator.md#future-inline-build-contract-fl-06-shadow-only-by-default);
+enabled, use the single bounded prompt and unchanged gates in [the orchestrator contract](../agent/odoo_orchestrator.md#opt-in-inline-build-contract-fl-06);
 missing/unknown/contradictory facts, scope or risk escalation, source-authority/database/task/
 validation failure, or missing evidence promotes to standard/full handling or blocks.
 

@@ -52,7 +52,7 @@ import {
   type ODFSkill,
   type ODFAgent,
 } from "./odf-delegation.js"
-import { advanceWorkflow, resolveWorkflowRoute } from "./odf-workflow.js"
+import { advanceWorkflow, resolveWorkflowRoute, type CanonicalStage } from "./odf-workflow.js"
 import { buildCandidateManifest, computeCandidateDigest } from "./candidate-manifest.js"
 import { createEntryRouteBinding, predictEntryRouteShadow, type EntryTriageInput } from "./entry-triage.js"
 import {
@@ -289,6 +289,34 @@ function featureEntryRouteBinding(change: string, candidateDigest?: string): Ret
   return createEntryRouteBinding(predictEntryRouteShadow(input), candidateDigest)
 }
 
+const fastLanePolicy = {
+  version: 1 as const,
+  enabled: true,
+  executor: "odoo_batch_implementer" as const,
+  validation: "targeted-then-full" as const,
+}
+
+function smallChangeEntryRouteBinding(change: string, candidateDigest: string | null = "a".repeat(64)): ReturnType<typeof createEntryRouteBinding> {
+  const input: EntryTriageInput = {
+    command: "odf-new",
+    change,
+    description: "Add a computed discount field to sale.order.",
+    module: "sale",
+    domain: "sales",
+    expected_files: 2,
+    expectations_clear: true,
+    known_modules: ["sale"],
+    shadow_context: {
+      expectations_approved: true,
+      prior_learning: "consistent",
+      blast_radius: "low",
+      reversibility: "high",
+      source_authority: "complete",
+    },
+  }
+  return createEntryRouteBinding(predictEntryRouteShadow(input), candidateDigest)
+}
+
 function authorizedWorkflowBind(changeName: string, workspaceRoot: string) {
   const context = { sessionID: "odf-new-session", messageID: "odf-new-message" } as any
   const generation = 1
@@ -433,6 +461,55 @@ describe("createODFWorkflowOverride", () => {
     }), {} as any) as string)
     expect(bad).toMatchObject({ status: "blocked", reason: "override-revision-supersedes-mismatch" })
   })
+
+  it("disables an existing fast lane without rewriting state and is idempotent", async () => {
+    const changeDir = path.join(root, "openspec", "changes", "ov-change")
+    const statePath = path.join(changeDir, "state.yaml")
+    const before = YAML.stringify({
+      work_type: "small-change",
+      canonical_stage: "BUILD",
+      completed_canonical_stages: ["DECIDE"],
+      fast_lane_policy: fastLanePolicy,
+    })
+    await fs.mkdir(changeDir, { recursive: true })
+    await fs.writeFile(statePath, before, "utf8")
+    const { createODFWorkflowOverride } = await import("./odf-delegation.js")
+    const tool = createODFWorkflowOverride()
+    const args = baseArgs({
+      action: "disable-fast-lane",
+      target_stage: undefined,
+      approved_by: "release-manager",
+    })
+    const first = JSON.parse(await tool.execute(args, { sessionID: "rollback-session" } as any) as string)
+    expect(first).toMatchObject({ status: "disabled", action: "disable-fast-lane", state_unchanged: true })
+    expect(await fs.readFile(statePath, "utf8")).toBe(before)
+    expect(JSON.parse(await fs.readFile(path.join(root, ".odf", "fast-lane-rollback-ov-change.json"), "utf8"))).toMatchObject({
+      change: "ov-change",
+      artifact_store: "openspec",
+      approved_by: "release-manager",
+      reason: args.reason,
+    })
+
+    const second = JSON.parse(await tool.execute(args, { sessionID: "rollback-session" } as any) as string)
+    expect(second).toMatchObject({ status: "already-disabled", action: "disable-fast-lane", state_unchanged: true })
+    expect(await fs.readFile(statePath, "utf8")).toBe(before)
+  })
+
+  it("requires explicit rollback authorization", async () => {
+    const changeDir = path.join(root, "openspec", "changes", "ov-change")
+    await fs.mkdir(changeDir, { recursive: true })
+    await fs.writeFile(path.join(changeDir, "state.yaml"), YAML.stringify({
+      work_type: "small-change",
+      canonical_stage: "BUILD",
+      completed_canonical_stages: ["DECIDE"],
+      fast_lane_policy: fastLanePolicy,
+    }), "utf8")
+    const { createODFWorkflowOverride } = await import("./odf-delegation.js")
+    const tool = createODFWorkflowOverride()
+    const result = JSON.parse(await tool.execute(baseArgs({ action: "disable-fast-lane" }), {} as any) as string)
+    expect(result).toMatchObject({ status: "blocked", reason: "fast-lane-rollback-authorization-required" })
+    expect(fsSync.existsSync(path.join(root, ".odf", "fast-lane-rollback-ov-change.json"))).toBe(false)
+  })
 })
 
 describe("createODFWorkflowAdvance", () => {
@@ -539,6 +616,75 @@ describe("createODFWorkflowBind", () => {
         work_type: "feature",
         entry_route_binding: binding,
       })
+    } finally {
+      await fs.rm(root, { recursive: true, force: true })
+    }
+  })
+
+  it("persists the explicit fast-lane policy only with an eligible small-change binding", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "odf-workflow-bind-fast-lane-"))
+    const change = "fast-lane-bind"
+    const changeDir = path.join(root, "openspec", "changes", change)
+    const binding = smallChangeEntryRouteBinding(change)
+    await fs.mkdir(changeDir, { recursive: true })
+    await fs.writeFile(path.join(changeDir, "state.yaml"), YAML.stringify({ work_type: "small-change" }), "utf8")
+
+    try {
+      const output = JSON.parse(await createODFWorkflowBind().execute({
+        change_name: change,
+        work_type: "small-change",
+        workspace_dir: root,
+        entry_route_binding: binding,
+        fast_lane_policy: fastLanePolicy,
+      }, {} as any) as string)
+      expect(output).toMatchObject({ status: "bound", state_action: "updated" })
+      expect(YAML.parse(await fs.readFile(path.join(changeDir, "state.yaml"), "utf8"))).toMatchObject({
+        work_type: "small-change",
+        entry_route_binding: binding,
+        fast_lane_policy: fastLanePolicy,
+      })
+    } finally {
+      await fs.rm(root, { recursive: true, force: true })
+    }
+  })
+
+  it("blocks an enabled fast-lane policy without a candidate digest", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "odf-workflow-bind-fast-lane-no-digest-"))
+    const change = "fast-lane-no-digest"
+    const changeDir = path.join(root, "openspec", "changes", change)
+    await fs.mkdir(changeDir, { recursive: true })
+    await fs.writeFile(path.join(changeDir, "state.yaml"), YAML.stringify({ work_type: "small-change" }), "utf8")
+
+    try {
+      const output = JSON.parse(await createODFWorkflowBind().execute({
+        change_name: change,
+        work_type: "small-change",
+        workspace_dir: root,
+        entry_route_binding: smallChangeEntryRouteBinding(change, null),
+        fast_lane_policy: fastLanePolicy,
+      }, {} as any) as string)
+      expect(output).toMatchObject({ status: "blocked", reason: "fast-lane-candidate-unbound" })
+    } finally {
+      await fs.rm(root, { recursive: true, force: true })
+    }
+  })
+
+  it("blocks an enabled fast-lane policy outside the existing small-change route", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "odf-workflow-bind-fast-lane-ineligible-"))
+    const change = "fast-lane-feature"
+    const changeDir = path.join(root, "openspec", "changes", change)
+    await fs.mkdir(changeDir, { recursive: true })
+    await fs.writeFile(path.join(changeDir, "state.yaml"), YAML.stringify({ work_type: "feature" }), "utf8")
+
+    try {
+      const output = JSON.parse(await createODFWorkflowBind().execute({
+        change_name: change,
+        work_type: "feature",
+        workspace_dir: root,
+        entry_route_binding: featureEntryRouteBinding(change),
+        fast_lane_policy: fastLanePolicy,
+      }, {} as any) as string)
+      expect(output).toMatchObject({ status: "blocked", reason: "fast-lane-work-type-ineligible" })
     } finally {
       await fs.rm(root, { recursive: true, force: true })
     }
@@ -1778,6 +1924,125 @@ describe("findTaskApi", () => {
     expect(api?.taskApi).not.toBe(client.task)
   })
 
+  it("does not treat the public ask callback as a task bridge", () => {
+    const client = {
+      session: { create: vi.fn(), prompt: vi.fn(), abort: vi.fn() },
+    } as any
+    const api = findTaskApi({ ask: vi.fn(), sessionID: "s1" } as any, client)
+    expect(api?.source).toBe("sdk.session")
+  })
+
+  it("selects native task, then V2 session, then V1 session", () => {
+    const nativeTask = vi.fn()
+    const v2Session = {
+      create: vi.fn(), prompt: vi.fn(), wait: vi.fn(), context: vi.fn(), abort: vi.fn(),
+    }
+    const v1Session = { create: vi.fn(), prompt: vi.fn(), abort: vi.fn() }
+
+    expect(findTaskApi({ task: nativeTask, sessionID: "s1" } as any, {
+      v2: { session: v2Session }, session: v1Session,
+    } as any)?.source).toBe("toolCtx.task")
+    expect(findTaskApi({ sessionID: "s1" } as any, {
+      v2: { session: v2Session }, session: v1Session,
+    } as any)?.source).toBe("sdk.v2")
+    expect(findTaskApi({ sessionID: "s1" } as any, { session: v1Session } as any)?.source).toBe("sdk.session")
+  })
+
+  it("requires every V2 session method before selecting it", () => {
+    const v1Session = { create: vi.fn(), prompt: vi.fn(), abort: vi.fn() }
+    const incompleteV2 = { create: vi.fn(), prompt: vi.fn(), wait: vi.fn(), context: vi.fn() }
+
+    expect(findTaskApi({ sessionID: "s1" } as any, {
+      v2: { session: incompleteV2 }, session: v1Session,
+    } as any)?.source).toBe("sdk.session")
+  })
+
+  it("adapts V2 create, prompt, wait, context, and latest assistant text", async () => {
+    const session = {
+      create: vi.fn().mockResolvedValue({ data: { data: { id: "v2-child" } } }),
+      prompt: vi.fn().mockResolvedValue({ data: { data: { sessionID: "v2-child" } } }),
+      wait: vi.fn().mockResolvedValue({ data: undefined }),
+      context: vi.fn().mockResolvedValue({ data: { data: [
+        { type: "assistant", content: [{ type: "text", text: "old result" }] },
+        { type: "user", text: "follow-up" },
+        { type: "assistant", content: [
+          { type: "reasoning", text: "not the result" },
+          { type: "text", text: "## ODF Result\n- **Status**: ok" },
+          { type: "text", text: "- **Executive Summary**: latest" },
+        ] },
+      ] } }),
+      abort: vi.fn().mockResolvedValue(true),
+    }
+    const api = findTaskApi({
+      sessionID: "parent",
+      directory: "/workspace",
+      model: { providerID: "opencode-go", modelID: "kimi-k2.6" },
+    } as any, { v2: { session } } as any)
+
+    await expect(api!.taskApi({ agent: "odoo_backend_engineer", prompt: "Build it", context_files: ["models/x.py"] }))
+      .resolves.toEqual({ status: "ok", executive_summary: "latest" })
+    expect(session.create).toHaveBeenCalledWith({
+      agent: "odoo_backend_engineer",
+      model: { providerID: "opencode-go", id: "kimi-k2.6" },
+      location: { directory: "/workspace" },
+    })
+    expect(session.prompt).toHaveBeenCalledWith({
+      sessionID: "v2-child",
+      prompt: { text: expect.stringContaining("- models/x.py") },
+    })
+    expect(session.prompt.mock.calls[0][0].prompt.text).not.toContain("/workspace/models/x.py")
+    expect(session.wait).toHaveBeenCalledWith({ sessionID: "v2-child" })
+    expect(session.context).toHaveBeenCalledWith({ sessionID: "v2-child" })
+    expect(session.abort).not.toHaveBeenCalled()
+  })
+
+  it("preserves V2 create errors", async () => {
+    const session = {
+      create: vi.fn().mockResolvedValue({ data: { data: {} } }),
+      prompt: vi.fn(),
+      wait: vi.fn(),
+      context: vi.fn(),
+      abort: vi.fn(),
+    }
+    const api = findTaskApi({ sessionID: "s1", directory: "/workspace" } as any, { v2: { session } } as any)
+
+    await expect(api!.taskApi({ agent: "odoo_backend_engineer", prompt: "Build it" })).rejects.toThrow("session-create-error")
+    expect(session.prompt).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ["prompt", "session-prompt-error", () => ({ error: { name: "UnknownError", data: { message: "provider failed" } } })],
+    ["empty", "empty-task-result", () => ({ data: { data: [] } })],
+    ["malformed", "invalid-task-result", () => ({ data: { data: { messages: [] } } })],
+    ["cancelled", "task-cancelled", () => ({ data: { data: [{ type: "assistant", error: { name: "MessageAbortedError", data: { message: "cancelled" } } }] } })],
+    ["error", "session-prompt-error", () => ({ data: { data: [{ type: "assistant", error: { name: "UnknownError", data: { message: "provider failed" } } }] } })],
+  ])("preserves V2 result semantics for %s", async (_label, reason, responseFactory) => {
+    const session = {
+      create: vi.fn().mockResolvedValue({ data: { data: { id: "v2-result" } } }),
+      prompt: vi.fn().mockResolvedValue({ data: { data: { sessionID: "v2-result" } } }),
+      wait: vi.fn().mockResolvedValue({ data: undefined }),
+      context: vi.fn().mockResolvedValue(responseFactory()),
+      abort: vi.fn().mockResolvedValue(true),
+    }
+    const api = findTaskApi({ sessionID: "s1", directory: "/workspace" } as any, { v2: { session } } as any)
+
+    await expect(api!.taskApi({ agent: "odoo_backend_engineer", prompt: "Build it" })).rejects.toThrow(reason)
+  })
+
+  it("preserves SDK fallback errors instead of inventing a native result", async () => {
+    const session = {
+      create: vi.fn().mockResolvedValue({ id: "child-1" }),
+      prompt: vi.fn().mockRejectedValue(new Error("OpenCode's free tier can only be used from within OpenCode")),
+      abort: vi.fn(),
+    }
+    const api = findTaskApi({ sessionID: "s1", directory: "/workspace" } as any, { session } as any)
+
+    await expect(api!.taskApi({ agent: "odoo_backend_engineer", prompt: "Build it" }))
+      .rejects.toThrow("session-prompt-error: OpenCode's free tier can only be used from within OpenCode")
+    expect(session.create).toHaveBeenCalledTimes(1)
+    expect(session.prompt).toHaveBeenCalledTimes(1)
+  })
+
   it("returns null when no task API is available", () => {
     expect(findTaskApi({ sessionID: "s1" } as any, undefined)).toBeNull()
     expect(findTaskApi({ sessionID: "s1" } as any, {} as any)).toBeNull()
@@ -1825,6 +2090,11 @@ describe("recordMetrics", () => {
     const buffered = getMetricsBuffer()
     expect(buffered.length).toBe(1)
     expect(buffered[0].session_hash).toMatch(/^[0-9a-f]{8}$/)
+  })
+
+  it("accepts the V2 SDK source literal", () => {
+    recordMetrics(makeMetric({ task_api_source: "sdk.v2" }))
+    expect(getMetricsBuffer()[0].task_api_source).toBe("sdk.v2")
   })
 
   it("bounds and sanitizes optional observability fields", () => {
@@ -2625,27 +2895,52 @@ describe("createODFDelegate", () => {
     vi.restoreAllMocks()
   })
 
-  const workflowAdvance = (phase: "IMPLEMENT" | "VERIFY") => phase === "IMPLEMENT"
-    ? {
-        work_type: "feature" as const,
-        completed_stages: ["DECIDE" as const],
-        candidate_stage: "PLAN" as const,
-        phase_result_status: "ok" as const,
-        validation_status: "not-required" as const,
-        receipt_state: "none" as const,
-        resumable_state: true,
-       archived_state: false,
-       }
-     : {
-        work_type: "feature" as const,
-        completed_stages: ["DECIDE" as const, "PLAN" as const],
-        candidate_stage: "BUILD" as const,
-        phase_result_status: "ok" as const,
-        validation_status: "verified" as const,
-        receipt_state: "none" as const,
-        resumable_state: true,
-         archived_state: false,
-       }
+  const workflowAdvance = (phase: "IMPLEMENT" | "VERIFY", workType: "feature" | "small-change" = "feature") => {
+    if (phase === "IMPLEMENT") {
+      return workType === "small-change"
+        ? {
+            work_type: "small-change" as const,
+            completed_stages: [] as CanonicalStage[],
+            candidate_stage: "DECIDE" as const,
+            phase_result_status: "ok" as const,
+            validation_status: "not-required" as const,
+            receipt_state: "none" as const,
+            resumable_state: true,
+            archived_state: false,
+          }
+        : {
+            work_type: "feature" as const,
+            completed_stages: ["DECIDE"] as CanonicalStage[],
+            candidate_stage: "PLAN" as const,
+            phase_result_status: "ok" as const,
+            validation_status: "not-required" as const,
+            receipt_state: "none" as const,
+            resumable_state: true,
+            archived_state: false,
+          }
+    }
+    return workType === "small-change"
+      ? {
+          work_type: "small-change" as const,
+          completed_stages: ["DECIDE"] as CanonicalStage[],
+          candidate_stage: "BUILD" as const,
+          phase_result_status: "ok" as const,
+          validation_status: "verified" as const,
+          receipt_state: "none" as const,
+          resumable_state: true,
+          archived_state: false,
+        }
+      : {
+          work_type: "feature" as const,
+          completed_stages: ["DECIDE", "PLAN"] as CanonicalStage[],
+          candidate_stage: "BUILD" as const,
+          phase_result_status: "ok" as const,
+          validation_status: "verified" as const,
+          receipt_state: "none" as const,
+          resumable_state: true,
+          archived_state: false,
+        }
+  }
 
   const archiveProof = {
     work_type: "feature" as const,
@@ -2715,23 +3010,58 @@ describe("createODFDelegate", () => {
   const writeValidationEvidence = (change: string) =>
     writeEvidenceFile(change, `validation-evidence-${change}.json`)
 
+  const writeFastLaneEvidence = async (change: string, phase: "IMPLEMENT" | "VERIFY") => {
+    const kind = phase === "IMPLEMENT" ? "targeted" : "full"
+    const fileName = `validation-evidence-${change}-${kind}.json`
+    await fs.mkdir(path.join(tempHome, ".odf"), { recursive: true })
+    await fs.writeFile(path.join(tempHome, ".odf", fileName), JSON.stringify({
+      change,
+      phase,
+      batch: 1,
+      risk_tier: "MEDIUM",
+      frozen_diff_ref: phase === "VERIFY" ? gitHead(tempHome) : null,
+      candidate_digest: computeCandidateDigest(buildCandidateManifest(tempHome)),
+      ...(phase === "VERIFY" ? { executor: "odoo_batch_implementer", test_identity: "full module suite" } : {}),
+      resolved_at: new Date().toISOString(),
+      commands: phase === "IMPLEMENT"
+        ? [
+            { name: "git-diff-check", kind, command: "git diff --check", database: "odf_test_db", exit_code: 0, output_tail: "no whitespace errors" },
+            { name: "odoo-tests", kind, command: "odoo-bin -d odf_test_db --test-tags /sale --stop-after-init", database: "odf_test_db", exit_code: 0, output_tail: "2 passed, 0 failed" },
+          ]
+        : [
+            { name: "odoo-tests", kind, command: "odoo-bin -d odf_test_db -i test_module --test-enable --stop-after-init", database: "odf_test_db", exit_code: 0, output_tail: "12 passed, 0 failed" },
+            { name: "git-diff-check", kind, command: "git diff --check", database: "odf_test_db", exit_code: 0, output_tail: "no whitespace errors" },
+          ],
+    }), "utf8")
+  }
+
   const writeParallelEvidence = (change: string, branchIds: string[]) =>
     Promise.all(branchIds.map(branchId =>
       writeEvidenceFile(change, `validation-evidence-${change}-${branchId}.json`)
     ))
 
-  const prepareWorkflowState = async (change: string, phase: "IMPLEMENT" | "VERIFY", workType = "feature", workspace = tempHome) => {
-    const completed = workType === "verify-only" ? [] : phase === "IMPLEMENT" ? ["DECIDE", "PLAN"] : ["DECIDE", "PLAN", "BUILD"]
+  const prepareWorkflowState = async (
+    change: string,
+    phase: "IMPLEMENT" | "VERIFY",
+    workType = "feature",
+    workspace = tempHome,
+    stateExtras: Record<string, unknown> = {},
+  ) => {
+    const completed = workType === "verify-only"
+      ? []
+      : workType === "small-change"
+        ? phase === "IMPLEMENT" ? ["DECIDE"] : ["DECIDE", "BUILD"]
+        : phase === "IMPLEMENT" ? ["DECIDE", "PLAN"] : ["DECIDE", "PLAN", "BUILD"]
     const canonicalStage = phase === "IMPLEMENT" ? "BUILD" : "VERIFY"
     const changeDir = path.join(workspace, "openspec", "changes", change)
     await fs.mkdir(changeDir, { recursive: true })
-    await fs.writeFile(path.join(changeDir, "state.yaml"), [
-      `work_type: ${workType}`,
-      `canonical_stage: ${canonicalStage}`,
-      `completed_canonical_stages: [${completed.join(", ")}]`,
-      "resumable: true",
-      "",
-    ].join("\n"), "utf8")
+    await fs.writeFile(path.join(changeDir, "state.yaml"), YAML.stringify({
+      work_type: workType,
+      canonical_stage: canonicalStage,
+      completed_canonical_stages: completed,
+      resumable: true,
+      ...stateExtras,
+    }), "utf8")
     if (phase === "IMPLEMENT") {
       await fs.writeFile(path.join(changeDir, "implement-progress.md"), "- [x] implementation\n", "utf8")
     }
@@ -2739,6 +3069,18 @@ describe("createODFDelegate", () => {
       await fs.writeFile(path.join(changeDir, "verify.yaml"), "status: passed\n", "utf8")
       await fs.writeFile(path.join(changeDir, "verify-report.yaml"), "status: passed\n", "utf8")
     }
+  }
+
+  const persistFastLaneFixtureState = async (change: string, workspace = tempHome) => {
+    const statePath = path.join(workspace, "openspec", "changes", change, "state.yaml")
+    await fs.writeFile(path.join(workspace, ".gitignore"), "openspec/\n", "utf8")
+    execSync('git add .gitignore && git commit -q -m "ignore workflow fixture"', { cwd: workspace })
+    const state = YAML.parse(await fs.readFile(statePath, "utf8")) as Record<string, unknown>
+    const candidateDigest = computeCandidateDigest(buildCandidateManifest(workspace))
+    state.entry_route_binding = smallChangeEntryRouteBinding(change, candidateDigest)
+    state.fast_lane_policy = fastLanePolicy
+    await fs.writeFile(statePath, YAML.stringify(state), "utf8")
+    expect(computeCandidateDigest(buildCandidateManifest(workspace))).toBe(candidateDigest)
   }
 
   // T3: a runnable VERIFY delegation needs a git workspace plus a persisted
@@ -3226,6 +3568,46 @@ ${overrides}`
     expect(session.abort).toHaveBeenCalledWith({ path: { id: "child-cancelled" }, query: { directory: tempHome } })
   })
 
+  it("aborts a V2 child session on timeout", async () => {
+    const { createODFDelegate } = await import("./odf-delegation.js")
+    const session = {
+      create: vi.fn().mockResolvedValue({ data: { data: { id: "v2-timeout" } } }),
+      prompt: vi.fn().mockReturnValue(new Promise(() => {})),
+      wait: vi.fn(),
+      context: vi.fn(),
+      abort: vi.fn().mockRejectedValue(new Error("abort failed")),
+    }
+    const output = await createODFDelegate({ v2: { session } } as any, tempHome).execute(
+      { phase: "ASSESS", prompt: "Assess a sales feature", context_files: [], timeout_ms: 10 },
+      { sessionID: "parent-v2-timeout", directory: tempHome, abort: new AbortController().signal } as any,
+    )
+
+    expect(JSON.parse(output as string)).toMatchObject({ status: "timeout" })
+    expect(session.abort).toHaveBeenCalledWith({ sessionID: "v2-timeout" })
+  })
+
+  it("aborts a V2 child session when the tool is cancelled", async () => {
+    const { createODFDelegate } = await import("./odf-delegation.js")
+    const controller = new AbortController()
+    const session = {
+      create: vi.fn().mockResolvedValue({ data: { data: { id: "v2-cancelled" } } }),
+      prompt: vi.fn().mockReturnValue(new Promise(() => {})),
+      wait: vi.fn(),
+      context: vi.fn(),
+      abort: vi.fn().mockRejectedValue(new Error("abort failed")),
+    }
+    const pending = createODFDelegate({ v2: { session } } as any, tempHome).execute(
+      { phase: "ASSESS", prompt: "Assess a sales feature", context_files: [] },
+      { sessionID: "parent-v2-cancelled", directory: tempHome, abort: controller.signal } as any,
+    )
+    await new Promise(resolve => setTimeout(resolve, 0))
+    controller.abort()
+    const envelope = JSON.parse(await pending as string)
+
+    expect(envelope).toMatchObject({ status: "blocked", reason: "task-cancelled" })
+    expect(session.abort).toHaveBeenCalledWith({ sessionID: "v2-cancelled" })
+  })
+
   it("keeps concurrent SDK child sessions isolated", async () => {
     const { createODFDelegate } = await import("./odf-delegation.js")
     const session = {
@@ -3283,12 +3665,140 @@ ${overrides}`
       { sessionID: "s1", task: taskApi } as any,
     )
 
-    expect(JSON.parse(output as string).status).toBe("delegated")
+    expect(JSON.parse(output as string)).toMatchObject({ status: "delegated", agent: "odoo_backend_engineer" })
     expect(taskApi).toHaveBeenCalledTimes(1)
     const committed = YAML.parse(await fs.readFile(path.join(tempHome, "openspec", "changes", "gate-build", "state.yaml"), "utf8"))
     expect(committed).toMatchObject({ canonical_stage: "BUILD", completed_canonical_stages: ["DECIDE", "PLAN", "BUILD"] })
     expect(getMetricsBuffer()[0]).toMatchObject({ work_type: "feature" })
     expect(getMetricsBuffer()[0].branch_id).toBeUndefined()
+  })
+
+  it("uses the bounded fast-lane executor and targeted evidence for small-change BUILD", async () => {
+    const { createODFDelegate } = await import("./odf-delegation.js")
+    const change = "fast-lane-build"
+    initGitRepo(tempHome)
+    commitFile(tempHome, "README.md", 1)
+    commitFile(tempHome, "models/sale.py", 1)
+    await prepareWorkflowState(change, "IMPLEMENT", "small-change", tempHome, {
+      entry_route_binding: smallChangeEntryRouteBinding(change),
+      fast_lane_policy: fastLanePolicy,
+    })
+    await persistFastLaneFixtureState(change)
+    const taskApi = vi.fn().mockImplementation(async () => {
+      appendLines(tempHome, "models/sale.py", 1)
+      await writeFastLaneEvidence(change, "IMPLEMENT")
+      return { status: "ok", executive_summary: "bounded implementation" }
+    })
+
+    const output = JSON.parse(await createODFDelegate(undefined, tempHome).execute({
+      phase: "IMPLEMENT",
+      change,
+      artifact_store: "openspec",
+      attempt_id: "fast-lane-build-1",
+      prompt: "Implement the small change",
+      context_files: [],
+      workflow_advance: workflowAdvance("IMPLEMENT", "small-change"),
+    }, { sessionID: "fast-lane-build-session", task: taskApi } as any) as string)
+
+    expect(output).toMatchObject({
+      status: "delegated",
+      agent: "odoo_batch_implementer",
+      validation: { status: "verified" },
+      workflow_commit: { status: "committed" },
+    })
+    expect(taskApi).toHaveBeenCalledWith(expect.objectContaining({
+      subagent_type: "odoo_batch_implementer",
+      prompt: expect.stringContaining("validation-evidence-fast-lane-build-targeted.json"),
+    }))
+    expect(YAML.parse(await fs.readFile(path.join(tempHome, "openspec", "changes", change, "state.yaml"), "utf8"))).toMatchObject({
+      canonical_stage: "BUILD",
+      completed_canonical_stages: ["DECIDE", "BUILD"],
+    })
+  })
+
+  it("does not activate the bounded executor without an explicit policy", async () => {
+    const { createODFDelegate } = await import("./odf-delegation.js")
+    const change = "fast-lane-disabled"
+    initGitRepo(tempHome)
+    commitFile(tempHome, "README.md", 1)
+    await prepareWorkflowState(change, "IMPLEMENT", "small-change")
+    await writeValidationEvidence(change)
+    const taskApi = vi.fn().mockResolvedValue({ status: "ok", executive_summary: "standard implementation" })
+
+    const output = JSON.parse(await createODFDelegate(undefined, tempHome).execute({
+      phase: "IMPLEMENT",
+      change,
+      artifact_store: "openspec",
+      attempt_id: "fast-lane-disabled-1",
+      prompt: "Implement a Python model constraint",
+      context_files: [],
+      workflow_advance: workflowAdvance("IMPLEMENT", "small-change"),
+    }, { sessionID: "fast-lane-disabled-session", task: taskApi } as any) as string)
+
+    expect(output).toMatchObject({ status: "delegated", agent: "odoo_backend_engineer" })
+    expect(taskApi).toHaveBeenCalledWith(expect.objectContaining({ subagent_type: "odoo_backend_engineer" }))
+  })
+
+  it("blocks fast-lane BUILD before task() when the binding has no candidate digest", async () => {
+    const { createODFDelegate } = await import("./odf-delegation.js")
+    const change = "fast-lane-no-digest-delegate"
+    await prepareWorkflowState(change, "IMPLEMENT", "small-change", tempHome, {
+      entry_route_binding: smallChangeEntryRouteBinding(change, null),
+      fast_lane_policy: fastLanePolicy,
+    })
+    const taskApi = vi.fn().mockResolvedValue({ status: "ok" })
+
+    const output = JSON.parse(await createODFDelegate(undefined, tempHome).execute({
+      phase: "IMPLEMENT",
+      change,
+      artifact_store: "openspec",
+      attempt_id: "fast-lane-no-digest-delegate-1",
+      prompt: "Implement the small change",
+      context_files: [],
+      workflow_advance: workflowAdvance("IMPLEMENT", "small-change"),
+    }, { sessionID: "fast-lane-no-digest-session", task: taskApi } as any) as string)
+
+    expect(output).toMatchObject({ status: "blocked", reason: "fast-lane-candidate-unbound" })
+    expect(taskApi).not.toHaveBeenCalled()
+  })
+
+  it("keeps fast-lane VERIFY on the full QA gate", async () => {
+    const { createODFDelegate } = await import("./odf-delegation.js")
+    const change = "fast-lane-verify"
+    initGitRepo(tempHome)
+    commitFile(tempHome, "README.md", 1)
+    commitFile(tempHome, "models/sale.py", 1)
+    await prepareWorkflowState(change, "VERIFY", "small-change", tempHome, {
+      entry_route_binding: smallChangeEntryRouteBinding(change),
+      fast_lane_policy: fastLanePolicy,
+    })
+    await persistFastLaneFixtureState(change)
+    appendLines(tempHome, "models/sale.py", 1)
+    const taskApi = vi.fn().mockImplementation(async () => {
+      await writeFastLaneEvidence(change, "VERIFY")
+      return { status: "ok", executive_summary: "verified" }
+    })
+
+    const output = JSON.parse(await createODFDelegate(undefined, tempHome).execute({
+      phase: "VERIFY",
+      change,
+      artifact_store: "openspec",
+      attempt_id: "fast-lane-verify-1",
+      prompt: "Verify the small change",
+      context_files: [],
+      workflow_advance: workflowAdvance("VERIFY", "small-change"),
+    }, { sessionID: "fast-lane-verify-session", task: taskApi } as any) as string)
+
+    expect(output).toMatchObject({
+      status: "delegated",
+      agent: "odoo_qa_engineer",
+      validation: { status: "verified" },
+      workflow_commit: { status: "committed" },
+    })
+    expect(taskApi).toHaveBeenCalledWith(expect.objectContaining({
+      subagent_type: "odoo_qa_engineer",
+      prompt: expect.stringContaining("validation-evidence-fast-lane-verify-full.json"),
+    }))
   })
 
   it.each([
@@ -6334,6 +6844,76 @@ describe("validateValidationEvidence", () => {
     await writeEvidence(validEvidence())
     const verdict = validateValidationEvidence({ workspaceDir: tmp, change: "ev-change", tier: "MEDIUM", frozenDiffRef: null, now })
     expect(verdict).toEqual({ status: "verified", reason: expect.stringContaining("2 command(s)"), commands_validated: 2 })
+  })
+
+  it("requires the expected phase and command kind for fast-lane evidence", async () => {
+    const repo = path.join(tmp, "targeted-repo")
+    initGitRepo(repo)
+    commitFile(repo, "README.md", 1)
+    const targetedPath = path.join(repo, ".odf", "validation-evidence-ev-change-targeted.json")
+    await fs.mkdir(path.dirname(targetedPath), { recursive: true })
+    await fs.writeFile(targetedPath, JSON.stringify(validEvidence({
+      candidate_digest: computeCandidateDigest(buildCandidateManifest(repo)),
+      commands: [
+        { name: "git-diff-check", kind: "targeted", command: "git diff --check", exit_code: 0, output_tail: "no whitespace errors" },
+        { name: "odoo-tests", kind: "targeted", command: "odoo-bin -d odf_test_db --test-tags /sale --stop-after-init", database: "odf_test_db", exit_code: 0, output_tail: "2 passed, 0 failed" },
+      ],
+    })), "utf8")
+    const verified = validateValidationEvidence({
+      workspaceDir: repo,
+      change: "ev-change",
+      tier: "MEDIUM",
+      frozenDiffRef: null,
+      evidencePath: ".odf/validation-evidence-ev-change-targeted.json",
+      expectedPhase: "IMPLEMENT",
+      requiredCommandKind: "targeted",
+      now,
+    })
+    expect(verified.status).toBe("verified")
+
+    const wrongKind = validateValidationEvidence({
+      workspaceDir: repo,
+      change: "ev-change",
+      tier: "MEDIUM",
+      frozenDiffRef: null,
+      evidencePath: ".odf/validation-evidence-ev-change-targeted.json",
+      expectedPhase: "IMPLEMENT",
+      requiredCommandKind: "full",
+      now,
+    })
+    expect(wrongKind).toMatchObject({ status: "invalid", reason: expect.stringContaining("must be marked full") })
+  })
+
+  it("rejects targeted evidence without a canonical candidate digest", async () => {
+    await writeEvidence(validEvidence({ commands: [
+      { name: "git-diff-check", kind: "targeted", command: "git diff --check", exit_code: 0, output_tail: "no whitespace errors" },
+      { name: "odoo-tests", kind: "targeted", command: "odoo-bin -d odf_test_db --test-tags /sale --stop-after-init", database: "odf_test_db", exit_code: 0, output_tail: "2 passed, 0 failed" },
+    ] }))
+    const missing = validateValidationEvidence({
+      workspaceDir: tmp,
+      change: "ev-change",
+      tier: "MEDIUM",
+      frozenDiffRef: null,
+      expectedPhase: "IMPLEMENT",
+      requiredCommandKind: "targeted",
+      now,
+    })
+    expect(missing).toMatchObject({ status: "invalid", reason: expect.stringContaining("candidate_digest required") })
+
+    await writeEvidence(validEvidence({ candidate_digest: "not-a-digest", commands: [
+      { name: "git-diff-check", kind: "targeted", command: "git diff --check", exit_code: 0, output_tail: "no whitespace errors" },
+      { name: "odoo-tests", kind: "targeted", command: "odoo-bin -d odf_test_db --test-tags /sale --stop-after-init", database: "odf_test_db", exit_code: 0, output_tail: "2 passed, 0 failed" },
+    ] }))
+    const malformed = validateValidationEvidence({
+      workspaceDir: tmp,
+      change: "ev-change",
+      tier: "MEDIUM",
+      frozenDiffRef: null,
+      expectedPhase: "IMPLEMENT",
+      requiredCommandKind: "targeted",
+      now,
+    })
+    expect(malformed).toMatchObject({ status: "invalid", reason: expect.stringContaining("lowercase SHA-256") })
   })
 
   it("rejects Odoo test evidence without an explicit database", async () => {

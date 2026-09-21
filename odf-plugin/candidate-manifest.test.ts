@@ -5,7 +5,9 @@ import * as fsSync from "node:fs"
 import * as os from "node:os"
 import { execSync } from "node:child_process"
 import { buildCandidateManifest, computeCandidateDigest, extractChangedPaths } from "./candidate-manifest.js"
-import { classifyRiskTierWithContent, computePolicyGate, type ODFRegistry } from "./odf-delegation.js"
+import { classifyRiskTierWithContent, computePolicyGate, validateValidationEvidence, type ODFRegistry } from "./odf-delegation.js"
+import { readPersistedExternalValidationScope } from "./odf-delegation-policy.js"
+import { candidateDigestOrNull, mergeReceipt, type ODFReceipt } from "./odf-delegation-receipts.js"
 
 function initGitRepo(dir: string): void {
   fsSync.mkdirSync(dir, { recursive: true })
@@ -203,6 +205,181 @@ describe("candidate-manifest", () => {
     const manifest = buildCandidateManifest(tmp)
     expect(manifest.base_head).toBeNull()
     expect(manifest.entries).toEqual([])
+  })
+
+  it("scopes external validation to Git-visible workflow paths without force-adding ignored subjects", async () => {
+    const repo = path.join(tmp, "scoped")
+    initGitRepo(repo)
+    commitFile(repo, "base.txt")
+    await fs.writeFile(path.join(repo, ".gitignore"), "probe/\n", "utf8")
+    await fs.mkdir(path.join(repo, "probe"), { recursive: true })
+    await fs.writeFile(path.join(repo, "probe", "subject.py"), "ignored\n", "utf8")
+    await fs.writeFile(path.join(repo, "workflow.md"), "workflow\n", "utf8")
+    await fs.writeFile(path.join(repo, "unrelated.py"), "unrelated\n", "utf8")
+    await fs.appendFile(path.join(repo, "base.txt"), "dirty\n", "utf8")
+
+    const defaultPaths = extractChangedPaths(buildCandidateManifest(repo))
+    expect(defaultPaths).toContain("workflow.md")
+    expect(defaultPaths).toContain("unrelated.py")
+    expect(defaultPaths).toContain("base.txt")
+    expect(defaultPaths).not.toContain("probe/subject.py")
+
+    const scopedPaths = extractChangedPaths(buildCandidateManifest(repo, ["workflow.md", "probe/subject.py"]))
+    expect(scopedPaths).toEqual(["workflow.md"])
+  })
+
+  it.each(["../outside", path.resolve(os.tmpdir(), "outside"), "C:\\outside", "workflow/../../outside"])(
+    "rejects unsafe external-validation scope path %s",
+    unsafePath => {
+      const repo = path.join(tmp, "unsafe-scope")
+      initGitRepo(repo)
+      commitFile(repo, "base.txt")
+
+      expect(() => buildCandidateManifest(repo, [unsafePath])).toThrow(/external-validation scope/)
+      const decision = computePolicyGate({
+        change: "unsafe-scope",
+        phase: "VERIFY",
+        workspaceDir: repo,
+        registry: registryWithTdd(false),
+        externalValidationScope: [unsafePath],
+      })
+      expect(decision).toMatchObject({ gate: "block", reason: expect.stringContaining("invalid external-validation scope") })
+    },
+  )
+
+  it("persists and reuses the normalized external-validation scope", async () => {
+    const repo = path.join(tmp, "scope-persistence")
+    initGitRepo(repo)
+    commitFile(repo, "base.txt")
+    await fs.mkdir(path.join(repo, "workflow"), { recursive: true })
+    await fs.writeFile(path.join(repo, "workflow", "verify.yaml"), "status: passed\n", "utf8")
+    await fs.writeFile(path.join(repo, "unrelated.py"), "unrelated\n", "utf8")
+
+    const first = computePolicyGate({
+      change: "scope-persistence",
+      phase: "VERIFY",
+      workspaceDir: repo,
+      registry: registryWithTdd(false),
+      externalValidationScope: ["./workflow/verify.yaml"],
+    })
+    expect(first.external_validation_scope).toEqual(["workflow/verify.yaml"])
+    expect(first.changed_paths).toEqual(["workflow/verify.yaml"])
+
+    const saved = JSON.parse(await fs.readFile(path.join(repo, ".odf", "policy-gate-scope-persistence.json"), "utf8"))
+    expect(saved.external_validation_scope).toEqual(["workflow/verify.yaml"])
+
+    const reused = computePolicyGate({
+      change: "scope-persistence",
+      phase: "VERIFY",
+      workspaceDir: repo,
+      registry: registryWithTdd(false),
+      externalValidationScope: ["workflow/verify.yaml"],
+    })
+    expect(reused).toEqual(first)
+  })
+
+  it("fails closed when an existing policy gate is malformed", async () => {
+    const repo = path.join(tmp, "malformed-policy-gate")
+    initGitRepo(repo)
+    commitFile(repo, "base.txt")
+    await fs.mkdir(path.join(repo, ".odf"), { recursive: true })
+    await fs.writeFile(path.join(repo, ".odf", "policy-gate-malformed.json"), "{not-json", "utf8")
+
+    expect(readPersistedExternalValidationScope(repo, "malformed")).toEqual({ invalid: true })
+    expect(candidateDigestOrNull(repo, "malformed")).toBeNull()
+    expect(readPersistedExternalValidationScope(repo, "absent")).toEqual({ invalid: false })
+  })
+
+  it("counts lines in explicitly scoped untracked workflow files", async () => {
+    const repo = path.join(tmp, "scoped-untracked-lines")
+    initGitRepo(repo)
+    commitFile(repo, "base.txt")
+    await fs.writeFile(path.join(repo, "workflow.md"), "first\nsecond\nthird\n", "utf8")
+
+    const gate = computePolicyGate({
+      change: "scoped-untracked-lines",
+      phase: "VERIFY",
+      workspaceDir: repo,
+      registry: registryWithTdd(false),
+      externalValidationScope: ["workflow.md"],
+    })
+
+    expect(gate.changed_paths).toEqual(["workflow.md"])
+    expect(gate.changed_lines).toBe(3)
+    expect(gate.correction_budget_lines).toBe(2)
+  })
+
+  it("uses the persisted scope for receipt binding and stable digest mismatch checks", async () => {
+    const repo = path.join(tmp, "scoped-digest")
+    initGitRepo(repo)
+    commitFile(repo, "base.txt")
+    await fs.writeFile(path.join(repo, ".gitignore"), "probe.py\n", "utf8")
+    await fs.writeFile(path.join(repo, "probe.py"), "ignored\n", "utf8")
+    await fs.writeFile(path.join(repo, "workflow.md"), "workflow\n", "utf8")
+    await fs.writeFile(path.join(repo, "unrelated.py"), "unrelated\n", "utf8")
+
+    const change = "scoped-digest"
+    const gate = computePolicyGate({
+      change,
+      phase: "VERIFY",
+      workspaceDir: repo,
+      registry: registryWithTdd(false),
+      externalValidationScope: ["workflow.md"],
+    })
+    const digest = candidateDigestOrNull(repo, change)
+    expect(digest).toBe(gate.candidate_digest)
+
+    const receipt: ODFReceipt = {
+      change,
+      phase: "VERIFY",
+      status: "blocked",
+      cause: "validation-failed",
+      evidence: null,
+      action: null,
+      review_gate: null,
+      frozen_diff_ref: gate.frozen_diff_ref,
+      resolved_at: "2026-09-20T00:00:00.000Z",
+    }
+    expect(mergeReceipt(repo, receipt).candidate_digest).toBe(digest)
+
+    const now = new Date("2026-09-20T00:00:00.000Z")
+    await fs.writeFile(path.join(repo, ".odf", `validation-evidence-${change}.json`), JSON.stringify({
+      change,
+      phase: "VERIFY",
+      batch: 1,
+      risk_tier: gate.risk_tier,
+      frozen_diff_ref: gate.frozen_diff_ref,
+      candidate_digest: digest,
+      executor: "filesystem-test",
+      test_identity: "candidate manifest unit test",
+      resolved_at: now.toISOString(),
+      commands: [
+        { name: "typecheck", command: "npm run typecheck", database: "filesystem", exit_code: 0, output_tail: "passed" },
+        { name: "unit", command: "npm run test:unit", database: "filesystem", exit_code: 0, output_tail: "passed" },
+      ],
+    }), "utf8")
+
+    await fs.appendFile(path.join(repo, "unrelated.py"), "changed\n", "utf8")
+    expect(candidateDigestOrNull(repo, change)).toBe(digest)
+    expect(validateValidationEvidence({
+      workspaceDir: repo,
+      change,
+      tier: gate.risk_tier,
+      frozenDiffRef: gate.frozen_diff_ref,
+      expectedPhase: "VERIFY",
+      now,
+    }).status).toBe("verified")
+
+    await fs.appendFile(path.join(repo, "workflow.md"), "changed\n", "utf8")
+    expect(candidateDigestOrNull(repo, change)).not.toBe(digest)
+    expect(validateValidationEvidence({
+      workspaceDir: repo,
+      change,
+      tier: gate.risk_tier,
+      frozenDiffRef: gate.frozen_diff_ref,
+      expectedPhase: "VERIFY",
+      now,
+    }).reason).toContain("candidate digest mismatch")
   })
 
   it("integration: VERIFY with untracked security csv is HIGH and recomputes on byte change", async () => {

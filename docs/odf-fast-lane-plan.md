@@ -103,7 +103,7 @@ Report baseline and canary side by side. A rollout is eligible to expand only wh
 3. **Shadow micro policy.** Compute eligibility and expected route, but execute the current standard path. Compare classifications, predicted file bounds, risk signals, and latency.
 4. **Opt-in canary.** Enable the micro executor for a small, explicitly configured cohort. Use inline BUILD, targeted tests, deterministic evidence, and host VERIFY; promote any uncertainty immediately.
 5. **Controlled expansion.** Expand only after acceptance criteria hold across representative Odoo modules and both feature/fix entries. Keep standard and elevated routes unchanged.
-6. **Revert.** Disable the policy flag and return to the existing route without deleting artifacts, receipts, or evidence. Never auto-retry around a pending receipt.
+6. **Revert.** Use `odf_workflow_override` with `action: disable-fast-lane`, a named approver, and a human-approved reason. The operation writes an audited `.odf/fast-lane-rollback-{change}.json` marker, returns to the existing route, and leaves workflow state, artifacts, receipts, and evidence unchanged. Never auto-retry around a pending receipt.
 
 ## Acceptance criteria
 
@@ -116,7 +116,7 @@ Report baseline and canary side by side. A rollout is eligible to expand only wh
 - Standard, ambiguous, elevated-risk, source-authority-failing, and evidence-failing work uses full agent VERIFY or the appropriate escalated route.
 - Baseline and post-rollout p50/p95 are reported with comparable cohorts and no unreviewed safety regression.
 - Telemetry remains bounded, sanitized, session-hashed, and free of secrets/PII.
-- Rollback is a configuration/policy disable, not a state or artifact rewrite.
+- Rollback is an explicit, audited configuration/policy disable, not a workflow-state or artifact rewrite; the marker is fail-closed and idempotent.
 
 ## Risks and mitigations
 

@@ -56,7 +56,7 @@ export interface DelegationMetrics {
   duration_ms: number
   token_estimate: number
   status: "ok" | "blocked" | "error" | "timeout"
-  task_api_source: "toolCtx.task" | "sdk.session" | "unavailable"
+  task_api_source: "toolCtx.task" | "sdk.v2" | "sdk.session" | "unavailable"
   work_type?: WorkType
   branch_id?: string
   join_status?: "running" | "complete" | "blocked"

@@ -1,6 +1,6 @@
 # ODF Fast Lane Tasks
 
-This is an executable **future** task breakdown. Every item is intentionally unchecked: no implementation is claimed by this planning change.
+This is the executable fast-lane task breakdown. Local policy integration is implemented where marked; representative Odoo validation and canary evidence remain pending.
 
 ## Work-unit rules
 
@@ -61,7 +61,7 @@ This is an executable **future** task breakdown. Every item is intentionally unc
 ### FL-06 — Define the inline BUILD contract
 
 - **Depends on:** FL-05.
-- **Status:** Defined / in progress. Contract locations: [`command/odf-new.md`](../command/odf-new.md), [`command/odf-fix.md`](../command/odf-fix.md), and [`agent/odoo_orchestrator.md`](../agent/odoo_orchestrator.md#future-inline-build-contract-fl-06-shadow-only-by-default). No executor, canary, or rollout is enabled.
+- **Status:** Implemented locally / live Odoo evidence pending. Contract locations: [`command/odf-new.md`](../command/odf-new.md), [`command/odf-fix.md`](../command/odf-fix.md), and [`agent/odoo_orchestrator.md`](../agent/odoo_orchestrator.md#opt-in-inline-build-contract-fl-06). No canary or rollout is enabled.
 - **Likely files:** `command/odf-new.md`, `command/odf-fix.md`, `agent/odoo_orchestrator.md`, `plugins/odf-delegation.ts`.
 - **Intent:** For eligible `small-change`, create one bounded BUILD prompt containing approved intent/Expectations, module/domain, file budget, targeted context, exact Odoo source roots, test command, source-authority requirements, evidence path, and executor/database guard. For `/odf-fix`, retain FIX/root-cause/regression evidence before applying the bounded BUILD policy.
 - **Verification commands/evidence:** Documentation evidence is the linked contract above; no runtime evidence, canary, rollout, or performance claim exists in this slice. Future captured-prompt verification must cover all required fields and must block or promote on missing source roots, database authorization, Expectations, test command, scope, authority, task, or validation evidence.
@@ -70,6 +70,7 @@ This is an executable **future** task breakdown. Every item is intentionally unc
 ### FL-07 — Integrate the policy without a parallel workflow
 
 - **Depends on:** FL-06.
+- **Status:** Implemented locally / live Odoo evidence pending. The existing `small-change` route selects the bounded executor only through a validated persisted policy; all other routes retain their canonical agents.
 - **Likely files:** `odf-plugin/odf-workflow.ts`, `plugins/odf-delegation.ts`, `command/odf-new.md`, `agent/odoo_orchestrator.md`.
 - **Intent:** Keep `small-change` as `DECIDE -> BUILD -> VERIFY` and `bugfix` as `FIX -> BUILD -> VERIFY`. Make the micro policy select an executor inside those routes; do not globally merge dependent phases. A micro host verifier still performs the canonical VERIFY transition and cannot skip BUILD/VERIFY ordering.
 - **Verification commands/evidence:** Route snapshots remain unchanged for all existing work types; `odf_workflow_advance` rejects missing/invalid validation; standard/ambiguous/elevated cases still launch full agent VERIFY; micro failures promote rather than silently pass.
@@ -78,6 +79,7 @@ This is an executable **future** task breakdown. Every item is intentionally unc
 ### FL-08 — Preserve state, ledger, gate, receipt, and authority seals
 
 - **Depends on:** FL-07.
+- **Status:** Implemented locally / live Odoo evidence pending. Fast-lane delegation uses the existing policy, attempt, evidence, workflow, and receipt chokepoints.
 - **Likely files:** `plugins/odf-delegation.ts`, `odf-plugin/odf-delegation-metrics.ts`, `command/odf-new.md`, `command/odf-fix.md`.
 - **Intent:** Route every micro execution through the same selected artifact store, Policy Gate, fresh attempt ID, validation evidence, candidate binding, source authority, telemetry, and receipt code paths. Add no fast-path write that can create unbound state or settle a phase without evidence.
 - **Verification commands/evidence:** Unit/integration fixtures for duplicate attempt ID, running/completed phase, stale/mismatched evidence, pending receipt, source-authority failure, task timeout, empty result, and policy block; inspect persisted artifact refs and receipt refs.
@@ -88,6 +90,7 @@ This is an executable **future** task breakdown. Every item is intentionally unc
 ### FL-09 — Add a targeted-test command contract
 
 - **Depends on:** FL-06.
+- **Status:** Implemented locally / representative Odoo command evidence pending. Targeted evidence is phase- and kind-bound and cannot be reused as final full-gate evidence.
 - **Likely files:** `agent/odoo_orchestrator.md`, `command/odf-new.md`, `command/odf-fix.md`, `plugins/odf-delegation.ts`.
 - **Intent:** Use Odoo 19 `--test-tags` for module/class/method selection and `--test-file` for a specific Python file in the inner loop. Require exact `-d <test_db>`, authorized database context, exit code, output evidence, and the existing minimum command count by risk tier.
 - **Verification commands/evidence:** Future evidence records such as `odoo-test` with `odoo-bin -d <test_db> --test-tags /<module> --stop-after-init` or `odoo-test` with `odoo-bin -d <test_db> --test-file <path> --stop-after-init`; verify the host rejects missing `-d`, missing output, non-zero exit, stale evidence, or wrong candidate.
@@ -96,6 +99,7 @@ This is an executable **future** task breakdown. Every item is intentionally unc
 ### FL-10 — Keep the full final gate
 
 - **Depends on:** FL-09.
+- **Status:** Implemented locally / representative Odoo command evidence pending. Fast-lane VERIFY remains the full QA route and validates a distinct `full` evidence artifact.
 - **Likely files:** `agent/odoo_orchestrator.md`, `plugins/odf-delegation.ts`.
 - **Intent:** Require the configured full module/CI test command at the final gate after targeted inner-loop tests. Preserve the existing archive rule that cannot accept deferred, missing, or unrecorded module evidence.
 - **Verification commands/evidence:** A micro fixture proves targeted BUILD evidence is followed by the full configured command before successful archive; a missing final record blocks archive.
@@ -124,6 +128,7 @@ This is an executable **future** task breakdown. Every item is intentionally unc
 ### FL-13 — Expand triage and route regression coverage
 
 - **Depends on:** FL-05, FL-07.
+- **Status:** Partial. Delegation safety and fast-lane route coverage are present; the broader triage/workflow/harness matrix remains to be completed.
 - **Likely files:** `odf-plugin/entry-triage.test.ts`, `odf-plugin/odf-workflow.test.ts`, `scripts/odf-harness.test.ts`.
 - **Intent:** Cover deterministic eligibility, protected-risk precedence, existing route snapshots, canonical stage ordering, and escalation behavior.
 - **Verification commands/evidence:** `npx vitest run odf-plugin/entry-triage.test.ts odf-plugin/odf-workflow.test.ts scripts/odf-harness.test.ts`; attach the test output and case matrix.
@@ -132,10 +137,19 @@ This is an executable **future** task breakdown. Every item is intentionally unc
 ### FL-14 — Expand delegation safety and telemetry coverage
 
 - **Depends on:** FL-08, FL-09, FL-11.
+- **Status:** Partial. Fast-lane policy, candidate binding, evidence ordering, and delegation coverage are present; telemetry cohort validation remains pending.
 - **Likely files:** `odf-plugin/odf-delegation.test.ts`, `odf-plugin/odf-delegation-metrics.test.ts` if present/required, `scripts/odf-harness.test.ts`, `plugins/odf-delegation.ts` only for the implementation.
 - **Intent:** Prove policy/attempt/evidence/receipt/source-authority invariants remain active for micro, standard, and elevated routes. Verify p50/p95 inputs are bounded and sanitized.
 - **Verification commands/evidence:** `npx vitest run odf-plugin/odf-delegation.test.ts scripts/odf-harness.test.ts`; use fixture evidence with wrong candidate digest, wrong database, stale timestamp, missing output, non-zero exit, reused attempt, and pending receipt.
 - **Out of scope:** Live Odoo execution in the ODF harness unit suite or destructive database operations.
+
+### FL-14H — Close local fast-lane hardening gaps
+
+- **Status:** Implemented locally; all listed local checks pass. Representative Odoo validation remains pending.
+- **Likely files:** `plugins/odf-delegation.ts`, `odf-plugin/odf-delegation.test.ts`, `docs/odf-fast-lane-plan.md`.
+- **Intent:** Require lowercase candidate-bound digests for every targeted evidence acceptance, and provide one explicit `disable-fast-lane` override that records its approver/reason in a fail-closed rollback marker without rewriting workflow state or artifacts.
+- **Verification commands/evidence:** Focused validation/override regressions, `npm run typecheck`, `npm run test:unit`, `npm run test:yaml`, registry validation, and `git diff --check`.
+- **Out of scope:** Odoo/PostgreSQL execution, canary activation, default-route changes, and `odd/` bookkeeping.
 
 ### FL-15 — Validate against representative Odoo modules
 
@@ -150,6 +164,7 @@ This is an executable **future** task breakdown. Every item is intentionally unc
 ### FL-16 — Update operational documentation after behavior is implemented
 
 - **Depends on:** FL-07, FL-09, FL-11, FL-14.
+- **Status:** Partial. Command and orchestrator contracts now match the local implementation; final rollout/metrics documentation review remains pending.
 - **Likely files:** `command/odf-new.md`, `command/odf-fix.md`, `agent/odoo_orchestrator.md`, `docs/odf-fast-lane-plan.md`.
 - **Intent:** Document the final policy name, exact eligibility, triage-before-redundancy order, targeted test templates, host-validation semantics, escalation triggers, kill switch, metrics query, and final-gate requirement. Keep all generated artifacts in English.
 - **Verification commands/evidence:** Markdown link check or repository documentation review; compare docs to actual route, plugin seals, and test evidence schema. No code path may rely on undocumented fast-lane behavior.
@@ -178,7 +193,7 @@ This is an executable **future** task breakdown. Every item is intentionally unc
 - [ ] FIX→BUILD and BUILD→VERIFY were not globally merged.
 - [ ] p50/p95 baseline and post-canary reports use comparable cohorts and include safety/error metrics.
 - [ ] Telemetry is bounded, sanitized, session-hashed, and free of secrets/PII.
-- [ ] Rollback disables the micro policy without rewriting state, artifacts, evidence, or receipts.
+- [x] Rollback disables the micro policy through the audited `disable-fast-lane` operation without rewriting state, artifacts, evidence, or receipts.
 - [ ] `npm run typecheck`, focused Vitest tests, full repository tests, registry validation, and the representative Odoo evidence all pass in the implementation PR.
 
 ## Recommended commit/PR order

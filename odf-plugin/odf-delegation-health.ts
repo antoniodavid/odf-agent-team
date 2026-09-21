@@ -372,32 +372,35 @@ export const EXECUTOR_BOUNDARY = `## Executor Boundary (non-negotiable)
 - Never run dropdb, DROP DATABASE, TRUNCATE, or destructive re-initialization without current explicit user consent for that exact database.
 - Test commands must use the exact -d <test_db>; disposable databases are preferred, and a non-isolated development database requires current user authorization for that exact database. State that authorization and warn that tests may mutate module, schema, and test data. This authorization does not authorize destructive operations.`
 
+type TaskModel = { providerID: string; modelID: string }
+
+function resolveTaskModel(context: Record<string, unknown>): TaskModel | undefined {
+  const validModelPart = (value: unknown): value is string =>
+    typeof value === "string" && value.trim().length > 0 && !/\s/.test(value)
+  const rawModel = context.model
+  if (rawModel && typeof rawModel === "object" && !Array.isArray(rawModel)) {
+    const candidate = rawModel as Record<string, unknown>
+    if (validModelPart(candidate.providerID) && validModelPart(candidate.modelID)) {
+      return { providerID: candidate.providerID.trim(), modelID: candidate.modelID.trim() }
+    }
+  }
+  if (typeof rawModel === "string") {
+    const [providerID, modelID, ...extra] = rawModel.trim().split("/")
+    if (extra.length === 0 && validModelPart(providerID) && validModelPart(modelID)) {
+      return { providerID: providerID.trim(), modelID: modelID.trim() }
+    }
+  }
+  if (validModelPart(context.providerID) && validModelPart(context.modelID)) {
+    return { providerID: context.providerID.trim(), modelID: context.modelID.trim() }
+  }
+  return undefined
+}
 
 export function createSDKSessionTaskApi(toolCtx: ToolContext, session: SDKSessionApi): TaskApi {
   const pending = new WeakMap<Promise<unknown>, { childID?: string; abortRequested: boolean; aborting?: Promise<void> }>()
   const directory = typeof (toolCtx as any).directory === "string" ? (toolCtx as any).directory : process.cwd()
   const context = toolCtx as Record<string, unknown>
-  const model = (() => {
-    const validModelPart = (value: unknown): value is string =>
-      typeof value === "string" && value.trim().length > 0 && !/\s/.test(value)
-    const rawModel = context.model
-    if (rawModel && typeof rawModel === "object" && !Array.isArray(rawModel)) {
-      const candidate = rawModel as Record<string, unknown>
-      if (validModelPart(candidate.providerID) && validModelPart(candidate.modelID)) {
-        return { providerID: candidate.providerID.trim(), modelID: candidate.modelID.trim() }
-      }
-    }
-    if (typeof rawModel === "string") {
-      const [providerID, modelID, ...extra] = rawModel.trim().split("/")
-      if (extra.length === 0 && validModelPart(providerID) && validModelPart(modelID)) {
-        return { providerID: providerID.trim(), modelID: modelID.trim() }
-      }
-    }
-    if (validModelPart(context.providerID) && validModelPart(context.modelID)) {
-      return { providerID: context.providerID.trim(), modelID: context.modelID.trim() }
-    }
-    return undefined
-  })()
+  const model = resolveTaskModel(context)
 
   const taskApi = ((input: TaskApiInput): Promise<unknown> => {
     const invocation = { abortRequested: false } as { childID?: string; abortRequested: boolean; aborting?: Promise<void> }
@@ -481,10 +484,173 @@ export function createSDKSessionTaskApi(toolCtx: ToolContext, session: SDKSessio
   return taskApi
 }
 
+export interface V2SessionApi {
+  create: (options: Record<string, unknown>) => Promise<unknown>
+  prompt: (options: Record<string, unknown>) => Promise<unknown>
+  wait: (options: Record<string, unknown>) => Promise<unknown>
+  context: (options: Record<string, unknown>) => Promise<unknown>
+  abort: (options: Record<string, unknown>) => Promise<unknown>
+}
+
+function isV2SessionApi(value: unknown): value is V2SessionApi {
+  if (!value || typeof value !== "object") return false
+  const session = value as Record<string, unknown>
+  return ["create", "prompt", "wait", "context", "abort"].every(method => typeof session[method] === "function")
+}
+
+function getV2Session(client?: OpencodeClient): V2SessionApi | undefined {
+  try {
+    const session = client && (client as any).v2?.session
+    return isV2SessionApi(session) ? session : undefined
+  } catch {
+    return undefined
+  }
+}
+
+function v2ErrorMessage(error: unknown, fallback: string): string {
+  if (typeof error === "string" && error.trim()) return error.trim()
+  if (!error || typeof error !== "object") return fallback
+  const value = error as Record<string, any>
+  const nested = value.data
+  const message = nested && typeof nested === "object" ? nested.message : undefined
+  return String(message || value.message || value.name || fallback)
+}
+
+function v2OperationError(error: unknown, prefix: string, cancellationAware: boolean): Error {
+  const message = v2ErrorMessage(error, `${prefix} failed`)
+  const errorName = error && typeof error === "object" ? (error as Record<string, unknown>).name : undefined
+  if (cancellationAware && (errorName === "MessageAbortedError" || isCancellationMessage(message))) {
+    return new Error(`task-cancelled: ${message}`)
+  }
+  return new Error(`${prefix}: ${message}`)
+}
+
+function unwrapV2Response(response: unknown, prefix: string, cancellationAware: boolean): unknown {
+  let value = response
+  for (let depth = 0; depth < 4; depth += 1) {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return value
+    const envelope = value as Record<string, unknown>
+    if (envelope.error != null) throw v2OperationError(envelope.error, prefix, cancellationAware)
+    if (!("data" in envelope)) return value
+    value = envelope.data
+  }
+  return value
+}
+
+async function callV2(
+  operation: () => Promise<unknown>,
+  prefix: string,
+  cancellationAware: boolean,
+): Promise<unknown> {
+  try {
+    return unwrapV2Response(await operation(), prefix, cancellationAware)
+  } catch (error) {
+    if (error instanceof Error && /^(task-cancelled|session-create-error|session-prompt-error):/.test(error.message)) {
+      throw error
+    }
+    throw v2OperationError(error, prefix, cancellationAware)
+  }
+}
+
+function v2ContextResult(response: unknown): unknown {
+  if (isCancellation(response)) throw new Error("task-cancelled: session.context was cancelled")
+  if (!Array.isArray(response)) throw new Error("invalid-task-result: session.context returned an invalid response")
+  if (response.length === 0) throw new Error("empty-task-result: session.context returned no messages")
+
+  const latestAssistant = [...response].reverse().find(message => {
+    if (!message || typeof message !== "object" || Array.isArray(message)) return false
+    const value = message as Record<string, any>
+    const info = value.info && typeof value.info === "object" ? value.info : value
+    return info.type === "assistant" || info.role === "assistant"
+  })
+  if (!latestAssistant || typeof latestAssistant !== "object" || Array.isArray(latestAssistant)) {
+    throw new Error("invalid-task-result: session.context returned no assistant message")
+  }
+
+  const value = latestAssistant as Record<string, any>
+  const info = value.info && typeof value.info === "object" ? value.info : value
+  const assistantError = info.error || value.error
+  if (assistantError) throw v2OperationError(assistantError, "session-prompt-error", true)
+  const parts = Array.isArray(value.content)
+    ? value.content
+    : Array.isArray(value.parts)
+      ? value.parts
+      : Array.isArray(info.content) ? info.content : []
+  const text = parts
+    .filter((part: any) => part?.type === "text" && typeof part.text === "string")
+    .map((part: any) => part.text)
+    .join("\n")
+    .trim()
+  if (!text) throw new Error("empty-task-result: session.context returned no assistant text")
+  return sessionResultFromText(text)
+}
+
+export function createV2SessionTaskApi(toolCtx: ToolContext, session: V2SessionApi): TaskApi {
+  const pending = new WeakMap<Promise<unknown>, { childID?: string; abortRequested: boolean; aborting?: Promise<void> }>()
+  const directory = typeof (toolCtx as any).directory === "string" ? (toolCtx as any).directory : process.cwd()
+  const context = toolCtx as Record<string, unknown>
+  const model = resolveTaskModel(context)
+
+  const taskApi = ((input: TaskApiInput): Promise<unknown> => {
+    const invocation = { abortRequested: false } as { childID?: string; abortRequested: boolean; aborting?: Promise<void> }
+    const abortSession = async (sessionID: string): Promise<void> => {
+      await callV2(() => session.abort({ sessionID }), "session-prompt-error", true)
+    }
+    const abortChild = async (): Promise<void> => {
+      invocation.abortRequested = true
+      if (!invocation.childID || invocation.aborting) return invocation.aborting
+      invocation.aborting = abortSession(invocation.childID)
+      await invocation.aborting
+    }
+    const promise = (async (): Promise<unknown> => {
+      const created = await callV2(() => session.create({
+        agent: input.agent,
+        ...(model ? { model: { providerID: model.providerID, id: model.modelID } } : {}),
+        location: { directory },
+      }), "session-create-error", false)
+      const createdValue = created && typeof created === "object" && !Array.isArray(created)
+        ? created as Record<string, unknown>
+        : undefined
+      invocation.childID = typeof createdValue?.id === "string" ? createdValue.id : undefined
+      if (!invocation.childID) throw new Error("session-create-error: session.create returned no child session id")
+      if (invocation.abortRequested) {
+        await abortChild()
+        throw new Error("task-cancelled: child session was aborted")
+      }
+
+      await callV2(() => session.prompt({
+        sessionID: invocation.childID,
+        prompt: { text: appendValidatedContextFiles(input.prompt, input.context_files) },
+      }), "session-prompt-error", true)
+      if (invocation.abortRequested) throw new Error("task-cancelled: child session was aborted")
+      await callV2(() => session.wait({ sessionID: invocation.childID }), "session-prompt-error", true)
+      if (invocation.abortRequested) throw new Error("task-cancelled: child session was aborted")
+      const response = await callV2(() => session.context({ sessionID: invocation.childID }), "session-prompt-error", true)
+      if (invocation.abortRequested) throw new Error("task-cancelled: child session was aborted")
+      return v2ContextResult(response)
+    })()
+    pending.set(promise, invocation)
+    taskApi.abort = async (invocationPromise: Promise<unknown>): Promise<void> => {
+      const state = pending.get(invocationPromise)
+      if (!state) return
+      state.abortRequested = true
+      if (!state.childID || state.aborting) return state.aborting
+      state.aborting = abortSession(state.childID)
+      await state.aborting
+    }
+    return promise
+  }) as TaskApi
+  return taskApi
+}
+
 export function findTaskApi(toolCtx: ToolContext, client?: OpencodeClient): { taskApi: TaskApi; source: DelegationMetrics["task_api_source"] } | null {
   const nativeTask = (toolCtx as Record<string, unknown>).task
   if (typeof nativeTask === "function") {
     return { taskApi: createNativeTaskApi(nativeTask as NativeTaskFunction), source: "toolCtx.task" }
+  }
+  const v2Session = getV2Session(client)
+  if (v2Session) {
+    return { taskApi: createV2SessionTaskApi(toolCtx, v2Session), source: "sdk.v2" }
   }
   const session = client && (client as any).session
   if (session && typeof session.create === "function" && typeof session.prompt === "function" && typeof session.abort === "function") {

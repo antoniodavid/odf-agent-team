@@ -7,7 +7,7 @@ import * as fsSync from "node:fs"
 import * as path from "node:path"
 import { tool } from "@opencode-ai/plugin"
 import { buildCandidateManifest, computeCandidateDigest } from "./candidate-manifest.js"
-import { gitHead } from "./odf-delegation-policy.js"
+import { gitHead, readPersistedExternalValidationScope } from "./odf-delegation-policy.js"
 import { debugLog, resolveWorkspaceRoot } from "./odf-delegation-shared.js"
 
 export interface ODFReceipt {
@@ -35,9 +35,13 @@ export interface ODFReceipt {
   }
 }
 
-/** Candidate digest of a workspace, or null when git is unavailable (T3 makes it mandatory). */
-export function candidateDigestOrNull(workspaceDir: string): string | null {
-  const manifest = buildCandidateManifest(workspaceDir)
+/** Candidate digest of a workspace, or null when git/scope validation is unavailable. */
+export function candidateDigestOrNull(workspaceDir: string, change?: string): string | null {
+  const persistedScope = change
+    ? readPersistedExternalValidationScope(workspaceDir, change)
+    : { paths: undefined, invalid: false }
+  if (persistedScope.invalid) return null
+  const manifest = buildCandidateManifest(workspaceDir, persistedScope.paths)
   return manifest.base_head !== null ? computeCandidateDigest(manifest) : null
 }
 
@@ -81,7 +85,7 @@ export function mergeReceipt(
   } catch {
     // No prior receipt or unreadable → write incoming.
   }
-  incoming.candidate_digest = candidateDigestOrNull(workspaceDir)
+  incoming.candidate_digest = candidateDigestOrNull(workspaceDir, incoming.change)
   saveReceiptJson(workspaceDir, incoming)
   return incoming
 }

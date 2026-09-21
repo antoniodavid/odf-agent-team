@@ -7,7 +7,13 @@
 import * as fsSync from "node:fs"
 import * as path from "node:path"
 import { execFileSync, execSync } from "node:child_process"
-import { buildCandidateManifest, computeCandidateDigest, extractChangedPaths } from "./candidate-manifest.js"
+import {
+  buildCandidateManifest,
+  captureExternalValidationSubjectManifest,
+  computeCandidateDigest,
+  extractChangedPaths,
+  normalizeExternalValidationScope,
+} from "./candidate-manifest.js"
 import { debugLog, resolveWorkspaceRoot, type ODFRegistry } from "./odf-delegation-shared.js"
 
 // POLICY GATE (slice 1)
@@ -31,6 +37,8 @@ export interface PolicyGateDecision {
   changed_lines: number | null
   correction_budget_lines: number | null
   changed_paths: string[]
+  external_validation_scope?: string[]
+  external_validation_subjects?: string[]
   resolved_at: string
 }
 
@@ -158,6 +166,65 @@ export function savePolicyGateJson(workspaceDir: string, decision: PolicyGateDec
   }
 }
 
+export function readPersistedExternalValidationScope(
+  workspaceDir: string,
+  change: string,
+): { paths?: string[]; invalid: boolean } {
+  const gatePath = path.join(workspaceDir, ".odf", `policy-gate-${change}.json`)
+  try {
+    fsSync.lstatSync(gatePath)
+  } catch (err) {
+    return (err as NodeJS.ErrnoException).code === "ENOENT" ? { invalid: false } : { invalid: true }
+  }
+
+  try {
+    const raw = JSON.parse(fsSync.readFileSync(gatePath, "utf8")) as Record<string, unknown>
+    if (!Object.prototype.hasOwnProperty.call(raw, "external_validation_scope")) return { invalid: false }
+    const result = normalizeExternalValidationScope(workspaceDir, raw.external_validation_scope)
+    return result.error ? { invalid: true } : { paths: result.paths, invalid: false }
+  } catch {
+    return { invalid: true }
+  }
+}
+
+export function readPersistedExternalValidationSubjects(
+  workspaceDir: string,
+  change: string,
+): { paths?: string[]; invalid: boolean } {
+  const gatePath = path.join(workspaceDir, ".odf", `policy-gate-${change}.json`)
+  try {
+    fsSync.lstatSync(gatePath)
+  } catch (err) {
+    return (err as NodeJS.ErrnoException).code === "ENOENT" ? { invalid: false } : { invalid: true }
+  }
+
+  try {
+    const raw = JSON.parse(fsSync.readFileSync(gatePath, "utf8")) as Record<string, unknown>
+    if (!Object.prototype.hasOwnProperty.call(raw, "external_validation_subjects")) return { invalid: false }
+    const result = captureExternalValidationSubjectManifest(workspaceDir, raw.external_validation_subjects)
+    return result.error ? { invalid: true } : { paths: result.paths, invalid: false }
+  } catch {
+    return { invalid: true }
+  }
+}
+
+// ponytail: cap untracked reads at 1 MiB; oversized files fail closed instead of guessing.
+const MAX_SCOPED_UNTRACKED_LINE_COUNT_BYTES = 1024 * 1024
+
+function countScopedUntrackedLines(workspaceDir: string, relativePath: string): number | null {
+  try {
+    const absolutePath = path.resolve(workspaceDir, relativePath)
+    const stat = fsSync.statSync(absolutePath)
+    if (!stat.isFile() || stat.size > MAX_SCOPED_UNTRACKED_LINE_COUNT_BYTES) return null
+    const content = fsSync.readFileSync(absolutePath, "utf8")
+    if (content.length === 0) return 0
+    const lines = content.split(/\r\n|\n|\r/)
+    return lines.at(-1) === "" ? lines.length - 1 : lines.length
+  } catch {
+    return null
+  }
+}
+
 function resolveReadableWorkspaceRoot(workspaceDir: string | undefined): string | null {
   const requested = workspaceDir === undefined ? process.cwd() : workspaceDir.trim()
   if (!requested) return null
@@ -212,6 +279,8 @@ export function computePolicyGate(opts: {
   phase: "IMPLEMENT" | "VERIFY"
   workspaceDir?: string
   registry: ODFRegistry
+  externalValidationScope?: readonly string[]
+  externalValidationSubjects?: readonly string[]
 }): PolicyGateDecision {
   const workspace = resolveReadableWorkspaceRoot(opts.workspaceDir)
   if (!workspace) return blockedWorkspaceDecision(opts)
@@ -235,9 +304,67 @@ export function computePolicyGate(opts: {
     }
   }
 
+  const scopeResult = normalizeExternalValidationScope(workspace, opts.externalValidationScope)
+  if (scopeResult.error) {
+    return {
+      change: opts.change,
+      phase: opts.phase,
+      gate: "block",
+      reason: `invalid external-validation scope — ${scopeResult.error}`,
+      tdd,
+      risk_tier: "MEDIUM",
+      frozen_diff_ref: null,
+      candidate_digest: null,
+      base_head: null,
+      changed_lines: null,
+      correction_budget_lines: null,
+      changed_paths: [],
+      resolved_at: new Date().toISOString(),
+    }
+  }
+  const externalValidationScope = scopeResult.paths
+  const subjectResult = captureExternalValidationSubjectManifest(workspace, opts.externalValidationSubjects)
+  if (subjectResult.error) {
+    return {
+      change: opts.change,
+      phase: opts.phase,
+      gate: "block",
+      reason: `invalid external-validation subjects — ${subjectResult.error}`,
+      tdd,
+      risk_tier: "MEDIUM",
+      frozen_diff_ref: null,
+      candidate_digest: null,
+      base_head: null,
+      changed_lines: null,
+      correction_budget_lines: null,
+      changed_paths: [],
+      resolved_at: new Date().toISOString(),
+    }
+  }
+  const externalValidationSubjects = subjectResult.paths
+
   const gatePath = path.join(workspace, ".odf", `policy-gate-${opts.change}.json`)
-  const manifest = buildCandidateManifest(workspace)
+  const manifest = buildCandidateManifest(workspace, externalValidationScope)
   const head = manifest.base_head
+
+  const persistedSubjects = readPersistedExternalValidationSubjects(workspace, opts.change)
+  if (persistedSubjects.invalid) {
+    return {
+      change: opts.change,
+      phase: opts.phase,
+      gate: "block",
+      reason: "invalid persisted external-validation subjects — policy gate must be repaired before reuse",
+      tdd,
+      risk_tier: "MEDIUM",
+      frozen_diff_ref: null,
+      candidate_digest: null,
+      base_head: null,
+      changed_lines: null,
+      correction_budget_lines: null,
+      changed_paths: [],
+      resolved_at: new Date().toISOString(),
+    }
+  }
 
   // Idempotency: reuse a frozen decision for the same change + phase only when
   // the candidate bytes are unchanged (digest match), not merely when HEAD is.
@@ -247,7 +374,12 @@ export function computePolicyGate(opts: {
       existing.phase === opts.phase &&
       head !== null &&
       existing.candidate_digest != null &&
-      existing.candidate_digest === computeCandidateDigest(manifest)
+      existing.candidate_digest === computeCandidateDigest(manifest) &&
+      (() => {
+        const persistedScope = normalizeExternalValidationScope(workspace, existing.external_validation_scope)
+        return !persistedScope.error && JSON.stringify(persistedScope.paths) === JSON.stringify(externalValidationScope)
+      })() &&
+      JSON.stringify(persistedSubjects.paths) === JSON.stringify(externalValidationSubjects)
     ) {
       return existing
     }
@@ -269,7 +401,13 @@ export function computePolicyGate(opts: {
     if (head !== null) {
       candidateDigest = computeCandidateDigest(manifest)
       try {
-        const numstat = execSync("git diff --numstat HEAD", { cwd: workspace, encoding: "utf8" }).toString().trim()
+        const numstat = externalValidationScope
+          ? execFileSync("git", ["diff", "--numstat", "HEAD", "--", ...externalValidationScope], {
+            cwd: workspace,
+            encoding: "utf8",
+            stdio: ["ignore", "pipe", "ignore"],
+          }).toString().trim()
+          : execSync("git diff --numstat HEAD", { cwd: workspace, encoding: "utf8" }).toString().trim()
         changedLines = numstat
           .split("\n")
           .filter(Boolean)
@@ -279,6 +417,17 @@ export function computePolicyGate(opts: {
             const d = parseInt(del, 10)
             return sum + (Number.isFinite(a) ? a : 0) + (Number.isFinite(d) ? d : 0)
           }, 0)
+        if (externalValidationScope) {
+          for (const entry of manifest.entries) {
+            if (entry.status !== "??") continue
+            const lines = countScopedUntrackedLines(workspace, entry.path)
+            if (lines === null) {
+              changedLines = null
+              break
+            }
+            changedLines += lines
+          }
+        }
       } catch {
         changedLines = null
       }
@@ -323,6 +472,8 @@ export function computePolicyGate(opts: {
     changed_lines: changedLines,
     correction_budget_lines: correctionBudget,
     changed_paths: changedPaths,
+    ...(externalValidationScope ? { external_validation_scope: externalValidationScope } : {}),
+    ...(externalValidationSubjects ? { external_validation_subjects: externalValidationSubjects } : {}),
     resolved_at: new Date().toISOString(),
   }
 

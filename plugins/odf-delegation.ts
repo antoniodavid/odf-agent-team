@@ -471,6 +471,27 @@ interface ODFDelegateArgs {
   workflow_advance?: ODFDelegateWorkflowAdvance
 }
 
+export interface FastLanePolicy {
+  version: 1
+  enabled: boolean
+  executor: "odoo_batch_implementer"
+  validation: "targeted-then-full"
+}
+
+const FAST_LANE_EXECUTOR = "odoo_batch_implementer" as const
+const FAST_LANE_VALIDATION = "targeted-then-full" as const
+const FAST_LANE_ROLLBACK_VERSION = 1 as const
+
+interface FastLaneRollback {
+  version: typeof FAST_LANE_ROLLBACK_VERSION
+  change: string
+  artifact_store: ArtifactStore
+  policy_digest: string
+  disabled_at: string
+  approved_by: string
+  reason: string
+}
+
 interface DelegateExecutionOptions {
   branch_id?: string
   suppress_failure_receipt?: boolean
@@ -805,7 +826,7 @@ function acquireAttempt(opts: {
       settled_at: null,
       reason: "acquired",
       result_status: "running",
-      candidate_digest: candidateDigestOrNull(opts.workspaceDir),
+       candidate_digest: candidateDigestOrNull(opts.workspaceDir, opts.change),
     }
     const appendError = appendAttemptLedgerRecord(opts.workspaceDir, ledgerPath, record)
     if (appendError) {
@@ -854,6 +875,7 @@ function extractChangeName(prompt: string): string | null {
 
 export interface ValidationEvidenceCommand {
   name: string
+  kind?: "targeted" | "full"
   command: string
   database?: string
   exit_code: number
@@ -884,6 +906,7 @@ export interface ValidationVerdict {
 }
 
 const EVIDENCE_FRESHNESS_MS = 60 * 60 * 1000 // 60 min window
+const CANDIDATE_DIGEST_PATTERN = /^[0-9a-f]{64}$/
 
 function validationEvidenceRelativePath(change: string, branchId?: string): string {
   const suffix = branchId ? `-${branchId}` : ""
@@ -919,6 +942,7 @@ const EVIDENCE_PATTERNS: Record<string, RegExp> = {
  * - at least EVIDENCE_MIN_COMMANDS[tier] commands
  * - every command exit_code === 0
  * - known commands match their minimal output pattern
+ * - optional fast-lane command kind and phase requirements
  */
 export function validateValidationEvidence(opts: {
   workspaceDir: string
@@ -927,6 +951,8 @@ export function validateValidationEvidence(opts: {
   frozenDiffRef: string | null
   evidencePath?: string
   expectationsIds?: string[]
+  expectedPhase?: "IMPLEMENT" | "VERIFY"
+  requiredCommandKind?: "targeted" | "full"
   now?: Date
 }): ValidationVerdict {
   const now = opts.now || new Date()
@@ -961,8 +987,27 @@ export function validateValidationEvidence(opts: {
     return { status: "invalid", reason: `validation-evidence change "${evidence.change}" does not match "${opts.change}"`, commands_validated: 0 }
   }
 
-  if (evidence.candidate_digest != null) {
-    const freshDigest = candidateDigestOrNull(opts.workspaceDir)
+  if (opts.expectedPhase !== undefined && evidence.phase !== opts.expectedPhase) {
+    return { status: "invalid", reason: `validation-evidence phase "${evidence.phase}" does not match "${opts.expectedPhase}"`, commands_validated: 0 }
+  }
+
+  const freshDigest = candidateDigestOrNull(opts.workspaceDir, opts.change)
+  if (evidence.candidate_digest !== undefined && evidence.candidate_digest !== null &&
+    (typeof evidence.candidate_digest !== "string" || !CANDIDATE_DIGEST_PATTERN.test(evidence.candidate_digest))) {
+    return { status: "invalid", reason: "candidate_digest must be a lowercase SHA-256 hex digest", commands_validated: 0 }
+  }
+  if (opts.requiredCommandKind === "targeted") {
+    if (freshDigest === null) {
+      return { status: "invalid", reason: "candidate_digest required for targeted validation evidence — candidate digest is unavailable", commands_validated: 0 }
+    }
+    if (typeof evidence.candidate_digest !== "string" || evidence.candidate_digest !== freshDigest) {
+      return {
+        status: "invalid",
+        reason: `candidate digest mismatch: targeted evidence is bound to ${String(evidence.candidate_digest)}, workspace candidate is ${freshDigest}`,
+        commands_validated: 0,
+      }
+    }
+  } else if (typeof evidence.candidate_digest === "string") {
     if (freshDigest !== null && evidence.candidate_digest !== freshDigest) {
       return {
         status: "invalid",
@@ -1000,7 +1045,6 @@ export function validateValidationEvidence(opts: {
     if (typeof evidence.test_identity !== "string" || !evidence.test_identity.trim()) {
       return { status: "invalid", reason: "verification-evidence is missing test_identity — which test suite ran", commands_validated: 0 }
     }
-    const freshDigest = candidateDigestOrNull(opts.workspaceDir)
     if (freshDigest !== null && (typeof evidence.candidate_digest !== "string" || !evidence.candidate_digest.trim())) {
       return { status: "invalid", reason: "candidate_digest required for verification-evidence — bind the receipt to the verified candidate", commands_validated: 0 }
     }
@@ -1024,6 +1068,13 @@ export function validateValidationEvidence(opts: {
     }
     if (cmd.exit_code !== 0) {
       return { status: "invalid", reason: `command "${cmd.name}" exited with ${cmd.exit_code}`, commands_validated: checked }
+    }
+    if (opts.requiredCommandKind !== undefined && cmd.kind !== opts.requiredCommandKind) {
+      return {
+        status: "invalid",
+        reason: `command "${cmd.name}" must be marked ${opts.requiredCommandKind} validation evidence`,
+        commands_validated: checked,
+      }
     }
     if (["odoo-tests", "odoo-test", "pytest-odoo"].includes(cmd.name)) {
       if (typeof cmd.database !== "string" || !cmd.database.trim()) {
@@ -1070,8 +1121,18 @@ frozen diff ref). The gate documents — the sub-agent applies, never recomputes
         .string()
         .optional()
         .describe("Project directory (defaults to cwd)"),
+      external_validation_scope: tool.schema
+        .array(tool.schema.string().max(512))
+        .max(64)
+        .optional()
+        .describe("Optional relative workflow/artifact paths to include in the external-validation candidate"),
     },
-    async execute(args: { change: string; phase: "IMPLEMENT" | "VERIFY"; workspace_dir?: string }): Promise<string> {
+    async execute(args: {
+      change: string
+      phase: "IMPLEMENT" | "VERIFY"
+      workspace_dir?: string
+      external_validation_scope?: string[]
+    }): Promise<string> {
       const registry = await loadRegistry()
       if (!registry) {
         const blocked: PolicyGateDecision = {
@@ -1096,6 +1157,7 @@ frozen diff ref). The gate documents — the sub-agent applies, never recomputes
         phase: args.phase,
         workspaceDir: args.workspace_dir,
         registry,
+        externalValidationScope: args.external_validation_scope,
       })
       debugLog(`[odf-delegation] odf_policy_gate: change=${decision.change} phase=${decision.phase} gate=${decision.gate} tdd=${decision.tdd.effective} tier=${decision.risk_tier}`)
       return JSON.stringify(decision, null, 2)
@@ -1361,6 +1423,10 @@ Use this instead of generic task() for ODF workflow delegation.`,
       let acquiredAttempt: AcquiredAttempt | null = executionOptions.pre_acquired_attempt || null
       let workflowResult: ReturnType<typeof advanceWorkflow> | null = executionOptions.workflow_result || null
       let effectiveWorkflowAdvance: ODFDelegateWorkflowAdvance | null = null
+      let selectedWorkflowSnapshot: SelectedWorkflowSnapshot | null = null
+      let fastLanePolicy: FastLanePolicy | null = null
+      let fastLanePolicyActive = false
+      let fastLaneBuild = false
       if (args.workflow_advance) {
         if (args.artifact_store === undefined) {
           return blockWorkflow(
@@ -1446,6 +1512,7 @@ Use this instead of generic task() for ODF workflow delegation.`,
             { safe_continuation: changeName ? `/odf-continue ${changeName}` : "/odf-continue" },
           )
         }
+        selectedWorkflowSnapshot = selected.snapshot
         const canonical = canonicalizeWorkflowAdvance(selected.snapshot, args.workflow_advance, expectedStage)
         if ("reason" in canonical) return blockWorkflow(canonical.reason, canonical.message, null)
         effectiveWorkflowAdvance = canonical.proof
@@ -1582,6 +1649,34 @@ Use this instead of generic task() for ODF workflow delegation.`,
         }
       }
 
+      if (gatedPhase && effectiveWorkflowAdvance && selectedWorkflowSnapshot) {
+    const storedFastLane = fastLanePolicyFromState(selectedWorkflowSnapshot.state, workspaceRoot, changeName!)
+        if (storedFastLane.reason) {
+          return blockWorkflow(
+            storedFastLane.reason,
+            "The persisted fast-lane policy is malformed and cannot authorize this delegation.",
+            workflowResult,
+          )
+        }
+        fastLanePolicy = storedFastLane.policy
+        const fastLaneFailure = fastLaneEligibilityFailure(
+          effectiveWorkflowAdvance.work_type,
+          fastLanePolicy,
+          selectedWorkflowSnapshot.state.entry_route_binding,
+        ) || (fastLanePolicy?.enabled && args.phase === "IMPLEMENT"
+           ? fastLaneCandidateFailure(workspaceRoot, changeName!, selectedWorkflowSnapshot.state.entry_route_binding)
+          : null)
+        if (fastLaneFailure) {
+          return blockWorkflow(
+            fastLaneFailure,
+            "The persisted fast-lane policy is enabled, but its small-change binding is not currently eligible.",
+            workflowResult,
+          )
+        }
+        fastLanePolicyActive = fastLanePolicy?.enabled === true
+        fastLaneBuild = fastLanePolicyActive && args.phase === "IMPLEMENT"
+      }
+
       const contextValidation = validateContextFiles(workspaceRoot, args.context_files || [])
       if (contextValidation.error) return contextValidation.error
 
@@ -1637,7 +1732,24 @@ Use this instead of generic task() for ODF workflow delegation.`,
       // Resolve agent and profile
       const keywords = args.prompt.split(/\s+/)
       let agentName: string | null
-      if (args.agent !== undefined) {
+      if (fastLaneBuild) {
+        if (args.agent !== undefined && args.agent !== FAST_LANE_EXECUTOR) {
+          return blockWorkflow(
+            "fast-lane-executor-conflict",
+            `The enabled fast-lane policy requires ${FAST_LANE_EXECUTOR}; do not override its bounded executor.`,
+            workflowResult,
+          )
+        }
+        const selection = validateAgentSelection(registry, args.phase, FAST_LANE_EXECUTOR)
+        if (!selection.valid) {
+          return blockWorkflow(
+            "fast-lane-executor-unavailable",
+            `The enabled fast-lane executor ${FAST_LANE_EXECUTOR} is not registered, installed, and phase-eligible.`,
+            workflowResult,
+          )
+        }
+        agentName = selection.agent.name
+      } else if (args.agent !== undefined) {
         const selection = validateAgentSelection(registry, args.phase, args.agent)
         if (!selection.valid) {
           return blockWorkflow(
@@ -1706,9 +1818,15 @@ Use this instead of generic task() for ODF workflow delegation.`,
       const sourceAuthorityPrompt = sourceAuthorityRequired && sourceAuthorityRoots
         ? `## Source Authority Contract (mandatory postcondition)\nThis DESIGN/IMPLEMENT task is view-authority work. Return result.source_authority with ok: true, verified: true, relation, target_xmlid, and bounded evidence.relation/evidence.target objects containing the exact file, line, and snippet. For action relations such as search_view_id, also return action_xmlid and evidence.action. For ordinary view inheritance, return view_xmlid and evidence.view, with relation exactly inherit_id. Never put a view XML ID in action_xmlid. The plugin recomputes the explicit action or view relation from this source root; prose and verified flags are not proof.\nOdoo source root: ${sourceAuthorityRoots.source}${sourceAuthorityRoots.repos ? `\nOdoo repos root: ${sourceAuthorityRoots.repos}` : ""}`
         : ""
+      const fastLanePrompt = fastLanePolicyActive
+        ? `## Fast-Lane Policy (authoritative, opt-in)\n${JSON.stringify(fastLanePolicy, null, 2)}\nThis policy is valid only for the persisted eligible small-change binding. Keep the canonical BUILD/VERIFY transition and every existing safety gate.\n${args.phase === "IMPLEMENT"
+          ? `For this bounded BUILD, run only the targeted inner-loop validation and write ${fastLaneEvidenceRelativePath(changeName!, "targeted")} with every command marked kind: targeted. Do not substitute full-gate evidence for targeted evidence.`
+          : `For this final VERIFY, run the configured full module/CI validation and write ${fastLaneEvidenceRelativePath(changeName!, "full")} with every command marked kind: full. Targeted evidence cannot substitute for this full gate.`}`
+        : ""
       const delegationPrompt = [
         enrichedPrompt,
         sourceAuthorityPrompt,
+        fastLanePrompt,
         policyGate ? `## Policy Gate Decision (authoritative, do not recompute)\n${JSON.stringify(policyGate, null, 2)}` : "",
         EXECUTOR_BOUNDARY,
       ].filter(Boolean).join("\n\n")
@@ -1867,7 +1985,13 @@ Use this instead of generic task() for ODF workflow delegation.`,
               change: policyGate.change,
               tier: policyGate.risk_tier,
               frozenDiffRef: policyGate.frozen_diff_ref,
-              evidencePath: executionOptions.validation_evidence_path,
+              evidencePath: fastLaneBuild
+                ? fastLaneEvidenceRelativePath(policyGate.change, "targeted")
+                : executionOptions.validation_evidence_path,
+              ...(fastLaneBuild ? {
+                expectedPhase: "IMPLEMENT" as const,
+                requiredCommandKind: "targeted" as const,
+              } : {}),
             })
           }
           const proofBacked = gatedPhase && args.workflow_advance !== undefined
@@ -1891,7 +2015,9 @@ Use this instead of generic task() for ODF workflow delegation.`,
                 args.phase as ODFReceipt["phase"],
                 summary,
                 policyGate,
-              validation ? [validationEvidenceRelativePath(changeName!, executionOptions.branch_id)] : [],
+               validation ? [fastLaneBuild
+                 ? fastLaneEvidenceRelativePath(changeName!, "targeted")
+                 : validationEvidenceRelativePath(changeName!, executionOptions.branch_id)] : [],
               disposition?.failureReceiptStatus || "blocked",
               disposition ? "error" : "validation-failed",
               expectationsIds,
@@ -3494,6 +3620,114 @@ interface SelectedWorkflowSnapshot {
   status: WorkflowStatus
 }
 
+function isFastLanePolicy(value: unknown): value is FastLanePolicy {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false
+  const policy = value as Record<string, unknown>
+  const keys = Object.keys(policy).sort()
+  return keys.join("\0") === ["enabled", "executor", "validation", "version"].join("\0") &&
+    policy.version === 1 &&
+    typeof policy.enabled === "boolean" &&
+    policy.executor === FAST_LANE_EXECUTOR &&
+    policy.validation === FAST_LANE_VALIDATION
+}
+
+function fastLaneRollbackPath(workspaceRoot: string, changeName: string): string {
+  return path.join(workspaceRoot, ".odf", `fast-lane-rollback-${changeName}.json`)
+}
+
+function fastLanePolicyDigest(policy: FastLanePolicy): string {
+  return nodeCrypto.createHash("sha256").update(canonicalWorkflowValue(policy)).digest("hex")
+}
+
+function isFastLaneRollback(value: unknown): value is FastLaneRollback {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false
+  const rollback = value as Record<string, unknown>
+  const keys = Object.keys(rollback).sort()
+  return keys.join("\0") === ["approved_by", "artifact_store", "change", "disabled_at", "policy_digest", "reason", "version"].join("\0") &&
+    rollback.version === FAST_LANE_ROLLBACK_VERSION &&
+    typeof rollback.change === "string" && isSafeToken(rollback.change) &&
+    artifactStoreValue(rollback.artifact_store) !== null &&
+    typeof rollback.policy_digest === "string" && CANDIDATE_DIGEST_PATTERN.test(rollback.policy_digest) &&
+    typeof rollback.disabled_at === "string" && isSafeTimestamp(rollback.disabled_at) && Number.isFinite(new Date(rollback.disabled_at).getTime()) &&
+    typeof rollback.approved_by === "string" && rollback.approved_by.trim().length > 0 && rollback.approved_by.length <= 256 && !/[\r\n]/.test(rollback.approved_by) &&
+    typeof rollback.reason === "string" && rollback.reason.trim().length >= 20 && rollback.reason.length <= 2000 && !/[\r\n]/.test(rollback.reason)
+}
+
+function readFastLaneRollback(workspaceRoot: string, changeName: string): { rollback: FastLaneRollback | null; reason?: string } {
+  const rollbackPath = safeWorkspaceStatePath(workspaceRoot, fastLaneRollbackPath(workspaceRoot, changeName))
+  if (!rollbackPath) return { rollback: null, reason: "fast-lane-rollback-unsafe-path" }
+  let raw: string
+  try {
+    raw = fsSync.readFileSync(rollbackPath, "utf8")
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === "ENOENT"
+      ? { rollback: null }
+      : { rollback: null, reason: "fast-lane-rollback-read-failed" }
+  }
+  try {
+    const rollback: unknown = JSON.parse(raw)
+    return isFastLaneRollback(rollback) && rollback.change === changeName
+      ? { rollback }
+      : { rollback: null, reason: "invalid-fast-lane-rollback" }
+  } catch {
+    return { rollback: null, reason: "invalid-fast-lane-rollback" }
+  }
+}
+
+function fastLanePolicyFromState(
+  state: Record<string, unknown>,
+  workspaceRoot?: string,
+  changeName?: string,
+): { policy: FastLanePolicy | null; rollback?: FastLaneRollback; reason?: string } {
+  const policy = Object.prototype.hasOwnProperty.call(state, "fast_lane_policy")
+    ? isFastLanePolicy(state.fast_lane_policy) ? state.fast_lane_policy : null
+    : null
+  if (Object.prototype.hasOwnProperty.call(state, "fast_lane_policy") && !policy) {
+    return { policy: null, reason: "invalid-fast-lane-policy" }
+  }
+  if (!workspaceRoot || !changeName || !policy?.enabled) return { policy }
+
+  const rollback = readFastLaneRollback(workspaceRoot, changeName)
+  if (rollback.reason) return { policy: null, reason: rollback.reason }
+  if (rollback.rollback) {
+    if (policy?.enabled && rollback.rollback.policy_digest !== fastLanePolicyDigest(policy)) {
+      return { policy: null, reason: "fast-lane-rollback-policy-mismatch" }
+    }
+    return { policy: null, rollback: rollback.rollback }
+  }
+  return { policy }
+}
+
+function fastLaneEligibilityFailure(
+  workType: WorkType,
+  policy: FastLanePolicy | null,
+  binding: unknown,
+): string | null {
+  if (!policy?.enabled) return null
+  if (workType !== "small-change") return "fast-lane-work-type-ineligible"
+  if (!validateEntryRouteBinding(binding, "small-change")) return "fast-lane-binding-invalid"
+  const routeBinding = binding as EntryRouteBinding
+  if (typeof routeBinding.candidate_digest !== "string" || !/^[0-9a-f]{64}$/.test(routeBinding.candidate_digest)) {
+    return "fast-lane-candidate-unbound"
+  }
+  if (routeBinding.micro_policy !== "eligible" || routeBinding.missing_facts.length > 0 || routeBinding.blocking_reasons.length > 0) {
+    return "fast-lane-binding-ineligible"
+  }
+  return null
+}
+
+function fastLaneCandidateFailure(workspaceRoot: string, changeName: string, binding: unknown): string | null {
+  if (!validateEntryRouteBinding(binding, "small-change")) return "fast-lane-binding-invalid"
+  const candidateDigest = (binding as EntryRouteBinding).candidate_digest
+  if (!candidateDigest) return null
+  const currentDigest = candidateDigestOrNull(workspaceRoot, changeName)
+  return currentDigest !== null && currentDigest !== candidateDigest ? "fast-lane-binding-stale" : null
+}
+
+function fastLaneEvidenceRelativePath(change: string, kind: "targeted" | "full"): string {
+  return path.join(".odf", `validation-evidence-${change}-${kind}.json`)
+}
+
 export interface ExpectationsVerdict {
   status: "approved" | "missing" | "invalid"
   reason: "approved" | "missing-expectations" | "expectations-not-approved" | "expectations-invalid"
@@ -4072,7 +4306,12 @@ function workflowArtifactGate(snapshot: SelectedWorkflowSnapshot, expectedStage:
  * and frozen ref; without a persisted gate there is nothing to bind the
  * transition to, so the transition stays blocked.
  */
-function verifyEvidenceVerdict(workspaceRoot: string, changeName: string, expectationsIds?: string[]): ValidationVerdict {
+function verifyEvidenceVerdict(
+  workspaceRoot: string,
+  changeName: string,
+  expectationsIds?: string[],
+  fastLane: boolean = false,
+): ValidationVerdict {
   let gate: Partial<PolicyGateDecision> | null = null
   const gatePath = safeWorkspaceStatePath(workspaceRoot, path.join(workspaceRoot, ".odf", `policy-gate-${changeName}.json`))
   try {
@@ -4088,6 +4327,11 @@ function verifyEvidenceVerdict(workspaceRoot: string, changeName: string, expect
     change: changeName,
     tier: gate.risk_tier ?? "MEDIUM",
     frozenDiffRef: gate.frozen_diff_ref ?? null,
+    ...(fastLane ? {
+      evidencePath: fastLaneEvidenceRelativePath(changeName, "full"),
+      expectedPhase: "VERIFY" as const,
+      requiredCommandKind: "full" as const,
+    } : {}),
     expectationsIds,
   })
 }
@@ -4289,7 +4533,7 @@ function writeArchiveWorkflow(
  * digest (legacy flows stay unblocked; T3 makes the digest mandatory).
  */
 function candidateDigestMismatchReason(workspaceRoot: string, changeName: string): string | null {
-  const fresh = candidateDigestOrNull(workspaceRoot)
+  const fresh = candidateDigestOrNull(workspaceRoot, changeName)
   if (fresh === null) return null
 
   const bindings: Array<{ label: string; digest: string }> = []
@@ -4415,7 +4659,24 @@ export async function commitWorkflowTransition(opts: {
       )
     }
 
-    const digestMismatch = candidateDigestMismatchReason(opts.workspaceRoot, opts.changeName)
+    const fastLaneState = fastLanePolicyFromState(read.snapshot.state, opts.workspaceRoot, opts.changeName)
+    if (fastLaneState.reason) {
+      return makeResult(
+        "blocked",
+        fastLaneState.reason,
+        "The persisted fast-lane policy is malformed and cannot authorize this transition.",
+        read.snapshot,
+        inspection.completed,
+        opts.validation,
+        null,
+      )
+    }
+    const fastLanePolicy = fastLaneState.policy
+    // Fast-lane BUILD evidence binds the post-task candidate; the entry digest
+    // is intentionally checked only before delegation.
+    const digestMismatch = fastLanePolicy?.enabled && opts.expectedStage === "BUILD"
+      ? null
+      : candidateDigestMismatchReason(opts.workspaceRoot, opts.changeName)
     if (digestMismatch) {
       return makeResult(
         "blocked",
@@ -4440,6 +4701,23 @@ export async function commitWorkflowTransition(opts: {
       )
     }
 
+    const fastLaneBindingFailure = fastLaneEligibilityFailure(
+      opts.proof.work_type,
+      fastLanePolicy,
+      read.snapshot.state.entry_route_binding,
+    )
+    if (fastLaneBindingFailure) {
+      return makeResult(
+        "blocked",
+        fastLaneBindingFailure,
+        "The persisted fast-lane binding is not eligible for the canonical small-change route.",
+        read.snapshot,
+        inspection.completed,
+        opts.validation,
+        null,
+      )
+    }
+
     const artifactFailure = workflowArtifactGate(read.snapshot, opts.expectedStage)
     if (artifactFailure) {
       return makeResult(
@@ -4454,7 +4732,28 @@ export async function commitWorkflowTransition(opts: {
     }
 
     let validation = opts.validation
-    if (opts.expectedStage === "VERIFY") validation = verifyEvidenceVerdict(opts.workspaceRoot, opts.changeName, opts.expectationsIds)
+    if (fastLanePolicy?.enabled && opts.expectedStage === "BUILD") {
+      const gatePath = safeWorkspaceStatePath(opts.workspaceRoot, path.join(opts.workspaceRoot, ".odf", `policy-gate-${opts.changeName}.json`))
+      let gate: Partial<PolicyGateDecision> | null = null
+      try {
+        if (gatePath) gate = JSON.parse(fsSync.readFileSync(gatePath, "utf8")) as Partial<PolicyGateDecision>
+      } catch {
+        gate = null
+      }
+      validation = gate
+        ? validateValidationEvidence({
+          workspaceDir: opts.workspaceRoot,
+          change: opts.changeName,
+          tier: gate.risk_tier ?? "MEDIUM",
+          frozenDiffRef: gate.frozen_diff_ref ?? null,
+          evidencePath: fastLaneEvidenceRelativePath(opts.changeName, "targeted"),
+          expectedPhase: "IMPLEMENT",
+          requiredCommandKind: "targeted",
+          expectationsIds: opts.expectationsIds,
+        })
+        : { status: "missing", reason: "implementation-evidence-missing: no policy gate persisted for this change", commands_validated: 0 }
+    }
+    if (opts.expectedStage === "VERIFY") validation = verifyEvidenceVerdict(opts.workspaceRoot, opts.changeName, opts.expectationsIds, fastLanePolicy?.enabled === true)
     if (validation?.status !== "verified") {
       const reason = validation?.status === "missing" ? "verification-evidence-missing" : "verification-evidence-invalid"
       return makeResult(
@@ -4957,6 +5256,13 @@ const workflowEntryRouteBindingSchema = tool.schema.object({
   shadow_digest: tool.schema.string().regex(/^[0-9a-f]{64}$/),
 }).strict()
 
+const workflowFastLanePolicySchema = tool.schema.object({
+  version: tool.schema.literal(1),
+  enabled: tool.schema.boolean(),
+  executor: tool.schema.literal(FAST_LANE_EXECUTOR),
+  validation: tool.schema.literal(FAST_LANE_VALIDATION),
+}).strict()
+
 interface WorkflowBindArgs {
   change_name?: string
   work_type?: unknown
@@ -4965,6 +5271,7 @@ interface WorkflowBindArgs {
   preflight?: Record<string, unknown>
   expectations?: WorkflowBindExpectations
   entry_route_binding?: EntryRouteBinding
+  fast_lane_policy?: FastLanePolicy
   terminal_stage?: "DECIDE" | "FIX"
   intent?: string
   expectations_approved?: boolean
@@ -5103,7 +5410,8 @@ only after canonical state exists. Existing state and Expectations are reused on
         approved_at: tool.schema.string(),
         immutable_since: tool.schema.string(),
       }).optional().describe("Approved human Expectations to persist after canonical state"),
-      entry_route_binding: workflowEntryRouteBindingSchema.optional().describe("Validated advisory entry-route metadata; execution remains unchanged"),
+      entry_route_binding: workflowEntryRouteBindingSchema.optional().describe("Validated advisory entry-route metadata; it cannot authorize fast execution without fast_lane_policy"),
+      fast_lane_policy: workflowFastLanePolicySchema.optional().describe("Explicit opt-in bounded BUILD policy; omitted means the fast lane is disabled"),
       terminal_stage: tool.schema
         .enum(["DECIDE", "FIX"])
         .optional()
@@ -5124,6 +5432,9 @@ only after canonical state exists. Existing state and Expectations are reused on
       }
       if (args.entry_route_binding !== undefined && !validateEntryRouteBinding(args.entry_route_binding, args.work_type)) {
         return blocked("invalid-entry-route-binding", "The supplied entry_route_binding is invalid for the requested work type.")
+      }
+      if (args.fast_lane_policy !== undefined && !isFastLanePolicy(args.fast_lane_policy)) {
+        return blocked("invalid-fast-lane-policy", "The supplied fast_lane_policy is malformed or uses an unsupported bounded executor/validation contract.")
       }
       if (args.artifact_store !== undefined && args.artifact_store !== "openspec" && args.artifact_store !== "engram") {
         return blocked("invalid-artifact-store", "The artifact_store must be openspec or engram.")
@@ -5225,6 +5536,16 @@ only after canonical state exists. Existing state and Expectations are reused on
           (current.entry_route_binding as EntryRouteBinding).shadow_digest !== args.entry_route_binding.shadow_digest) {
           return { error: "entry-route-binding-conflict" }
         }
+        const storedFastLane = fastLanePolicyFromState(current, workspaceRoot, changeName)
+        if (storedFastLane.reason) return { error: storedFastLane.reason }
+        if (storedFastLane.policy && args.fast_lane_policy &&
+          canonicalWorkflowValue(storedFastLane.policy) !== canonicalWorkflowValue(args.fast_lane_policy)) {
+          return { error: "fast-lane-policy-conflict" }
+        }
+        const effectiveFastLane = args.fast_lane_policy || storedFastLane.policy
+        const effectiveBinding = args.entry_route_binding || current.entry_route_binding
+        const fastLaneFailure = fastLaneEligibilityFailure(args.work_type as WorkType, effectiveFastLane || null, effectiveBinding)
+        if (fastLaneFailure) return { error: fastLaneFailure }
         const explicitStage = typeof current.canonical_stage === "string" ? current.canonical_stage.toUpperCase() : null
         if (terminalStage && explicitStage && explicitStage !== terminalStage) return { error: "active-state-conflict" }
 
@@ -5252,6 +5573,9 @@ only after canonical state exists. Existing state and Expectations are reused on
         document.set("work_type", args.work_type)
         if (!hasStoredEntryRouteBinding && args.entry_route_binding) {
           document.set("entry_route_binding", args.entry_route_binding)
+        }
+        if (!Object.prototype.hasOwnProperty.call(current, "fast_lane_policy") && args.fast_lane_policy) {
+          document.set("fast_lane_policy", args.fast_lane_policy)
         }
         const existingPreflightNode = document.get("preflight", true)
         if (persistedPreflight) {
@@ -5526,15 +5850,17 @@ function createODFWorkflowOverride(): ReturnType<typeof tool> {
 Actions:
 - skip: mark the pending DECIDE/PLAN stage completed (BUILD/VERIFY can never be skipped; they keep validation and evidence gates).
 - re-enter: move back to a completed stage; later completed stages are invalidated and must be re-run.
-- re-plan: like re-enter, plus persist a human-approved Expectations revision (revision > current, supersedes = digest of the previous artifact).
+     - re-plan: like re-enter, plus persist a human-approved Expectations revision (revision > current, supersedes = digest of the previous artifact).
+     - disable-fast-lane: disable an existing fast_lane_policy through a separate audited marker without rewriting workflow state or artifacts.
 
-Requires a human-approved reason (>=20 chars). Every call is appended to the override audit log.`,
+     Requires a human-approved reason (>=20 chars). Fast-lane disable additionally requires approved_by and a live session.`,
     args: {
       change_name: tool.schema.string().describe("Change name (kebab-case)"),
       artifact_store: tool.schema.enum(["openspec", "engram", "hybrid"]).describe("Authoritative workflow store"),
-      action: tool.schema.enum(["skip", "re-enter", "re-plan"]).describe("Override action"),
-      target_stage: tool.schema.enum(["DECIDE", "PLAN", "BUILD", "VERIFY"]).describe("Canonical stage to skip/re-enter/re-plan from"),
+      action: tool.schema.enum(["skip", "re-enter", "re-plan", "disable-fast-lane"]).describe("Override action"),
+      target_stage: tool.schema.enum(["DECIDE", "PLAN", "BUILD", "VERIFY"]).optional().describe("Canonical stage to skip/re-enter/re-plan from"),
       reason: tool.schema.string().describe("Human-approved reason (>=20 chars)"),
+      approved_by: tool.schema.string().optional().describe("Human approver for disabling the fast lane"),
       expectations_revision: tool.schema.object({
         change: tool.schema.string(),
         intent: tool.schema.string(),
@@ -5553,12 +5879,13 @@ Requires a human-approved reason (>=20 chars). Every call is appended to the ove
     async execute(args: {
       change_name: string
       artifact_store: "openspec" | "engram" | "hybrid"
-      action: "skip" | "re-enter" | "re-plan"
-      target_stage: "DECIDE" | "PLAN" | "BUILD" | "VERIFY"
+      action: "skip" | "re-enter" | "re-plan" | "disable-fast-lane"
+      target_stage?: "DECIDE" | "PLAN" | "BUILD" | "VERIFY"
       reason: string
+      approved_by?: string
       expectations_revision?: Record<string, unknown>
       workspace_dir?: string
-    }): Promise<string> {
+    }, toolCtx: ToolContext): Promise<string> {
       const blocked = (reason: string, message: string): string => JSON.stringify({ status: "blocked", reason, message }, null, 2)
       const changeName = canonicalChangeName(args.change_name)
       if (!changeName) return blocked("unsafe-change-path", "The change name is not a safe OpenSpec path segment.")
@@ -5570,10 +5897,61 @@ Requires a human-approved reason (>=20 chars). Every call is appended to the ove
       }
       const reason = (args.reason || "").trim()
       if (reason.length < 20) return blocked("override-reason-required", "A human-approved reason of at least 20 characters is required for any override.")
+      const approvedBy = (args.approved_by || "").trim()
+      if (args.action === "disable-fast-lane" &&
+        (approvedBy.length === 0 || approvedBy.length > 256 || /[\r\n]/.test(approvedBy) || !toolCtx?.sessionID)) {
+        return blocked("fast-lane-rollback-authorization-required", "Disabling the fast lane requires a named human approver and an active OpenCode session.")
+      }
 
       const locked = await withWorkflowLock(workspaceRoot, changeName, async (): Promise<string> => {
         const read = await readSelectedWorkflowState(workspaceRoot, changeName, args.artifact_store)
         if (!read.snapshot) return blocked(read.error || "workflow-state-unavailable", "The selected workflow state could not be read safely.")
+        if (args.action === "disable-fast-lane") {
+          const rawPolicy = read.snapshot.state.fast_lane_policy
+          if (!isFastLanePolicy(rawPolicy)) {
+            return blocked("invalid-fast-lane-policy", "The persisted fast-lane policy is malformed and cannot be disabled safely.")
+          }
+          if (!rawPolicy.enabled) return blocked("fast-lane-policy-not-enabled", "The persisted fast-lane policy is already disabled.")
+          const existingRollback = readFastLaneRollback(workspaceRoot, changeName)
+          if (existingRollback.reason) return blocked(existingRollback.reason, "The persisted fast-lane rollback marker is malformed or unsafe.")
+          const policyDigest = fastLanePolicyDigest(rawPolicy)
+          if (existingRollback.rollback) {
+            if (existingRollback.rollback.policy_digest !== policyDigest) {
+              return blocked("fast-lane-rollback-policy-mismatch", "The existing rollback marker does not match the persisted fast-lane policy.")
+            }
+            return JSON.stringify({
+              status: "already-disabled",
+              change_name: changeName,
+              action: args.action,
+              store: args.artifact_store,
+              rollback_ref: `.odf/fast-lane-rollback-${changeName}.json`,
+              state_unchanged: true,
+            }, null, 2)
+          }
+          if (!ensureSafeOdfDirectory(workspaceRoot)) return blocked("fast-lane-rollback-unsafe-path", "The workspace .odf directory is unsafe.")
+          const rollback = {
+            version: FAST_LANE_ROLLBACK_VERSION,
+            change: changeName,
+            artifact_store: args.artifact_store,
+            policy_digest: policyDigest,
+            disabled_at: new Date().toISOString(),
+            approved_by: approvedBy,
+            reason,
+          } satisfies FastLaneRollback
+          const rollbackPath = fastLaneRollbackPath(workspaceRoot, changeName)
+          if (!await writeAtomicFile(rollbackPath, `${JSON.stringify(rollback, null, 2)}\n`)) {
+            return blocked("fast-lane-rollback-write-failed", "The fast-lane rollback marker could not be persisted.")
+          }
+          return JSON.stringify({
+            status: "disabled",
+            change_name: changeName,
+            action: args.action,
+            store: args.artifact_store,
+            rollback_ref: `.odf/fast-lane-rollback-${changeName}.json`,
+            state_unchanged: true,
+          }, null, 2)
+        }
+        if (!args.target_stage) return blocked("override-target-required", "skip, re-enter, and re-plan require a target_stage.")
         const workType = read.snapshot.status.work_type || read.snapshot.state.work_type
         if (!workType || !WORK_TYPES.includes(workType as WorkType)) {
           return blocked("override-work-type-missing", "The persisted state has no valid work_type; resolve it first (bind with --work-type).")

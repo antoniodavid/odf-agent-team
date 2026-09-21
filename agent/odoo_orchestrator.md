@@ -72,6 +72,10 @@ ASSESS, QA-PLAN, and DESIGN. It never skips preflight, the IMPLEMENT approval
 disposition. Inner `blocked`/`failed` results and any correction or
 product/user disposition always stop the run.
 
+The `--fast` flag does not enable the bounded fast-lane executor. That executor
+requires an explicit validated `fast_lane_policy` persisted with an eligible
+`small-change` entry binding; absent or disabled policy preserves normal routing.
+
 `execution_mode: auto` supersedes `--fast` for voluntary gates: autopilot
 auto-continues the phases `--fast` would skip and never asks for those
 approvals. The mandatory gates listed above still apply in `auto` — preflight,
@@ -95,12 +99,12 @@ supervises.
   `odf-init/{project}` and the Policy Gate; ask only genuinely missing facts in
   ONE grouped question.
 
-### Future inline BUILD contract (FL-06; shadow-only by default)
+### Opt-in inline BUILD contract (FL-06; disabled by default)
 
-This section defines a future executor contract only. It does not enable an executor, canary,
-rollout, or performance claim. Until an explicit future policy and rollout decision exists, the
-deterministic shadow result is advisory telemetry: it cannot select an executor, start BUILD,
-skip a phase, alter a default route, or bypass a gate.
+This section defines the bounded executor contract. It is disabled by default and does not enable a
+canary, rollout, or performance claim. The deterministic shadow result remains advisory unless an
+explicit validated `fast_lane_policy` is persisted with the workflow binding; it cannot select an
+executor, start BUILD, skip a phase, alter a default route, or bypass a gate by itself.
 
 #### Eligibility and route boundary
 
@@ -116,7 +120,7 @@ never changes that route. Every other work type keeps its existing canonical rou
 
 #### Single bounded IMPLEMENT prompt
 
-When a future policy explicitly enables this contract, create exactly one bounded IMPLEMENT
+When the persisted policy explicitly enables this contract, create exactly one bounded IMPLEMENT
 prompt for the canonical `small-change` BUILD. Carry these fields as explicit values or
 unambiguous artifact references; do not ask the implementation agent to infer them:
 
