@@ -40,7 +40,7 @@ Ship one coherent, reproducible ODF 1.x release before moving the product line t
 - [x] R3 — Normalize the regional Spanish artifact string to the repository language convention.
 - [x] R4 — Update stale release assertions and stale repository test-count documentation discovered by verification.
 - [x] R5 — Run typecheck, unit/YAML/harness tests, registry validation, whitespace checks, shell syntax, and metadata consistency checks.
-- [ ] R6 — Review the final diff, create the local release commit, and tag `v1.3.0`.
+- [x] R6 — Review the final diff, create the local release commit, and tag `v1.3.0`.
 
 ## Acceptance criteria
 
@@ -68,4 +68,5 @@ Ship one coherent, reproducible ODF 1.x release before moving the product line t
 - Completed: applied release metadata, documentation, prompt-language, and stale test expectation edits.
 - Verification note: the first full run found 2 stale unit assertions and 3 stale YAML assertions; all five are now corrected. A repository instruction file also contained stale test counts and was corrected.
 - Final checks: typecheck passed; unit 844/844 passed with a 30-second per-test timeout; YAML 154/154 passed against the repository registry; harness 17/17 passed; registry validation, shell syntax, metadata consistency, and whitespace checks passed.
-- Next step: parent reviews the final diff, creates the local release commit, and tags `v1.3.0`; remote publication remains separately authorized.
+- Release evidence: commit `0cfa411` (`chore(release): prepare v1.3.0`) and annotated tag `v1.3.0` point at the release candidate. The release commit intentionally excludes unrelated tracked changes and untracked diagrams/task files.
+- Next step: remote publication remains separately authorized; ODF 2.0 work continues only after representative Odoo/canary/cohort evidence is available.
