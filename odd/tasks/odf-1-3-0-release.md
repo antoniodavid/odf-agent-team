@@ -18,7 +18,7 @@ Ship one coherent, reproducible ODF 1.x release before moving the product line t
 - Add a concise changelog entry covering the post-`v1.2.1` changes and readiness boundary.
 - Correct stale README verification counts and the one regional Spanish artifact string.
 - Run release verification without modifying unrelated untracked diagrams or task files.
-- Create a local release commit and tag only; remote push/GitHub publication remains separately authorized.
+- Create a reproducible release commit and tag, then publish the GitHub release only after explicit authorization.
 
 ## Constraints
 
@@ -41,6 +41,7 @@ Ship one coherent, reproducible ODF 1.x release before moving the product line t
 - [x] R4 — Update stale release assertions and stale repository test-count documentation discovered by verification.
 - [x] R5 — Run typecheck, unit/YAML/harness tests, registry validation, whitespace checks, shell syntax, and metadata consistency checks.
 - [x] R6 — Review the final diff, create the local release commit, and tag `v1.3.0`.
+- [x] R7 — Push `v1.3.0`, create the GitHub release, and verify its target and published metadata.
 
 ## Acceptance criteria
 
@@ -48,7 +49,7 @@ Ship one coherent, reproducible ODF 1.x release before moving the product line t
 - README and changelog describe the actual verified checks without claiming ODF 2.0 rollout readiness.
 - No unrelated untracked file is deleted or modified.
 - Required release checks pass and the local commit/tag are reproducible.
-- The final report explicitly lists remote publication as pending user authorization.
+- The final report records the authorized remote publication and verifies the release target and metadata.
 
 ## Verification
 
@@ -68,5 +69,6 @@ Ship one coherent, reproducible ODF 1.x release before moving the product line t
 - Completed: applied release metadata, documentation, prompt-language, and stale test expectation edits.
 - Verification note: the first full run found 2 stale unit assertions and 3 stale YAML assertions; all five are now corrected. A repository instruction file also contained stale test counts and was corrected.
 - Final checks: typecheck passed; unit 844/844 passed with a 30-second per-test timeout; YAML 154/154 passed against the repository registry; harness 17/17 passed; registry validation, shell syntax, metadata consistency, and whitespace checks passed.
-- Release evidence: commit `0cfa411` (`chore(release): prepare v1.3.0`) and annotated tag `v1.3.0` point at the release candidate. The release commit intentionally excludes unrelated tracked changes and untracked diagrams/task files.
-- Next step: remote publication remains separately authorized; ODF 2.0 work continues only after representative Odoo/canary/cohort evidence is available.
+- Release evidence: annotated tag `v1.3.0` and the GitHub release point at commit `69871db` (`refactor(odf): clarify design prompt contract`). The release commit intentionally excludes unrelated tracked changes and untracked diagrams/task files.
+- Remote evidence: GitHub release `https://github.com/antoniodavid/odf-agent-team/releases/tag/v1.3.0` is published, non-draft, non-prerelease, and its tag dereferences to `69871db`; remote `VERSION`, `package.json`, `package-lock.json`, `odf-registry.json`, and `install.sh` all report `1.3.0`.
+- Next step: leave historical `v1.2.1` immutable unless separately authorized; ODF 2.0 work continues only after representative Odoo/canary/cohort evidence is available.
