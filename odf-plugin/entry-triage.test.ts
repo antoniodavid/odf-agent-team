@@ -205,8 +205,8 @@ describe("ICE triage improvements", () => {
     const r = classifyEntryTriage(base({ description: "Make it better" }))
     expect(r.needs_question).toBe(true)
     expect(r.clarity).toBe("unclear")
-    expect(r.question).toMatch(/resultado esper/)
-    expect(r.question).toContain("comportamiento actual")
+    expect(r.question).toMatch(/what outcome do you expect/)
+    expect(r.question).toContain("what current behavior is affected")
   })
 
   it("detects risk signals from the affected module name", () => {

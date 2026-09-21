@@ -6,7 +6,7 @@
 
 ## Honest status
 
-- **Mature and tested**: 687 Vitest tests + 154 YAML scenarios + an end-to-end harness smoke suite (`npm run test:harness`). Every release is verified end to end.
+- **Mature and tested locally**: 844 unit tests + 154 YAML scenarios + 17 harness checks. Representative Odoo validation, canary/cohort evidence, and end-to-end `/odf-new`/`/odf-fix` telemetry remain ODF 2.0 gates.
 - **Portable**: installs into any OpenCode environment (Linux/macOS/Windows via Git Bash/WSL), with `XDG_CONFIG_HOME` resolution and author-path rewriting at install time.
 - **Known limitations**:
   - The plugin entrypoint (`plugins/odf-delegation.ts`, ~6k lines) is still a monolith for the delegation/workflow core; the self-contained sections already live in modules (`odf-plugin/odf-delegation-{shared,metrics,health,policy,loopguard}.ts`).
@@ -18,7 +18,7 @@
 
 ```bash
 # Release-pinned (recommended)
-curl -fsSL https://raw.githubusercontent.com/antoniodavid/odf-agent-team/v1.2.1/install.sh | BRANCH=v1.2.1 bash
+curl -fsSL https://raw.githubusercontent.com/antoniodavid/odf-agent-team/v1.3.0/install.sh | BRANCH=v1.3.0 bash
 # Or with flags: --yes (non-interactive) --force --with-codegraph --configure-mcp
 
 # Interactive TUI (mode, components, profile, MCP)
@@ -78,18 +78,19 @@ Design and implementation **must** verify every view ID, model, and `_inherit` a
 - **32 skills** (OCA governance/style, Odoo patterns, ODF phases, shared conventions), **10 specialized agents** (backend, frontend, QA, functional, DBA, APIs, migrations, proposer, batch, reviewer), `/odf-*` commands.
 - **Plugin** (`plugins/odf-delegation.ts` + 5 modules in `odf-plugin/`): delegation via `task()`, policy gate, evidence seal, receipts, override, bind, loop guard.
 - **Idempotent installer** with backup, TUI, `--configure-mcp`, dependency probe.
-- **Tests**: `npm test` (Vitest + YAML scenarios), `npm run test:harness` (end-to-end smoke), `node scripts/odf-registry-validate.js`.
+- **Tests**: 844 unit tests, 154 YAML scenarios, and 17 harness checks; run `npm run test:unit`, `npm run test:yaml`, and `npm run test:harness`.
 
 ## Development
 
 ```bash
-npm test                 # 619 vitest + 150 scenarios
-npm run test:harness     # end-to-end harness smoke
+npm run test:unit        # 844 unit tests
+npm run test:yaml        # 154 YAML scenarios
+npm run test:harness     # 17 harness checks
 npm run typecheck        # tsc --noEmit
 node scripts/odf-registry-validate.js   # registry paths
 ```
 
-Versioning: `VERSION` + `odf-registry.json` + `CHANGELOG.md` must stay in sync. Releases: semver tag + `gh release create`.
+Versioning: `VERSION` + `package.json` + `package-lock.json` + `odf-registry.json` + `CHANGELOG.md` must stay in sync. Releases: semver tag + `gh release create`.
 
 ## Repository layout
 

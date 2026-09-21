@@ -610,13 +610,13 @@ function unknownModuleWarnings(input: EntryTriageInput): string[] {
 
 function iceQuestion(input: EntryTriageInput, missing: string[], unclear: boolean): string {
   const parts: string[] = []
-  if (missing.length > 0) parts.push(`Datos: ${missing.join("; ")}`)
+  if (missing.length > 0) parts.push(`Data: ${missing.join("; ")}`)
   if (unclear) {
-    parts.push("Intent y contexto: ¿qué resultado esperás, qué comportamiento actual se ve afectado, y cómo se verificará (Expectations)?")
+    parts.push("Intent and context: what outcome do you expect, what current behavior is affected, and how will it be verified (Expectations)?")
   }
   return parts.length > 0
-    ? `Para clasificar este cambio necesito: ${parts.join("; ")}. Responde brevemente cada punto.`
-    : "Para clasificar este cambio, describe el resultado esperado, el comportamiento actual afectado y cómo se verifica."
+    ? `To classify this change, I need: ${parts.join("; ")}. Answer each point briefly.`
+    : "To classify this change, describe the expected outcome, the affected current behavior, and how it will be verified."
 }
 
 function classifyEntryTriageBase(input: EntryTriageInput): EntryTriageClassification {

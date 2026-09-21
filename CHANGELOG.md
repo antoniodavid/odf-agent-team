@@ -1,5 +1,16 @@
 # Changelog — ODF Agent Team
 
+## 1.3.0 (2026-09-21)
+
+### Added
+- Fast-lane execution and V2 transport, including SDK child-session transport, shadow-route prediction, context manifests, and bounded implementation routing.
+- Migration assessment routing, expanded agent and entry contracts, human Expectations, and stronger workflow and policy enforcement.
+- Governance profiles and checks, provenance and disclosure updates, lifecycle and trace observability, installer/project-scope improvements, and resilience and ephemeral-subject validation.
+
+### Verification boundary
+- Local repository checks cover 844 unit tests, 154 YAML scenarios, and 17 harness checks.
+- ODF 2.0 remains gated on representative Odoo validation, canary/cohort evidence, and end-to-end `/odf-new`/`/odf-fix` telemetry; this release does not claim ODF 2.0 production readiness.
+
 ## 1.2.1 (2026-08-23)
 
 ### Added
