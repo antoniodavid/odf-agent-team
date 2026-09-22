@@ -1,0 +1,57 @@
+name: Bug report
+description: Report something that is broken in ODF (agents, skills, plugin, installer, tests).
+labels: ["bug"]
+body:
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: Clear description of the bug.
+      placeholder: The odf-registry-refresh command marked valid flat .md skills as removed.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      description: Exact commands or flow that triggers the bug.
+      placeholder: |
+        1. Run /odf-registry-refresh
+        2. Open odf-registry.json
+        3. Look at removed: true entries
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      placeholder: Existing registered skills stay present when their file still exists.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: ODF version
+      description: Output of `cat VERSION` or the installed package version.
+      placeholder: "1.3.0"
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: OpenCode version, Odoo version, OS.
+      placeholder: |
+        OpenCode: ...
+        Odoo: 18
+        OS: Linux
+    validations:
+      required: false
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs or error output
+      description: Paste relevant terminal output. Remove secrets and local usernames.
+      render: shell
+    validations:
+      required: false
