@@ -1,0 +1,397 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "ODF — One-call delegation efficiency",
+    "locale": "en",
+    "quality_profile": "showcase",
+    "repository": {
+      "url": "https://github.com/antoniodavid/odf-agent-team",
+      "provider": "github",
+      "link_mode": "web",
+      "revision": "84cf573f881a007f08ce3ca558a533eaa2e00583"
+    },
+    "views": [
+      {
+        "id": "odf-path",
+        "label": "ODF single round-trip",
+        "focus": [
+          "orchestrator",
+          "delegate",
+          "registry",
+          "skills",
+          "fleet",
+          "odoo"
+        ],
+        "note": "One odf_delegate call resolves agent, skills, profile, and gates before the specialist runs."
+      },
+      {
+        "id": "naive-path",
+        "label": "Without ODF (context loop)",
+        "focus": [
+          "orchestrator",
+          "naive",
+          "naive2",
+          "naive3",
+          "naive4",
+          "fleet"
+        ],
+        "note": "The agent re-derives context with repeated grep and file reads before it can act."
+      },
+      {
+        "id": "outcome",
+        "label": "Shared outcome",
+        "focus": [
+          "odoo"
+        ],
+        "note": "Both paths edit the worktree; ODF arrives with evidence gates already enforced."
+      }
+    ]
+  },
+  "components": [
+    {
+      "id": "orchestrator",
+      "type": "backend",
+      "label": "odoo_orchestrator",
+      "sublabel": "routes · gates · no code",
+      "pos": [
+        40,
+        220
+      ],
+      "size": [
+        170,
+        60
+      ],
+      "sources": [
+        {
+          "path": "agent/odoo_orchestrator.md",
+          "label": "agent contract"
+        }
+      ]
+    },
+    {
+      "id": "delegate",
+      "type": "backend",
+      "label": "odf_delegate",
+      "sublabel": "1 call · ≤5 skills",
+      "pos": [
+        260,
+        220
+      ],
+      "size": [
+        170,
+        60
+      ],
+      "tag": "plugin tool",
+      "sources": [
+        {
+          "path": "plugins/odf-delegation.ts",
+          "label": "plugin"
+        }
+      ]
+    },
+    {
+      "id": "registry",
+      "type": "database",
+      "label": "odf-registry.json",
+      "sublabel": "87 skills · 11 agents",
+      "pos": [
+        260,
+        360
+      ],
+      "size": [
+        170,
+        56
+      ],
+      "tag": "TTL cache",
+      "sources": [
+        {
+          "path": "odf-registry.json",
+          "label": "registry"
+        }
+      ]
+    },
+    {
+      "id": "skills",
+      "type": "backend",
+      "label": "Skill compact rules",
+      "sublabel": "phase-aware match",
+      "pos": [
+        480,
+        360
+      ],
+      "size": [
+        170,
+        56
+      ],
+      "tag": "max 5"
+    },
+    {
+      "id": "fleet",
+      "type": "backend",
+      "label": "Specialist agent",
+      "sublabel": "pre-loaded context",
+      "pos": [
+        480,
+        220
+      ],
+      "size": [
+        170,
+        60
+      ],
+      "sources": [
+        {
+          "path": "agent/odoo_qa_engineer.md",
+          "label": "agent set"
+        }
+      ]
+    },
+    {
+      "id": "odoo",
+      "type": "external",
+      "label": "Odoo worktree",
+      "sublabel": "edits · tests · lint",
+      "pos": [
+        700,
+        220
+      ],
+      "size": [
+        170,
+        60
+      ],
+      "tag": "code + evidence"
+    },
+    {
+      "id": "naive",
+      "type": "backend",
+      "label": "grep symbols",
+      "sublabel": "round 1",
+      "pos": [
+        40,
+        480
+      ],
+      "size": [
+        140,
+        50
+      ],
+      "tag": "×N"
+    },
+    {
+      "id": "naive2",
+      "type": "backend",
+      "label": "read files",
+      "sublabel": "round 2",
+      "pos": [
+        220,
+        480
+      ],
+      "size": [
+        140,
+        50
+      ],
+      "tag": "×N"
+    },
+    {
+      "id": "naive3",
+      "type": "backend",
+      "label": "re-grep misses",
+      "sublabel": "round 3",
+      "pos": [
+        400,
+        480
+      ],
+      "size": [
+        140,
+        50
+      ],
+      "tag": "×N"
+    },
+    {
+      "id": "naive4",
+      "type": "backend",
+      "label": "finally act",
+      "sublabel": "context bloated",
+      "pos": [
+        580,
+        480
+      ],
+      "size": [
+        140,
+        50
+      ]
+    }
+  ],
+  "boundaries": [
+    {
+      "kind": "region",
+      "label": "ODF · single resolved round-trip",
+      "wraps": [
+        "orchestrator",
+        "delegate",
+        "registry",
+        "skills",
+        "fleet"
+      ],
+      "pad": 16
+    },
+    {
+      "kind": "region",
+      "label": "Naive agent · repeated context loop",
+      "wraps": [
+        "naive",
+        "naive2",
+        "naive3",
+        "naive4"
+      ],
+      "pad": 16
+    }
+  ],
+  "connections": [
+    {
+      "id": "orch-delegate",
+      "from": "orchestrator",
+      "to": "delegate",
+      "label": "odf_delegate(phase, prompt)",
+      "variant": "emphasis",
+      "labelAt": [
+        215,
+        294
+      ]
+    },
+    {
+      "id": "delegate-registry",
+      "from": "delegate",
+      "to": "registry",
+      "label": "resolve agent + skills",
+      "fromSide": "bottom",
+      "toSide": "top",
+      "labelAt": [
+        345,
+        294
+      ]
+    },
+    {
+      "id": "registry-skills",
+      "from": "registry",
+      "to": "skills",
+      "label": "match ≤5",
+      "fromSide": "right",
+      "toSide": "left"
+    },
+    {
+      "id": "skills-fleet",
+      "from": "skills",
+      "to": "fleet",
+      "label": "inject compact rules",
+      "fromSide": "top",
+      "toSide": "bottom",
+      "variant": "emphasis"
+    },
+    {
+      "id": "delegate-fleet",
+      "from": "delegate",
+      "to": "fleet",
+      "label": "task() · gates enforced",
+      "variant": "emphasis",
+      "labelAt": [
+        430,
+        294
+      ]
+    },
+    {
+      "id": "fleet-odoo",
+      "from": "fleet",
+      "to": "odoo",
+      "label": "edits · runs tests",
+      "labelAt": [
+        665,
+        294
+      ]
+    },
+    {
+      "id": "naive-1",
+      "from": "naive",
+      "to": "naive2",
+      "label": "context grows",
+      "variant": "dashed",
+      "labelAt": [
+        200,
+        544
+      ]
+    },
+    {
+      "id": "naive-2",
+      "from": "naive2",
+      "to": "naive3",
+      "label": "misses → retry",
+      "variant": "dashed",
+      "labelAt": [
+        380,
+        544
+      ]
+    },
+    {
+      "id": "naive-3",
+      "from": "naive3",
+      "to": "naive4",
+      "label": "finally act",
+      "variant": "dashed",
+      "labelAt": [
+        560,
+        544
+      ]
+    },
+    {
+      "id": "naive-fleet",
+      "from": "naive4",
+      "to": "fleet",
+      "label": "same specialist, later",
+      "variant": "dashed",
+      "fromSide": "right",
+      "toSide": "bottom",
+      "via": [
+        [
+          760,
+          505
+        ],
+        [
+          760,
+          310
+        ],
+        [
+          565,
+          310
+        ]
+      ]
+    }
+  ],
+  "cards": [
+    {
+      "dot": "emerald",
+      "title": "Why one call wins",
+      "items": [
+        "Registry, agent, skills, and profile resolve inside odf_delegate — zero extra orchestrator turns",
+        "Policy Gate and evidence seal run before the specialist starts, not after it guesses",
+        "Specialist arrives with ≤5 compact rules instead of spending turns grepping the repo"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "Cost of the naive path",
+      "items": [
+        "Every grep + read is a model round-trip that bloats context",
+        "Missed symbols trigger re-search loops with no single source of truth",
+        "No gate runs between discovery and edit — errors surface late"
+      ]
+    },
+    {
+      "dot": "cyan",
+      "title": "Measured shape",
+      "items": [
+        "ODF: 1 tool call → pre-loaded specialist → evidence-backed result",
+        "Naive: O(N) search rounds → bloated context → same worktree outcome",
+        "Optional CodeGraph collapses structural queries further (install with --with-codegraph)"
+      ]
+    }
+  ]
+}

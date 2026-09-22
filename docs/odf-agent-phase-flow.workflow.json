@@ -1,0 +1,112 @@
+{
+  "schema_version": 2,
+  "diagram_type": "workflow",
+  "meta": {
+    "title": "ODF: Agents and phase flow",
+    "quality_profile": "showcase",
+    "output": "docs/odf-agent-phase-flow.html",
+    "views": [
+      {
+        "id": "full-feature",
+        "label": "Full feature route",
+        "focus": ["orchestrator", "intent", "propose", "assess", "qa_plan", "design", "implement", "verify", "governance", "ready"],
+        "note": "Full spine: PROPOSE → ASSESS → QA-PLAN → DESIGN → IMPLEMENT → VERIFY."
+      },
+      {
+        "id": "fast-routes",
+        "label": "Fast routes",
+        "focus": ["orchestrator", "intent", "explore", "fix", "assess", "ready"],
+        "note": "Investigations and bugfixes skip phases that add no evidence."
+      },
+      {
+        "id": "specialists",
+        "label": "Capability routing",
+        "focus": ["assess", "design", "implement", "verify", "governance"],
+        "note": "Phases select capabilities; they do not wake every agent by default."
+      }
+    ]
+  },
+  "lanes": [
+    { "id": "flow", "label": "Orchestration & phases" },
+    { "id": "specialists", "label": "Specialist agents" },
+    { "id": "quality", "label": "Quality" },
+    { "id": "governance", "label": "OCA governance", "variant": "exception" },
+    { "id": "delivery", "label": "Delivery" }
+  ],
+  "phases": [
+    { "id": "entry", "label": "Entry", "fromCol": 0, "toCol": 0, "variant": "emphasis" },
+    { "id": "decision", "label": "Decide & route", "fromCol": 1, "toCol": 1 },
+    { "id": "planning", "label": "Plan", "fromCol": 2, "toCol": 2 },
+    { "id": "build", "label": "Build", "fromCol": 3, "toCol": 3, "variant": "emphasis" },
+    { "id": "proof", "label": "Prove & govern", "fromCol": 4, "toCol": 5, "variant": "security" }
+  ],
+  "groups": [
+    { "id": "capability_routing", "label": "Capability routing", "lane": "specialists", "fromCol": 3, "toCol": 4, "variant": "emphasis" },
+    { "id": "quality_gate", "label": "Quality gate", "lane": "governance", "fromCol": 5, "toCol": 5, "variant": "security" },
+    { "id": "short_routes", "label": "Fast routes", "lane": "flow", "fromCol": 4, "toCol": 5, "variant": "dashed" }
+  ],
+  "mainPath": ["orchestrator", "intent", "propose", "assess", "qa_plan", "design", "implement", "verify", "governance", "ready"],
+  "semanticChecks": {
+    "allowedRoots": ["orchestrator", "intent", "propose", "assess", "explore", "qa_plan", "design", "implement", "fix", "verify", "governance", "ready"],
+    "allowedTerminals": ["ready", "explore"],
+    "requiredPaths": [
+      { "from": "assess", "to": "design" },
+      { "from": "design", "to": "implement" },
+      { "from": "implement", "to": "verify" },
+      { "from": "verify", "to": "governance" },
+      { "from": "explore", "to": "fix" }
+    ]
+  },
+  "nodes": [
+    { "id": "orchestrator", "lane": "flow", "col": 0, "type": "backend", "label": "odoo_orchestrator", "tag": "ALL", "width": 176 },
+    { "id": "intent", "lane": "flow", "col": 1, "type": "backend", "label": "Intent + work type", "tag": "decide route", "width": 176 },
+    { "id": "propose", "lane": "flow", "col": 2, "type": "backend", "label": "PROPOSE", "width": 176 },
+    { "id": "assess", "lane": "flow", "col": 3, "type": "backend", "label": "ASSESS", "tag": "standard / migration trigger", "width": 196 },
+    { "id": "qa_plan", "lane": "quality", "col": 3, "type": "backend", "label": "QA-PLAN", "width": 176 },
+    { "id": "design", "lane": "specialists", "col": 4, "type": "backend", "label": "DESIGN", "tag": "specialists", "width": 196 },
+    { "id": "implement", "lane": "specialists", "col": 5, "type": "backend", "label": "IMPLEMENT", "tag": "closed design", "width": 196 },
+    { "id": "verify", "lane": "quality", "col": 5, "type": "security", "label": "VERIFY", "tag": "QA ≠ review", "width": 196 },
+    { "id": "governance", "lane": "governance", "col": 5, "type": "security", "label": "OCA governance", "tag": "target=oca", "width": 196 },
+    { "id": "ready", "lane": "delivery", "col": 5, "type": "external", "label": "Ready for PR", "width": 176 },
+    { "id": "explore", "lane": "flow", "col": 4, "type": "backend", "label": "EXPLORE", "tag": "investigation", "width": 196 },
+    { "id": "fix", "lane": "flow", "col": 5, "type": "backend", "label": "FIX", "tag": "migrator excluded", "width": 196 }
+  ],
+  "edges": [
+    { "id": "orchestrator-intent", "from": "orchestrator", "to": "intent", "label": "classify intent", "variant": "emphasis" },
+    { "id": "intent-propose", "from": "intent", "to": "propose", "label": "feature route", "variant": "emphasis" },
+    { "id": "propose-assess", "from": "propose", "to": "assess", "label": "approved scope" },
+    { "id": "intent-explore", "from": "intent", "to": "explore", "label": "investigation", "variant": "dashed", "role": "branch" },
+    { "id": "explore-fix", "from": "explore", "to": "fix", "label": "bug found", "variant": "dashed", "role": "branch" },
+    { "id": "explore-ready", "from": "explore", "to": "ready", "label": "recommendation only", "variant": "dashed", "role": "return" },
+    { "id": "assess-qa-plan", "from": "assess", "to": "qa_plan", "label": "custom work", "variant": "emphasis" },
+    { "id": "qa-plan-design", "from": "qa_plan", "to": "design", "label": "testable plan" },
+    { "id": "design-implement", "from": "design", "to": "implement", "label": "closed design", "variant": "emphasis" },
+    { "id": "fix-verify", "from": "fix", "to": "verify", "label": "regression evidence", "variant": "dashed" },
+    { "id": "implement-verify", "from": "implement", "to": "verify", "label": "tests + evidence", "variant": "emphasis" },
+    { "id": "verify-governance", "from": "verify", "to": "governance", "label": "findings + quality gate", "variant": "security" },
+    { "id": "governance-ready", "from": "governance", "to": "ready", "label": "human acknowledgement", "variant": "security" }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "Coordination agents",
+      "items": [
+        "odoo_orchestrator · odoo_proposer · odoo_functional_consultant"
+      ]
+    },
+    {
+      "dot": "violet",
+      "title": "Build capabilities",
+      "items": [
+        "odoo_backend_engineer · odoo_frontend_engineer · odoo_api_integrator · odoo_dba_devops · odoo_upgrade_migrator · odoo_batch_implementer"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "Quality & governance",
+      "items": [
+        "odoo_qa_engineer · odoo_code_reviewer · OCA governance + human gate"
+      ]
+    }
+  ]
+}
