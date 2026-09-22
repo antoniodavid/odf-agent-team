@@ -1,3 +1,12 @@
+---
+name: pricelist-pricing-patterns
+description: "Pricelist Pricing Patterns. Trigger: pricelist, pricing rule, discount, price computation."
+license: MIT
+metadata:
+  author: antoniodavid
+  version: "1.0"
+---
+
 # Pricelist and Pricing Patterns
 
 ```

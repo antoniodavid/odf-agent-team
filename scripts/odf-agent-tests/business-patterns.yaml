@@ -1,0 +1,35 @@
+name: business-patterns
+agent: odoo_backend_engineer
+tests:
+  - name: "accounting patterns resolve"
+    input:
+      task: "Add fiscal position tax on account move journal entry for accounting"
+      context:
+        version: 18
+        files: ["models/account_move.py"]
+    expected:
+      skill_resolution: "self-discovered"
+      expected_skills: ["accounting-patterns"]
+      status_in: ["ok"]
+
+  - name: "mail notification patterns resolve"
+    input:
+      task: "Send email template notification with message_post chatter"
+      context:
+        version: 18
+        files: ["models/sale_order.py"]
+    expected:
+      skill_resolution: "self-discovered"
+      expected_skills: ["mail-notification-patterns"]
+      status_in: ["ok"]
+
+  - name: "cron automation patterns resolve"
+    input:
+      task: "Schedule ir.cron automated action to run daily"
+      context:
+        version: 18
+        files: []
+    expected:
+      skill_resolution: "self-discovered"
+      expected_skills: ["cron-automation-patterns"]
+      status_in: ["ok"]

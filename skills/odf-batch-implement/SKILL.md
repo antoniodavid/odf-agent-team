@@ -45,7 +45,7 @@ Return the shared `## ODF Result` with `status`, `executive_summary`, `strategy`
 
 ## References
 
-- `/home/adruban/.config/opencode/skills/_shared/odoo-sources.md` — local Odoo source authority
-- `/home/adruban/.config/opencode/skills/_shared/result-contract.md` — shared result envelope
-- `/home/adruban/.config/opencode/skills/_shared/persistence-contract.md` — selected artifact store
-- `/home/adruban/.config/opencode/skills/odf-implement/SKILL.md` — base IMPLEMENT rules
+- `~/.config/opencode/skills/_shared/odoo-sources.md` — local Odoo source authority
+- `~/.config/opencode/skills/_shared/result-contract.md` — shared result envelope
+- `~/.config/opencode/skills/_shared/persistence-contract.md` — selected artifact store
+- `~/.config/opencode/skills/odf-implement/SKILL.md` — base IMPLEMENT rules

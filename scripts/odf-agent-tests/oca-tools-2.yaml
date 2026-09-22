@@ -1,0 +1,38 @@
+name: oca-tools-2
+agent: odoo_code_reviewer
+tests:
+  - name: "migration assist resolves"
+    input:
+      task: "Get migration guidance to port module to newer version"
+      target: oca
+      context:
+        version: 18
+        files: []
+    expected:
+      skill_resolution: "self-discovered"
+      expected_skills: ["oca-migration-assist"]
+      status_in: ["ok"]
+
+  - name: "pattern match resolves"
+    input:
+      task: "Find pattern in odoo/odoo source matching this implementation"
+      target: oca
+      context:
+        version: 18
+        files: []
+    expected:
+      skill_resolution: "self-discovered"
+      expected_skills: ["oca-pattern-match"]
+      status_in: ["ok"]
+
+  - name: "search migration PRs resolves"
+    input:
+      task: "Search open migration PRs for this repository"
+      target: oca
+      context:
+        version: 18
+        files: []
+    expected:
+      skill_resolution: "self-discovered"
+      expected_skills: ["oca-search-migration-prs"]
+      status_in: ["ok"]

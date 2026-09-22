@@ -1,3 +1,12 @@
+---
+name: field-type-reference
+description: "Field Type Reference. Trigger: field types, Char Integer Monetary, Selection field, field reference."
+license: MIT
+metadata:
+  author: antoniodavid
+  version: "1.0"
+---
+
 # Odoo Field Type Reference
 
 ```

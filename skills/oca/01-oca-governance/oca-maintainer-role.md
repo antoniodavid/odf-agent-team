@@ -1,3 +1,12 @@
+---
+name: oca-maintainer-role
+description: "Oca Maintainer Role. Trigger: maintainer role, PSC, OCA maintainer."
+license: MIT
+metadata:
+  author: antoniodavid
+  version: "1.0"
+---
+
 # OCA Maintainer Role
 
 Complete guide to the maintainer role in OCA repositories, responsibilities, and how to become or remove a maintainer.

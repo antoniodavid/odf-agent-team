@@ -1,3 +1,12 @@
+---
+name: inheritance-patterns
+description: "Model Inheritance Patterns. Trigger: inherit, extend, override, _inherit, _inherits."
+license: MIT
+metadata:
+  author: antoniodavid
+  version: "1.0"
+---
+
 # Model and View Inheritance Patterns
 
 ```

@@ -1,3 +1,12 @@
+---
+name: odoo-test-patterns
+description: "Odoo Test Patterns. Trigger: test, TransactionCase, SavepointCase, HttpCase, tests/."
+license: MIT
+metadata:
+  author: antoniodavid
+  version: "1.0"
+---
+
 # Odoo Test Patterns Guide
 
 ```

@@ -1,0 +1,35 @@
+name: model-patterns-extra
+agent: odoo_backend_engineer
+tests:
+  - name: "data migration patterns resolve"
+    input:
+      task: "Write openupgrade data migration script for pre-migrate hook"
+      context:
+        version: 18
+        files: ["migrations/18.0.1.0.0/pre-migrate.py"]
+    expected:
+      skill_resolution: "self-discovered"
+      expected_skills: ["data-migration-patterns"]
+      status_in: ["ok"]
+
+  - name: "field type reference resolve"
+    input:
+      task: "Choose between Selection field and Char field types reference for status"
+      context:
+        version: 18
+        files: ["models/product.py"]
+    expected:
+      skill_resolution: "self-discovered"
+      expected_skills: ["field-type-reference"]
+      status_in: ["ok"]
+
+  - name: "error handling patterns resolve"
+    input:
+      task: "Raise ValidationError UserError exception handling with logging"
+      context:
+        version: 18
+        files: ["models/sale_order.py"]
+    expected:
+      skill_resolution: "self-discovered"
+      expected_skills: ["error-handling-patterns"]
+      status_in: ["ok"]

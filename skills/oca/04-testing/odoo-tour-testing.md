@@ -1,3 +1,12 @@
+---
+name: odoo-tour-testing
+description: "Odoo Tour Testing. Trigger: tour test, qUnit tour, HttpCase UI, chrome tour."
+license: MIT
+metadata:
+  author: antoniodavid
+  version: "1.0"
+---
+
 # Odoo Tour Testing Patterns
 
 ```

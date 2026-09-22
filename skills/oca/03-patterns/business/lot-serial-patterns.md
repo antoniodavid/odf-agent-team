@@ -1,3 +1,12 @@
+---
+name: lot-serial-patterns
+description: "Lot Serial Patterns. Trigger: lot number, serial number, stock.quant, tracking."
+license: MIT
+metadata:
+  author: antoniodavid
+  version: "1.0"
+---
+
 # Lot and Serial Number Patterns
 
 ```

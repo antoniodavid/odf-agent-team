@@ -1,3 +1,12 @@
+---
+name: config-settings-patterns
+description: "Config Settings Patterns. Trigger: ir.config_parameter, settings model, res.config.settings."
+license: MIT
+metadata:
+  author: antoniodavid
+  version: "1.0"
+---
+
 # Configuration Settings Patterns
 
 ```

@@ -1,3 +1,12 @@
+---
+name: controller-api-patterns
+description: "Controller Api Patterns. Trigger: http controller, http.route, REST endpoint, website route."
+license: MIT
+metadata:
+  author: antoniodavid
+  version: "1.0"
+---
+
 # Controller and API Patterns
 
 ```

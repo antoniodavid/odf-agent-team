@@ -1,0 +1,35 @@
+name: assets-and-views
+agent: odoo_frontend_engineer
+tests:
+  - name: "assets bundling resolves"
+    input:
+      task: "Register js and css files in web.assets bundles manifest assets"
+      context:
+        version: 18
+        files: ["__manifest__.py", "static/src/js/widget.js"]
+    expected:
+      skill_resolution: "self-discovered"
+      expected_skills: ["assets-bundling-patterns"]
+      status_in: ["ok"]
+
+  - name: "action patterns resolve"
+    input:
+      task: "Create ir.actions act_window server action for automated action"
+      context:
+        version: 18
+        files: []
+    expected:
+      skill_resolution: "self-discovered"
+      expected_skills: ["action-patterns"]
+      status_in: ["ok"]
+
+  - name: "dialog service resolves"
+    input:
+      task: "Open form dialog wizard from an owl dialog service button"
+      context:
+        version: 18
+        files: ["static/src/js/dialog.js"]
+    expected:
+      skill_resolution: "self-discovered"
+      expected_skills: ["odoo-dialog-service"]
+      status_in: ["ok"]

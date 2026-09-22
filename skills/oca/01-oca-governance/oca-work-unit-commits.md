@@ -23,6 +23,8 @@ Load this skill when deciding what belongs in each commit or PR for an OCA proje
 | Body explains WHY | Body describes the problem being solved, not what the diff shows (max 80 chars/line) |
 | Close issues | `Closes #123` or `Fixes #456` in the body |
 | No Co-Authored-By | Never add AI attribution trailers |
+| Budget is not code-golf | Never shrink a diff by deleting comments, blank lines, docs, or tests, or by compressing code, to fit the review budget (400 by default, or the session `review_budget_lines`). Slice by work unit or report the overage |
+| Do not commit by file type | Avoid `models`, then `services`, then `tests` — none works alone |
 
 ## Decision Gates
 
@@ -40,6 +42,7 @@ Load this skill when deciding what belongs in each commit or PR for an OCA proje
 2. **Format each commit**: `[TAG] module_name: description (≤50 chars)` + body explaining WHY
 3. **Verify**: Each commit stands alone (repo makes sense after this commit only), tests/docs included, rollback is reasonable
 4. **Reference issues**: Add `Closes #N` in the body
+5. **Bounded slicing**: After one honest slicing pass, if no cohesive split fits the budget, stop and report the smallest honest count with a `size:exception` recommendation — do not iterate shrinking code to reach the number
 
 ## Output Contract
 
@@ -47,4 +50,4 @@ Return commit message(s) ready to paste. Each message follows OCA format with [T
 
 ## References
 
-- `/home/adruban/.config/opencode/skills/oca/01-oca-governance/oca-commit-messages.md` — Full OCA commit reference
+- `~/.config/opencode/skills/oca/01-oca-governance/oca-commit-messages.md` — Full OCA commit reference

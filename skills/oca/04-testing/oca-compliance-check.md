@@ -1,3 +1,12 @@
+---
+name: oca-compliance-check
+description: "OCA Compliance Check. Trigger: compliance, pylint, pre-commit, pre-PR checklist."
+license: MIT
+metadata:
+  author: antoniodavid
+  version: "1.0"
+---
+
 # OCA Compliance Check
 
 Comprehensive validation of Odoo module code against OCA guidelines. Use before submitting PRs or during code review.

@@ -1,3 +1,12 @@
+---
+name: oca-code-review
+description: "Oca Code Review. Trigger: code review, review checklist, OCA review."
+license: MIT
+metadata:
+  author: antoniodavid
+  version: "1.0"
+---
+
 # OCA Code Review
 
 Complete code review combining compliance + patterns + improvements.

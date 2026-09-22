@@ -1,0 +1,35 @@
+name: docs-and-import
+agent: odoo_backend_engineer
+tests:
+  - name: "import export patterns resolve"
+    input:
+      task: "Import CSV data export records with load()"
+      context:
+        version: 18
+        files: ["data/import_template.csv"]
+    expected:
+      skill_resolution: "self-discovered"
+      expected_skills: ["import-export-patterns"]
+      status_in: ["ok"]
+
+  - name: "attachment binary patterns resolve"
+    input:
+      task: "Store file upload as binary field with ir.attachment"
+      context:
+        version: 18
+        files: ["models/ir_attachment.py"]
+    expected:
+      skill_resolution: "self-discovered"
+      expected_skills: ["attachment-binary-patterns"]
+      status_in: ["ok"]
+
+  - name: "logging debugging patterns resolve"
+    input:
+      task: "Add _logger debug logging and inspect traceback output"
+      context:
+        version: 18
+        files: ["models/sale_order.py"]
+    expected:
+      skill_resolution: "self-discovered"
+      expected_skills: ["logging-debugging-patterns"]
+      status_in: ["ok"]

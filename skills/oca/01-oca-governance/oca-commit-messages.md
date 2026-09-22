@@ -1,3 +1,12 @@
+---
+name: oca-governance-commit-messages
+description: "OCA Commit Messages. Trigger: commit, git, message, history."
+license: MIT
+metadata:
+  author: antoniodavid
+  version: "2.0"
+---
+
 # OCA Commit Messages
 
 > **For Odoo/OCA projects ONLY.** Replaces `caveman-commit` in OCA repositories.

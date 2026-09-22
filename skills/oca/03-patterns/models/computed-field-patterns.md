@@ -1,3 +1,12 @@
+---
+name: computed-field-patterns
+description: "Computed Field Patterns. Trigger: @api.depends, computed, store, inverse, compute."
+license: MIT
+metadata:
+  author: antoniodavid
+  version: "1.0"
+---
+
 # Computed Field Patterns
 
 ```

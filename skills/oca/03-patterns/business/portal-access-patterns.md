@@ -1,3 +1,12 @@
+---
+name: portal-access-patterns
+description: "Portal Access Patterns. Trigger: portal user, public access, website security, portal."
+license: MIT
+metadata:
+  author: antoniodavid
+  version: "1.0"
+---
+
 # Portal and Access Token Patterns
 
 ```

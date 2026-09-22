@@ -1,0 +1,35 @@
+name: testing-guides
+agent: odoo_qa_engineer
+tests:
+  - name: "tour testing resolves"
+    input:
+      task: "Write qUnit tour test with HttpCase UI automation chrome tour"
+      context:
+        version: 18
+        files: ["tests/test_tour.py"]
+    expected:
+      skill_resolution: "self-discovered"
+      expected_skills: ["odoo-tour-testing"]
+      status_in: ["ok"]
+
+  - name: "performance guide resolves"
+    input:
+      task: "Optimize slow query n+1 performance with read_group batching"
+      context:
+        version: 18
+        files: ["models/sale_order.py"]
+    expected:
+      skill_resolution: "self-discovered"
+      expected_skills: ["odoo-performance-guide"]
+      status_in: ["ok"]
+
+  - name: "troubleshooting guide resolves"
+    input:
+      task: "Debug module not loading troubleshooting common issues traceback"
+      context:
+        version: 18
+        files: []
+    expected:
+      skill_resolution: "self-discovered"
+      expected_skills: ["odoo-troubleshooting-guide"]
+      status_in: ["ok"]

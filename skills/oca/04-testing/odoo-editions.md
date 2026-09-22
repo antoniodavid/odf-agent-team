@@ -1,3 +1,12 @@
+---
+name: odoo-editions
+description: "Odoo Editions. Trigger: community enterprise, odoo editions, enterprise features."
+license: MIT
+metadata:
+  author: antoniodavid
+  version: "1.0"
+---
+
 # Odoo Editions: Community vs Enterprise
 
 ```

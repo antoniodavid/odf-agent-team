@@ -1,3 +1,12 @@
+---
+name: oca-upgrade-analysis
+description: "Oca Upgrade Analysis. Trigger: openupgrade analysis, upgrade analysis, module upgrade risk."
+license: MIT
+metadata:
+  author: antoniodavid
+  version: "1.0"
+---
+
 # OCA OpenUpgrade Analysis
 
 **CANONICAL SOURCE** for migrations. Find `upgrade_analysis.txt` in OCA/OpenUpgrade.

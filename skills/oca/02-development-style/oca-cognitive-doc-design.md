@@ -1,5 +1,5 @@
 ---
-name: cognitive-doc-design
+name: oca-cognitive-doc-design
 description: "Design ODF artifacts (specs, designs, reports) that reduce cognitive load for reviewers. Trigger: writing spec, design, report, PR description, or any document for human review."
 license: Apache-2.0
 metadata:
@@ -18,6 +18,7 @@ Load this skill when creating or editing documentation that humans need to under
 | Lead with the answer | Put the decision, action, or outcome first. Context comes after. |
 | Progressive disclosure | Happy path first, then details, edge cases, references |
 | Chunking | Group related info into small sections. Keep lists short. |
+| Signposting | Use headings, labels, callouts, and summaries so readers know where they are |
 | Recognition over recall | Tables, checklists, examples > prose that must be remembered |
 | Review empathy | Design so reviewers verify intent without reconstructing the whole story |
 
@@ -36,4 +37,4 @@ Return document with: outcome-oriented title, one-paragraph summary, quick path 
 
 ## References
 
-- `/home/adruban/.config/opencode/skills/oca/01-oca-governance/oca-pr-workflow.md` — PR templates
+- `~/.config/opencode/skills/oca/01-oca-governance/oca-pr-workflow.md` — PR templates

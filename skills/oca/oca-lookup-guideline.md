@@ -1,3 +1,12 @@
+---
+name: oca-lookup-guideline
+description: "Oca Lookup Guideline. Trigger: oca guideline lookup, quick reference, policy lookup."
+license: MIT
+metadata:
+  author: antoniodavid
+  version: "1.0"
+---
+
 # OCA Guideline Lookup
 
 Quick reference from Obsidian OCA documentation.

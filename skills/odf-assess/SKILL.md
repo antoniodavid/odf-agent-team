@@ -82,6 +82,6 @@ Return ODF Result envelope with: status (ok), executive_summary, strategy (stand
 
 ## References
 
-- `/home/adruban/.config/opencode/skills/_shared/result-contract.md` — ODF Result envelope
-- `/home/adruban/.config/opencode/skills/_shared/persistence-contract.md` — selected store and artifact references
-- `/home/adruban/.config/opencode/skills/_shared/odoo-sources.md` — Local source paths
+- `~/.config/opencode/skills/_shared/result-contract.md` — ODF Result envelope
+- `~/.config/opencode/skills/_shared/persistence-contract.md` — selected store and artifact references
+- `~/.config/opencode/skills/_shared/odoo-sources.md` — Local source paths

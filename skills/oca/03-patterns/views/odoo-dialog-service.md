@@ -1,3 +1,12 @@
+---
+name: odoo-dialog-service
+description: "Odoo Dialog Service. Trigger: dialog service, wizard, form dialog, owl dialog."
+license: MIT
+metadata:
+  author: antoniodavid
+  version: "1.0"
+---
+
 # Odoo Dialog Service Patterns
 
 ```

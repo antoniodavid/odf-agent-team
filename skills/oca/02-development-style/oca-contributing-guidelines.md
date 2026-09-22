@@ -1,3 +1,12 @@
+---
+name: oca-contributing-guidelines
+description: "OCA Contributing Guidelines. Trigger: contribute, guidelines, best practices, naming, conventions, module structure."
+license: MIT
+metadata:
+  author: antoniodavid
+  version: "1.0"
+---
+
 # OCA Contributing Guidelines
 
 > **For Odoo/OCA projects ONLY.** Consolidated best practices for contributing to OCA.

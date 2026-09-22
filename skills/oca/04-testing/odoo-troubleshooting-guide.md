@@ -1,3 +1,12 @@
+---
+name: odoo-troubleshooting-guide
+description: "Odoo Troubleshooting Guide. Trigger: troubleshooting, debug error, module not loading, common issues."
+license: MIT
+metadata:
+  author: antoniodavid
+  version: "1.0"
+---
+
 # Odoo Troubleshooting Guide
 
 ```

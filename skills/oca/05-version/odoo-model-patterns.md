@@ -1,3 +1,12 @@
+---
+name: odoo-model-patterns
+description: "Odoo Model Patterns. Trigger: model patterns, ORM patterns, version model guide."
+license: MIT
+metadata:
+  author: antoniodavid
+  version: "1.0"
+---
+
 # Odoo Model Patterns - Version Dispatcher
 
 ## CRITICAL: VERSION-SPECIFIC REQUIREMENTS
@@ -21,8 +30,7 @@
 
 | Target Version | File to Use | Status |
 |----------------|-------------|--------|
-| Odoo 14.0 | `odoo-model-patterns-14.md` | Legacy |
-| Odoo 15.0 | `odoo-model-patterns-15.md` | Legacy |
+| Odoo 15.0 | `odoo-model-patterns-15.md` | Migration source only |
 | Odoo 16.0 | `odoo-model-patterns-16.md` | Supported |
 | Odoo 17.0 | `odoo-model-patterns-17.md` | Supported |
 | Odoo 18.0 | `odoo-model-patterns-18.md` | Current |
@@ -33,18 +41,12 @@
 
 | Migration Path | File |
 |----------------|------|
-| 14.0 → 15.0 | `odoo-model-patterns-14-15.md` |
 | 15.0 → 16.0 | `odoo-model-patterns-15-16.md` |
 | 16.0 → 17.0 | `odoo-model-patterns-16-17.md` |
 | 17.0 → 18.0 | `odoo-model-patterns-17-18.md` |
 | 18.0 → 19.0 | `odoo-model-patterns-18-19.md` |
 
 ## Quick Reference: Major Model Pattern Changes
-
-### v14 Patterns
-- `@api.multi` deprecated (still works)
-- `track_visibility='onchange'`
-- Single record `create(vals)`
 
 ### v15 Patterns
 - `@api.multi` removed
@@ -73,8 +75,8 @@
 
 | Indicator | Version |
 |-----------|---------|
-| `@api.multi` decorator | 14.0 |
-| `track_visibility` | 14.0 |
+| `@api.multi` decorator | ≤14 (removed in 15) |
+| `track_visibility` | ≤14 (removed in 15) |
 | `tracking=True` | 15.0+ |
 | Tuple syntax for x2many | 14.0-15.0 |
 | `Command` class | 16.0+ |

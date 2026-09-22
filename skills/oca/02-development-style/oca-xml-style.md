@@ -1,3 +1,12 @@
+---
+name: oca-xml-style
+description: "OCA XML Style. Trigger: .xml, views/, data/, security/."
+license: MIT
+metadata:
+  author: antoniodavid
+  version: "1.0"
+---
+
 # OCA XML Style Guide
 
 XML coding standards for OCA modules.

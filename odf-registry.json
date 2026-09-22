@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "last_updated": "2026-09-16T00:00:00Z",
+  "last_updated": "2026-09-21",
   "package": {
     "name": "odf-agent-team",
     "version": "1.3.0",
@@ -25,13 +25,10 @@
       "title": "OCA PR Workflow",
       "category": "governance",
       "triggers": [
-        "PR",
-        "pull request",
-        "merge",
-        "review",
-        "submit",
-        "branch",
-        "push"
+        "OCA PR",
+        "pull request template",
+        "PR checklist",
+        "oca-pr-workflow"
       ],
       "compact_rules": "OCA PR workflow. Replaces caveman-commit for OCA projects.\n- Workflow: issue approved -> branch from ver -> implement -> commit OCA format -> PR with template -> CI + review\n- Branch naming: {type}/{module}-{desc} with types: fix/, imp/, add/, ref/, mig/\n- PR body must include: Description, Related Issue (Closes #N), OCA Compliance Checklist\n- Checklist: version format, license AGPL-3, author includes OCA, tests passing, OCA commit format\n- Maturity levels: Alpha/Beta=1 review, Stable=2 reviews+5 days+tests, Mature=Stable+docs+changelog+2 contributors\n- Don't force push after review starts. Don't squash without asking.",
       "path": "skills/oca/01-oca-governance/oca-pr-workflow.md",
@@ -193,8 +190,7 @@
       "triggers": [
         "__manifest__.py",
         "manifest",
-        "module",
-        "depends"
+        "module dependencies"
       ],
       "compact_rules": "- Version format: {ver}.0.1.0.0\n- License: AGPL-3 or LGPL-3\n- Author must include OCA if contributing\n- List all dependencies explicitly\n- Data files in correct order (security before views)",
       "path": "skills/oca/02-development-style/oca-manifest-format.md",
@@ -222,8 +218,8 @@
       "title": "Computed Field Patterns",
       "category": "patterns/models",
       "triggers": [
+        "@api.depends",
         "computed",
-        "depends",
         "store",
         "inverse",
         "compute"
@@ -460,8 +456,7 @@
         "compliance",
         "pylint",
         "pre-commit",
-        "oca",
-        "review"
+        "pre-PR checklist"
       ],
       "compact_rules": "- Run pre-commit run -a before PR\n- pylint-odoo: no odoolint errors\n- Manifest: correct version, license, author\n- Security: access rights for all models\n- Tests: tests/__init__.py exists, tests cover happy path + edge cases",
       "path": "skills/oca/04-testing/oca-compliance-check.md",
@@ -689,9 +684,10 @@
       "category": "odf",
       "triggers": [
         "verify",
-        "test",
+        "spec compliance",
+        "risk tier",
         "qa gate",
-        "quality"
+        "verification"
       ],
       "compact_rules": "Quality gate: evidence-based risk tiers + lens review + single-attempt correction budget.\n- Classify tier from the FROZEN diff (never diff size): HIGH (security/perms/raw SQL/money/data-loss/subprocess/public endpoints → 4 lenses risk/resilience/readability/reliability), MEDIUM (1 lens, default readability), LOW (0 lenses: structural readback + native tools, no reviewers)\n- Judgment Day 3-pass review runs ONLY for HIGH tier\n- Run the real module test suite with exact -d {test_db}; record command, exact database, exit_code, and output evidence\n- Disposable databases are preferred; a named non-isolated development DB is allowed only for the current run when the user-approved scope names and authorizes that exact DB\n- State non-isolated/user-authorized status and warn tests may mutate module, schema, and test data\n- Consent to use the DB does not authorize destructive setup; separate current consent is required for the exact operation/database\n- Static analysis and manual browser checks never substitute for module tests\n- User-run test evidence is valid: record via odf-toolkit manual-evidence (executor user-manual); never re-run or fabricate\n- Skipped, deferred, unavailable, or unrecorded tests → blocked with verification-deferred; never PASS or PASS WITH WARNINGS\n- Every REQ-XX must have a PASSING test (COMPLIANT) or it's UNTESTED (CRITICAL)\n- Correction budget: min(200, ceil(original_changed_lines/2)) lines, ONE attempt, re-verify once against same frozen diff (frozen_diff_ref); inconclusive validator doesn't consume the attempt; failed → escalate to user, never auto-loop\n- Never fix issues — only report. Orchestrator decides",
       "path": "skills/odf-verify/SKILL.md",
@@ -983,11 +979,10 @@
       "title": "OCA Work Unit Commits",
       "category": "governance",
       "triggers": [
-        "commit",
-        "git",
-        "message",
-        "work unit",
-        "pr split"
+        "commit splitting",
+        "work-unit commit",
+        "pr split",
+        "oca-work-unit-commits"
       ],
       "compact_rules": "OCA commit format: [TAG] module: desc (≤50 chars). Replaces conventional-commits for OCA.\n- Tags: FIX, ADD, IMP, REF, REM, MIG, MOV, DOC, TEST, SEC, PERF\n- Imperative mood. Body: WHY not WHAT\n- One work unit per commit: tests+docs with code\n- >400 lines: split or chained PRs\n- Closes #N. No Co-Authored-By",
       "path": "skills/oca/01-oca-governance/oca-work-unit-commits.md",
@@ -1181,7 +1176,11 @@
       "title": "OCA AI Governance",
       "category": "governance",
       "triggers": [
-        "target=oca"
+        "target=oca",
+        "OCA governance",
+        "AI co-authored-by",
+        "provenance",
+        "odf-oca-governance"
       ],
       "compact_rules": "Apply the explicit target=oca OCA AI governance gate before publication.\n- Load policies/oca-ai-policy.md and policies/oca/rules.yaml\n- Record minimal agent/model provenance with affected relative files\n- Recommend one Assisted-by trailer per AI model or agent; reject AI Co-authored-by\n- Require human acknowledgement; never auto-commit, auto-publish, or issue the ODF VERIFY verdict",
       "path": "skills/odf-oca-governance/SKILL.md",
@@ -1203,6 +1202,1498 @@
         }
       ],
       "last_updated": "2026-09-16"
+    },
+    {
+      "name": "karpathy-precision",
+      "title": "Karpathy Precision",
+      "category": "shared",
+      "triggers": [
+        "karpathy",
+        "precise writing",
+        "mimic author writing style"
+      ],
+      "compact_rules": "--- name: karpathy-precision title: Precision Guardrails (Karpathy-Inspired) description: >- Universal behavioral guardrails injected into every delegation. Reduces hallucination, overcomplication, and unnecessary changes by enforcing Think Before Coding, Simplicity First, Surgical Changes, and Goal-Driven Execution.",
+      "path": "skills/_shared/karpathy-precision.md",
+      "odoo_versions": [
+        16,
+        17,
+        18,
+        19
+      ],
+      "sdd_phase": null,
+      "version": "1.0",
+      "changelog": [
+        {
+          "version": "1.0",
+          "date": "2026-09-21",
+          "change": "Registered during skills audit"
+        }
+      ]
+    },
+    {
+      "name": "oca-maintainer-role",
+      "title": "Oca Maintainer Role",
+      "category": "governance",
+      "triggers": [
+        "maintainer role",
+        "PSC",
+        "OCA maintainer"
+      ],
+      "compact_rules": "Complete guide to the maintainer role in OCA repositories, responsibilities, and how to become or remove a maintainer.",
+      "path": "skills/oca/01-oca-governance/oca-maintainer-role.md",
+      "odoo_versions": [
+        16,
+        17,
+        18,
+        19
+      ],
+      "sdd_phase": null,
+      "version": "1.0",
+      "changelog": [
+        {
+          "version": "1.0",
+          "date": "2026-09-21",
+          "change": "Registered during skills audit"
+        }
+      ]
+    },
+    {
+      "name": "oca-maturity-levels",
+      "title": "Oca Maturity Levels",
+      "category": "governance",
+      "triggers": [
+        "maturity levels",
+        "Alpha Beta Stable Mature",
+        "module maturity"
+      ],
+      "compact_rules": "Complete guide to OCA module development status levels, requirements, and promotion workflow.",
+      "path": "skills/oca/01-oca-governance/oca-maturity-levels.md",
+      "odoo_versions": [
+        16,
+        17,
+        18,
+        19
+      ],
+      "sdd_phase": null,
+      "version": "1.0",
+      "changelog": [
+        {
+          "version": "1.0",
+          "date": "2026-09-21",
+          "change": "Registered during skills audit"
+        }
+      ]
+    },
+    {
+      "name": "oca-repository-policy",
+      "title": "Oca Repository Policy",
+      "category": "governance",
+      "triggers": [
+        "repository policy",
+        "repo structure",
+        "stability policy"
+      ],
+      "compact_rules": "Complete guide to OCA repository structure, governance, and policies for maintaining quality, stable, and relevant addon modules.",
+      "path": "skills/oca/01-oca-governance/oca-repository-policy.md",
+      "odoo_versions": [
+        16,
+        17,
+        18,
+        19
+      ],
+      "sdd_phase": null,
+      "version": "1.0",
+      "changelog": [
+        {
+          "version": "1.0",
+          "date": "2026-09-21",
+          "change": "Registered during skills audit"
+        }
+      ]
+    },
+    {
+      "name": "common-module-templates",
+      "title": "Common Module Templates",
+      "category": "style",
+      "triggers": [
+        "module templates",
+        "common module structure",
+        "scaffold"
+      ],
+      "compact_rules": "``` ╔══════════════════════════════════════════════════════════════════════════════╗ ║  COMMON MODULE TEMPLATES                                                     ║ ║  Ready-to-use templates for extending popular Odoo apps                      ║ ║  Patterns are for v18 - adjust for other versions per version guides   ",
+      "path": "skills/oca/02-development-style/common-module-templates.md",
+      "odoo_versions": [
+        16,
+        17,
+        18,
+        19
+      ],
+      "sdd_phase": null,
+      "version": "1.0",
+      "changelog": [
+        {
+          "version": "1.0",
+          "date": "2026-09-21",
+          "change": "Registered during skills audit"
+        }
+      ]
+    },
+    {
+      "name": "oca-naming-conv",
+      "title": "Oca Naming Conv",
+      "category": "style",
+      "triggers": [
+        "naming conventions",
+        "XML ID naming",
+        "file naming"
+      ],
+      "compact_rules": "Naming standards for OCA modules, files, and code elements.",
+      "path": "skills/oca/02-development-style/oca-naming-conv.md",
+      "odoo_versions": [
+        16,
+        17,
+        18,
+        19
+      ],
+      "sdd_phase": null,
+      "version": "1.0",
+      "changelog": [
+        {
+          "version": "1.0",
+          "date": "2026-09-21",
+          "change": "Registered during skills audit"
+        }
+      ]
+    },
+    {
+      "name": "odoo-module-generator",
+      "title": "Odoo Module Generator",
+      "category": "style",
+      "triggers": [
+        "generate module",
+        "module skeleton",
+        "new module scaffolding"
+      ],
+      "compact_rules": "``` ╔══════════════════════════════════════════════════════════════════════════════╗ ║                                                                              ║ ║   ⚠️  MANDATORY VERSION MATCHING ⚠️                                          ║ ║                                                                        ",
+      "path": "skills/oca/02-development-style/odoo-module-generator.md",
+      "odoo_versions": [
+        16,
+        17,
+        18,
+        19
+      ],
+      "sdd_phase": null,
+      "version": "1.0",
+      "changelog": [
+        {
+          "version": "1.0",
+          "date": "2026-09-21",
+          "change": "Registered during skills audit"
+        }
+      ]
+    },
+    {
+      "name": "accounting-patterns",
+      "title": "Accounting Patterns",
+      "category": "patterns",
+      "triggers": [
+        "accounting",
+        "account move",
+        "journal entry",
+        "chart of accounts",
+        "tax",
+        "fiscal position",
+        "account/"
+      ],
+      "compact_rules": "``` ╔══════════════════════════════════════════════════════════════════════════════╗ ║  ACCOUNTING INTEGRATION PATTERNS                                             ║ ║  Journal entries, invoicing, and financial operations                        ║ ║  Use for ERP integrations, financial reporting, and accounting automati",
+      "path": "skills/oca/03-patterns/business/accounting-patterns.md",
+      "odoo_versions": [
+        16,
+        17,
+        18,
+        19
+      ],
+      "sdd_phase": null,
+      "version": "1.0",
+      "changelog": [
+        {
+          "version": "1.0",
+          "date": "2026-09-21",
+          "change": "Registered during skills audit"
+        }
+      ]
+    },
+    {
+      "name": "assets-bundling-patterns",
+      "title": "Assets Bundling Patterns",
+      "category": "patterns",
+      "triggers": [
+        "assets bundle",
+        "ir.assets",
+        "js/css assets",
+        "web.assets"
+      ],
+      "compact_rules": "``` ╔══════════════════════════════════════════════════════════════════════════════╗ ║  ASSETS BUNDLING PATTERNS                                                    ║ ║  JavaScript, CSS, and SCSS asset management                                  ║ ║  Use for frontend customization and OWL component registration         ",
+      "path": "skills/oca/03-patterns/business/assets-bundling-patterns.md",
+      "odoo_versions": [
+        16,
+        17,
+        18,
+        19
+      ],
+      "sdd_phase": null,
+      "version": "1.0",
+      "changelog": [
+        {
+          "version": "1.0",
+          "date": "2026-09-21",
+          "change": "Registered during skills audit"
+        }
+      ]
+    },
+    {
+      "name": "attachment-binary-patterns",
+      "title": "Attachment Binary Patterns",
+      "category": "patterns",
+      "triggers": [
+        "binary field",
+        "file attachment",
+        "ir.attachment",
+        "upload"
+      ],
+      "compact_rules": "``` ╔══════════════════════════════════════════════════════════════════════════════╗ ║  ATTACHMENT & BINARY FIELD PATTERNS                                          ║ ║  File uploads, images, documents, and attachments                            ║ ║  Use for handling files, images, and documents in Odoo                 ",
+      "path": "skills/oca/03-patterns/business/attachment-binary-patterns.md",
+      "odoo_versions": [
+        16,
+        17,
+        18,
+        19
+      ],
+      "sdd_phase": null,
+      "version": "1.0",
+      "changelog": [
+        {
+          "version": "1.0",
+          "date": "2026-09-21",
+          "change": "Registered during skills audit"
+        }
+      ]
+    },
+    {
+      "name": "config-settings-patterns",
+      "title": "Config Settings Patterns",
+      "category": "patterns",
+      "triggers": [
+        "ir.config_parameter",
+        "settings model",
+        "res.config.settings"
+      ],
+      "compact_rules": "``` ╔══════════════════════════════════════════════════════════════════════════════╗ ║  CONFIGURATION SETTINGS PATTERNS                                             ║ ║  Module settings, res.config.settings, and system parameters                 ║ ║  Use for user-configurable options and feature toggles                 ",
+      "path": "skills/oca/03-patterns/business/config-settings-patterns.md",
+      "odoo_versions": [
+        16,
+        17,
+        18,
+        19
+      ],
+      "sdd_phase": null,
+      "version": "1.0",
+      "changelog": [
+        {
+          "version": "1.0",
+          "date": "2026-09-21",
+          "change": "Registered during skills audit"
+        }
+      ]
+    },
+    {
+      "name": "controller-api-patterns",
+      "title": "Controller Api Patterns",
+      "category": "patterns",
+      "triggers": [
+        "http controller",
+        "http.route",
+        "REST endpoint",
+        "website route"
+      ],
+      "compact_rules": "``` ╔══════════════════════════════════════════════════════════════════════════════╗ ║  CONTROLLER & API PATTERNS                                                   ║ ║  HTTP controllers, REST endpoints, and web routes                            ║ ║  Use for APIs, webhooks, and custom web endpoints                      ",
+      "path": "skills/oca/03-patterns/business/controller-api-patterns.md",
+      "odoo_versions": [
+        16,
+        17,
+        18,
+        19
+      ],
+      "sdd_phase": null,
+      "version": "1.0",
+      "changelog": [
+        {
+          "version": "1.0",
+          "date": "2026-09-21",
+          "change": "Registered during skills audit"
+        }
+      ]
+    },
+    {
+      "name": "cron-automation-patterns",
+      "title": "Cron Automation Patterns",
+      "category": "patterns",
+      "triggers": [
+        "ir.cron",
+        "scheduled action",
+        "automation job"
+      ],
+      "compact_rules": "``` ╔══════════════════════════════════════════════════════════════════════════════╗ ║  CRON & AUTOMATION PATTERNS                                                  ║ ║  Scheduled actions, server actions, and automated rules                      ║ ║  Use for background jobs, triggers, and workflow automation            ",
+      "path": "skills/oca/03-patterns/business/cron-automation-patterns.md",
+      "odoo_versions": [
+        16,
+        17,
+        18,
+        19
+      ],
+      "sdd_phase": null,
+      "version": "1.0",
+      "changelog": [
+        {
+          "version": "1.0",
+          "date": "2026-09-21",
+          "change": "Registered during skills audit"
+        }
+      ]
+    },
+    {
+      "name": "dashboard-kpi-patterns",
+      "title": "Dashboard Kpi Patterns",
+      "category": "patterns",
+      "triggers": [
+        "dashboard",
+        "KPI",
+        "graph view",
+        "metrics"
+      ],
+      "compact_rules": "``` ╔══════════════════════════════════════════════════════════════════════════════╗ ║  DASHBOARD & KPI PATTERNS                                                    ║ ║  Analytics views, KPI displays, and business intelligence                    ║ ║  Use for data visualization and executive dashboards                   ",
+      "path": "skills/oca/03-patterns/business/dashboard-kpi-patterns.md",
+      "odoo_versions": [
+        16,
+        17,
+        18,
+        19
+      ],
+      "sdd_phase": null,
+      "version": "1.0",
+      "changelog": [
+        {
+          "version": "1.0",
+          "date": "2026-09-21",
+          "change": "Registered during skills audit"
+        }
+      ]
+    },
+    {
+      "name": "external-api-patterns",
+      "title": "External Api Patterns",
+      "category": "patterns",
+      "triggers": [
+        "xmlrpc",
+        "jsonrpc",
+        "external API",
+        "api client",
+        "odoo client"
+      ],
+      "compact_rules": "``` ╔══════════════════════════════════════════════════════════════════════════════╗ ║  EXTERNAL API INTEGRATION PATTERNS                                           ║ ║  Connecting to third-party services, REST/SOAP APIs, and webhooks            ║ ║  Use for payment gateways, shipping providers, CRM sync, etc.          ",
+      "path": "skills/oca/03-patterns/business/external-api-patterns.md",
+      "odoo_versions": [
+        16,
+        17,
+        18,
+        19
+      ],
+      "sdd_phase": null,
+      "version": "1.0",
+      "changelog": [
+        {
+          "version": "1.0",
+          "date": "2026-09-21",
+          "change": "Registered during skills audit"
+        }
+      ]
+    },
+    {
+      "name": "hr-employee-patterns",
+      "title": "Hr Employee Patterns",
+      "category": "patterns",
+      "triggers": [
+        "employee",
+        "hr.employee",
+        "payslip",
+        "department"
+      ],
+      "compact_rules": "``` ╔══════════════════════════════════════════════════════════════════════════════╗ ║  HR & EMPLOYEE PATTERNS                                                      ║ ║  Employee management, contracts, attendance, and HR workflows                ║ ║  Use for HR modules, time tracking, and workforce management           ",
+      "path": "skills/oca/03-patterns/business/hr-employee-patterns.md",
+      "odoo_versions": [
+        16,
+        17,
+        18,
+        19
+      ],
+      "sdd_phase": null,
+      "version": "1.0",
+      "changelog": [
+        {
+          "version": "1.0",
+          "date": "2026-09-21",
+          "change": "Registered during skills audit"
+        }
+      ]
+    },
+    {
+      "name": "import-export-patterns",
+      "title": "Import Export Patterns",
+      "category": "patterns",
+      "triggers": [
+        "import",
+        "export",
+        "load",
+        "CSV import",
+        "odoo csv"
+      ],
+      "compact_rules": "``` ╔══════════════════════════════════════════════════════════════════════════════╗ ║  IMPORT/EXPORT DATA PATTERNS                                                 ║ ║  CSV import, Excel export, data migration, and bulk operations               ║ ║  Use for data loading, reporting exports, and system integration       ",
+      "path": "skills/oca/03-patterns/business/import-export-patterns.md",
+      "odoo_versions": [
+        16,
+        17,
+        18,
+        19
+      ],
+      "sdd_phase": null,
+      "version": "1.0",
+      "changelog": [
+        {
+          "version": "1.0",
+          "date": "2026-09-21",
+          "change": "Registered during skills audit"
+        }
+      ]
+    },
+    {
+      "name": "logging-debugging-patterns",
+      "title": "Logging Debugging Patterns",
+      "category": "patterns",
+      "triggers": [
+        "logging",
+        "_logger",
+        "debug",
+        "traceback"
+      ],
+      "compact_rules": "``` ╔══════════════════════════════════════════════════════════════════════════════╗ ║  LOGGING & DEBUGGING PATTERNS                                                ║ ║  Proper logging, error tracking, and debugging techniques                    ║ ║  Use for troubleshooting, monitoring, and audit trails                 ",
+      "path": "skills/oca/03-patterns/business/logging-debugging-patterns.md",
+      "odoo_versions": [
+        16,
+        17,
+        18,
+        19
+      ],
+      "sdd_phase": null,
+      "version": "1.0",
+      "changelog": [
+        {
+          "version": "1.0",
+          "date": "2026-09-21",
+          "change": "Registered during skills audit"
+        }
+      ]
+    },
+    {
+      "name": "lot-serial-patterns",
+      "title": "Lot Serial Patterns",
+      "category": "patterns",
+      "triggers": [
+        "lot number",
+        "serial number",
+        "stock.quant",
+        "tracking"
+      ],
+      "compact_rules": "``` ╔══════════════════════════════════════════════════════════════════════════════╗ ║  LOT & SERIAL NUMBER PATTERNS                                                ║ ║  Product traceability, batch tracking, and serial number management          ║ ║  Use for inventory tracking, recalls, and compliance requirements      ",
+      "path": "skills/oca/03-patterns/business/lot-serial-patterns.md",
+      "odoo_versions": [
+        16,
+        17,
+        18,
+        19
+      ],
+      "sdd_phase": null,
+      "version": "1.0",
+      "changelog": [
+        {
+          "version": "1.0",
+          "date": "2026-09-21",
+          "change": "Registered during skills audit"
+        }
+      ]
+    },
+    {
+      "name": "mail-notification-patterns",
+      "title": "Mail Notification Patterns",
+      "category": "patterns",
+      "triggers": [
+        "mail template",
+        "notification",
+        "message_post",
+        "email template"
+      ],
+      "compact_rules": "``` ╔══════════════════════════════════════════════════════════════════════════════╗ ║  MAIL & NOTIFICATION PATTERNS                                                ║ ║  Email templates, chatter integration, and activity management               ║ ║  Use for automated emails, discussions, and workflow notifications     ",
+      "path": "skills/oca/03-patterns/business/mail-notification-patterns.md",
+      "odoo_versions": [
+        16,
+        17,
+        18,
+        19
+      ],
+      "sdd_phase": null,
+      "version": "1.0",
+      "changelog": [
+        {
+          "version": "1.0",
+          "date": "2026-09-21",
+          "change": "Registered during skills audit"
+        }
+      ]
+    },
+    {
+      "name": "menu-navigation-patterns",
+      "title": "Menu Navigation Patterns",
+      "category": "patterns",
+      "triggers": [
+        "menu item",
+        "ir.ui.menu",
+        "action window",
+        "menuitem"
+      ],
+      "compact_rules": "``` ╔══════════════════════════════════════════════════════════════════════════════╗ ║  MENU & NAVIGATION PATTERNS                                                  ║ ║  Menu structure, navigation, and application organization                    ║ ║  Use for module UI organization and user navigation                    ",
+      "path": "skills/oca/03-patterns/business/menu-navigation-patterns.md",
+      "odoo_versions": [
+        16,
+        17,
+        18,
+        19
+      ],
+      "sdd_phase": null,
+      "version": "1.0",
+      "changelog": [
+        {
+          "version": "1.0",
+          "date": "2026-09-21",
+          "change": "Registered during skills audit"
+        }
+      ]
+    },
+    {
+      "name": "portal-access-patterns",
+      "title": "Portal Access Patterns",
+      "category": "patterns",
+      "triggers": [
+        "portal user",
+        "public access",
+        "website security",
+        "portal"
+      ],
+      "compact_rules": "``` ╔══════════════════════════════════════════════════════════════════════════════╗ ║  PORTAL & ACCESS TOKEN PATTERNS                                              ║ ║  Customer portal, public access, and secure token-based sharing              ║ ║  Use for external user access and document sharing                     ",
+      "path": "skills/oca/03-patterns/business/portal-access-patterns.md",
+      "odoo_versions": [
+        16,
+        17,
+        18,
+        19
+      ],
+      "sdd_phase": null,
+      "version": "1.0",
+      "changelog": [
+        {
+          "version": "1.0",
+          "date": "2026-09-21",
+          "change": "Registered during skills audit"
+        }
+      ]
+    },
+    {
+      "name": "pricelist-pricing-patterns",
+      "title": "Pricelist Pricing Patterns",
+      "category": "patterns",
+      "triggers": [
+        "pricelist",
+        "pricing rule",
+        "discount",
+        "price computation"
+      ],
+      "compact_rules": "``` ╔══════════════════════════════════════════════════════════════════════════════╗ ║  PRICELIST & PRICING PATTERNS                                                ║ ║  Dynamic pricing, discounts, and multi-currency price management             ║ ║  Use for sales pricing, promotions, and customer-specific pricing      ",
+      "path": "skills/oca/03-patterns/business/pricelist-pricing-patterns.md",
+      "odoo_versions": [
+        16,
+        17,
+        18,
+        19
+      ],
+      "sdd_phase": null,
+      "version": "1.0",
+      "changelog": [
+        {
+          "version": "1.0",
+          "date": "2026-09-21",
+          "change": "Registered during skills audit"
+        }
+      ]
+    },
+    {
+      "name": "product-variant-patterns",
+      "title": "Product Variant Patterns",
+      "category": "patterns",
+      "triggers": [
+        "product variant",
+        "attribute",
+        "product.template",
+        "product.product"
+      ],
+      "compact_rules": "``` ╔══════════════════════════════════════════════════════════════════════════════╗ ║  PRODUCT VARIANT PATTERNS                                                    ║ ║  Product templates, variants, attributes, and configurators                  ║ ║  Use for managing products with multiple variations (size, color, etc.)",
+      "path": "skills/oca/03-patterns/business/product-variant-patterns.md",
+      "odoo_versions": [
+        16,
+        17,
+        18,
+        19
+      ],
+      "sdd_phase": null,
+      "version": "1.0",
+      "changelog": [
+        {
+          "version": "1.0",
+          "date": "2026-09-21",
+          "change": "Registered during skills audit"
+        }
+      ]
+    },
+    {
+      "name": "project-task-patterns",
+      "title": "Project Task Patterns",
+      "category": "patterns",
+      "triggers": [
+        "project task",
+        "project.task",
+        "milestone",
+        "timesheet"
+      ],
+      "compact_rules": "``` ╔══════════════════════════════════════════════════════════════════════════════╗ ║  PROJECT & TASK PATTERNS                                                     ║ ║  Project management, task workflows, and time tracking                       ║ ║  Use for project modules, task automation, and resource planning       ",
+      "path": "skills/oca/03-patterns/business/project-task-patterns.md",
+      "odoo_versions": [
+        16,
+        17,
+        18,
+        19
+      ],
+      "sdd_phase": null,
+      "version": "1.0",
+      "changelog": [
+        {
+          "version": "1.0",
+          "date": "2026-09-21",
+          "change": "Registered during skills audit"
+        }
+      ]
+    },
+    {
+      "name": "purchase-procurement-patterns",
+      "title": "Purchase Procurement Patterns",
+      "category": "patterns",
+      "triggers": [
+        "purchase order",
+        "procurement",
+        "rfq",
+        "vendor"
+      ],
+      "compact_rules": "``` ╔══════════════════════════════════════════════════════════════════════════════╗ ║  PURCHASE & PROCUREMENT PATTERNS                                             ║ ║  Purchase orders, vendor management, and procurement workflows               ║ ║  Use for purchasing automation, vendor portals, and supply chain       ",
+      "path": "skills/oca/03-patterns/business/purchase-procurement-patterns.md",
+      "odoo_versions": [
+        16,
+        17,
+        18,
+        19
+      ],
+      "sdd_phase": null,
+      "version": "1.0",
+      "changelog": [
+        {
+          "version": "1.0",
+          "date": "2026-09-21",
+          "change": "Registered during skills audit"
+        }
+      ]
+    },
+    {
+      "name": "context-environment-patterns",
+      "title": "Context Environment Patterns",
+      "category": "patterns",
+      "triggers": [
+        "with_context",
+        "with_user",
+        "sudo",
+        "env context"
+      ],
+      "compact_rules": "``` ╔══════════════════════════════════════════════════════════════════════════════╗ ║  CONTEXT & ENVIRONMENT PATTERNS                                              ║ ║  Using context, environment, and recordset manipulation                      ║ ║  Use for passing data, changing behavior, and managing state           ",
+      "path": "skills/oca/03-patterns/models/context-environment-patterns.md",
+      "odoo_versions": [
+        16,
+        17,
+        18,
+        19
+      ],
+      "sdd_phase": null,
+      "version": "1.0",
+      "changelog": [
+        {
+          "version": "1.0",
+          "date": "2026-09-21",
+          "change": "Registered during skills audit"
+        }
+      ]
+    },
+    {
+      "name": "data-migration-patterns",
+      "title": "Data Migration Patterns",
+      "category": "patterns",
+      "triggers": [
+        "migration script",
+        "openupgrade",
+        "data migration",
+        "pre-migrate"
+      ],
+      "compact_rules": "``` ╔══════════════════════════════════════════════════════════════════════════════╗ ║  DATA MIGRATION PATTERNS                                                     ║ ║  Version upgrades, data transformation, and migration scripts                ║ ║  Use for module upgrades, data fixes, and version transitions          ",
+      "path": "skills/oca/03-patterns/models/data-migration-patterns.md",
+      "odoo_versions": [
+        16,
+        17,
+        18,
+        19
+      ],
+      "sdd_phase": null,
+      "version": "1.0",
+      "changelog": [
+        {
+          "version": "1.0",
+          "date": "2026-09-21",
+          "change": "Registered during skills audit"
+        }
+      ]
+    },
+    {
+      "name": "domain-filter-patterns",
+      "title": "Domain Filter Patterns",
+      "category": "patterns",
+      "triggers": [
+        "domain",
+        "search filter",
+        "recordset filter",
+        "expression domain"
+      ],
+      "compact_rules": "``` ╔══════════════════════════════════════════════════════════════════════════════╗ ║  DOMAIN & FILTER PATTERNS                                                    ║ ║  Search domains, record filtering, and query optimization                    ║ ║  Use for search views, record rules, and programmatic filtering        ",
+      "path": "skills/oca/03-patterns/models/domain-filter-patterns.md",
+      "odoo_versions": [
+        16,
+        17,
+        18,
+        19
+      ],
+      "sdd_phase": null,
+      "version": "1.0",
+      "changelog": [
+        {
+          "version": "1.0",
+          "date": "2026-09-21",
+          "change": "Registered during skills audit"
+        }
+      ]
+    },
+    {
+      "name": "error-handling-patterns",
+      "title": "Error Handling Patterns",
+      "category": "patterns",
+      "triggers": [
+        "ValidationError",
+        "UserError",
+        "exception handling",
+        "raise"
+      ],
+      "compact_rules": "``` ╔══════════════════════════════════════════════════════════════════════════════╗ ║  ERROR HANDLING PATTERNS                                                     ║ ║  Exceptions, validation, and error recovery                                  ║ ║  Use for robust error handling, user feedback, and data integrity      ",
+      "path": "skills/oca/03-patterns/models/error-handling-patterns.md",
+      "odoo_versions": [
+        16,
+        17,
+        18,
+        19
+      ],
+      "sdd_phase": null,
+      "version": "1.0",
+      "changelog": [
+        {
+          "version": "1.0",
+          "date": "2026-09-21",
+          "change": "Registered during skills audit"
+        }
+      ]
+    },
+    {
+      "name": "field-type-reference",
+      "title": "Field Type Reference",
+      "category": "patterns",
+      "triggers": [
+        "field types",
+        "Char Integer Monetary",
+        "Selection field",
+        "field reference"
+      ],
+      "compact_rules": "``` ╔══════════════════════════════════════════════════════════════════════════════╗ ║  FIELD TYPE REFERENCE                                                        ║ ║  Complete reference for all Odoo field types with version-specific notes     ║ ║  Use when defining model fields                                        ",
+      "path": "skills/oca/03-patterns/models/field-type-reference.md",
+      "odoo_versions": [
+        16,
+        17,
+        18,
+        19
+      ],
+      "sdd_phase": null,
+      "version": "1.0",
+      "changelog": [
+        {
+          "version": "1.0",
+          "date": "2026-09-21",
+          "change": "Registered during skills audit"
+        }
+      ]
+    },
+    {
+      "name": "onchange-dynamic-patterns",
+      "title": "Onchange Dynamic Patterns",
+      "category": "patterns",
+      "triggers": [
+        "onchange",
+        "@api.onchange",
+        "dynamic field",
+        "compute onchange"
+      ],
+      "compact_rules": "``` ╔══════════════════════════════════════════════════════════════════════════════╗ ║  ONCHANGE & DYNAMIC FORM PATTERNS                                            ║ ║  @api.onchange, dynamic domains, and form field updates                      ║ ║  Use for interactive form behavior and field auto-population           ",
+      "path": "skills/oca/03-patterns/models/onchange-dynamic-patterns.md",
+      "odoo_versions": [
+        16,
+        17,
+        18,
+        19
+      ],
+      "sdd_phase": null,
+      "version": "1.0",
+      "changelog": [
+        {
+          "version": "1.0",
+          "date": "2026-09-21",
+          "change": "Registered during skills audit"
+        }
+      ]
+    },
+    {
+      "name": "action-patterns",
+      "title": "Action Patterns",
+      "category": "patterns",
+      "triggers": [
+        "ir.actions",
+        "server action",
+        "automated action",
+        "act_window"
+      ],
+      "compact_rules": "``` ╔══════════════════════════════════════════════════════════════════════════════╗ ║  ACTION PATTERNS                                                             ║ ║  Window actions, server actions, client actions, and URL actions             ║ ║  Use for navigation, automation, and user interface interactions       ",
+      "path": "skills/oca/03-patterns/views/action-patterns.md",
+      "odoo_versions": [
+        16,
+        17,
+        18,
+        19
+      ],
+      "sdd_phase": null,
+      "version": "1.0",
+      "changelog": [
+        {
+          "version": "1.0",
+          "date": "2026-09-21",
+          "change": "Registered during skills audit"
+        }
+      ]
+    },
+    {
+      "name": "odoo-dialog-service",
+      "title": "Odoo Dialog Service",
+      "category": "patterns",
+      "triggers": [
+        "dialog service",
+        "wizard",
+        "form dialog",
+        "owl dialog"
+      ],
+      "compact_rules": "``` ╔══════════════════════════════════════════════════════════════════════════════╗ ║  DIALOG SERVICE PATTERNS                                                   ║ ║  Confirmation, Alerts, Wizards, and Modal Dialogs in OWL                  ║ ║  For Odoo 16+ (OWL 2.x/3.x)                                              ║",
+      "path": "skills/oca/03-patterns/views/odoo-dialog-service.md",
+      "odoo_versions": [
+        16,
+        17,
+        18,
+        19
+      ],
+      "sdd_phase": null,
+      "version": "1.0",
+      "changelog": [
+        {
+          "version": "1.0",
+          "date": "2026-09-21",
+          "change": "Registered during skills audit"
+        }
+      ]
+    },
+    {
+      "name": "end-to-end-examples",
+      "title": "End To End Examples",
+      "category": "testing",
+      "triggers": [
+        "end to end example",
+        "complete module example",
+        "full module walkthrough"
+      ],
+      "compact_rules": "``` ╔══════════════════════════════════════════════════════════════════════════════╗ ║  END-TO-END GENERATION EXAMPLES                                              ║ ║  Complete input → output examples for autonomous agent operation             ║ ║  Copy these patterns for consistent module generation                  ",
+      "path": "skills/oca/04-testing/end-to-end-examples.md",
+      "odoo_versions": [
+        16,
+        17,
+        18,
+        19
+      ],
+      "sdd_phase": null,
+      "version": "1.0",
+      "changelog": [
+        {
+          "version": "1.0",
+          "date": "2026-09-21",
+          "change": "Registered during skills audit"
+        }
+      ]
+    },
+    {
+      "name": "oca-code-review",
+      "title": "Oca Code Review",
+      "category": "testing",
+      "triggers": [
+        "code review",
+        "review checklist",
+        "OCA review"
+      ],
+      "compact_rules": "Complete code review combining compliance + patterns + improvements.",
+      "path": "skills/oca/04-testing/oca-code-review.md",
+      "odoo_versions": [
+        16,
+        17,
+        18,
+        19
+      ],
+      "sdd_phase": null,
+      "version": "1.0",
+      "changelog": [
+        {
+          "version": "1.0",
+          "date": "2026-09-21",
+          "change": "Registered during skills audit"
+        }
+      ]
+    },
+    {
+      "name": "odoo-editions",
+      "title": "Odoo Editions",
+      "category": "testing",
+      "triggers": [
+        "community enterprise",
+        "odoo editions",
+        "enterprise features"
+      ],
+      "compact_rules": "``` ╔══════════════════════════════════════════════════════════════════════════════╗ ║  ODOO EDITIONS REFERENCE                                                     ║ ║  Understanding differences between Community and Enterprise editions         ║ ╚════════════════════════════════════════════════════════════════════════",
+      "path": "skills/oca/04-testing/odoo-editions.md",
+      "odoo_versions": [
+        16,
+        17,
+        18,
+        19
+      ],
+      "sdd_phase": null,
+      "version": "1.0",
+      "changelog": [
+        {
+          "version": "1.0",
+          "date": "2026-09-21",
+          "change": "Registered during skills audit"
+        }
+      ]
+    },
+    {
+      "name": "odoo-performance-guide",
+      "title": "Odoo Performance Guide",
+      "category": "testing",
+      "triggers": [
+        "performance",
+        "slow query",
+        "optimize",
+        "n+1",
+        "read_group"
+      ],
+      "compact_rules": "``` ╔══════════════════════════════════════════════════════════════════════════════╗ ║  PERFORMANCE OPTIMIZATION GUIDE                                              ║ ║  Best practices for high-performance Odoo modules across all versions        ║ ║  Critical for modules marked as \"performance_critical\": true           ",
+      "path": "skills/oca/04-testing/odoo-performance-guide.md",
+      "odoo_versions": [
+        16,
+        17,
+        18,
+        19
+      ],
+      "sdd_phase": null,
+      "version": "1.0",
+      "changelog": [
+        {
+          "version": "1.0",
+          "date": "2026-09-21",
+          "change": "Registered during skills audit"
+        }
+      ]
+    },
+    {
+      "name": "odoo-tour-testing",
+      "title": "Odoo Tour Testing",
+      "category": "testing",
+      "triggers": [
+        "tour test",
+        "qUnit tour",
+        "HttpCase UI",
+        "chrome tour"
+      ],
+      "compact_rules": "``` ╔══════════════════════════════════════════════════════════════════════════════╗ ║  TOUR TESTING PATTERNS                                                     ║ ║  QUnit tours, HTTPCase tours, and UI automation in Odoo                   ║ ║  For Odoo 16+                                                              ║",
+      "path": "skills/oca/04-testing/odoo-tour-testing.md",
+      "odoo_versions": [
+        16,
+        17,
+        18,
+        19
+      ],
+      "sdd_phase": null,
+      "version": "1.0",
+      "changelog": [
+        {
+          "version": "1.0",
+          "date": "2026-09-21",
+          "change": "Registered during skills audit"
+        }
+      ]
+    },
+    {
+      "name": "odoo-troubleshooting-guide",
+      "title": "Odoo Troubleshooting Guide",
+      "category": "testing",
+      "triggers": [
+        "troubleshooting",
+        "debug error",
+        "module not loading",
+        "common issues"
+      ],
+      "compact_rules": "``` ╔══════════════════════════════════════════════════════════════════════════════╗ ║  TROUBLESHOOTING GUIDE                                                       ║ ║  Common errors, causes, and solutions for Odoo module development            ║ ║  Organized by error type and affected versions                         ",
+      "path": "skills/oca/04-testing/odoo-troubleshooting-guide.md",
+      "odoo_versions": [
+        16,
+        17,
+        18,
+        19
+      ],
+      "sdd_phase": null,
+      "version": "1.0",
+      "changelog": [
+        {
+          "version": "1.0",
+          "date": "2026-09-21",
+          "change": "Registered during skills audit"
+        }
+      ]
+    },
+    {
+      "name": "odoo-model-patterns",
+      "title": "Odoo Model Patterns",
+      "category": "version",
+      "triggers": [
+        "model patterns",
+        "ORM patterns",
+        "version model guide"
+      ],
+      "compact_rules": "``` ╔══════════════════════════════════════════════════════════════════════════════╗ ║                                                                              ║ ║   ⚠️  MANDATORY VERSION MATCHING ⚠️                                          ║ ║                                                                        ",
+      "path": "skills/oca/05-version/odoo-model-patterns.md",
+      "odoo_versions": [
+        16,
+        17,
+        18,
+        19
+      ],
+      "sdd_phase": null,
+      "version": "1.0",
+      "changelog": [
+        {
+          "version": "1.0",
+          "date": "2026-09-21",
+          "change": "Registered during skills audit"
+        }
+      ]
+    },
+    {
+      "name": "oca-skills-index",
+      "title": "OCA Skills Index",
+      "category": "index",
+      "triggers": [
+        "oca skills index",
+        "find oca skill",
+        "skill catalog"
+      ],
+      "compact_rules": "Skills for OCA compliance and Odoo development. **126 specialized skills** organized into 5 categories + core tools.",
+      "path": "skills/oca/SKILL.md",
+      "odoo_versions": [
+        16,
+        17,
+        18,
+        19
+      ],
+      "sdd_phase": null,
+      "version": "1.0",
+      "changelog": [
+        {
+          "version": "1.0",
+          "date": "2026-09-21",
+          "change": "Registered during skills audit"
+        }
+      ]
+    },
+    {
+      "name": "oca-api-lookup",
+      "title": "Oca Api Lookup",
+      "category": "tools",
+      "triggers": [
+        "odoo api docs",
+        "api lookup",
+        "method signature"
+      ],
+      "compact_rules": "Search Odoo official API from `odoo/odoo` repository.",
+      "path": "skills/oca/oca-api-lookup.md",
+      "odoo_versions": [
+        16,
+        17,
+        18,
+        19
+      ],
+      "sdd_phase": null,
+      "version": "1.0",
+      "changelog": [
+        {
+          "version": "1.0",
+          "date": "2026-09-21",
+          "change": "Registered during skills audit"
+        }
+      ]
+    },
+    {
+      "name": "oca-documentation-gen",
+      "title": "Oca Documentation Gen",
+      "category": "tools",
+      "triggers": [
+        "generate docs",
+        "documentation generation",
+        "readme gen"
+      ],
+      "compact_rules": "Generate OCA-compliant documentation for modules.",
+      "path": "skills/oca/oca-documentation-gen.md",
+      "odoo_versions": [
+        16,
+        17,
+        18,
+        19
+      ],
+      "sdd_phase": null,
+      "version": "1.0",
+      "changelog": [
+        {
+          "version": "1.0",
+          "date": "2026-09-21",
+          "change": "Registered during skills audit"
+        }
+      ]
+    },
+    {
+      "name": "oca-lookup-guideline",
+      "title": "Oca Lookup Guideline",
+      "category": "tools",
+      "triggers": [
+        "oca guideline lookup",
+        "quick reference",
+        "policy lookup"
+      ],
+      "compact_rules": "Quick reference from Obsidian OCA documentation.",
+      "path": "skills/oca/oca-lookup-guideline.md",
+      "odoo_versions": [
+        16,
+        17,
+        18,
+        19
+      ],
+      "sdd_phase": null,
+      "version": "1.0",
+      "changelog": [
+        {
+          "version": "1.0",
+          "date": "2026-09-21",
+          "change": "Registered during skills audit"
+        }
+      ]
+    },
+    {
+      "name": "oca-migration-assist",
+      "title": "Oca Migration Assist",
+      "category": "tools",
+      "triggers": [
+        "migration assist",
+        "migration guidance",
+        "port module"
+      ],
+      "compact_rules": "Guide version migrations using OpenUpgrade + Odoo official.",
+      "path": "skills/oca/oca-migration-assist.md",
+      "odoo_versions": [
+        16,
+        17,
+        18,
+        19
+      ],
+      "sdd_phase": null,
+      "version": "1.0",
+      "changelog": [
+        {
+          "version": "1.0",
+          "date": "2026-09-21",
+          "change": "Registered during skills audit"
+        }
+      ]
+    },
+    {
+      "name": "oca-migration-status",
+      "title": "Oca Migration Status",
+      "category": "tools",
+      "triggers": [
+        "migration status",
+        "repo migration state",
+        "which versions migrated"
+      ],
+      "compact_rules": "--- trigger: estado de migración|qué módulos faltan|migration status|progreso ---",
+      "path": "skills/oca/oca-migration-status.md",
+      "odoo_versions": [
+        16,
+        17,
+        18,
+        19
+      ],
+      "sdd_phase": null,
+      "version": "1.0",
+      "changelog": [
+        {
+          "version": "1.0",
+          "date": "2026-09-21",
+          "change": "Registered during skills audit"
+        }
+      ]
+    },
+    {
+      "name": "oca-odoo-local-search",
+      "title": "Oca Odoo Local Search",
+      "category": "tools",
+      "triggers": [
+        "search odoo source",
+        "local odoo search",
+        "find implementation"
+      ],
+      "compact_rules": "--- trigger: buscar en odoo|search odoo|find in odoo|código odoo|odoo code ---",
+      "path": "skills/oca/oca-odoo-local-search.md",
+      "odoo_versions": [
+        16,
+        17,
+        18,
+        19
+      ],
+      "sdd_phase": null,
+      "version": "1.0",
+      "changelog": [
+        {
+          "version": "1.0",
+          "date": "2026-09-21",
+          "change": "Registered during skills audit"
+        }
+      ]
+    },
+    {
+      "name": "oca-pattern-match",
+      "title": "Oca Pattern Match",
+      "category": "tools",
+      "triggers": [
+        "find pattern",
+        "pattern search",
+        "odoo/odoo pattern"
+      ],
+      "compact_rules": "Find patterns in Odoo official + OCA community repos.",
+      "path": "skills/oca/oca-pattern-match.md",
+      "odoo_versions": [
+        16,
+        17,
+        18,
+        19
+      ],
+      "sdd_phase": null,
+      "version": "1.0",
+      "changelog": [
+        {
+          "version": "1.0",
+          "date": "2026-09-21",
+          "change": "Registered during skills audit"
+        }
+      ]
+    },
+    {
+      "name": "oca-pr-checkout",
+      "title": "Oca Pr Checkout",
+      "category": "tools",
+      "triggers": [
+        "checkout PR",
+        "get PR code",
+        "pr diff apply"
+      ],
+      "compact_rules": "--- trigger: usar PR|checkout PR|obtener código|get PR code ---",
+      "path": "skills/oca/oca-pr-checkout.md",
+      "odoo_versions": [
+        16,
+        17,
+        18,
+        19
+      ],
+      "sdd_phase": null,
+      "version": "1.0",
+      "changelog": [
+        {
+          "version": "1.0",
+          "date": "2026-09-21",
+          "change": "Registered during skills audit"
+        }
+      ]
+    },
+    {
+      "name": "oca-pr-dependencies",
+      "title": "Oca Pr Dependencies",
+      "category": "tools",
+      "triggers": [
+        "PR dependencies",
+        "depends pr",
+        "related PRs"
+      ],
+      "compact_rules": "--- trigger: dependencias del PR|qué necesita|depends on|PR dependencies ---",
+      "path": "skills/oca/oca-pr-dependencies.md",
+      "odoo_versions": [
+        16,
+        17,
+        18,
+        19
+      ],
+      "sdd_phase": null,
+      "version": "1.0",
+      "changelog": [
+        {
+          "version": "1.0",
+          "date": "2026-09-21",
+          "change": "Registered during skills audit"
+        }
+      ]
+    },
+    {
+      "name": "oca-search-migration-prs",
+      "title": "Oca Search Migration Prs",
+      "category": "tools",
+      "triggers": [
+        "migration PRs",
+        "open migration pr",
+        "find migration"
+      ],
+      "compact_rules": "--- trigger: buscar migración|hay PR para|existe migración|migration PR|oca-port ---",
+      "path": "skills/oca/oca-search-migration-prs.md",
+      "odoo_versions": [
+        16,
+        17,
+        18,
+        19
+      ],
+      "sdd_phase": null,
+      "version": "1.0",
+      "changelog": [
+        {
+          "version": "1.0",
+          "date": "2026-09-21",
+          "change": "Registered during skills audit"
+        }
+      ]
+    },
+    {
+      "name": "oca-suggest-improve",
+      "title": "Oca Suggest Improve",
+      "category": "tools",
+      "triggers": [
+        "suggest improvement",
+        "improvement proposal",
+        "refactor suggestion"
+      ],
+      "compact_rules": "Analyze code and suggest improvements.",
+      "path": "skills/oca/oca-suggest-improve.md",
+      "odoo_versions": [
+        16,
+        17,
+        18,
+        19
+      ],
+      "sdd_phase": null,
+      "version": "1.0",
+      "changelog": [
+        {
+          "version": "1.0",
+          "date": "2026-09-21",
+          "change": "Registered during skills audit"
+        }
+      ]
+    },
+    {
+      "name": "oca-upgrade-analysis",
+      "title": "Oca Upgrade Analysis",
+      "category": "tools",
+      "triggers": [
+        "openupgrade analysis",
+        "upgrade analysis",
+        "module upgrade risk"
+      ],
+      "compact_rules": "**CANONICAL SOURCE** for migrations. Find `upgrade_analysis.txt` in OCA/OpenUpgrade.",
+      "path": "skills/oca/oca-upgrade-analysis.md",
+      "odoo_versions": [
+        16,
+        17,
+        18,
+        19
+      ],
+      "sdd_phase": null,
+      "version": "1.0",
+      "changelog": [
+        {
+          "version": "1.0",
+          "date": "2026-09-21",
+          "change": "Registered during skills audit"
+        }
+      ]
     }
   ],
   "notebooklm_sources": {

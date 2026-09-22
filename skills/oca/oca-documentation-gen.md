@@ -1,3 +1,12 @@
+---
+name: oca-documentation-gen
+description: "Oca Documentation Gen. Trigger: generate docs, documentation generation, readme gen."
+license: MIT
+metadata:
+  author: antoniodavid
+  version: "1.0"
+---
+
 # OCA Documentation Generator
 
 Generate OCA-compliant documentation for modules.

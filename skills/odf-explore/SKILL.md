@@ -47,5 +47,5 @@ Return exploration report with: status (ok), executive_summary, relevant_modules
 
 ## References
 
-- `/home/adruban/.config/opencode/skills/_shared/result-contract.md` — ODF Result envelope
-- `/home/adruban/.config/opencode/skills/_shared/odoo-sources.md` — Local source paths
+- `~/.config/opencode/skills/_shared/result-contract.md` — ODF Result envelope
+- `~/.config/opencode/skills/_shared/odoo-sources.md` — Local source paths

@@ -67,7 +67,7 @@ BUILD/VERIFY attempt, not fresh gated starts.
 
 **QA-PLAN** (lens of `PLAN`; legacy name):
 ```
-Read: /home/adruban/.config/opencode/skills/odf-qa/SKILL.md
+Read: ~/.config/opencode/skills/odf-qa/SKILL.md
 Run: odoo_qa_engineer through odf_delegate
 Input: assess artifact + user requirement
 Output: qa-plan.md artifact
@@ -76,7 +76,7 @@ Role: test intent inside PLAN; approval follows the active mode
 
 **QA-REVIEW** (lens of `BUILD`; legacy name):
 ```
-Read: /home/adruban/.config/opencode/skills/odf-qa/SKILL.md
+Read: ~/.config/opencode/skills/odf-qa/SKILL.md
 Run: odoo_qa_engineer through odf_delegate
 Input: tests written in the last batch
 Output: qa-review.md artifact
@@ -85,7 +85,7 @@ Role: batch evidence inside BUILD; optional depending on route/risk/work type
 
 **QA-AGGREGATE** (lens of `VERIFY`; legacy name):
 ```
-Read: /home/adruban/.config/opencode/skills/odf-qa/SKILL.md
+Read: ~/.config/opencode/skills/odf-qa/SKILL.md
 Run: odoo_qa_engineer through odf_delegate
 Input: all implement-progress artifacts
 Output: qa-aggregate.md artifact
@@ -94,7 +94,7 @@ Role: coverage aggregation inside VERIFY; do not turn it into a universal gate
 
 **QA-REPORT** (utility of `VERIFY`; legacy name):
 ```
-Read: /home/adruban/.config/opencode/skills/odf-qa/SKILL.md
+Read: ~/.config/opencode/skills/odf-qa/SKILL.md
 Run: odoo_qa_engineer through odf_delegate
 Input: all artifacts (assess, design, implement, verify)
 Output: qa-report.md artifact

@@ -1,3 +1,12 @@
+---
+name: action-patterns
+description: "Action Patterns. Trigger: ir.actions, server action, automated action, act_window."
+license: MIT
+metadata:
+  author: antoniodavid
+  version: "1.0"
+---
+
 # Action Patterns
 
 ```

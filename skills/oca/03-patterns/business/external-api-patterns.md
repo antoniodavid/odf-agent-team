@@ -1,3 +1,12 @@
+---
+name: external-api-patterns
+description: "External Api Patterns. Trigger: xmlrpc, jsonrpc, external API, api client, odoo client."
+license: MIT
+metadata:
+  author: antoniodavid
+  version: "1.0"
+---
+
 # External API Integration Patterns
 
 ```

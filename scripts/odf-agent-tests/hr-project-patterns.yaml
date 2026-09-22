@@ -1,0 +1,35 @@
+name: hr-and-project-patterns
+agent: odoo_functional_consultant
+tests:
+  - name: "hr employee patterns resolve"
+    input:
+      task: "Create employee record on hr.employee with department assignment"
+      context:
+        version: 18
+        files: ["models/hr_employee.py"]
+    expected:
+      skill_resolution: "self-discovered"
+      expected_skills: ["hr-employee-patterns"]
+      status_in: ["ok"]
+
+  - name: "project task patterns resolve"
+    input:
+      task: "Plan project task milestones with timesheet logging"
+      context:
+        version: 18
+        files: ["models/project_task.py"]
+    expected:
+      skill_resolution: "self-discovered"
+      expected_skills: ["project-task-patterns"]
+      status_in: ["ok"]
+
+  - name: "pricelist pricing patterns resolve"
+    input:
+      task: "Compute pricelist pricing rules with discount tiers"
+      context:
+        version: 18
+        files: ["models/product_pricelist.py"]
+    expected:
+      skill_resolution: "self-discovered"
+      expected_skills: ["pricelist-pricing-patterns"]
+      status_in: ["ok"]

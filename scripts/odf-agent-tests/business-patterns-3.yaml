@@ -1,0 +1,35 @@
+name: business-patterns-3
+agent: odoo_backend_engineer
+tests:
+  - name: "dashboard kpi patterns resolve"
+    input:
+      task: "Build dashboard KPI graph view metrics widgets"
+      context:
+        version: 18
+        files: []
+    expected:
+      skill_resolution: "self-discovered"
+      expected_skills: ["dashboard-kpi-patterns"]
+      status_in: ["ok"]
+
+  - name: "config settings patterns resolve"
+    input:
+      task: "Store feature flags in ir.config_parameter via res.config.settings"
+      context:
+        version: 18
+        files: ["models/res_config_settings.py"]
+    expected:
+      skill_resolution: "self-discovered"
+      expected_skills: ["config-settings-patterns"]
+      status_in: ["ok"]
+
+  - name: "menu navigation patterns resolve"
+    input:
+      task: "Add menu item ir.ui.menu act_window menuitem entry"
+      context:
+        version: 18
+        files: ["views/menuitems.xml"]
+    expected:
+      skill_resolution: "self-discovered"
+      expected_skills: ["menu-navigation-patterns"]
+      status_in: ["ok"]

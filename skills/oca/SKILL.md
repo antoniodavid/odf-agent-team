@@ -1,17 +1,26 @@
+---
+name: oca-skills-index
+description: "OCA Skills Index. Trigger: oca skills index, find oca skill, skill catalog."
+license: MIT
+metadata:
+  author: antoniodavid
+  version: "1.0"
+---
+
 # OCA Skills - Complete Index
 
-Skills for OCA compliance and Odoo development. **126 specialized skills** organized into 5 categories + core tools.
+Skills for OCA compliance and Odoo development. **~140 specialized skills** organized into 5 categories + core tools. Odoo 15 guides are retained as **migration source only** (preflight supports 16-19); Odoo 14 material was removed.
 
 ## Quick Navigation
 
 | Category | Location | Count | Purpose |
-|----------|----------|--------|---------|
+|----------|----------|-------|---------|
 | **Governance** | `01-oca-governance/` | 5 | OCA policies, PR workflow, commit messages |
-| **Development Style** | `02-development-style/` | 18 | Python, XML, manifest, naming, generators |
-| **Patterns** | `03-patterns/` | 42 | Implementation patterns by area |
+| **Development Style** | `02-development-style/` | 17 | Python, XML, manifest, naming, generators |
+| **Patterns** | `03-patterns/` | 40 | Implementation patterns by area |
 | **Testing** | `04-testing/` | 8 | Test patterns, compliance, review |
-| **Version** | `05-version/` | 39 | Version-specific guides |
-| **Core Tools** | `(root)` | 14 | OCA search, migration, PR tools |
+| **Version** | `05-version/` | 36 | Version-specific guides (16-19 active; 15 migration source) |
+| **Core Tools** | `(root)` | 13 | OCA search, migration, PR tools |
 
 ---
 
@@ -45,18 +54,16 @@ Code style standards for Python, XML, manifest, and naming.
 | `oca-manifest-format` | Manifest structure, external dependencies |
 | `oca-naming-conv` | Module, file, XML ID naming conventions |
 
-### Module Generators (14 skills)
+### Module Generators (13 skills)
 | Skill | Purpose |
 |-------|---------|
 | `odoo-module-generator` | Generic module generator |
-| `odoo-module-generator-14` | Odoo 14 template |
-| `odoo-module-generator-15` | Odoo 15 template |
+| `odoo-module-generator-15` | Odoo 15 template (migration source) |
 | `odoo-module-generator-16` | Odoo 16 template |
 | `odoo-module-generator-17` | Odoo 17 template |
 | `odoo-module-generator-18` | Odoo 18 template |
 | `odoo-module-generator-19` | Odoo 19 template |
 | `odoo-module-generator-all` | All versions combined |
-| `odoo-module-generator-14-15` | 14-15 compatibility |
 | `odoo-module-generator-15-16` | 15-16 compatibility |
 | `odoo-module-generator-16-17` | 16-17 compatibility |
 | `odoo-module-generator-17-18` | 17-18 compatibility |
@@ -126,7 +133,7 @@ Implementation patterns organized by functional area.
 | Skill | Purpose |
 |-------|---------|
 | `odoo-owl-components` | Generic OWL patterns |
-| `odoo-owl-components-15` | OWL 1.x (Odoo 15) |
+| `odoo-owl-components-15` | OWL 1.x (Odoo 15, migration source) |
 | `odoo-owl-components-16` | OWL 2.x (Odoo 16-17) |
 | `odoo-owl-components-17` | OWL 2.x (Odoo 17) |
 | `odoo-owl-components-18` | OWL 2.x (Odoo 18) |
@@ -160,7 +167,7 @@ Implementation patterns organized by functional area.
 
 **Location**: `05-version/`
 
-### Model Patterns (13 skills)
+### Model Patterns (11 skills)
 
 | Version | Skill |
 |---------|-------|
@@ -169,16 +176,14 @@ Implementation patterns organized by functional area.
 | Odoo 18 | `odoo-model-patterns-18` |
 | Odoo 17 | `odoo-model-patterns-17` |
 | Odoo 16 | `odoo-model-patterns-16` |
-| Odoo 15 | `odoo-model-patterns-15` |
-| Odoo 14 | `odoo-model-patterns-14` |
-| 14-15 | `odoo-model-patterns-14-15` |
+| Odoo 15 | `odoo-model-patterns-15` (migration source) |
 | 15-16 | `odoo-model-patterns-15-16` |
 | 16-17 | `odoo-model-patterns-16-17` |
 | 17-18 | `odoo-model-patterns-17-18` |
 | 18-19 | `odoo-model-patterns-18-19` |
 | Generic | `odoo-model-patterns` |
 
-### Security Guides (9 skills)
+### Security Guides (8 skills)
 
 | Version | Skill |
 |---------|-------|
@@ -187,11 +192,10 @@ Implementation patterns organized by functional area.
 | Odoo 18 | `odoo-security-guide-18` |
 | Odoo 17 | `odoo-security-guide-17` |
 | Odoo 16 | `odoo-security-guide-16` |
-| Odoo 15 | `odoo-security-guide-15` |
-| Odoo 14 | `odoo-security-guide-14` |
+| Odoo 15 | `odoo-security-guide-15` (migration source) |
 | Generic | `odoo-security-guide` |
 
-### Version Knowledge (13 skills)
+### Version Knowledge (11 skills)
 
 | Version | Skill |
 |---------|-------|
@@ -200,9 +204,7 @@ Implementation patterns organized by functional area.
 | Odoo 18 | `odoo-version-knowledge-18` |
 | Odoo 17 | `odoo-version-knowledge-17` |
 | Odoo 16 | `odoo-version-knowledge-16` |
-| Odoo 15 | `odoo-version-knowledge-15` |
-| Odoo 14 | `odoo-version-knowledge-14` |
-| 14-15 | `odoo-version-knowledge-14-15` |
+| Odoo 15 | `odoo-version-knowledge-15` (migration source) |
 | 15-16 | `odoo-version-knowledge-15-16` |
 | 16-17 | `odoo-version-knowledge-16-17` |
 | 17-18 | `odoo-version-knowledge-17-18` |
@@ -211,7 +213,7 @@ Implementation patterns organized by functional area.
 
 ---
 
-## Core OCA Tools (14 skills)
+## Core OCA Tools (13 skills)
 
 **Location**: `(root - not categorized)`
 
@@ -231,8 +233,6 @@ OCA-specific tools for search, migration, and PR operations.
 | `oca-pattern-match` | Find patterns in odoo/odoo + OCA/* |
 | `oca-suggest-improve` | Suggest improvements |
 | `oca-documentation-gen` | Generate docs |
-| `oca-contributing-guide` | **DEPRECATED** - See 02-development-style |
-| `SKILL.md` | This index |
 
 ---
 
@@ -266,7 +266,7 @@ Read: skills/oca/{category}/{skill-name}.md
 
 Example:
 ```
-Read: /home/adruban/.config/opencode/skills/oca/02-development-style/oca-python-style.md
+Read: ~/.config/opencode/skills/oca/02-development-style/oca-python-style.md
 ```
 
 ---
@@ -292,4 +292,4 @@ Some skills have been reorganized. The original files are kept as aliases:
 
 ---
 
-Last updated: 2026-04-02
+Last updated: 2026-09-21

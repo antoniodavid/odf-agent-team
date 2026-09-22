@@ -1,3 +1,12 @@
+---
+name: odoo-view-patterns
+description: "Odoo View Patterns. Trigger: view, form, tree, kanban, search, xml."
+license: MIT
+metadata:
+  author: antoniodavid
+  version: "1.0"
+---
+
 # Odoo View Patterns
 
 ```

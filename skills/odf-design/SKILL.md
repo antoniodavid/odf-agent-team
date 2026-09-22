@@ -119,8 +119,8 @@ next_recommended (["implement"]), risks, odoo_version, modules_affected. If
 
 ## References
 
-- `/home/adruban/.config/opencode/skills/_shared/result-contract.md` — ODF Result envelope
-- `/home/adruban/.config/opencode/skills/_shared/persistence-contract.md` — selected store and artifact references
-- `/home/adruban/.config/opencode/skills/_shared/odoo-sources.md` — Local source paths
+- `~/.config/opencode/skills/_shared/result-contract.md` — ODF Result envelope
+- `~/.config/opencode/skills/_shared/persistence-contract.md` — selected store and artifact references
+- `~/.config/opencode/skills/_shared/odoo-sources.md` — Local source paths
 - `docs/design-contract.md` — The design document contract + closed-design checklist
 - `docs/expectations-contract.md` — EXP-XX format and immutability

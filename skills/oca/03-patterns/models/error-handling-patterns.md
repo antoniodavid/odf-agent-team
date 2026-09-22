@@ -1,3 +1,12 @@
+---
+name: error-handling-patterns
+description: "Error Handling Patterns. Trigger: ValidationError, UserError, exception handling, raise."
+license: MIT
+metadata:
+  author: antoniodavid
+  version: "1.0"
+---
+
 # Error Handling Patterns
 
 ```

@@ -1,0 +1,38 @@
+name: oca-tools
+agent: odoo_code_reviewer
+tests:
+  - name: "code review resolves under OCA target"
+    input:
+      task: "Run OCA code review checklist on this diff before opening PR"
+      target: oca
+      context:
+        version: 18
+        files: ["models/sale_order.py"]
+    expected:
+      skill_resolution: "self-discovered"
+      expected_skills: ["oca-code-review"]
+      status_in: ["ok"]
+
+  - name: "pr checkout resolves under OCA target"
+    input:
+      task: "Checkout PR code and inspect the pending PR diff locally"
+      target: oca
+      context:
+        version: 18
+        files: []
+    expected:
+      skill_resolution: "self-discovered"
+      expected_skills: ["oca-pr-checkout"]
+      status_in: ["ok"]
+
+  - name: "migration status resolves under OCA target"
+    input:
+      task: "Report repo migration status across branches"
+      target: oca
+      context:
+        version: 18
+        files: []
+    expected:
+      skill_resolution: "self-discovered"
+      expected_skills: ["oca-migration-status"]
+      status_in: ["ok"]
