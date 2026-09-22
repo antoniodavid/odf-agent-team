@@ -46,4 +46,16 @@ describe("ODF plugin V1 entrypoint", () => {
     warn.mockRestore()
     log.mockRestore()
   })
+
+  it("exposes a V2 setup skeleton without V1 server or V2 tool/hook claims", async () => {
+    const module = await import("./opencode-v2-entrypoint.js")
+
+    expect(module.default).toMatchObject({ id: "odf-delegation" })
+    expect(module.default).toHaveProperty("setup")
+    expect(module.default).not.toHaveProperty("server")
+    expect(module.default).not.toHaveProperty("tool")
+    expect(module.default).not.toHaveProperty("hook")
+
+    expect(await module.default.setup({ location: { directory: configDir } } as any)).toBeUndefined()
+  })
 })

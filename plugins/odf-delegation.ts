@@ -39,6 +39,7 @@ import {
   type ODFRegistry,
   type ODFSkill,
 } from "../odf-plugin/odf-delegation-shared.js"
+import { ODF_PLUGIN_ID } from "../odf-plugin/runtime-boundary.js"
 import {
   REGISTRY_PATH,
   computePermissionsFingerprint,
@@ -6608,7 +6609,7 @@ export const OdfDelegationPlugin: Plugin = async (ctx) => {
 }
 
 export default {
-  id: "odf-delegation",
+  id: ODF_PLUGIN_ID,
   server: OdfDelegationPlugin,
 }
 
