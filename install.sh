@@ -285,7 +285,7 @@ create_backup() {
   mkdir -p "$BACKUP_DIR"
 
   [[ -f "$ODF_DIR/odf-registry.json" ]] && cp "$ODF_DIR/odf-registry.json" "$BACKUP_DIR/"
-  for dir in agent skills plugins odf-plugin command scripts policies; do
+  for dir in agent agents skills plugins odf-plugin command commands scripts policies; do
     if [[ -d "$ODF_DIR/$dir" ]]; then
       cp -r "$ODF_DIR/$dir" "$BACKUP_DIR/" 2>/dev/null || true
     fi
@@ -349,7 +349,7 @@ install_files() {
     log_warn "📁 [dry-run] Would install ODF files to ${ODF_DIR}"
   else
     log_warn "📁 Installing ODF files to ${ODF_DIR}..."
-    mkdir -p "$ODF_DIR"/{agent,skills,plugins,odf-plugin,command,scripts,policies,docs,backups}
+    mkdir -p "$ODF_DIR"/{agent,agents,skills,plugins,odf-plugin,command,commands,scripts,policies,docs,backups}
   fi
 
   log_info "    Plugin entrypoint: ${PLUGIN_ENTRYPOINT}"
@@ -378,10 +378,12 @@ install_files() {
 
   [[ -f "$src_dir/odf-registry.json" ]] && copy_dir "$src_dir/odf-registry.json" "$ODF_DIR/odf-registry.json"
   copy_dir "$src_dir/agent" "$ODF_DIR/agent"
+  copy_dir "$src_dir/agent" "$ODF_DIR/agents"
   copy_dir "$src_dir/skills" "$ODF_DIR/skills"
   copy_dir "$src_dir/plugins/odf-delegation.ts" "$PLUGIN_ENTRYPOINT"
   copy_dir "$src_dir/odf-plugin" "$PLUGIN_SUPPORT_DIR"
   copy_dir "$src_dir/command" "$ODF_DIR/command"
+  copy_dir "$src_dir/command" "$ODF_DIR/commands"
   copy_dir "$src_dir/scripts" "$ODF_DIR/scripts"
   copy_dir "$src_dir/policies" "$ODF_DIR/policies"
   copy_dir "$src_dir/openspec" "$ODF_DIR/openspec"

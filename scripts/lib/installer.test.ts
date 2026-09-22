@@ -111,6 +111,8 @@ describe("install.sh", { timeout: 30000 }, () => {
       expect(fs.existsSync(path.join(configDir, "scripts", "odf-test-runner.js"))).toBe(true)
       expect(fs.existsSync(path.join(configDir, "command", "odf-new.md"))).toBe(true)
       expect(fs.existsSync(path.join(configDir, "command", "odf-health.md"))).toBe(true)
+      expect(fs.existsSync(path.join(configDir, "agents", "odoo_orchestrator.md"))).toBe(true)
+      expect(fs.existsSync(path.join(configDir, "commands", "odf-new.md"))).toBe(true)
       expect(fs.existsSync(path.join(configDir, "policies", "oca", "rules.yaml"))).toBe(true)
     } finally {
       cleanup(tempHome)
