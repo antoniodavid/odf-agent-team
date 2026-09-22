@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ODF — Odoo Development Framework</title>
+  <style>
+    :root { color-scheme: light dark; }
+    body {
+      font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+      max-width: 720px; margin: 3rem auto; padding: 0 1.25rem;
+      line-height: 1.55;
+    }
+    h1 { font-size: 1.75rem; margin-bottom: .25rem; }
+    .tag { opacity: .7; margin-top: 0; }
+    h2 { font-size: 1.1rem; margin-top: 2rem; border-bottom: 1px solid color-mix(in srgb, currentColor 20%, transparent); padding-bottom: .3rem; }
+    ul { padding-left: 1.2rem; }
+    li { margin: .35rem 0; }
+    a { color: inherit; }
+    code { font-size: .9em; background: color-mix(in srgb, currentColor 8%, transparent); padding: .1em .35em; border-radius: 4px; }
+    footer { margin-top: 2.5rem; font-size: .85rem; opacity: .65; }
+  </style>
+</head>
+<body>
+  <h1>ODF</h1>
+  <p class="tag">Odoo Development Framework — a spec-driven pipeline for structured Odoo development on OpenCode.</p>
+
+  <h2>Interactive diagrams</h2>
+  <ul>
+    <li><a href="odf-agent-phase-flow.html">Phase flow &amp; agent routing</a> — full pipeline, fast routes, capability routing</li>
+    <li><a href="harness-architecture.html">Harness architecture</a> — operator → orchestrator → plugin → fleet → Odoo</li>
+    <li><a href="delegation-flow.html">One-call delegation efficiency</a> — ODF single round-trip vs naive context loop</li>
+  </ul>
+
+  <h2>Guides</h2>
+  <ul>
+    <li><a href="https://github.com/antoniodavid/odf-agent-team/blob/main/docs/intended-usage.md">Intended usage</a> — mental model, entry points, workflow</li>
+    <li><a href="https://github.com/antoniodavid/odf-agent-team/blob/main/docs/architecture.md">Architecture</a> — stages, components, data flow</li>
+    <li><a href="https://github.com/antoniodavid/odf-agent-team/blob/main/docs/plugin.md">Plugin reference</a> — the 19 tools and <code>odf_delegate</code> path</li>
+    <li><a href="https://github.com/antoniodavid/odf-agent-team/blob/main/docs/README.md">Full docs index</a> — contracts, style guide, operations</li>
+  </ul>
+
+  <h2>Quickstart</h2>
+  <p>Install from the <a href="https://github.com/antoniodavid/odf-agent-team#quickstart">repository README</a>, then run <code>/odf-init</code> and <code>/odf-new</code> inside OpenCode.</p>
+
+  <footer>Source: <a href="https://github.com/antoniodavid/odf-agent-team">antoniodavid/odf-agent-team</a> · MIT</footer>
+</body>
+</html>

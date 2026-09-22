@@ -2,6 +2,8 @@
 
 This document maps the components of ODF and explains how they interact.
 
+> Visual version: [phase flow](odf-agent-phase-flow.html) · [harness architecture](harness-architecture.html) · [delegation efficiency](delegation-flow.html) (interactive HTML).
+
 ## Workflow Model
 
 ODF runs the thin-spine workflow:

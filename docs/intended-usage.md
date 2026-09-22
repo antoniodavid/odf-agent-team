@@ -2,6 +2,8 @@
 
 This document describes the mental model for using ODF (Odoo Development Framework) inside OpenCode.
 
+> Visual version: [phase flow](odf-agent-phase-flow.html) · [harness architecture](harness-architecture.html) · [delegation efficiency](delegation-flow.html) (interactive HTML).
+
 ## What ODF Is
 
 ODF is an OpenCode skill/agent pack that turns a generic AI assistant into a structured Odoo development team. It provides:
