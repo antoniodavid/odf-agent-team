@@ -1,6 +1,6 @@
 /**
  * odf-delegation
- * Odoo Development Framework delegation plugin for OpenCode
+ * ODF delegation plugin for OpenCode
  *
  * Extends OpenCode with ODF-specific delegation tools:
  * - odf_delegate: Delegate to phase-specific agents with skill injection
