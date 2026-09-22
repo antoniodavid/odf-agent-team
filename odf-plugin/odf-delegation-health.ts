@@ -8,6 +8,7 @@ import * as fsSync from "node:fs"
 import * as path from "node:path"
 import { execFileSync } from "node:child_process"
 import { tool, type ToolContext } from "@opencode-ai/plugin"
+import type { SessionDomain } from "@opencode/plugin/promise/session"
 import type { createOpencodeClient } from "@opencode-ai/sdk"
 type OpencodeClient = ReturnType<typeof createOpencodeClient>
 import {
@@ -93,6 +94,9 @@ export interface HealthInspection {
   warnings: string[]
   permissionDenied: boolean
 }
+
+export const ODF_V2_SESSION = Symbol("odf.v2.session")
+const V2_SESSION_OPERATIONS = ["create", "get", "prompt", "wait", "context", "interrupt"] as const
 
 export function emptyRegistryHealth(registryPath: string, status: RegistryHealth["status"]): RegistryHealth {
   return {
@@ -234,6 +238,13 @@ export async function inspectODFHealth(toolCtx: ToolContext, client: OpencodeCli
   plugin: { file_status: HealthFileStatus; loaded: true; registered_tools: readonly string[] }
   command: { command: string; path: string; status: HealthFileStatus }
   task_api: { source: DelegationMetrics["task_api_source"]; function_present: boolean; usability: "unverified" | "unavailable"; probe: "not-run" }
+  v2_session: {
+    source: "context.session" | "sdk.v2" | "unavailable"
+    function_present: boolean
+    operations: readonly string[]
+    usability: "unverified" | "unavailable"
+    probe: "not-run"
+  }
   engram: EngramHealth
   tooling: { codegraph: "available" | "unavailable"; docker: "available" | "unavailable"; git: "available" | "unavailable"; node: "available" | "unavailable" }
   warnings: string[]
@@ -248,15 +259,28 @@ export async function inspectODFHealth(toolCtx: ToolContext, client: OpencodeCli
     checkHealthFile(commandPath, io),
   ])
   const taskApi = findTaskApi(toolCtx, client)
+  const contextSession = getV2ContextSession(toolCtx)
+  const sdkV2Session = contextSession ? undefined : getV2Session(client)
+  const v2Session = contextSession || sdkV2Session
   const taskApiHealth = {
     source: taskApi?.source || "unavailable" as const,
     function_present: Boolean(taskApi),
     usability: taskApi ? "unverified" as const : "unavailable" as const,
     probe: "not-run" as const,
   }
+  const v2SessionHealth = {
+    source: contextSession ? "context.session" as const : sdkV2Session ? "sdk.v2" as const : "unavailable" as const,
+    function_present: Boolean(v2Session),
+    operations: v2Session ? V2_SESSION_OPERATIONS : [],
+    usability: v2Session ? "unverified" as const : "unavailable" as const,
+    probe: "not-run" as const,
+  }
   const taskWarning = taskApi
     ? "task-api-unverified: task usability was not probed because probing executes a task"
     : "task-api-unavailable"
+  const v2Warning = v2Session
+    ? "v2-session-api-unverified: session usability was not probed because probing executes a task"
+    : "v2-session-api-unavailable"
   const engramInspection = inspectEngramHealth(io)
   const probeCli = (command: string): "available" | "unavailable" => {
     try {
@@ -278,6 +302,7 @@ export async function inspectODFHealth(toolCtx: ToolContext, client: OpencodeCli
     ...(pluginFile.status !== "readable" ? [`plugin-file-${pluginFile.status}: ${pluginPath}`] : []),
     ...(commandFile.status !== "readable" ? [`command-file-${commandFile.status}: ${commandPath}`] : []),
     taskWarning,
+    v2Warning,
     ...engramInspection.warnings,
   ]
   const staticFailure = registryInspection.registry.status !== "valid" ||
@@ -303,6 +328,7 @@ export async function inspectODFHealth(toolCtx: ToolContext, client: OpencodeCli
     plugin: { file_status: pluginFile.status, loaded: true, registered_tools: ODF_REGISTERED_TOOLS },
     command: { command: "/odf-health", path: commandPath, status: commandFile.status },
     task_api: taskApiHealth,
+    v2_session: v2SessionHealth,
     engram: engramInspection.engram,
     tooling,
     warnings: Array.from(new Set(warnings)),
@@ -380,8 +406,9 @@ function resolveTaskModel(context: Record<string, unknown>): TaskModel | undefin
   const rawModel = context.model
   if (rawModel && typeof rawModel === "object" && !Array.isArray(rawModel)) {
     const candidate = rawModel as Record<string, unknown>
-    if (validModelPart(candidate.providerID) && validModelPart(candidate.modelID)) {
-      return { providerID: candidate.providerID.trim(), modelID: candidate.modelID.trim() }
+    const modelID = candidate.modelID ?? candidate.id
+    if (validModelPart(candidate.providerID) && validModelPart(modelID)) {
+      return { providerID: candidate.providerID.trim(), modelID: String(modelID).trim() }
     }
   }
   if (typeof rawModel === "string") {
@@ -484,18 +511,21 @@ export function createSDKSessionTaskApi(toolCtx: ToolContext, session: SDKSessio
   return taskApi
 }
 
-export interface V2SessionApi {
-  create: (options: Record<string, unknown>) => Promise<unknown>
-  prompt: (options: Record<string, unknown>) => Promise<unknown>
-  wait: (options: Record<string, unknown>) => Promise<unknown>
-  context: (options: Record<string, unknown>) => Promise<unknown>
-  abort: (options: Record<string, unknown>) => Promise<unknown>
-}
+export type V2SessionApi = Pick<SessionDomain, "create" | "get" | "prompt" | "wait" | "context" | "interrupt">
 
 function isV2SessionApi(value: unknown): value is V2SessionApi {
   if (!value || typeof value !== "object") return false
   const session = value as Record<string, unknown>
-  return ["create", "prompt", "wait", "context", "abort"].every(method => typeof session[method] === "function")
+  return V2_SESSION_OPERATIONS.every(method => typeof session[method] === "function")
+}
+
+function getV2ContextSession(toolCtx: ToolContext): V2SessionApi | undefined {
+  try {
+    const session = (toolCtx as ToolContext & { [ODF_V2_SESSION]?: unknown })[ODF_V2_SESSION]
+    return isV2SessionApi(session) ? session : undefined
+  } catch {
+    return undefined
+  }
 }
 
 function getV2Session(client?: OpencodeClient): V2SessionApi | undefined {
@@ -518,7 +548,9 @@ function v2ErrorMessage(error: unknown, fallback: string): string {
 
 function v2OperationError(error: unknown, prefix: string, cancellationAware: boolean): Error {
   const message = v2ErrorMessage(error, `${prefix} failed`)
-  const errorName = error && typeof error === "object" ? (error as Record<string, unknown>).name : undefined
+  const errorName = error && typeof error === "object"
+    ? (error as Record<string, unknown>).name || (error as Record<string, unknown>).type
+    : undefined
   if (cancellationAware && (errorName === "MessageAbortedError" || isCancellationMessage(message))) {
     return new Error(`task-cancelled: ${message}`)
   }
@@ -589,12 +621,12 @@ export function createV2SessionTaskApi(toolCtx: ToolContext, session: V2SessionA
   const pending = new WeakMap<Promise<unknown>, { childID?: string; abortRequested: boolean; aborting?: Promise<void> }>()
   const directory = typeof (toolCtx as any).directory === "string" ? (toolCtx as any).directory : process.cwd()
   const context = toolCtx as Record<string, unknown>
-  const model = resolveTaskModel(context)
+  const contextModel = resolveTaskModel(context)
 
   const taskApi = ((input: TaskApiInput): Promise<unknown> => {
     const invocation = { abortRequested: false } as { childID?: string; abortRequested: boolean; aborting?: Promise<void> }
     const abortSession = async (sessionID: string): Promise<void> => {
-      await callV2(() => session.abort({ sessionID }), "session-prompt-error", true)
+      await callV2(() => session.interrupt({ sessionID }), "session-prompt-error", true)
     }
     const abortChild = async (): Promise<void> => {
       invocation.abortRequested = true
@@ -603,6 +635,19 @@ export function createV2SessionTaskApi(toolCtx: ToolContext, session: V2SessionA
       await invocation.aborting
     }
     const promise = (async (): Promise<unknown> => {
+      let model = contextModel
+      if (!model) {
+        try {
+          const parent = await callV2(() => session.get({ sessionID: toolCtx.sessionID }), "session-get-error", false)
+          model = resolveTaskModel({
+            model: parent && typeof parent === "object" && !Array.isArray(parent)
+              ? (parent as Record<string, unknown>).model
+              : undefined,
+          })
+        } catch {
+          // The parent model is optional; OpenCode can select the default model.
+        }
+      }
       const created = await callV2(() => session.create({
         agent: input.agent,
         ...(model ? { model: { providerID: model.providerID, id: model.modelID } } : {}),
@@ -618,14 +663,15 @@ export function createV2SessionTaskApi(toolCtx: ToolContext, session: V2SessionA
         throw new Error("task-cancelled: child session was aborted")
       }
 
+      const childID = invocation.childID
       await callV2(() => session.prompt({
-        sessionID: invocation.childID,
-        prompt: { text: appendValidatedContextFiles(input.prompt, input.context_files) },
+        sessionID: childID,
+        text: appendValidatedContextFiles(input.prompt, input.context_files),
       }), "session-prompt-error", true)
       if (invocation.abortRequested) throw new Error("task-cancelled: child session was aborted")
-      await callV2(() => session.wait({ sessionID: invocation.childID }), "session-prompt-error", true)
+      await callV2(() => session.wait({ sessionID: childID }), "session-prompt-error", true)
       if (invocation.abortRequested) throw new Error("task-cancelled: child session was aborted")
-      const response = await callV2(() => session.context({ sessionID: invocation.childID }), "session-prompt-error", true)
+      const response = await callV2(() => session.context({ sessionID: childID }), "session-prompt-error", true)
       if (invocation.abortRequested) throw new Error("task-cancelled: child session was aborted")
       return v2ContextResult(response)
     })()

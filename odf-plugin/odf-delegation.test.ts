@@ -54,6 +54,7 @@ import {
   type ODFAgent,
 } from "./odf-delegation.js"
 import { recordAiProvenance } from "./odf-governance.js"
+import { ODF_V2_SESSION } from "./odf-delegation-health.js"
 import { advanceWorkflow, resolveWorkflowRoute, type CanonicalStage } from "./odf-workflow.js"
 import { buildCandidateManifest, computeCandidateDigest } from "./candidate-manifest.js"
 import { createEntryRouteBinding, predictEntryRouteShadow, type EntryTriageInput } from "./entry-triage.js"
@@ -1973,7 +1974,7 @@ describe("findTaskApi", () => {
   it("selects native task, then V2 session, then V1 session", () => {
     const nativeTask = vi.fn()
     const v2Session = {
-      create: vi.fn(), prompt: vi.fn(), wait: vi.fn(), context: vi.fn(), abort: vi.fn(),
+      create: vi.fn(), get: vi.fn(), prompt: vi.fn(), wait: vi.fn(), context: vi.fn(), interrupt: vi.fn(),
     }
     const v1Session = { create: vi.fn(), prompt: vi.fn(), abort: vi.fn() }
 
@@ -1997,10 +1998,11 @@ describe("findTaskApi", () => {
 
   it("adapts V2 create, prompt, wait, context, and latest assistant text", async () => {
     const session = {
-      create: vi.fn().mockResolvedValue({ data: { data: { id: "v2-child" } } }),
-      prompt: vi.fn().mockResolvedValue({ data: { data: { sessionID: "v2-child" } } }),
-      wait: vi.fn().mockResolvedValue({ data: undefined }),
-      context: vi.fn().mockResolvedValue({ data: { data: [
+      create: vi.fn().mockResolvedValue({ id: "v2-child" }),
+      get: vi.fn(),
+      prompt: vi.fn().mockResolvedValue(undefined),
+      wait: vi.fn().mockResolvedValue(undefined),
+      context: vi.fn().mockResolvedValue([
         { type: "assistant", content: [{ type: "text", text: "old result" }] },
         { type: "user", text: "follow-up" },
         { type: "assistant", content: [
@@ -2008,8 +2010,8 @@ describe("findTaskApi", () => {
           { type: "text", text: "## ODF Result\n- **Status**: ok" },
           { type: "text", text: "- **Executive Summary**: latest" },
         ] },
-      ] } }),
-      abort: vi.fn().mockResolvedValue(true),
+      ]),
+      interrupt: vi.fn().mockResolvedValue(undefined),
     }
     const api = findTaskApi({
       sessionID: "parent",
@@ -2026,21 +2028,22 @@ describe("findTaskApi", () => {
     })
     expect(session.prompt).toHaveBeenCalledWith({
       sessionID: "v2-child",
-      prompt: { text: expect.stringContaining("- models/x.py") },
+      text: expect.stringContaining("- models/x.py"),
     })
-    expect(session.prompt.mock.calls[0][0].prompt.text).not.toContain("/workspace/models/x.py")
+    expect(session.prompt.mock.calls[0][0].text).not.toContain("/workspace/models/x.py")
     expect(session.wait).toHaveBeenCalledWith({ sessionID: "v2-child" })
     expect(session.context).toHaveBeenCalledWith({ sessionID: "v2-child" })
-    expect(session.abort).not.toHaveBeenCalled()
+    expect(session.interrupt).not.toHaveBeenCalled()
   })
 
   it("preserves V2 create errors", async () => {
     const session = {
-      create: vi.fn().mockResolvedValue({ data: { data: {} } }),
+      create: vi.fn().mockResolvedValue({}),
+      get: vi.fn(),
       prompt: vi.fn(),
       wait: vi.fn(),
       context: vi.fn(),
-      abort: vi.fn(),
+      interrupt: vi.fn(),
     }
     const api = findTaskApi({ sessionID: "s1", directory: "/workspace" } as any, { v2: { session } } as any)
 
@@ -2056,11 +2059,12 @@ describe("findTaskApi", () => {
     ["error", "session-prompt-error", () => ({ data: { data: [{ type: "assistant", error: { name: "UnknownError", data: { message: "provider failed" } } }] } })],
   ])("preserves V2 result semantics for %s", async (_label, reason, responseFactory) => {
     const session = {
-      create: vi.fn().mockResolvedValue({ data: { data: { id: "v2-result" } } }),
-      prompt: vi.fn().mockResolvedValue({ data: { data: { sessionID: "v2-result" } } }),
-      wait: vi.fn().mockResolvedValue({ data: undefined }),
+      create: vi.fn().mockResolvedValue({ id: "v2-result" }),
+      get: vi.fn(),
+      prompt: vi.fn().mockResolvedValue(undefined),
+      wait: vi.fn().mockResolvedValue(undefined),
       context: vi.fn().mockResolvedValue(responseFactory()),
-      abort: vi.fn().mockResolvedValue(true),
+      interrupt: vi.fn().mockResolvedValue(undefined),
     }
     const api = findTaskApi({ sessionID: "s1", directory: "/workspace" } as any, { v2: { session } } as any)
 
@@ -3616,11 +3620,12 @@ ${overrides}`
   it("aborts a V2 child session on timeout", async () => {
     const { createODFDelegate } = await import("./odf-delegation.js")
     const session = {
-      create: vi.fn().mockResolvedValue({ data: { data: { id: "v2-timeout" } } }),
+      create: vi.fn().mockResolvedValue({ id: "v2-timeout" }),
+      get: vi.fn(),
       prompt: vi.fn().mockReturnValue(new Promise(() => {})),
       wait: vi.fn(),
       context: vi.fn(),
-      abort: vi.fn().mockRejectedValue(new Error("abort failed")),
+      interrupt: vi.fn().mockRejectedValue(new Error("interrupt failed")),
     }
     const output = await createODFDelegate({ v2: { session } } as any, tempHome).execute(
       { phase: "ASSESS", prompt: "Assess a sales feature", context_files: [], timeout_ms: 10 },
@@ -3628,18 +3633,19 @@ ${overrides}`
     )
 
     expect(JSON.parse(output as string)).toMatchObject({ status: "timeout" })
-    expect(session.abort).toHaveBeenCalledWith({ sessionID: "v2-timeout" })
+    expect(session.interrupt).toHaveBeenCalledWith({ sessionID: "v2-timeout" })
   })
 
   it("aborts a V2 child session when the tool is cancelled", async () => {
     const { createODFDelegate } = await import("./odf-delegation.js")
     const controller = new AbortController()
     const session = {
-      create: vi.fn().mockResolvedValue({ data: { data: { id: "v2-cancelled" } } }),
+      create: vi.fn().mockResolvedValue({ id: "v2-cancelled" }),
+      get: vi.fn(),
       prompt: vi.fn().mockReturnValue(new Promise(() => {})),
       wait: vi.fn(),
       context: vi.fn(),
-      abort: vi.fn().mockRejectedValue(new Error("abort failed")),
+      interrupt: vi.fn().mockRejectedValue(new Error("interrupt failed")),
     }
     const pending = createODFDelegate({ v2: { session } } as any, tempHome).execute(
       { phase: "ASSESS", prompt: "Assess a sales feature", context_files: [] },
@@ -3650,7 +3656,7 @@ ${overrides}`
     const envelope = JSON.parse(await pending as string)
 
     expect(envelope).toMatchObject({ status: "blocked", reason: "task-cancelled" })
-    expect(session.abort).toHaveBeenCalledWith({ sessionID: "v2-cancelled" })
+    expect(session.interrupt).toHaveBeenCalledWith({ sessionID: "v2-cancelled" })
   })
 
   it("keeps concurrent SDK child sessions isolated", async () => {
@@ -7993,6 +7999,52 @@ describe("odf_health", () => {
     })
     expect(result.status).toBe("warning")
     expect(result.warnings).toContain("task-api-unverified: task usability was not probed because probing executes a task")
+  })
+
+  it("detects the official sdk.v2 session capability without probing it", async () => {
+    const session = {
+      create: vi.fn(),
+      get: vi.fn(),
+      prompt: vi.fn(),
+      wait: vi.fn(),
+      context: vi.fn(),
+      interrupt: vi.fn(),
+    }
+    const result = await runHealth({ sessionID: "parent", directory: configDir }, noEngramIo(), { v2: { session } })
+
+    expect(result.v2_session).toEqual({
+      source: "sdk.v2",
+      function_present: true,
+      operations: ["create", "get", "prompt", "wait", "context", "interrupt"],
+      usability: "unverified",
+      probe: "not-run",
+    })
+    expect(result.warnings).toContain("v2-session-api-unverified: session usability was not probed because probing executes a task")
+    expect(Object.values(session).every(method => method.mock.calls.length === 0)).toBe(true)
+  })
+
+  it("prefers the V2 context session over an SDK fallback in health diagnostics", async () => {
+    const contextSession = {
+      create: vi.fn(),
+      get: vi.fn(),
+      prompt: vi.fn(),
+      wait: vi.fn(),
+      context: vi.fn(),
+      interrupt: vi.fn(),
+    }
+    const sdkSession = {
+      create: vi.fn(),
+      get: vi.fn(),
+      prompt: vi.fn(),
+      wait: vi.fn(),
+      context: vi.fn(),
+      interrupt: vi.fn(),
+    }
+    const result = await runHealth({ [ODF_V2_SESSION]: contextSession, sessionID: "parent", directory: configDir }, noEngramIo(), { v2: { session: sdkSession } })
+
+    expect(result.v2_session.source).toBe("context.session")
+    expect(Object.values(contextSession).every(method => method.mock.calls.length === 0)).toBe(true)
+    expect(Object.values(sdkSession).every(method => method.mock.calls.length === 0)).toBe(true)
   })
 
   it("fails for a malformed registry", async () => {
