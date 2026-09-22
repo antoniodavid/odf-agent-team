@@ -36,7 +36,7 @@ OpenCode V2 is stable, but ODF must keep V1 support while the V2 adapter is vali
 - [x] T2 Add the official V2 `Plugin.define`/`setup` adapter for all ODF tools and V2 hook mappings.
 - [x] T3 Wire V2 session delegation, cancellation, cleanup, and health diagnostics; preserve V1 native/SDK fallback order.
 - [x] T4 Update installer/config handling for V2-native `plugins`, JSONC, MCP, and duplicate-load prevention.
-- [ ] T5 Add V1/V2 contract fixtures, live-host smoke coverage, documentation, and support matrix.
+- [ ] T5 Add V1/V2 contract fixtures, live-host smoke coverage, documentation, and support matrix (contract/docs slice complete; live-host gate pending).
 
 ## Acceptance criteria
 
@@ -46,7 +46,7 @@ OpenCode V2 is stable, but ODF must keep V1 support while the V2 adapter is vali
 - V2 hooks preserve loop guards, system/context injection, delegation lifecycle, and cleanup behavior.
 - Installer works for global and project-local layouts without duplicating the plugin.
 - V2 native configuration is supported without breaking legacy V1 configuration.
-- A real OpenCode V2 smoke test exercises load, tools, hooks, delegation, cancellation, and reload before V2 becomes the default.
+- [ ] A real OpenCode V2 smoke test exercises load, tools, hooks, delegation, cancellation, and reload before V2 becomes the default.
 
 ## Applicable checks
 
@@ -67,6 +67,8 @@ OpenCode V2 is stable, but ODF must keep V1 support while the V2 adapter is vali
 - [x] T2 implemented as an independently reviewable work unit; V1 tool factories remain the single tool-definition source.
 - [x] T3 implemented as an independently reviewable work unit; official V2 session APIs are used for child delegation while V1 native task and SDK fallback paths remain available.
 - [x] T4 implemented as an independently reviewable work unit; the installed entrypoint is dual-runtime, installer layouts stay single-plugin, and MCP configuration is schema-aware and JSONC-safe.
+- [x] T5 contract/docs slice implemented as an independently reviewable work unit; host-independent V1/V2 fixtures cover the dual entrypoint, stable ID, complete tool surface, schema/validation parity, supported hook mappings, and cleanup semantics.
+- [ ] T5 live-host slice remains open; no V2 CLI/runtime is available in this environment, so no fabricated smoke harness was added.
 
 ## Verification evidence
 
@@ -85,7 +87,11 @@ OpenCode V2 is stable, but ODF must keep V1 support while the V2 adapter is vali
 - T4 installer evidence: stale ODF V2 adapter filenames are removed without touching foreign plugins; project launchers refuse global ODF duplicates; `scripts/lib/configure-mcp.mjs` preserves existing fields, writes legacy V1 `mcp` entries with `enabled: true`, writes native V2 `mcp.servers` entries with `disabled: false`, and refuses JSONC without creating a conflicting `opencode.json`, reporting the manual path instead.
 - T4 focused evidence: `npx vitest run scripts/lib/installer.test.ts odf-plugin/plugin-entrypoint.test.ts --reporter=dot` passed 16/16 tests across 2 files.
 - Post-T4 checks: `npm run typecheck` passed; `npm run test:unit` passed with 874/874 tests across 31 files; `npm run test:yaml` passed with 154/154 scenarios; `npm run test:harness` passed with 17/17 tests; `ODF_CONFIG_DIR="$PWD" node scripts/odf-registry-validate.js` passed; `git diff --check` passed.
+- T5 focused evidence: `npx vitest run odf-plugin/opencode-v2-contract.test.ts odf-plugin/opencode-v2-adapter.test.ts odf-plugin/plugin-entrypoint.test.ts --reporter=dot` passed 15/15 tests across 3 files; the new contract fixture suite passed 4/4 tests.
+- T5 documentation evidence: `docs/opencode-v2-migration.md` records the V1 `1.18.29+` floor, V2 package/runtime assumptions, global/project paths, legacy `mcp` versus native `mcp.servers`, JSONC manual handling, the V2 command-before limitation, and the exact live-host checklist.
+- T5 environment evidence: `opencode --version` reports V1 `1.18.29`; `npm ls @opencode/plugin @opencode-ai/plugin @opencode-ai/sdk --depth=0` resolves `@opencode/plugin@2.0.12`, `@opencode-ai/plugin@1.17.8`, and `@opencode-ai/sdk@1.17.8`. No real V2 host smoke ran.
+- Post-T5 checks: `npm run typecheck` passed; `npm run test:unit` passed with 878/878 tests across 32 files; `npm run test:yaml` passed with 154/154 scenarios; `npm run test:harness` passed with 17/17 tests; `ODF_CONFIG_DIR="$PWD" node scripts/odf-registry-validate.js` passed; `git diff --check` passed.
 
 ## Next step
 
-T4 is complete. T5 remains responsible for contract fixtures, live-host smoke coverage, documentation, and the support matrix.
+T5 contract fixtures, documentation, and the support matrix are complete. The remaining blocker is a real OpenCode V2 host for the live load/tools/hooks/delegation/cancellation/reload smoke; keep the V2-default acceptance item unchecked until that evidence exists.
