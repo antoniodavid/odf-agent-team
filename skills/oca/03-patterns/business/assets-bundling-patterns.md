@@ -1,3 +1,12 @@
+---
+name: assets-bundling-patterns
+description: "Assets Bundling Patterns. Trigger: assets bundle, ir.assets, js/css assets, web.assets."
+license: MIT
+metadata:
+  author: antoniodavid
+  version: "1.0"
+---
+
 # Assets Bundling Patterns
 
 ```

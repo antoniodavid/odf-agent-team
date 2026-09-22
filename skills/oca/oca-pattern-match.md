@@ -1,3 +1,12 @@
+---
+name: oca-pattern-match
+description: "Oca Pattern Match. Trigger: find pattern, pattern search, odoo/odoo pattern."
+license: MIT
+metadata:
+  author: antoniodavid
+  version: "1.0"
+---
+
 # OCA Pattern Match
 
 Find patterns in Odoo official + OCA community repos.

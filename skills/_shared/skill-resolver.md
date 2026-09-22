@@ -1,3 +1,12 @@
+---
+name: skill-resolver
+description: "Skill Resolver Protocol. Trigger: delegate, sub-agent, inject, standards."
+license: MIT
+metadata:
+  author: antoniodavid
+  version: "1.0"
+---
+
 # Skill Resolver — ODF Universal Protocol
 
 Any agent that **delegates work to sub-agents** MUST follow this protocol to resolve and inject relevant skills. This applies to the ODF orchestrator, judgment-day, pr-review, and ANY future skill or workflow that launches sub-agents.

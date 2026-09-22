@@ -1,3 +1,12 @@
+---
+name: oca-suggest-improve
+description: "Oca Suggest Improve. Trigger: suggest improvement, improvement proposal, refactor suggestion."
+license: MIT
+metadata:
+  author: antoniodavid
+  version: "1.0"
+---
+
 # OCA Suggest Improvements
 
 Analyze code and suggest improvements.

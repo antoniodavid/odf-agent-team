@@ -4465,12 +4465,12 @@ ${overrides}`
       change: "legacy-record",
       phase: "IMPLEMENT",
       next_stage: "BUILD",
-      status: "completed",
+      status: "running",
       started_at: timestamp,
       updated_at: timestamp,
-      settled_at: timestamp,
-      reason: "task-completed",
-      result_status: "delegated",
+      settled_at: null,
+      reason: "acquired",
+      result_status: "running",
     })}\n`, "utf8")
     const taskApi = vi.fn().mockResolvedValue({ status: "ok" })
     await prepareWorkflowState("legacy-record", "IMPLEMENT")
@@ -4486,8 +4486,89 @@ ${overrides}`
       workflow_advance: workflowAdvance("IMPLEMENT"),
     }, { sessionID: "s1", task: taskApi } as any)
 
-    expect(JSON.parse(output as string)).toMatchObject({ status: "blocked", reason: "attempt-phase-completed" })
+    expect(JSON.parse(output as string)).toMatchObject({ status: "blocked", reason: "attempt-phase-running" })
     expect(taskApi).not.toHaveBeenCalled()
+  })
+
+  it("allows the next IMPLEMENT batch when the ledger shows a completed attempt but workflow BUILD is pending (issue #2)", async () => {
+    const { createODFDelegate } = await import("./odf-delegation.js")
+    const change = "batch-b2-continuation"
+    // Simulate B1: attempt settled completed while canonical BUILD stays
+    // pending for the next batch (ledger must not own phase completion).
+    const ledgerPath = path.join(tempHome, ".odf", `attempt-ledger-${change}.jsonl`)
+    await fs.mkdir(path.dirname(ledgerPath), { recursive: true })
+    const timestamp = new Date().toISOString()
+    await fs.writeFile(ledgerPath, `${JSON.stringify({
+      attempt_id: "b1-attempt",
+      change,
+      phase: "IMPLEMENT",
+      next_stage: "BUILD",
+      status: "completed",
+      started_at: timestamp,
+      updated_at: timestamp,
+      settled_at: timestamp,
+      reason: "task-completed",
+      result_status: "delegated",
+    })}\n`, "utf8")
+    await prepareWorkflowState(change, "IMPLEMENT")
+    await writeValidationEvidence(change)
+    const taskApi = vi.fn().mockResolvedValue({ status: "ok" })
+
+    const output = JSON.parse(await createODFDelegate(undefined, tempHome).execute({
+      phase: "IMPLEMENT",
+      change,
+      artifact_store: "openspec",
+      attempt_id: "b2-attempt",
+      prompt: "Implement batch 2 of the change",
+      context_files: [],
+      workflow_advance: workflowAdvance("IMPLEMENT"),
+    }, { sessionID: "s-b2", task: taskApi } as any) as string)
+
+    expect(output).toMatchObject({ status: "delegated" })
+    expect(taskApi).toHaveBeenCalledTimes(1)
+    const records = (await fs.readFile(ledgerPath, "utf8")).trim().split("\n").map(line => JSON.parse(line))
+    expect(records.map(record => record.status)).toEqual(["completed", "running", "completed"])
+  })
+
+  it("settles the attempt when pre-tool safety blocks IMPLEMENT so a fresh retry can run (issue #3)", async () => {
+    const { createODFDelegate } = await import("./odf-delegation.js")
+    const change = "safety-settles-attempt"
+    await prepareWorkflowState(change, "IMPLEMENT")
+    await writeValidationEvidence(change)
+    const taskApi = vi.fn().mockResolvedValue({ status: "ok" })
+    const delegateTool = createODFDelegate(undefined, tempHome)
+
+    const blocked = JSON.parse(await delegateTool.execute({
+      phase: "IMPLEMENT",
+      change,
+      artifact_store: "openspec",
+      attempt_id: "safety-1",
+      prompt: "Run DROP DATABASE mydb; and truncate orders, then implement",
+      context_files: [],
+      workflow_advance: workflowAdvance("IMPLEMENT"),
+    }, { sessionID: "s-safety", task: taskApi } as any) as string)
+
+    expect(blocked).toMatchObject({ status: "blocked", reason: "pre-tool-safety" })
+    expect(taskApi).not.toHaveBeenCalled()
+
+    const ledgerPath = path.join(tempHome, ".odf", `attempt-ledger-${change}.jsonl`)
+    const records = (await fs.readFile(ledgerPath, "utf8")).trim().split("\n").map(line => JSON.parse(line))
+    expect(records.map(record => record.status)).toEqual(["running", "failed"])
+    expect(records.at(-1)).toMatchObject({ status: "failed", result_status: "validation-failed" })
+
+    const retried = JSON.parse(await delegateTool.execute({
+      phase: "IMPLEMENT",
+      change,
+      artifact_store: "openspec",
+      attempt_id: "safety-2",
+      prompt: "Implement the change",
+      context_files: [],
+      workflow_advance: workflowAdvance("IMPLEMENT"),
+    }, { sessionID: "s-safety", task: taskApi } as any) as string)
+
+    expect(retried.status).toBe("delegated")
+    expect(retried.reason ?? "not-attempt-phase-running").not.toBe("attempt-phase-running")
+    expect(taskApi).toHaveBeenCalledTimes(1)
   })
 
   it("allows VERIFY when BUILD advances to VERIFY", async () => {

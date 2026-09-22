@@ -1,3 +1,12 @@
+---
+name: oca-naming-conv
+description: "Oca Naming Conv. Trigger: naming conventions, XML ID naming, file naming."
+license: MIT
+metadata:
+  author: antoniodavid
+  version: "1.0"
+---
+
 # OCA Naming Conventions
 
 Naming standards for OCA modules, files, and code elements.

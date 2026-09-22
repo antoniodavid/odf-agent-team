@@ -1,3 +1,12 @@
+---
+name: hr-employee-patterns
+description: "Hr Employee Patterns. Trigger: employee, hr.employee, payslip, department."
+license: MIT
+metadata:
+  author: antoniodavid
+  version: "1.0"
+---
+
 # HR and Employee Patterns
 
 ```

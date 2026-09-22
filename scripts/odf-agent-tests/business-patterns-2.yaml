@@ -1,0 +1,35 @@
+name: business-patterns-2
+agent: odoo_backend_engineer
+tests:
+  - name: "product variant patterns resolve"
+    input:
+      task: "Create product variant attributes on product template combinations"
+      context:
+        version: 18
+        files: ["models/product_template.py"]
+    expected:
+      skill_resolution: "self-discovered"
+      expected_skills: ["product-variant-patterns"]
+      status_in: ["ok"]
+
+  - name: "purchase procurement patterns resolve"
+    input:
+      task: "Automate purchase order RFQ procurement flow with vendor"
+      context:
+        version: 18
+        files: ["models/purchase_order.py"]
+    expected:
+      skill_resolution: "self-discovered"
+      expected_skills: ["purchase-procurement-patterns"]
+      status_in: ["ok"]
+
+  - name: "lot serial patterns resolve"
+    input:
+      task: "Configure lot number serial number tracking on stock quant"
+      context:
+        version: 18
+        files: ["models/stock_lot.py"]
+    expected:
+      skill_resolution: "self-discovered"
+      expected_skills: ["lot-serial-patterns"]
+      status_in: ["ok"]

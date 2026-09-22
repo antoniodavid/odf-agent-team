@@ -1,3 +1,12 @@
+---
+name: project-task-patterns
+description: "Project Task Patterns. Trigger: project task, project.task, milestone, timesheet."
+license: MIT
+metadata:
+  author: antoniodavid
+  version: "1.0"
+---
+
 # Project and Task Patterns
 
 ```

@@ -1,3 +1,12 @@
+---
+name: product-variant-patterns
+description: "Product Variant Patterns. Trigger: product variant, attribute, product.template, product.product."
+license: MIT
+metadata:
+  author: antoniodavid
+  version: "1.0"
+---
+
 # Product Variant Patterns
 
 ```

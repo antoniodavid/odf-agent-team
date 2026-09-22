@@ -1,3 +1,12 @@
+---
+name: odoo-version-knowledge
+description: "Odoo Version Knowledge. Trigger: version, migration, upgrade, Odoo 16, Odoo 17, Odoo 18."
+license: MIT
+metadata:
+  author: antoniodavid
+  version: "1.0"
+---
+
 # Odoo Version Knowledge - Master Reference
 
 ## CRITICAL: VERSION-SPECIFIC DEVELOPMENT
@@ -20,8 +29,7 @@
 
 | Version | Status | Python | End of Support |
 |---------|--------|--------|----------------|
-| 14.0 | Legacy | 3.6+ | October 2023 |
-| 15.0 | Legacy | 3.8+ | October 2024 |
+| 15.0 | Migration source | 3.8+ | October 2024 |
 | 16.0 | Supported | 3.8+ | October 2025 |
 | 17.0 | Supported | 3.10+ | October 2026 |
 | 18.0 | Current | 3.11+ | October 2027 |
@@ -31,21 +39,13 @@
 
 | Version | File |
 |---------|------|
-| Odoo 14.0 | `odoo-version-knowledge-14.md` |
-| Odoo 15.0 | `odoo-version-knowledge-15.md` |
+| Odoo 15.0 | `odoo-version-knowledge-15.md` (migration source) |
 | Odoo 16.0 | `odoo-version-knowledge-16.md` |
 | Odoo 17.0 | `odoo-version-knowledge-17.md` |
 | Odoo 18.0 | `odoo-version-knowledge-18.md` |
 | Odoo 19.0 | `odoo-version-knowledge-19.md` |
 
 ## Breaking Changes Summary
-
-### v14 → v15
-| Component | Change | Impact |
-|-----------|--------|--------|
-| `@api.multi` | Removed | Must remove decorator |
-| `track_visibility` | Deprecated | Replace with `tracking` |
-| OWL | Version-gated | Verify the target branch's frontend API |
 
 ### v15 → v16
 | Component | Change | Impact |
@@ -84,7 +84,6 @@
 
 | Version | Branch | URL |
 |---------|--------|-----|
-| 14.0 | `14.0` | `github.com/odoo/odoo/tree/14.0` |
 | 15.0 | `15.0` | `github.com/odoo/odoo/tree/15.0` |
 | 16.0 | `16.0` | `github.com/odoo/odoo/tree/16.0` |
 | 17.0 | `17.0` | `github.com/odoo/odoo/tree/17.0` |
@@ -155,7 +154,6 @@ When you see these in logs, the code needs updating:
 
 | Warning | Version | Action |
 |---------|---------|--------|
-| `@api.multi is deprecated` | v14 | Remove decorator |
 | `track_visibility is deprecated` | v15 | Use `tracking=True` |
 | `attrs is deprecated` | v16 | Use direct attributes |
 | `company_ids will be renamed` | v17 | Use `allowed_company_ids` |
@@ -182,17 +180,16 @@ If answer is unclear, look for:
 
 ## Version Compatibility Matrix
 
-| Feature | v14 | v15 | v16 | v17 | v18 | v19 |
-|---------|-----|-----|-----|-----|-----|-----|
-| `@api.multi` | ⚠️ | ❌ | ❌ | ❌ | ❌ | ❌ |
-| `tracking` | ❌ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| `Command` class | ❌ | ❌ | ✅ | ✅ | ✅ | ✅ |
-| `attrs` in views | ✅ | ✅ | ⚠️ | ❌ | ❌ | ❌ |
-| Direct invisible | ❌ | ❌ | ✅ | ✅ | ✅ | ✅ |
-| `_check_company_auto` | ❌ | ❌ | ❌ | ❌ | ✅ | ✅ |
-| Type hints on fields | ❌ | ❌ | ❌ | ❌ | ⚠️ | ✅ |
-| `SQL()` builder | ❌ | ❌ | ❌ | ❌ | ⚠️ | ✅ |
-| OWL API | Verify | Verify | Verify | Verify | Verify | Verify |
+| Feature | v15 | v16 | v17 | v18 | v19 |
+|---------|-----|-----|-----|-----|-----|
+| `tracking` | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `Command` class | ❌ | ✅ | ✅ | ✅ | ✅ |
+| `attrs` in views | ✅ | ⚠️ | ❌ | ❌ | ❌ |
+| Direct invisible | ❌ | ✅ | ✅ | ✅ | ✅ |
+| `_check_company_auto` | ❌ | ❌ | ❌ | ✅ | ✅ |
+| Type hints on fields | ❌ | ❌ | ❌ | ⚠️ | ✅ |
+| `SQL()` builder | ❌ | ❌ | ❌ | ⚠️ | ✅ |
+| OWL API | Verify | Verify | Verify | Verify | Verify |
 
 Legend: ✅ Supported | ⚠️ Deprecated/Optional | ❌ Not available/Removed
 

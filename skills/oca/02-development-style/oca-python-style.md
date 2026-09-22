@@ -1,3 +1,12 @@
+---
+name: oca-python-style
+description: "OCA Python Style. Trigger: .py, python, models/, controller/, wizard/."
+license: MIT
+metadata:
+  author: antoniodavid
+  version: "1.0"
+---
+
 # OCA Python Style Guide
 
 Python coding standards for OCA modules.

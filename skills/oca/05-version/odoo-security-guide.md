@@ -1,3 +1,12 @@
+---
+name: security-guide
+description: "Odoo Security Guide. Trigger: security, access, rule, group, ir.model.access, ir.rule."
+license: MIT
+metadata:
+  author: antoniodavid
+  version: "1.0"
+---
+
 # Odoo Security Guide - Version Dispatcher
 
 ## CRITICAL: VERSION-SPECIFIC REQUIREMENTS
@@ -21,8 +30,7 @@
 
 | Target Version | File to Use | Status |
 |----------------|-------------|--------|
-| Odoo 14.0 | `odoo-security-guide-14.md` | Legacy |
-| Odoo 15.0 | `odoo-security-guide-15.md` | Legacy |
+| Odoo 15.0 | `odoo-security-guide-15.md` | Migration source only |
 | Odoo 16.0 | `odoo-security-guide-16.md` | Supported |
 | Odoo 17.0 | `odoo-security-guide-17.md` | Supported |
 | Odoo 18.0 | `odoo-security-guide-18.md` | Current |
@@ -35,7 +43,6 @@ When upgrading modules between versions, use the migration guides:
 
 | Migration Path | File |
 |----------------|------|
-| 14.0 → 15.0 | `odoo-security-guide-14-15.md` |
 | 15.0 → 16.0 | `odoo-security-guide-15-16.md` |
 | 16.0 → 17.0 | `odoo-security-guide-16-17.md` |
 | 17.0 → 18.0 | `odoo-security-guide-17-18.md` |
@@ -58,10 +65,10 @@ QUESTION: What Odoo version are you targeting?
 
 ```
 # Example for Odoo 18.0 project
-Read: /home/adruban/.config/opencode/skills/odoo-security-guide-18.md
+Read: ~/.config/opencode/skills/oca/05-version/odoo-security-guide-18.md
 
 # Example for upgrading from 17.0 to 18.0
-Read: /home/adruban/.config/opencode/skills/odoo-security-guide-17-18.md
+Read: ~/.config/opencode/skills/oca/05-version/odoo-security-guide-17-18.md
 ```
 
 ### Step 3: Apply Patterns
@@ -74,7 +81,7 @@ If the version is not explicitly stated, look for these clues:
 
 | Indicator | Version |
 |-----------|---------|
-| `@api.multi` decorator | 14.0 (deprecated in 15.0+) |
+| `@api.multi` decorator | ≤14 (removed in 15) |
 | `track_visibility` parameter | 14.0-15.0 |
 | `tracking` parameter | 15.0+ |
 | `Command` class usage | 16.0+ |
@@ -85,9 +92,6 @@ If the version is not explicitly stated, look for these clues:
 | `SQL()` builder | 18.0+ |
 
 ## Quick Reference: Major Security Changes by Version
-
-### v14 → v15
-- No major security API changes
 
 ### v15 → v16
 - `Command` class introduced for x2many security patterns

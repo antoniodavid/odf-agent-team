@@ -1,135 +1,138 @@
 # Design Contract (T12)
 
-Define el **documento design** que la fase DESIGN debe producir, y el
-**criterio de diseño cerrado** que garantiza que IMPLEMENT no tiene que
-re-investigar. Un diseño que no está cerrado se **itera en DESIGN**, no se
-improvisa en IMPLEMENT.
+Defines the **design document** that the DESIGN phase must produce, and the
+**closed design criterion** guaranteeing that IMPLEMENT never has to
+re-investigate. A design that is not closed is **iterated in DESIGN**, never
+improvised in IMPLEMENT.
 
-## Principio rector
+## Governing principle
 
-> IMPLEMENT no re-investiga. Si en IMPLEMENT falta una decisión que debería
-> haberse tomado en DESIGN, se **reabre DESIGN** — nunca se improvisa en
-> IMPLEMENT.
+> IMPLEMENT does not re-investigate. If IMPLEMENT is missing a decision that
+> should have been made in DESIGN, DESIGN is **reopened** — never improvised
+> in IMPLEMENT.
 
-El documento design es la **fuente única** que consume IMPLEMENT. Debe
-resolver TODO antes de IMPLEMENT: hasta en qué módulo va cada archivo.
+The design document is the **single source** that IMPLEMENT consumes. It must
+resolve EVERYTHING before IMPLEMENT: down to which module each file goes to.
 
-## Entradas
+## Inputs
 
-| Entrada | Origen | Rol en DESIGN |
-|---------|--------|---------------|
-| Artefacto `assess` (REQ-XX) | Fase ASSESS / store | Plan técnico a materializar |
-| Artefacto `expectations` (EXP-XX) | Contrato de expectations (T9) | Contrato humano inmutable a resolver |
-| Código fuente del módulo destino | Repositorio local | Contexto real antes de diseñar |
+| Input | Origin | Role in DESIGN |
+|-------|--------|----------------|
+| `assess` artifact (REQ-XX) | ASSESS phase / store | Technical plan to materialize |
+| `expectations` artifact (EXP-XX) | Expectations contract (T9) | Immutable human contract to resolve |
+| Target module source code | Local repository | Real context before designing |
 
-**Regla**: un documento design que no resuelve **todas** las `EXP-XX` no está
-cerrado. Cada `EXP-XX` debe tener fila en la sección de resolución.
+**Rule**: a design document that does not resolve **all** `EXP-XX` is not
+closed. Every `EXP-XX` must have a row in the resolution section.
 
-## Secciones OBLIGATORIAS del documento design
+## Mandatory design document sections
 
-### 1. Contexto
+### 1. Context
 
-| Campo | Obligatorio | Descripción |
-|-------|-------------|-------------|
-| `module` | ✅ | Módulo destino **exacto**: nombre si es nuevo, o el que se hereda si se extiende. Lo fija DESIGN, nunca IMPLEMENT. |
-| `module_type` | ✅ | `new` (crear módulo) o `inherit` (extender uno existente). |
+| Field | Required | Description |
+|-------|----------|-------------|
+| `module` | ✅ | **Exact** target module: name if new, or the inherited one if extending. Set by DESIGN, never by IMPLEMENT. |
+| `module_type` | ✅ | `new` (create module) or `inherit` (extend an existing one). |
 | `odoo_version` | ✅ | 16 / 17 / 18 / 19. |
-| `manifest_depends` | ✅ | Dependencias del manifest (p.ej. `["sale", "account"]`). |
+| `manifest_depends` | ✅ | Manifest dependencies (e.g. `["sale", "account"]`). |
 | `artifact_store` | ✅ | `engram` / `openspec` / `hybrid`. |
-| `change` | ✅ | Nombre del cambio kebab-case. |
+| `change` | ✅ | Kebab-case change name. |
 
-### 2. Resolución de EXP-XX
+### 2. EXP-XX resolution
 
-Tabla que cierra cada expectativa humana con su traducción técnica:
+Table closing each human expectation with its technical translation:
 
-| EXP-XX | Decisión técnica | Archivo(s) destino | Verificación |
-|--------|------------------|--------------------|--------------|
-| `EXP-01` | Modelo `X` con campo `y`... | `models/x.py`, `views/x_views.xml` | Test `test_01` + criterio |
+| EXP-XX | Technical decision | Target file(s) | Verification |
+|--------|--------------------|----------------|--------------|
+| `EXP-01` | Model `X` with field `y`... | `models/x.py`, `views/x_views.xml` | Test `test_01` + criterion |
 
-- **Regla de cierre**: el número de filas DEBE ser `≥` número de `EXP-XX` del
-  artefacto `expectations`. Una fila sin decisión técnica concreta = diseño no
-  cerrado.
+- **Closing rule**: the number of rows MUST be `≥` the number of `EXP-XX` in
+  the `expectations` artifact. A row without a concrete technical decision =
+  design not closed.
 
 ### 3. Data model
 
-Por cada modelo:
+Per model:
 
-| Campo | Tipo | required | index | relation | default | constraint |
+| Field | Type | required | index | relation | default | constraint |
 |-------|------|----------|-------|----------|---------|------------|
 
-Más, por modelo:
-- `_name` y/o `_inherit` (explícito). Si `_name` + `_inherit`, indicar el
-  modelo padre.
-- `_inherit` vs `_name`: elegido y justificado en una línea.
-- Computed fields: `@api.depends`, `store` sí/no, lógica de `compute_sudo`.
-- Onchange: `@api.onchange` y su lógica.
+Plus, per model:
+- `_name` and/or `_inherit` (explicit). If `_name` + `_inherit`, state the
+  parent model.
+- `_inherit` vs `_name`: chosen and justified in one line.
+- Computed fields: `@api.depends`, `store` yes/no, `compute_sudo` logic.
+- Onchange: `@api.onchange` and its logic.
 - Constraints: `@api.constrains` / `_sql_constraints`.
 
-### 4. Vistas y UI
+### 4. Views and UI
 
-| Vista | Tipo | Modelo | Campos | Dominio | Acción | Menú (parent) |
-|-------|------|--------|--------|---------|--------|---------------|
+| View | Type | Model | Fields | Domain | Action | Menu (parent) |
+|------|------|-------|--------|--------|--------|---------------|
 
-- Incluir wizard (TransientModel) si aplica, con sus botones/acciones.
-- Incluir acciones (`ir.actions.act_window`) y menús con su `parent`.
+- Include wizard (TransientModel) if applicable, with its buttons/actions.
+- Include actions (`ir.actions.act_window`) and menus with their `parent`.
 
-### 5. Seguridad
+### 5. Security
 
-- `ir.model.access.csv`: filas por grupo (`group_id/id`, permisos CRUD).
-- `ir.rule`: si aplica, con dominio.
-- Grupos nuevos: XML IDs (`<record model="res.groups">`).
+- `ir.model.access.csv`: rows per group (`group_id/id`, CRUD permissions).
+- `ir.rule`: if applicable, with domain.
+- New groups: XML IDs (`<record model="res.groups">`).
 
-### 6. Data / migración
+### 6. Data / migration
 
-- `noupdate` sí/no y por qué.
-- Datos demo (`demo/`) si aplica.
-- Scripts de migración (`migrations/{ver}/`) si cambian datos existentes.
+- `noupdate` yes/no and why.
+- Demo data (`demo/`) if applicable.
+- Migration scripts (`migrations/{ver}/`) if existing data changes.
 
-### 7. Plan de IMPLEMENT
+### 7. IMPLEMENT plan
 
-Task breakdown donde **cada tarea** referencia:
-- Archivo(s) destino **exacto(s)**.
-- `EXP-XX` que resuelve.
-- `REQ-XX` de ASSESS que materializa.
+Task breakdown where **each task** references:
+- **Exact** target file(s).
+- The `EXP-XX` it resolves.
+- The ASSESS `REQ-XX` it materializes.
 
-Formato de task:
+Task format:
 
-| Task | Archivo(s) | EXP-XX | REQ-XX | Acción |
-|------|-----------|--------|--------|--------|
-| `T1` | `models/x.py`, `security/ir.model.access.csv` | `EXP-01` | `REQ-01` | Crear modelo + acceso |
+| Task | File(s) | EXP-XX | REQ-XX | Action |
+|------|---------|--------|--------|--------|
+| `T1` | `models/x.py`, `security/ir.model.access.csv` | `EXP-01` | `REQ-01` | Create model + access |
 
-- Regla de cierre: si una tarea necesitaría una decisión no definida en este
-  documento, DESIGN se reabre (no se improvisa en IMPLEMENT).
+- Closing rule: if a task would need a decision not defined in this document,
+  DESIGN is reopened (never improvised in IMPLEMENT).
 
-### 8. Checklist de diseño cerrado
+### 8. Closed-design checklist
 
-El documento DEBE pasar TODOS los criterios antes de devolverse:
+The document MUST pass ALL criteria before being returned:
 
-- [ ] Módulo destino definido (nuevo vs heredado) con `manifest_depends`.
-- [ ] Todos los modelos con `_name`/`_inherit`, campos/tipos/constraints.
-- [ ] Todas las vistas, acciones y menús definidos.
-- [ ] Seguridad completa (`ir.model.access.csv` por grupo, `ir.rule` si aplica).
-- [ ] Data/migración definida.
-- [ ] **Todas las `EXP-XX` resueltas** (1 fila cada una, con archivo + verificación).
-- [ ] Cada tarea del plan de IMPLEMENT ligada a archivo(s) exacto(s) y EXP-XX.
-- [ ] IMPLEMENT puede proceder sin re-investigar (no quedan decisiones abiertas).
+- [ ] Target module defined (new vs inherited) with `manifest_depends`.
+- [ ] All models with `_name`/`_inherit`, fields/types/constraints.
+- [ ] All views, actions and menus defined.
+- [ ] Security complete (`ir.model.access.csv` per group, `ir.rule` if applicable).
+- [ ] Data/migration defined.
+- [ ] **All `EXP-XX` resolved** (one row each, with file + verification).
+- [ ] Every IMPLEMENT plan task tied to exact file(s) and EXP-XX.
+- [ ] IMPLEMENT can proceed without re-investigating (no open decisions left).
 
-### 9. Architecture Decisions (condicional)
+### 9. Architecture Decisions (conditional)
 
-Solo cuando una decisión cumple las TRES condiciones — difícil de revertir, sorprendente sin contexto, y resultado de un trade-off real (había opciones) — se registra un bloque:
+Only when a decision meets all THREE conditions — hard to reverse, surprising
+without context, and the result of a real trade-off (alternatives existed) —
+is a block recorded:
 
-| Decisión | Opciones consideradas | Elección | Consecuencia |
-|----------|----------------------|----------|--------------|
+| Decision | Options considered | Choice | Consequence |
+|----------|--------------------|--------|-------------|
 
-- Una decisión que falle cualquiera de las tres condiciones NO se registra (sin ruido de ADRs).
-- El bloque no es obligatorio: un diseño sin decisiones calificadas no lo incluye y sigue cerrado.
+- A decision failing any of the three conditions is NOT recorded (no ADR noise).
+- The block is optional: a design with no qualifying decisions omits it and is
+  still closed.
 
-## design_meta (para estimación y biblioteca)
+## design_meta (for estimation and library)
 
-Además del documento completo, DESIGN deriva un **resumen estructurado**
-`design_meta` que alimenta el estimador por similitud (`scripts/odf-estimator.js`)
-y una futura biblioteca de diseños. Es **derivado** del documento cerrado, nunca
-inventado: si no hay documento cerrado, no hay `design_meta`.
+Besides the full document, DESIGN derives a **structured summary**
+`design_meta` feeding the similarity estimator (`scripts/odf-estimator.js`)
+and a future design library. It is **derived** from the closed document, never
+invented: no closed document, no `design_meta`.
 
 ```json
 {
@@ -149,53 +152,53 @@ inventado: si no hay documento cerrado, no hay `design_meta`.
 }
 ```
 
-### Campo → significado
+### Field → meaning
 
-| Campo | Tipo | Origen en el documento cerrado |
+| Field | Type | Origin in the closed document |
 |-------|------|-------------------------------|
-| `change` | string | Nombre kebab-case del cambio. |
-| `work_type` | string | Naturaleza del cambio: `feature` / `migration` / `security` / `small-change` / `standard-config` / ... |
-| `risk` | string | `low` / `medium` / `high` — según complejidad y superficie del diseño. |
-| `module_type` | string | `new` (crear módulo) o `inherit` (extender) — del paso "Fix the module". |
-| `odoo_version` | int | 16 / 17 / 18 / 19 — del contexto. |
-| `models` | int | Nº de modelos definidos en la sección data model. |
-| `fields` | int | Total de campos definidos (todos los modelos). |
-| `views` | int | Nº de vistas/acciones/menús definidos en la sección vistas. |
-| `tasks` | int | Nº de filas del plan de IMPLEMENT (T1..Tn). |
-| `exp_count` | int | Nº de filas de la tabla de resolución EXP-XX. |
-| `manifest_depends` | string[] | Dependencias del manifest, del contexto. |
-| `module_destination` | string | Módulo destino exacto (nuevo o heredado). |
-| `closed` | bool | `true` si el diseño pasó el checklist de cierre (§8). |
+| `change` | string | Kebab-case change name. |
+| `work_type` | string | Nature of the change: `feature` / `migration` / `security` / `small-change` / `standard-config` / ... |
+| `risk` | string | `low` / `medium` / `high` — by design complexity and surface area. |
+| `module_type` | string | `new` (create module) or `inherit` (extend) — from the "Fix the module" step. |
+| `odoo_version` | int | 16 / 17 / 18 / 19 — from context. |
+| `models` | int | Number of models defined in the data model section. |
+| `fields` | int | Total defined fields (all models). |
+| `views` | int | Number of views/actions/menus defined in the views section. |
+| `tasks` | int | Number of IMPLEMENT plan rows (T1..Tn). |
+| `exp_count` | int | Number of rows in the EXP-XX resolution table. |
+| `manifest_depends` | string[] | Manifest dependencies, from context. |
+| `module_destination` | string | Exact target module (new or inherited). |
+| `closed` | bool | `true` if the design passed the closing checklist (§8). |
 
-### Derivación
+### Derivation
 
-- Contar: `models` (filas por modelo en data model), `fields` (suma de campos),
-  `views` (filas de vistas/acciones/menús), `tasks` (filas del plan de IMPLEMENT),
-  `exp_count` (filas de resolución EXP-XX).
-- `module_type` del paso "Fix the module" (new vs inherit).
-- `manifest_depends` y `odoo_version` del contexto.
-- `closed` = checklist §8 completo.
+- Count: `models` (rows per model in data model), `fields` (field sum),
+  `views` (views/actions/menus rows), `tasks` (IMPLEMENT plan rows),
+  `exp_count` (EXP-XX resolution rows).
+- `module_type` from the "Fix the module" step (new vs inherit).
+- `manifest_depends` and `odoo_version` from context.
+- `closed` = §8 checklist complete.
 
-Si DESIGN no puede derivar algún campo (documento vacío o sin datos), devuelve
-`design_meta: null` con `reason` — nunca valores inventados.
+If DESIGN cannot derive a field (empty document or missing data), it returns
+`design_meta: null` with `reason` — never invented values.
 
-## Persistencia
+## Persistence
 
-El documento design se persiste en el store seleccionado:
+The design document is persisted in the selected store:
 
 - Engram: `mem_save(title: "odf/{change}/design", ...)`.
 - OpenSpec: `openspec/changes/{change}/design.md`.
 
-Además, el summary del envelope ODF lo resume y reporta `design_closed`.
+Additionally, the ODF envelope summary reports `design_closed`.
 
-## Envelope ODF (Output Contract de DESIGN)
+## ODF Envelope (DESIGN Output Contract)
 
 ```markdown
 ## ODF Result
 - **status**: ok | warning | blocked | failed
-- **executive_summary**: {N módulos, M modelos, V vistas, K tareas — diseño cerrado}
+- **executive_summary**: {N modules, M models, V views, K tasks — closed design}
 - **design_closed**: true | false
-- **design_path**: {ruta del design.md persistido}
+- **design_path**: {path of the persisted design.md}
 - **artifacts_saved**: [{name: "odf/{change}/design", ...}]
 - **next_recommended**: ["implement"]
 - **risks**: [...]
@@ -203,5 +206,5 @@ Además, el summary del envelope ODF lo resume y reporta `design_closed`.
 - **modules_affected**: [{module}]
 ```
 
-Si `design_closed: false`, DESIGN NO devuelve ok: itera hasta cerrarlo o
-devuelve `blocked` con la lista de decisiones abiertas.
+If `design_closed: false`, DESIGN does NOT return ok: it iterates until closed
+or returns `blocked` with the list of open decisions.

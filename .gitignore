@@ -31,3 +31,6 @@ Thumbs.db
 # CodeGraph (regenerable index)
 .codegraph/
 backups/
+
+# Regenerable visual-QA artifacts
+docs/*.visual-check.*

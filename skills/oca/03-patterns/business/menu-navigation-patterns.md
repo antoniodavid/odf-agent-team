@@ -1,3 +1,12 @@
+---
+name: menu-navigation-patterns
+description: "Menu Navigation Patterns. Trigger: menu item, ir.ui.menu, action window, menuitem."
+license: MIT
+metadata:
+  author: antoniodavid
+  version: "1.0"
+---
+
 # Menu and Navigation Patterns
 
 ```

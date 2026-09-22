@@ -1,3 +1,12 @@
+---
+name: oca-api-lookup
+description: "Oca Api Lookup. Trigger: odoo api docs, api lookup, method signature."
+license: MIT
+metadata:
+  author: antoniodavid
+  version: "1.0"
+---
+
 # OCA API Lookup
 
 Search Odoo official API from `odoo/odoo` repository.

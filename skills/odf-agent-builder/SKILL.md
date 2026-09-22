@@ -52,5 +52,5 @@ Return ODF Result envelope with: status (ok|warning|blocked|failed), executive_s
 
 ## References
 
-- `/home/adruban/.config/opencode/skills/_shared/result-contract.md` — ODF Result envelope
-- `/home/adruban/.config/opencode/odf-registry.json` — Registry to update
+- `~/.config/opencode/skills/_shared/result-contract.md` — ODF Result envelope
+- `~/.config/opencode/odf-registry.json` — Registry to update

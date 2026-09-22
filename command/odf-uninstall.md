@@ -18,9 +18,9 @@ Safely removes ODF-managed files. NEVER touches non-ODF files. Creates a backup 
 Components available:
 - `all` — Everything ODF-managed
 - `registry` — odf-registry.json + .registry-cache.json
-- `agents` — agent/*.md
+- `agents` — agent/*.md + agents/odoo_*.md (dual-layout mirror)
 - `skills` — skills/odf-* + skills/oca/01-oca-governance/oca-* (ODF prefixes only)
-- `commands` — command/odf-*.md
+- `commands` — command/odf-*.md + commands/odf-*.md (dual-layout mirror)
 - `plugins` — plugins/odf-delegation.ts
 - `backups` — backups/
 - `metrics` — metrics/
@@ -61,10 +61,10 @@ ODF: Uninstall
 
    COMPONENT → FILES TO REMOVE:
    registry  → ~/.config/opencode/odf-registry.json, .registry-cache.json
-   agents    → ~/.config/opencode/agent/*.md
+   agents    → ~/.config/opencode/agent/*.md, ~/.config/opencode/agents/odoo_*.md
    skills    → ~/.config/opencode/skills/odf-*, skills/oca/01-oca-governance/oca-*
               (NOT skills/oca/02-*, 03-*, etc.)
-   commands  → ~/.config/opencode/command/odf-*.md
+   commands  → ~/.config/opencode/command/odf-*.md, ~/.config/opencode/commands/odf-*.md
    plugins   → ~/.config/opencode/plugins/odf-delegation.ts
    backups   → ~/.config/opencode/backups/
    metrics   → ~/.config/opencode/metrics/
@@ -83,5 +83,7 @@ ODF: Uninstall Complete
 
 - NEVER remove: skills/oca/03-patterns/, skills/oca/02-development-style/ (except oca-* prefixed), skills/oca/04-testing/, skills/oca/05-version/
 - NEVER remove: ~/.config/opencode/opencode.json, tui.json, plugins/ (except odf-delegation.ts), skills/_shared/
+- NEVER remove foreign files in `commands/` (e.g. `sdd-*.md`, `skill-*.md`) — only `odf-*.md` is ours
+- NEVER remove foreign files in `agents/` (e.g. `my-custom.md`) — only `odoo_*.md` is ours
 - ALWAYS create backup before removal
 - ALWAYS confirm unless --force

@@ -1,3 +1,12 @@
+---
+name: dashboard-kpi-patterns
+description: "Dashboard Kpi Patterns. Trigger: dashboard, KPI, graph view, metrics."
+license: MIT
+metadata:
+  author: antoniodavid
+  version: "1.0"
+---
+
 # Dashboard and KPI Patterns
 
 ```

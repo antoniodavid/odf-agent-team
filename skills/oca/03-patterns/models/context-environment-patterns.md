@@ -1,3 +1,12 @@
+---
+name: context-environment-patterns
+description: "Context Environment Patterns. Trigger: with_context, with_user, sudo, env context."
+license: MIT
+metadata:
+  author: antoniodavid
+  version: "1.0"
+---
+
 # Context and Environment Patterns
 
 ```

@@ -1,3 +1,12 @@
+---
+name: constraint-patterns
+description: "Constraint Patterns. Trigger: constraint, validation, check, _sql_constraints."
+license: MIT
+metadata:
+  author: antoniodavid
+  version: "1.0"
+---
+
 # Constraint Patterns
 
 ```

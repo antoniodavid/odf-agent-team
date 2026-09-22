@@ -1,3 +1,12 @@
+---
+name: oca-migration-assist
+description: "Oca Migration Assist. Trigger: migration assist, migration guidance, port module."
+license: MIT
+metadata:
+  author: antoniodavid
+  version: "1.0"
+---
+
 # OCA Migration Assistance
 
 Guide version migrations using OpenUpgrade + Odoo official.

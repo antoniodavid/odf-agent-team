@@ -1,3 +1,12 @@
+---
+name: mail-notification-patterns
+description: "Mail Notification Patterns. Trigger: mail template, notification, message_post, email template."
+license: MIT
+metadata:
+  author: antoniodavid
+  version: "1.0"
+---
+
 # Mail and Notification Patterns
 
 ```

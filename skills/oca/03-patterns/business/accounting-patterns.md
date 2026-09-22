@@ -1,3 +1,12 @@
+---
+name: accounting-patterns
+description: "Accounting Patterns. Trigger: accounting, account move, journal entry, chart of accounts, tax, fiscal position."
+license: MIT
+metadata:
+  author: antoniodavid
+  version: "1.0"
+---
+
 # Accounting Integration Patterns
 
 ```

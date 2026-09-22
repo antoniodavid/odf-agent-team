@@ -1,3 +1,12 @@
+---
+name: data-migration-patterns
+description: "Data Migration Patterns. Trigger: migration script, openupgrade, data migration, pre-migrate."
+license: MIT
+metadata:
+  author: antoniodavid
+  version: "1.0"
+---
+
 # Data Migration and Upgrade Patterns
 
 ```

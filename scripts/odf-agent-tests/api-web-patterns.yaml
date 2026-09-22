@@ -1,0 +1,35 @@
+name: api-and-web-patterns
+agent: odoo_api_integrator
+tests:
+  - name: "controller api patterns resolve"
+    input:
+      task: "Create HTTP controller with http.route REST endpoint on website"
+      context:
+        version: 18
+        files: ["controllers/main.py"]
+    expected:
+      skill_resolution: "self-discovered"
+      expected_skills: ["controller-api-patterns"]
+      status_in: ["ok"]
+
+  - name: "external api patterns resolve"
+    input:
+      task: "Build xmlrpc jsonrpc external API client integration"
+      context:
+        version: 18
+        files: []
+    expected:
+      skill_resolution: "self-discovered"
+      expected_skills: ["external-api-patterns"]
+      status_in: ["ok"]
+
+  - name: "portal access patterns resolve"
+    input:
+      task: "Expose records to portal user with public website access security"
+      context:
+        version: 18
+        files: ["security/ir.model.access.csv"]
+    expected:
+      skill_resolution: "self-discovered"
+      expected_skills: ["portal-access-patterns"]
+      status_in: ["ok"]

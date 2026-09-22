@@ -1,0 +1,35 @@
+name: frontend-owl-dispatch
+agent: odoo_frontend_engineer
+tests:
+  - name: "owl dispatcher resolves"
+    input:
+      task: "Write OWL component with useState and registry client action"
+      context:
+        version: 18
+        files: ["static/src/js/component.js"]
+    expected:
+      skill_resolution: "self-discovered"
+      expected_skills: ["owl-components"]
+      status_in: ["ok"]
+
+  - name: "version knowledge dispatcher resolves"
+    input:
+      task: "Check breaking changes summary for target Odoo version compatibility matrix"
+      context:
+        version: 18
+        files: []
+    expected:
+      skill_resolution: "self-discovered"
+      expected_skills: ["odoo-version-knowledge"]
+      status_in: ["ok"]
+
+  - name: "security guide dispatcher resolves"
+    input:
+      task: "Apply record rule security guide for access control"
+      context:
+        version: 18
+        files: ["security/ir_rule.xml"]
+    expected:
+      skill_resolution: "self-discovered"
+      expected_skills: ["security-guide"]
+      status_in: ["ok"]

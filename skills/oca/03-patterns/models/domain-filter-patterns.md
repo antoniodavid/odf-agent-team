@@ -1,3 +1,12 @@
+---
+name: domain-filter-patterns
+description: "Domain Filter Patterns. Trigger: domain, search filter, recordset filter, expression domain."
+license: MIT
+metadata:
+  author: antoniodavid
+  version: "1.0"
+---
+
 # Domain and Filter Patterns
 
 ```

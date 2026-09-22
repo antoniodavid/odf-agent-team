@@ -1,0 +1,37 @@
+name: governance-and-style
+agent: odoo_code_reviewer
+tests:
+  - name: "maturity levels resolve"
+    input:
+      task: "Check Alpha Beta Stable Mature maturity levels requirements for this module"
+      target: oca
+      context:
+        version: 18
+        files: []
+    expected:
+      skill_resolution: "self-discovered"
+      expected_skills: ["oca-maturity-levels"]
+      status_in: ["ok"]
+
+  - name: "naming conventions resolve"
+    input:
+      task: "Validate module file and XML ID naming conventions before PR"
+      target: oca
+      context:
+        version: 18
+        files: ["views/sale_order_views.xml"]
+    expected:
+      skill_resolution: "self-discovered"
+      expected_skills: ["oca-naming-conv"]
+      status_in: ["ok"]
+
+  - name: "module generator resolves"
+    input:
+      task: "Generate module skeleton scaffold new module structure"
+      context:
+        version: 18
+        files: []
+    expected:
+      skill_resolution: "self-discovered"
+      expected_skills: ["odoo-module-generator"]
+      status_in: ["ok"]

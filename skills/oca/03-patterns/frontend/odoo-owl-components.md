@@ -1,3 +1,12 @@
+---
+name: owl-components
+description: "OWL Component Patterns. Trigger: OWL, component, JavaScript, JS, widget, static/src."
+license: MIT
+metadata:
+  author: antoniodavid
+  version: "1.2"
+---
+
 # Odoo OWL Components - Version Dispatcher
 
 ## CRITICAL: VERSION-GATED REQUIREMENTS
@@ -22,15 +31,14 @@
 
 | Target Version | OWL guidance | File to Use |
 |----------------|-------------|-------------|
-| Odoo 14.0 | Verify whether the target branch uses legacy JS or OWL | `odoo-owl-components-14.md` |
-| Odoo 15.0+ | Verify the branch's bundled OWL API before choosing a pattern | Matching version file |
+| Odoo 15.0 | Migration source: verify branch's bundled OWL API | `odoo-owl-components-15.md` |
+| Odoo 16.0+ | Verify the branch's bundled OWL API before choosing a pattern | Matching version file |
 | All versions | Concepts only; not a compatibility claim | `odoo-owl-components-all.md` |
 
 ## Migration Guides
 
 | Migration Path | File |
 |----------------|------|
-| 14.0 → 15.0 | `odoo-owl-components-14-15.md` (Legacy to OWL 1.x) |
 | 15.0 → 16.0 | `odoo-owl-components-15-16.md` (OWL 1.x to 2.x) |
 | 16.0 → 17.0 | `odoo-owl-components-16-17.md` (OWL 2.x refinements) |
 | 17.0 → 18.0 | `odoo-owl-components-17-18.md` (OWL 2.x refinements) |

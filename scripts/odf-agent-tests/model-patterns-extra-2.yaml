@@ -1,0 +1,35 @@
+name: model-patterns-extra-2
+agent: odoo_backend_engineer
+tests:
+  - name: "context environment patterns resolve"
+    input:
+      task: "Apply with_context with_user sudo env context safely"
+      context:
+        version: 18
+        files: ["models/sale_order.py"]
+    expected:
+      skill_resolution: "self-discovered"
+      expected_skills: ["context-environment-patterns"]
+      status_in: ["ok"]
+
+  - name: "domain filter patterns resolve"
+    input:
+      task: "Build domain expression search filter on recordset"
+      context:
+        version: 18
+        files: ["models/sale_order.py"]
+    expected:
+      skill_resolution: "self-discovered"
+      expected_skills: ["domain-filter-patterns"]
+      status_in: ["ok"]
+
+  - name: "onchange dynamic patterns resolve"
+    input:
+      task: "Use api.onchange to update dynamic fields on the form"
+      context:
+        version: 18
+        files: ["models/sale_order.py"]
+    expected:
+      skill_resolution: "self-discovered"
+      expected_skills: ["onchange-dynamic-patterns"]
+      status_in: ["ok"]

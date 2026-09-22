@@ -269,6 +269,55 @@ describe("harness smoke: safety and install integrity", () => {
     }
   })
 
+  it("orchestrator Registered Agents table stays in sync with registry phases", () => {
+    const registry = JSON.parse(fsSyncRead(path.join(REPO, "odf-registry.json")))
+    const md = fsSyncRead(path.join(REPO, "agent", "odoo_orchestrator.md"))
+    const start = md.indexOf("## Registered Agents")
+    const end = md.indexOf("\n## ", start + 3)
+    expect(start, "Registered Agents section missing").toBeGreaterThan(-1)
+    expect(end, "no section after Registered Agents").toBeGreaterThan(start)
+    const section = md.slice(start, end)
+
+    const byName = new Map<string, { phases: string[] }>(
+      registry.agents.map((a: any) => [a.name, a]),
+    )
+    const phaseTokens = ["PROPOSE", "ASSESS", "QA-PLAN", "DESIGN", "IMPLEMENT", "VERIFY", "EXPLORE", "FIX"]
+
+    const tableAgents = new Set<string>()
+    for (const line of section.split("\n")) {
+      const row = line.trim()
+      if (!row.startsWith("|") || row.includes("|---")) continue
+      const cells = row.split("|").map((c) => c.trim()).filter(Boolean)
+      if (cells.length < 2) continue
+      const [left, right] = cells
+      const cited = [...right.matchAll(/`([a-z0-9_]+)`/g)]
+        .map((m) => m[1])
+        .filter((name) => byName.has(name) && name !== "odoo_orchestrator")
+      for (const name of cited) {
+        tableAgents.add(name)
+        const phases: string[] = byName.get(name)!.phases
+        if (phases.includes("ALL")) continue
+        for (const token of phaseTokens) {
+          const re = new RegExp(`(?:^|[^A-Z-])${token}(?:[^A-Z-]|$)`)
+          if (!re.test(left)) continue
+          expect(
+            phases,
+            `table row "${left}" cites ${token} but registry phases for ${name} are [${phases.join(", ")}]`,
+          ).toContain(token)
+        }
+      }
+    }
+
+    expect(tableAgents.size, "no registry agents parsed from Registered Agents table").toBeGreaterThanOrEqual(10)
+    for (const agent of registry.agents) {
+      if (agent.name === "odoo_orchestrator") continue
+      expect(
+        tableAgents,
+        `registry agent ${agent.name} missing from orchestrator Registered Agents table`,
+      ).toContain(agent.name)
+    }
+  })
+
   it("scan CLI: --repo relative resolves against the Doodba src dir and reports summary", { timeout: 30_000 }, async () => {
     await writeFile(tmp, "odoo/custom/src/addons.yaml", "repo-a:\n  - \"*\"\n")
     await writeFile(tmp, "odoo/custom/src/repo-a/mod_a1/__manifest__.py", "{'name': 'Mod A1', 'version': '18.0.1.0.0', 'license': 'AGPL-3', 'depends': ['base']}\n")

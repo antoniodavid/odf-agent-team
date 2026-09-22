@@ -1,3 +1,12 @@
+---
+name: odoo-module-generator
+description: "Odoo Module Generator. Trigger: generate module, module skeleton, new module scaffolding."
+license: MIT
+metadata:
+  author: antoniodavid
+  version: "1.0"
+---
+
 # Odoo Module Generator - Version Dispatcher
 
 ## CRITICAL: VERSION-SPECIFIC REQUIREMENTS
@@ -21,8 +30,7 @@
 
 | Target Version | File to Use | Status |
 |----------------|-------------|--------|
-| Odoo 14.0 | `odoo-module-generator-14.md` | Legacy |
-| Odoo 15.0 | `odoo-module-generator-15.md` | Legacy |
+| Odoo 15.0 | `odoo-module-generator-15.md` | Migration source only |
 | Odoo 16.0 | `odoo-module-generator-16.md` | Supported |
 | Odoo 17.0 | `odoo-module-generator-17.md` | Supported |
 | Odoo 18.0 | `odoo-module-generator-18.md` | Current |
@@ -35,7 +43,6 @@ When upgrading modules between versions:
 
 | Migration Path | File |
 |----------------|------|
-| 14.0 → 15.0 | `odoo-module-generator-14-15.md` |
 | 15.0 → 16.0 | `odoo-module-generator-15-16.md` |
 | 16.0 → 17.0 | `odoo-module-generator-16-17.md` |
 | 17.0 → 18.0 | `odoo-module-generator-17-18.md` |
@@ -49,7 +56,7 @@ When upgrading modules between versions:
 QUESTION: What Odoo version are you generating a module for?
 
 If the user doesn't specify, ASK before proceeding:
-"What Odoo version should I target? (14.0, 15.0, 16.0, 17.0, 18.0, 19.0)"
+"What Odoo version should I target? (15.0, 16.0, 17.0, 18.0, 19.0)"
 ```
 
 ### Step 2: Load the Correct File
@@ -58,10 +65,10 @@ If the user doesn't specify, ASK before proceeding:
 
 ```
 # Example for Odoo 18.0 project
-Read: /home/adruban/.config/opencode/skills/odoo-module-generator-18.md
+Read: ~/.config/opencode/skills/oca/02-development-style/odoo-module-generator-18.md
 
 # Example for upgrading from 17.0 to 18.0
-Read: /home/adruban/.config/opencode/skills/odoo-module-generator-17-18.md
+Read: ~/.config/opencode/skills/oca/02-development-style/odoo-module-generator-17-18.md
 ```
 
 ### Step 3: Gather Input Parameters
@@ -92,8 +99,8 @@ If the version is not explicitly stated, look for these clues in existing code:
 
 | Indicator | Version |
 |-----------|---------|
-| `@api.multi` decorator | 14.0 (removed in 15.0+) |
-| `track_visibility` parameter | 14.0 |
+| `@api.multi` decorator | ≤14 (removed in 15.0+) |
+| `track_visibility` parameter | ≤14 (removed in 15.0+) |
 | `tracking` parameter | 15.0+ |
 | Tuple syntax for x2many | 14.0-15.0 |
 | `Command` class usage | 16.0+ |
@@ -105,12 +112,6 @@ If the version is not explicitly stated, look for these clues in existing code:
 | Full type annotations | 19.0+ |
 
 ## Quick Reference: Major Changes by Version
-
-### v14 Key Patterns
-- Single record `create(vals)`
-- `track_visibility='onchange'`
-- `attrs` in views
-- Legacy widgets
 
 ### v15 Key Patterns
 - `@api.multi` removed
@@ -184,7 +185,6 @@ Before generating modules, agents SHOULD verify patterns against:
 
 | Version | Branch |
 |---------|--------|
-| 14.0 | `14.0` |
 | 15.0 | `15.0` |
 | 16.0 | `16.0` |
 | 17.0 | `17.0` |
@@ -206,8 +206,8 @@ Create an Odoo 18.0 module for tracking equipment assets with:
 
 **Agent Workflow**:
 1. Identify version: `18.0`
-2. Load: `/home/adruban/.config/opencode/skills/odoo-module-generator-18.md`
-3. Load: `/home/adruban/.config/opencode/skills/odoo-model-patterns-18.md`
+2. Load: `~/.config/opencode/skills/oca/02-development-style/odoo-module-generator-18.md`
+3. Load: `~/.config/opencode/skills/oca/05-version/odoo-model-patterns-18.md`
 4. Generate with v18 patterns:
    - `_check_company_auto = True`
    - `@api.model_create_multi`
@@ -223,8 +223,8 @@ Add custom discount approval workflow to Odoo 17.0 sales module
 
 **Agent Workflow**:
 1. Identify version: `17.0`
-2. Load: `/home/adruban/.config/opencode/skills/odoo-module-generator-17.md`
-3. Load: `/home/adruban/.config/opencode/skills/odoo-model-patterns-17.md`
+2. Load: `~/.config/opencode/skills/oca/02-development-style/odoo-module-generator-17.md`
+3. Load: `~/.config/opencode/skills/oca/05-version/odoo-model-patterns-17.md`
 4. Generate with v17 patterns:
    - Extend `sale.order`
    - `@api.model_create_multi`
@@ -240,8 +240,8 @@ Create a KPI dashboard for Odoo 18.0 with charts and real-time data
 
 **Agent Workflow**:
 1. Identify version: `18.0`
-2. Load: `/home/adruban/.config/opencode/skills/odoo-owl-components-18.md`
-3. Load: `/home/adruban/.config/opencode/skills/odoo-module-generator-18.md`
+2. Load: `~/.config/opencode/skills/oca/03-patterns/frontend/odoo-owl-components-18.md`
+3. Load: `~/.config/opencode/skills/oca/02-development-style/odoo-module-generator-18.md`
 4. Generate with v18 OWL 2.x patterns:
    - `/** @odoo-module **/`
    - `import { Component } from "@odoo/owl"`
@@ -256,7 +256,7 @@ Upgrade our custom CRM module from Odoo 16.0 to 17.0
 ```
 
 **Agent Workflow**:
-1. Load migration guide: `/home/adruban/.config/opencode/skills/odoo-module-generator-16-17.md`
+1. Load migration guide: `~/.config/opencode/skills/oca/02-development-style/odoo-module-generator-16-17.md`
 2. Key changes to apply:
    - Remove ALL `attrs` from views
    - Add `@api.model_create_multi` to all `create()` methods
@@ -318,7 +318,7 @@ For programmatic module generation, use this JSON schema:
     },
     "odoo_version": {
       "type": "string",
-      "enum": ["14.0", "15.0", "16.0", "17.0", "18.0", "19.0"]
+      "enum": ["15.0", "16.0", "17.0", "18.0", "19.0"]
     },
     "target_apps": {
       "type": "array",

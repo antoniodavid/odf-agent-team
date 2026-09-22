@@ -1,3 +1,12 @@
+---
+name: onchange-dynamic-patterns
+description: "Onchange Dynamic Patterns. Trigger: onchange, @api.onchange, dynamic field, compute onchange."
+license: MIT
+metadata:
+  author: antoniodavid
+  version: "1.0"
+---
+
 # Onchange and Dynamic Form Patterns
 
 ```

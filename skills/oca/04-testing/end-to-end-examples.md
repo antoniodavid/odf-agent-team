@@ -1,3 +1,12 @@
+---
+name: end-to-end-examples
+description: "End To End Examples. Trigger: end to end example, complete module example, full module walkthrough."
+license: MIT
+metadata:
+  author: antoniodavid
+  version: "1.0"
+---
+
 # End-to-End Generation Examples
 
 ```

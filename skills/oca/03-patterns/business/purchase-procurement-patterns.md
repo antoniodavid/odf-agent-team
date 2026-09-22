@@ -1,3 +1,12 @@
+---
+name: purchase-procurement-patterns
+description: "Purchase Procurement Patterns. Trigger: purchase order, procurement, rfq, vendor."
+license: MIT
+metadata:
+  author: antoniodavid
+  version: "1.0"
+---
+
 # Purchase and Procurement Patterns
 
 ```

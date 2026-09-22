@@ -202,13 +202,24 @@ function registryPaths(section) {
   }
 }
 
-function managedPaths() {
-  const commandDir = path.join(CONFIG_DIR, 'command');
-  const commandPaths = fs.existsSync(commandDir)
-    ? fs.readdirSync(commandDir)
-      .filter(entry => entry.startsWith('odf-'))
-      .map(entry => path.join(commandDir, entry))
+function managedDirEntries(relDir, prefix) {
+  const dir = path.join(CONFIG_DIR, relDir);
+  return fs.existsSync(dir)
+    ? fs.readdirSync(dir)
+        .filter(entry => entry.startsWith(prefix))
+        .map(entry => path.join(dir, entry))
     : [];
+}
+
+function managedPaths() {
+  const commandPaths = [
+    ...managedDirEntries('command', 'odf-'),
+    ...managedDirEntries('commands', 'odf-'),
+  ];
+  const agentPaths = [
+    ...registryPaths('agents'),
+    ...managedDirEntries('agents', 'odoo_'),
+  ];
   const paths = [
     path.join(CONFIG_DIR, 'odf-registry.json'),
     path.join(CONFIG_DIR, 'plugins', 'odf-delegation.ts'),
@@ -216,7 +227,7 @@ function managedPaths() {
     path.join(CONFIG_DIR, 'openspec', 'config.yaml'),
     path.join(CONFIG_DIR, 'openspec', 'sdd-init.yaml'),
     path.join(CONFIG_DIR, 'openspec', 'specs'),
-    ...registryPaths('agents'),
+    ...agentPaths,
     ...registryPaths('skills'),
     ...commandPaths,
   ];
@@ -273,9 +284,9 @@ function removeManagedPath(target) {
 function installFiles(srcDir, components) {
   const mapping = {
     registry: { src: 'odf-registry.json', dst: path.join(CONFIG_DIR, 'odf-registry.json') },
-    agents:   { src: 'agent',              dst: path.join(CONFIG_DIR, 'agent') },
+    agents:   { src: 'agent',              dst: path.join(CONFIG_DIR, 'agent'),    mirror: 'agents' },
     skills:   { src: 'skills',             dst: path.join(CONFIG_DIR, 'skills') },
-    commands: { src: 'command',            dst: path.join(CONFIG_DIR, 'command') },
+    commands: { src: 'command',            dst: path.join(CONFIG_DIR, 'command'),  mirror: 'commands' },
     plugins:  { src: 'plugins',            dst: path.join(CONFIG_DIR, 'plugins') },
     scripts:  { src: 'scripts',            dst: path.join(CONFIG_DIR, 'scripts') },
     docs:     { src: 'docs',               dst: path.join(CONFIG_DIR, 'docs') },
@@ -298,6 +309,12 @@ function installFiles(srcDir, components) {
     } else if (fs.statSync(fullSrc).isDirectory()) {
       fs.mkdirSync(m.dst, { recursive: true });
       copyDir(fullSrc, m.dst);
+      // OpenCode resolves both `agent(s)/` and `command(s)/`; mirror so either convention finds ODF.
+      if (m.mirror) {
+        const mirrorDst = path.join(CONFIG_DIR, m.mirror);
+        fs.mkdirSync(mirrorDst, { recursive: true });
+        copyDir(fullSrc, mirrorDst);
+      }
     } else {
       fs.mkdirSync(path.dirname(m.dst), { recursive: true });
       fs.copyFileSync(fullSrc, m.dst);
@@ -636,13 +653,11 @@ async function uninstallFlow() {
       : comp === 'plugins'
         ? [path.join(CONFIG_DIR, 'plugins', 'odf-delegation.ts')]
         : comp === 'agents'
-          ? registryPaths('agents')
+          ? [...registryPaths('agents'), ...managedDirEntries('agents', 'odoo_')]
           : comp === 'skills'
             ? registryPaths('skills')
             : comp === 'commands'
-              ? (fs.existsSync(path.join(CONFIG_DIR, 'command'))
-                ? fs.readdirSync(path.join(CONFIG_DIR, 'command')).filter(entry => entry.startsWith('odf-')).map(entry => path.join(CONFIG_DIR, 'command', entry))
-                : [])
+              ? [...managedDirEntries('command', 'odf-'), ...managedDirEntries('commands', 'odf-')]
               : comp === 'scripts'
                 ? MANAGED_SCRIPT_PATHS.map(entry => path.join(CONFIG_DIR, entry))
                  : comp === 'docs'

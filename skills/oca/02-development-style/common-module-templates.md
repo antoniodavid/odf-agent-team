@@ -1,3 +1,12 @@
+---
+name: common-module-templates
+description: "Common Module Templates. Trigger: module templates, common module structure, scaffold."
+license: MIT
+metadata:
+  author: antoniodavid
+  version: "1.0"
+---
+
 # Common Module Templates
 
 ```

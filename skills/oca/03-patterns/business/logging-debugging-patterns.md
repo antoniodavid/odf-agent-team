@@ -1,3 +1,12 @@
+---
+name: logging-debugging-patterns
+description: "Logging Debugging Patterns. Trigger: logging, _logger, debug, traceback."
+license: MIT
+metadata:
+  author: antoniodavid
+  version: "1.0"
+---
+
 # Logging and Debugging Patterns
 
 ```

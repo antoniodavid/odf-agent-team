@@ -113,7 +113,40 @@ describe("install.sh", { timeout: 30000 }, () => {
       expect(fs.existsSync(path.join(configDir, "command", "odf-health.md"))).toBe(true)
       expect(fs.existsSync(path.join(configDir, "agents", "odoo_orchestrator.md"))).toBe(true)
       expect(fs.existsSync(path.join(configDir, "commands", "odf-new.md"))).toBe(true)
+      expect(fs.existsSync(path.join(configDir, "commands", "odf-agent-new.md"))).toBe(true)
       expect(fs.existsSync(path.join(configDir, "policies", "oca", "rules.yaml"))).toBe(true)
+    } finally {
+      cleanup(tempHome)
+    }
+  })
+
+  it("preserves foreign files in command(s)/ and agent(s)/ while mirroring the ODF layout", () => {
+    const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), "odf-installer-foreign-"))
+    const configDir = path.join(tempHome, ".config", "opencode")
+    const env = {
+      ...process.env,
+      HOME: tempHome,
+      ODF_CONFIG_DIR: configDir,
+      ODF_SOURCE_DIR: REPO_ROOT,
+      ODF_SKIP_NPM: "1",
+      ODF_SKIP_SELFTEST: "1",
+    } as NodeJS.ProcessEnv
+
+    try {
+      const foreignCommands = path.join(configDir, "commands")
+      const foreignAgents = path.join(configDir, "agents")
+      fs.mkdirSync(foreignCommands, { recursive: true })
+      fs.mkdirSync(foreignAgents, { recursive: true })
+      fs.writeFileSync(path.join(foreignCommands, "sdd-apply.md"), "# foreign sdd command\n", "utf8")
+      fs.writeFileSync(path.join(foreignAgents, "my-custom.md"), "# foreign agent\n", "utf8")
+
+      const result = spawnSync("bash", [INSTALL_SCRIPT, "--yes"], { env, encoding: "utf8", cwd: REPO_ROOT })
+      expect(result.status).toBe(0)
+
+      expect(fs.readFileSync(path.join(foreignCommands, "sdd-apply.md"), "utf8")).toBe("# foreign sdd command\n")
+      expect(fs.readFileSync(path.join(foreignAgents, "my-custom.md"), "utf8")).toBe("# foreign agent\n")
+      expect(fs.existsSync(path.join(configDir, "commands", "odf-new.md"))).toBe(true)
+      expect(fs.existsSync(path.join(configDir, "agents", "odoo_orchestrator.md"))).toBe(true)
     } finally {
       cleanup(tempHome)
     }

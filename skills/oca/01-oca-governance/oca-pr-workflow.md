@@ -1,3 +1,12 @@
+---
+name: oca-governance-pr-workflow
+description: "OCA PR Workflow. Trigger: OCA PR, pull request template, PR checklist, oca-pr-workflow."
+license: MIT
+metadata:
+  author: antoniodavid
+  version: "2.0"
+---
+
 # OCA Pull Request Workflow
 
 Complete workflow for submitting, reviewing, and merging pull requests in OCA repositories.

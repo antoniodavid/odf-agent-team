@@ -1,3 +1,12 @@
+---
+name: oca-repository-policy
+description: "Oca Repository Policy. Trigger: repository policy, repo structure, stability policy."
+license: MIT
+metadata:
+  author: antoniodavid
+  version: "1.0"
+---
+
 # OCA Repository Policy
 
 Complete guide to OCA repository structure, governance, and policies for maintaining quality, stable, and relevant addon modules.

@@ -1,3 +1,12 @@
+---
+name: odoo-performance-guide
+description: "Odoo Performance Guide. Trigger: performance, slow query, optimize, n+1, read_group."
+license: MIT
+metadata:
+  author: antoniodavid
+  version: "1.0"
+---
+
 # Odoo Performance Optimization Guide
 
 ```

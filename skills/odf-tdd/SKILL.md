@@ -55,10 +55,12 @@ Active when the EFFECTIVE TDD mode is ON. Effective mode = two-source kill switc
 - **Anti-patterns**: *tautological* assertions (expected value recomputed the same way as the code — can never disagree), *implementation-coupled* tests (mock internals/private methods), *snapshot-by-hand* values.
 - **Red before green**: the failing test is written first; red evidence is command + exit code + output, never a claim.
 
-## Output ContractWhen enforcing: return `status: blocked` with `reason: "Strict TDD: REQ-XX has no test. Write test before implementing."` and `tdd_effective: on`.
+## Output Contract
+
+When enforcing: return `status: blocked` with `reason: "Strict TDD: REQ-XX has no test. Write test before implementing."` and `tdd_effective: on`.
 When not enforcing (any source off): include `tdd_effective: off`.
 When passing: include `tdd: compliant` in the result.
 
 ## References
 
-- `/home/adruban/.config/opencode/skills/_shared/result-contract.md` — ODF Result envelope
+- `~/.config/opencode/skills/_shared/result-contract.md` — ODF Result envelope

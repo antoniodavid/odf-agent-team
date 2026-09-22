@@ -1,3 +1,12 @@
+---
+name: import-export-patterns
+description: "Import Export Patterns. Trigger: import, export, load, CSV import, odoo csv."
+license: MIT
+metadata:
+  author: antoniodavid
+  version: "1.0"
+---
+
 # Import/Export Data Patterns
 
 ```

@@ -1,3 +1,12 @@
+---
+name: attachment-binary-patterns
+description: "Attachment Binary Patterns. Trigger: binary field, file attachment, ir.attachment, upload."
+license: MIT
+metadata:
+  author: antoniodavid
+  version: "1.0"
+---
+
 # Attachment and Binary Field Patterns
 
 ```

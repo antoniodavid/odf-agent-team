@@ -1,3 +1,12 @@
+---
+name: cron-automation-patterns
+description: "Cron Automation Patterns. Trigger: ir.cron, scheduled action, automation job."
+license: MIT
+metadata:
+  author: antoniodavid
+  version: "1.0"
+---
+
 # Scheduled Actions and Automation Patterns
 
 ```
