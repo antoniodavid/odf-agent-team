@@ -36,6 +36,9 @@ tests:
         - .config/opencode/scripts/fixtures
         - .config/opencode/command/odf-new.md
         - .config/opencode/command/odf-health.md
+        - .config/opencode/commands/odf-new.md
+        - .config/opencode/commands/odf-agent-new.md
+        - .config/opencode/agents/odoo_orchestrator.md
 
   - name: re-run is idempotent and creates a new backup
     input:
