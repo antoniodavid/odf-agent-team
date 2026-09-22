@@ -1,7 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { ODF_REGISTERED_TOOLS } from "./odf-delegation-shared.js"
 import { ODF_SYSTEM_RULES } from "../plugins/odf-delegation.js"
-import { OdfDelegationPluginV2, setupODFV2 } from "./opencode-v2-adapter.js"
+import { invokeTask } from "../plugins/odf-delegation.js"
+import { createV2SessionTaskApi, findTaskApi } from "./odf-delegation-health.js"
+import { OdfDelegationPluginV2, createV2ToolContext, setupODFV2 } from "./opencode-v2-adapter.js"
 
 function testContext() {
   const tools: any[] = []
@@ -33,6 +35,10 @@ function testContext() {
         return registration()
       },
       get: vi.fn(async () => ({ agent: "odoo_orchestrator" })),
+      create: vi.fn(async () => ({ id: "child-session" })),
+      prompt: vi.fn(async () => undefined),
+      wait: vi.fn(async () => undefined),
+      context: vi.fn(async () => []),
       interrupt: vi.fn(async () => undefined),
     },
     event: {
@@ -48,6 +54,27 @@ function testContext() {
   }
 
   return { context, tools, hooks, disposers, get eventSignal() { return subscribedSignal } }
+}
+
+function taskContext() {
+  return {
+    sessionID: "parent-session",
+    messageID: "message",
+    agent: "odoo_orchestrator",
+    signal: new AbortController().signal,
+    progress: vi.fn(async () => undefined),
+  }
+}
+
+function v2Session(contextResponse: unknown = [{ type: "assistant", content: [{ type: "text", text: '{"status":"ok"}' }] }]) {
+  return {
+    create: vi.fn(async () => ({ id: "child-session" })),
+    get: vi.fn(async () => ({ model: { providerID: "provider", id: "model" } })),
+    prompt: vi.fn(async () => undefined),
+    wait: vi.fn(async () => undefined),
+    context: vi.fn(async () => contextResponse),
+    interrupt: vi.fn(async () => undefined),
+  }
 }
 
 describe("OpenCode V2 ODF adapter", () => {
@@ -124,5 +151,63 @@ describe("OpenCode V2 ODF adapter", () => {
     expect(fixture.disposers).toHaveLength(5)
     expect(fixture.disposers.every(dispose => dispose.mock.calls.length === 1)).toBe(true)
     expect(fixture.eventSignal?.aborted).toBe(true)
+  })
+
+  it("bridges V2 session delegation through the shared TaskApi boundary", async () => {
+    const session = v2Session()
+    const bridge = createV2ToolContext(taskContext() as any, "/tmp/odf-project", session as any)
+
+    expect(findTaskApi(bridge as any)).toMatchObject({ source: "toolCtx.task" })
+    await expect(bridge.task({
+      agent: "odoo_qa_engineer",
+      prompt: "Return the requested ODF result.",
+      context_files: ["README.md"],
+    })).resolves.toEqual({ status: "ok" })
+    expect(session.get).toHaveBeenCalledWith({ sessionID: "parent-session" })
+    expect(session.create).toHaveBeenCalledWith({
+      agent: "odoo_qa_engineer",
+      model: { providerID: "provider", id: "model" },
+      location: { directory: "/tmp/odf-project" },
+    })
+    expect(session.prompt).toHaveBeenCalledWith({
+      sessionID: "child-session",
+      text: expect.stringContaining("README.md"),
+    })
+    expect(session.wait).toHaveBeenCalledWith({ sessionID: "child-session" })
+    expect(session.context).toHaveBeenCalledWith({ sessionID: "child-session" })
+  })
+
+  it("aborts the V2 child session for explicit cancellation", async () => {
+    const session = v2Session()
+    let rejectPrompt: ((error: Error) => void) | undefined
+    session.prompt.mockImplementation(() => new Promise((_, reject) => { rejectPrompt = reject }))
+    const task = createV2SessionTaskApi(taskContext() as any, session as any)
+    const invocation = task({ agent: "odoo_qa_engineer", prompt: "wait" })
+    await vi.waitFor(() => expect(session.prompt).toHaveBeenCalled())
+
+    await task.abort?.(invocation)
+    expect(session.interrupt).toHaveBeenCalledWith({ sessionID: "child-session" })
+    rejectPrompt?.(new Error("aborted by user"))
+    await expect(invocation).rejects.toThrow("task-cancelled")
+  })
+
+  it("aborts the V2 child session when the shared timeout expires", async () => {
+    const session = v2Session()
+    session.prompt.mockImplementation(() => new Promise(() => undefined))
+    const task = createV2SessionTaskApi(taskContext() as any, session as any)
+
+    await expect(invokeTask(task, "odoo_qa_engineer", "wait", undefined, 5)).rejects.toThrow("timed out")
+    expect(session.interrupt).toHaveBeenCalledWith({ sessionID: "child-session" })
+  })
+
+  it.each([
+    ["empty", [], "empty-task-result"],
+    ["malformed", [{ type: "user", text: "not an ODF result" }], "invalid-task-result"],
+    ["error", [{ type: "assistant", error: { type: "ProviderError", message: "provider failed" } }], "session-prompt-error"],
+  ])("rejects %s V2 context output without fabricating a result", async (_label, output, expected) => {
+    const session = v2Session(output)
+    const task = createV2SessionTaskApi(taskContext() as any, session as any)
+
+    await expect(task({ agent: "odoo_qa_engineer", prompt: "return" })).rejects.toThrow(expected)
   })
 })

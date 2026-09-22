@@ -15,6 +15,12 @@ import {
   ODF_REGISTERED_TOOLS,
   type OpencodeClient,
 } from "./odf-delegation-shared.js"
+import {
+  createV2SessionTaskApi,
+  ODF_V2_SESSION,
+  type TaskApi,
+  type V2SessionApi,
+} from "./odf-delegation-health.js"
 import { ODF_PLUGIN_ID } from "./runtime-boundary.js"
 
 type JsonSchema = Record<string, unknown>
@@ -56,8 +62,11 @@ function toV2Result(result: V1ToolResult): { content: string; metadata?: Record<
   }
 }
 
-function legacyToolContext(context: V2ToolContext, directory: string): V1ToolContext {
-  return {
+export function createV2ToolContext(context: V2ToolContext, directory: string, session: V2SessionApi): V1ToolContext & {
+  task: TaskApi
+  [ODF_V2_SESSION]: V2SessionApi
+} {
+  const legacyContext: V1ToolContext = {
     sessionID: context.sessionID,
     messageID: context.messageID,
     agent: context.agent,
@@ -70,6 +79,11 @@ function legacyToolContext(context: V2ToolContext, directory: string): V1ToolCon
     ask: async () => {
       throw new Error("ODF V2 does not expose the V1 permission prompt from a tool context")
     },
+  }
+  return {
+    ...legacyContext,
+    task: createV2SessionTaskApi(legacyContext, session),
+    [ODF_V2_SESSION]: session,
   }
 }
 
@@ -191,7 +205,7 @@ export async function setupODFV2(context: V2Context): Promise<V2Cleanup> {
           input: schema.input,
           execute: async (input, toolContext) => {
             const validated = schema.parse(input)
-            const result = await definition.execute(validated as never, legacyToolContext(toolContext, directory))
+            const result = await definition.execute(validated as never, createV2ToolContext(toolContext, directory, context.session))
             return toV2Result(result)
           },
         })

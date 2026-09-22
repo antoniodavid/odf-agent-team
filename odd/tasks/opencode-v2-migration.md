@@ -34,7 +34,7 @@ OpenCode V2 is stable, but ODF must keep V1 support while the V2 adapter is vali
 
 - [x] T1 Establish a host-neutral runtime boundary and dual entrypoint skeleton without changing V1 behavior.
 - [x] T2 Add the official V2 `Plugin.define`/`setup` adapter for all ODF tools and V2 hook mappings.
-- [ ] T3 Wire V2 session delegation, cancellation, cleanup, and health diagnostics; preserve V1 native/SDK fallback order.
+- [x] T3 Wire V2 session delegation, cancellation, cleanup, and health diagnostics; preserve V1 native/SDK fallback order.
 - [ ] T4 Update installer/config handling for V2-native `plugins`, JSONC, MCP, and duplicate-load prevention.
 - [ ] T5 Add V1/V2 contract fixtures, live-host smoke coverage, documentation, and support matrix.
 
@@ -65,6 +65,7 @@ OpenCode V2 is stable, but ODF must keep V1 support while the V2 adapter is vali
 - [x] Completed read-only compatibility audit and recorded the baseline.
 - [x] T1 implemented as an independently reviewable work unit.
 - [x] T2 implemented as an independently reviewable work unit; V1 tool factories remain the single tool-definition source.
+- [x] T3 implemented as an independently reviewable work unit; official V2 session APIs are used for child delegation while V1 native task and SDK fallback paths remain available.
 
 ## Verification evidence
 
@@ -76,7 +77,10 @@ OpenCode V2 is stable, but ODF must keep V1 support while the V2 adapter is vali
 - T2 intentionally uses V2 `session.hook("prompt")` as the narrowest available substitute for V1 `command.execute.before`; V2 has no command-before hook, so command-expanded parts and exact pre-dispatch timing are not equivalent. No unsupported hook is fabricated.
 - T2 unit tests do not claim live-host compatibility. V2 session delegation/cancellation remains T3 work.
 - Post-T2 checks: `npm run typecheck` passed; `npm run test:unit` passed with 863/863 tests across 31 files; `npm run test:yaml` passed with 154/154 scenarios; `npm run test:harness` passed with 17/17 tests; registry validation passed; `git diff --check` passed.
+- T3 evidence: official `@opencode/plugin@2.0.12` `SessionDomain` operations (`create`, `get`, `prompt`, `wait`, `context`, `interrupt`) now back V2 child-session delegation. The adapter preserves validated V1 tool execution, context-file propagation, parent-model selection, cleanup, timeout/cancellation interrupts, and empty/malformed/error result handling. Health reports V2 session source/capabilities without executing a task.
+- T3 focused evidence: `npx vitest run odf-plugin/odf-delegation.test.ts odf-plugin/opencode-v2-adapter.test.ts --reporter=dot` passed 398/398 tests across 2 files. The focused coverage includes official V2 request shapes, source selection, context files, timeout/cancellation, health diagnostics, and result/error semantics.
+- Post-T3 checks: `npm run typecheck` passed; `npm run test:unit` passed with 871/871 tests across 31 files; `npm run test:yaml` passed with 154/154 scenarios; `npm run test:harness` passed with 17/17 tests; `ODF_CONFIG_DIR="$PWD" node scripts/odf-registry-validate.js` passed; `git diff --check` passed.
 
 ## Next step
 
-T2 is complete. T3 remains responsible for V2 session delegation/cancellation/cleanup integration and V1 native/SDK fallback ordering; T4 remains responsible for V2-native installer/configuration and duplicate-load prevention; T5 remains responsible for contract fixtures, live-host smoke coverage, documentation, and the support matrix.
+T3 is complete. T4 remains responsible for V2-native installer/configuration and duplicate-load prevention; T5 remains responsible for contract fixtures, live-host smoke coverage, documentation, and the support matrix.
