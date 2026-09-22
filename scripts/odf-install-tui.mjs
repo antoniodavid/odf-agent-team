@@ -13,7 +13,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { execSync } from 'node:child_process';
+import { execFileSync, execSync } from 'node:child_process';
 import readline from 'node:readline';
 import { fileURLToPath } from 'node:url';
 
@@ -114,6 +114,14 @@ const COMPONENTS = [
 const PROFILES = [
   { name: 'default', desc: 'current session model for all phases' },
   { name: 'cheap',   desc: 'current session model for all phases' },
+];
+
+const STALE_ODF_PLUGIN_FILES = [
+  'odf-delegation.js',
+  'odf-delegation-v2.ts',
+  'odf-delegation-v2.js',
+  'opencode-v2-entrypoint.ts',
+  'opencode-v2-entrypoint.js',
 ];
 
 const MANAGED_SCRIPT_PATHS = [
@@ -510,16 +518,13 @@ function rewriteConfigPaths() {
 
 function configureMCP() {
   const cfg = path.join(CONFIG_DIR, 'opencode.json');
-  if (!fs.existsSync(cfg)) fs.writeFileSync(cfg, '{\n  "$schema": "https://opencode.ai/config.json"\n}\n');
-  else fs.copyFileSync(cfg, `${cfg}.${Date.now()}.bak`);
-  const data = JSON.parse(fs.readFileSync(cfg, 'utf8'));
-  data.mcp = data.mcp || {};
-  data.mcp.context7 = { type: 'remote', url: 'https://mcp.context7.com/mcp', enabled: true };
+  const helper = path.join(CONFIG_DIR, 'scripts', 'lib', 'configure-mcp.mjs');
   try {
-    execSync('engram mcp --help', { stdio: 'ignore', timeout: 5000 });
-    data.mcp.engram = { type: 'local', command: ['engram', 'mcp'], enabled: true };
-  } catch { /* engram MCP not available */ }
-  fs.writeFileSync(cfg, JSON.stringify(data, null, 2) + '\n');
+    return execFileSync(process.execPath, [helper, cfg, path.join(CONFIG_DIR, 'backups')], { encoding: 'utf8' }).trim();
+  } catch (error) {
+    const detail = error.stderr?.toString().trim() || error.message;
+    throw new Error(detail);
+  }
 }
 
 async function showSummary(mode, components, profile) {
@@ -558,6 +563,7 @@ async function installProgress(components) {
   // Install files
   process.stdout.write(`${ESC}[A${progressBar(2, 5)}  Installing files...\n`);
   const count = installFiles(srcDir, components);
+  for (const name of STALE_ODF_PLUGIN_FILES) removeManagedPath(path.join(CONFIG_DIR, 'plugins', name));
   process.stdout.write(`${ESC}[A${progressBar(3, 5)}  ${fg.green}${count} components installed${RESET}\n`);
 
   // CodeGraph
@@ -680,7 +686,7 @@ async function installFlow(mode) {
   if (components.includes('mcp')) {
     try {
       configureMCP();
-      console.log(`  ${fg.green}✓ MCP entries merged (context7${fs.existsSync(path.join(CONFIG_DIR, 'opencode.json')) ? '' : ''})${RESET}`);
+      console.log(`  ${fg.green}✓ MCP entries merged${RESET}`);
       console.log(`  ${DIM}  Manual: codegraph MCP and fff MCP per their docs.${RESET}`);
     } catch (err) {
       console.log(`  ${fg.yellow}⚠ MCP configuration skipped: ${String(err.message || err).slice(0, 80)}${RESET}`);

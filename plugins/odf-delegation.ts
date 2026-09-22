@@ -154,6 +154,7 @@ import {
 // Kept exported for the plugin public surface and unit tests.
 export { createODFReceipt, mergeReceipt, saveReceiptJson }
 export type { ODFReceipt }
+export { OdfDelegationPluginV2 }
 import {
   createODFEntryTriage as createEntryTriageTool,
   validateEntryRouteBinding,
@@ -183,6 +184,7 @@ import {
   ocaGovernanceFailure,
   type GovernanceCheckResult,
 } from "../odf-plugin/odf-governance.js"
+import { OdfDelegationPluginV2 } from "../odf-plugin/opencode-v2-adapter.js"
 
 /** Keep the reference-only ICE envelope scoped to the entry-triage tool. */
 export function createODFEntryTriage(): ReturnType<typeof createEntryTriageTool> {
@@ -6623,7 +6625,7 @@ export const OdfDelegationPlugin: Plugin = async (ctx) => {
 }
 
 export default {
-  id: ODF_PLUGIN_ID,
+  ...OdfDelegationPluginV2,
   server: OdfDelegationPlugin,
 }
 

@@ -19,6 +19,11 @@ const STALE_ODF_PLUGIN_FILES = [
   "odf-workflow-status.ts",
   "odf-workflow.test.ts",
   "odf-workflow.ts",
+  "odf-delegation.js",
+  "odf-delegation-v2.ts",
+  "odf-delegation-v2.js",
+  "opencode-v2-entrypoint.ts",
+  "opencode-v2-entrypoint.js",
 ]
 
 function runInstaller(args: string[], envOverrides: Record<string, string> = {}) {
@@ -243,6 +248,7 @@ describe("install.sh", { timeout: 30000 }, () => {
       const lockPath = path.join(projectDir, ".odf", "odf.lock")
       expect(fs.existsSync(path.join(configDir, "odf-registry.json"))).toBe(true)
       expect(fs.existsSync(path.join(configDir, "plugins", "odf-delegation.ts"))).toBe(true)
+      expect(fs.readdirSync(path.join(configDir, "plugins"))).toEqual(["odf-delegation.ts"])
       expect(fs.existsSync(path.join(configDir, "agent"))).toBe(true)
       expect(fs.existsSync(path.join(configDir, "skills"))).toBe(true)
       expect(fs.existsSync(launcher)).toBe(true)
@@ -353,6 +359,80 @@ describe("install.sh", { timeout: 30000 }, () => {
       expect(`${missing.stdout}\n${missing.stderr}`).toContain("absolute directory")
     } finally {
       cleanup(missingHome)
+    }
+  })
+
+  it("merges native V2 MCP servers without creating legacy entries", () => {
+    const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), "odf-installer-mcp-v2-"))
+    const configDir = path.join(tempHome, ".config", "opencode")
+    const configPath = path.join(configDir, "opencode.json")
+    fs.mkdirSync(configDir, { recursive: true })
+    fs.writeFileSync(configPath, JSON.stringify({
+      "$schema": "https://opencode.ai/config.json",
+      mcp: { timeout: 5000, servers: {} },
+      model: "provider/model",
+    }, null, 2) + "\n", "utf8")
+
+    const { result } = runInstaller(["--yes", "--configure-mcp"], {
+      HOME: tempHome,
+      ODF_CONFIG_DIR: configDir,
+    })
+    try {
+      expect(result.status).toBe(0)
+      const configured = JSON.parse(fs.readFileSync(configPath, "utf8"))
+      expect(configured.model).toBe("provider/model")
+      expect(configured.mcp.timeout).toBe(5000)
+      expect(configured.mcp.servers.context7).toMatchObject({
+        type: "remote",
+        url: "https://mcp.context7.com/mcp",
+        disabled: false,
+      })
+      expect(configured.mcp.context7).toBeUndefined()
+      expect(`${result.stdout}\n${result.stderr}`).toContain("configured V2 mcp.servers")
+    } finally {
+      cleanup(tempHome)
+    }
+  })
+
+  it("keeps legacy V1 MCP entries enabled when no native V2 servers map exists", () => {
+    const { result, tempHome } = runInstaller(["--yes", "--configure-mcp"])
+    try {
+      expect(result.status).toBe(0)
+      const configPath = path.join(tempHome, ".config", "opencode", "opencode.json")
+      const configured = JSON.parse(fs.readFileSync(configPath, "utf8"))
+      expect(configured.mcp.context7).toMatchObject({
+        type: "remote",
+        url: "https://mcp.context7.com/mcp",
+        enabled: true,
+      })
+      expect(configured.mcp.context7.disabled).toBeUndefined()
+    } finally {
+      cleanup(tempHome)
+    }
+  })
+
+  it("does not mutate JSONC or create a conflicting opencode.json", () => {
+    const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), "odf-installer-mcp-jsonc-"))
+    const configDir = path.join(tempHome, ".config", "opencode")
+    const configPath = path.join(configDir, "opencode.jsonc")
+    const original = '{\n  // Keep comments: JSONC needs a parser.\n  "mcp": { "servers": {} },\n}\n'
+    fs.mkdirSync(configDir, { recursive: true })
+    fs.writeFileSync(configPath, original, "utf8")
+
+    const { result } = runInstaller(["--yes", "--configure-mcp"], {
+      HOME: tempHome,
+      ODF_CONFIG_DIR: configDir,
+    })
+    try {
+      expect(result.status).toBe(0)
+      expect(fs.readFileSync(configPath, "utf8")).toBe(original)
+      expect(fs.existsSync(path.join(configDir, "opencode.json"))).toBe(false)
+      const output = `${result.stdout}\n${result.stderr}`
+      expect(output).toContain("JSONC config detected")
+      expect(output).toContain("Manual path")
+      expect(output).not.toContain("context7 MCP entry merged")
+    } finally {
+      cleanup(tempHome)
     }
   })
 

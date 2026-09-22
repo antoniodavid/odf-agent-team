@@ -25,6 +25,11 @@ STALE_ODF_PLUGIN_FILES=(
   odf-workflow-status.ts
   odf-workflow.test.ts
   odf-workflow.ts
+  odf-delegation.js
+  odf-delegation-v2.ts
+  odf-delegation-v2.js
+  opencode-v2-entrypoint.ts
+  opencode-v2-entrypoint.js
 )
 # Auto-detect local source when running from inside the cloned repo.
 # Respects explicit ODF_SOURCE_DIR if set.
@@ -438,6 +443,10 @@ has_odf_marker() {
   fi
   if [[ -f "$root/plugins/odf-delegation.ts" ||
         -f "$root/plugins/odf-delegation.js" ||
+        -f "$root/plugins/odf-delegation-v2.ts" ||
+        -f "$root/plugins/odf-delegation-v2.js" ||
+        -f "$root/plugins/opencode-v2-entrypoint.ts" ||
+        -f "$root/plugins/opencode-v2-entrypoint.js" ||
         -f "$root/plugin/odf-delegation.ts" ||
         -f "$root/plugin/odf-delegation.js" ]]; then
     return 0
@@ -578,32 +587,14 @@ probe_environment() {
 
 configure_mcp() {
   local cfg="${ODF_DIR}/opencode.json"
-  if [[ ! -f "$cfg" ]]; then
-    log_info "    No existing opencode.json; creating a fresh one with MCP entries."
-    printf '{\n  "$schema": "https://opencode.ai/config.json"\n}\n' > "$cfg"
+  local helper="${ODF_DIR}/scripts/lib/configure-mcp.mjs"
+  local output
+  if output="$(node "$helper" "$cfg" "${ODF_DIR}/backups" 2>&1)"; then
+    log_ok "    ✓ context7 MCP entry merged (${output})"
   else
-    cp "$cfg" "${ODF_DIR}/backups/opencode.json.$(date +%Y%m%d_%H%M%S)"
-    log_info "    Backed up opencode.json before merging MCP entries."
+    log_warn "    ⚠️ ${output}"
+    log_warn "    Manual path: review ${cfg} or ${ODF_DIR}/opencode.jsonc and add context7/engram using the matching MCP schema."
   fi
-  export ODF_MCP_ENGRAM=0
-  if command -v engram >/dev/null 2>&1 && engram mcp --help >/dev/null 2>&1; then
-    ODF_MCP_ENGRAM=1
-    log_ok "    ✓ engram MCP entry (verified \"engram mcp\")"
-  else
-    log_warn "    ✗ engram MCP entry skipped (\"engram mcp\" not available on this host)"
-  fi
-  node -e '
-    const fs = require("fs");
-    const p = process.argv[1];
-    const cfg = JSON.parse(fs.readFileSync(p, "utf8"));
-    cfg.mcp = cfg.mcp || {};
-    cfg.mcp.context7 = { type: "remote", url: "https://mcp.context7.com/mcp", enabled: true };
-    if (process.env.ODF_MCP_ENGRAM === "1") {
-      cfg.mcp.engram = { type: "local", command: ["engram", "mcp"], enabled: true };
-    }
-    fs.writeFileSync(p, JSON.stringify(cfg, null, 2) + "\n");
-  ' "$cfg"
-  log_ok "    ✓ context7 MCP entry merged"
   log_warn "  Manual checklist (not auto-configured): codegraph MCP and fff MCP — add their server entries to opencode.json per their docs."
 }
 

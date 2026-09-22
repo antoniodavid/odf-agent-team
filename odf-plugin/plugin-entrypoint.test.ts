@@ -3,7 +3,7 @@ import * as fs from "node:fs/promises"
 import * as os from "node:os"
 import * as path from "node:path"
 
-describe("ODF plugin V1 entrypoint", () => {
+describe("ODF plugin dual-runtime entrypoint", () => {
   let configDir: string
   let previousConfigDir: string | undefined
 
@@ -23,13 +23,14 @@ describe("ODF plugin V1 entrypoint", () => {
     await fs.rm(configDir, { recursive: true, force: true })
   })
 
-  it("exports a server-only V1 object and registers every ODF tool", { timeout: 20_000 }, async () => {
+  it("exports one stable dual-runtime object and registers every ODF tool through V1", { timeout: 20_000 }, async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined)
     const log = vi.spyOn(console, "log").mockImplementation(() => undefined)
     const module = await import("../plugins/odf-delegation.js")
 
     expect(module.default).toEqual({
       id: "odf-delegation",
+      setup: module.OdfDelegationPluginV2.setup,
       server: module.OdfDelegationPlugin,
     })
     expect(module.default).not.toHaveProperty("tui")
