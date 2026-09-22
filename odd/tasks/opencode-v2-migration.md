@@ -68,7 +68,8 @@ OpenCode V2 is stable, but ODF must keep V1 support while the V2 adapter is vali
 - [x] T3 implemented as an independently reviewable work unit; official V2 session APIs are used for child delegation while V1 native task and SDK fallback paths remain available.
 - [x] T4 implemented as an independently reviewable work unit; the installed entrypoint is dual-runtime, installer layouts stay single-plugin, and MCP configuration is schema-aware and JSONC-safe.
 - [x] T5 contract/docs slice implemented as an independently reviewable work unit; host-independent V1/V2 fixtures cover the dual entrypoint, stable ID, complete tool surface, schema/validation parity, supported hook mappings, and cleanup semantics.
-- [ ] T5 live-host slice remains open; no V2 CLI/runtime is available in this environment, so no fabricated smoke harness was added.
+- [x] Corrected the V2 load-time TDZ: the adapter no longer runtime-imports V1 exports during module initialization; `setupODFV2` imports them immediately before V2 registration and passes the system rules into the hook registrar.
+- [ ] T5 live-host slice remains open; `opencode2` is available, but provider execution is blocked by the reported host-version compatibility error, so no fabricated smoke harness was added.
 
 ## Verification evidence
 
@@ -91,7 +92,12 @@ OpenCode V2 is stable, but ODF must keep V1 support while the V2 adapter is vali
 - T5 documentation evidence: `docs/opencode-v2-migration.md` records the V1 `1.18.29+` floor, V2 package/runtime assumptions, global/project paths, legacy `mcp` versus native `mcp.servers`, JSONC manual handling, the V2 command-before limitation, and the exact live-host checklist.
 - T5 environment evidence: `opencode --version` reports V1 `1.18.29`; `npm ls @opencode/plugin @opencode-ai/plugin @opencode-ai/sdk --depth=0` resolves `@opencode/plugin@2.0.12`, `@opencode-ai/plugin@1.17.8`, and `@opencode-ai/sdk@1.17.8`. No real V2 host smoke ran.
 - Post-T5 checks: `npm run typecheck` passed; `npm run test:unit` passed with 878/878 tests across 32 files; `npm run test:yaml` passed with 154/154 scenarios; `npm run test:harness` passed with 17/17 tests; `ODF_CONFIG_DIR="$PWD" node scripts/odf-registry-validate.js` passed; `git diff --check` passed.
+- TDZ bug evidence: the isolated V2 server log `/tmp/opencode/odf-opencode2-v2.nn5oGr/xdg-data/opencode/log/opencode.log` recorded server reference `err_1d7cca1c` and `ReferenceError: Cannot access 'OdfDelegationPluginV2' before initialization.` The Bun loader exposed the circular dependency between the V1 entrypoint's static V2 import and the adapter's static imports of `createODFRegisteredTools`/`ODF_SYSTEM_RULES`.
+- TDZ fix evidence: `odf-plugin/opencode-v2-adapter.ts` has no runtime import from the V1 entrypoint; `setupODFV2` dynamically imports the V1 exports before `context.tool.transform` and `registerV2Hooks`, and `ODF_SYSTEM_RULES` is passed into the hook registrar. The public entrypoint shape remains `{ id, setup, server }` and V1 behavior is unchanged.
+- TDZ regression evidence: `npx vitest run odf-plugin/opencode-v2-adapter.test.ts odf-plugin/plugin-entrypoint.test.ts --reporter=dot` passed 12/12 tests across 2 files. `odf-plugin/plugin-entrypoint.test.ts` now guards the import ordering that prevents the Bun load-time TDZ; it does not fake a V2 host.
+- Post-TDZ checks: `npm run typecheck` passed; `npm run test:unit` passed with 879/879 tests across 32 files; `npm run test:yaml` passed with 154/154 scenarios; `npm run test:harness` passed with 17/17 tests; `ODF_CONFIG_DIR="$PWD" node scripts/odf-registry-validate.js` passed; `git diff --check` passed.
+- Remaining live-host blocker: `opencode2 v0.0.0-beta-19059` is available, but the Console free tier rejects that V2 host version and requires OpenCode `1.18.0+` for provider execution. No live V2 load/tools/hooks/delegation smoke success is claimed until provider compatibility is resolved.
 
 ## Next step
 
-T5 contract fixtures, documentation, and the support matrix are complete. The remaining blocker is a real OpenCode V2 host for the live load/tools/hooks/delegation/cancellation/reload smoke; keep the V2-default acceptance item unchecked until that evidence exists.
+T5 contract fixtures, documentation, and the support matrix are complete. The TDZ fix is covered by a static import-order regression guard, but the live load/tools/hooks/delegation/cancellation/reload smoke remains blocked by provider compatibility; keep the V2-default acceptance item unchecked until that evidence exists.

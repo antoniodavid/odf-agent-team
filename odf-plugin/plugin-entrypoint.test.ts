@@ -48,4 +48,16 @@ describe("ODF plugin dual-runtime entrypoint", () => {
     log.mockRestore()
   })
 
+  it("defers the V1 entrypoint import until V2 setup to prevent the Bun load-time TDZ", async () => {
+    const adapterSource = await fs.readFile(new URL("./opencode-v2-adapter.ts", import.meta.url), "utf8")
+    const setupStart = adapterSource.indexOf("export async function setupODFV2")
+    const transformStart = adapterSource.indexOf("context.tool.transform", setupStart)
+    const dynamicImport = adapterSource.indexOf('await import("../plugins/odf-delegation.js")', setupStart)
+
+    expect(setupStart).toBeGreaterThanOrEqual(0)
+    expect(adapterSource.slice(0, setupStart)).not.toContain('from "../plugins/odf-delegation.js"')
+    expect(dynamicImport).toBeGreaterThan(setupStart)
+    expect(dynamicImport).toBeLessThan(transformStart)
+  })
+
 })

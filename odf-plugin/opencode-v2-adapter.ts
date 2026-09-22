@@ -3,11 +3,6 @@ import type { Context as V2Context, Cleanup as V2Cleanup } from "@opencode/plugi
 import type { ToolContext as V2ToolContext } from "@opencode/plugin/promise/tool"
 import { tool as v1Tool, type ToolContext as V1ToolContext, type ToolResult as V1ToolResult } from "@opencode-ai/plugin"
 import {
-  createODFRegisteredTools,
-  ODF_SYSTEM_RULES,
-  type ODFRegisteredToolMap,
-} from "../plugins/odf-delegation.js"
-import {
   createStableDiscoveryGuard,
   type LoopGuardHooks,
 } from "./odf-delegation-loopguard.js"
@@ -24,6 +19,7 @@ import {
 import { ODF_PLUGIN_ID } from "./runtime-boundary.js"
 
 type JsonSchema = Record<string, unknown>
+type ODFRegisteredToolMap = import("../plugins/odf-delegation.js").ODFRegisteredToolMap
 type V1Tool = ODFRegisteredToolMap[keyof ODFRegisteredToolMap]
 type V2Registration = { dispose: () => Promise<void> }
 
@@ -115,6 +111,7 @@ async function registerV2Hooks(
   context: V2Context,
   guard: LoopGuardHooks,
   registrations: V2Registration[],
+  systemRules: string,
 ): Promise<void> {
   registrations.push(await context.tool.hook("execute.before", async (input) => {
     const output = { args: input.input }
@@ -142,8 +139,8 @@ async function registerV2Hooks(
   }))
 
   registrations.push(await context.session.hook("context", async (input) => {
-    if (!input.system.some(part => part.type === "text" && part.text === ODF_SYSTEM_RULES)) {
-      input.system.push({ type: "text", text: ODF_SYSTEM_RULES })
+    if (!input.system.some(part => part.type === "text" && part.text === systemRules)) {
+      input.system.push({ type: "text", text: systemRules })
     }
   }))
 
@@ -194,6 +191,7 @@ export async function setupODFV2(context: V2Context): Promise<V2Cleanup> {
   const guard = createStableDiscoveryGuard(v2AbortClient(context), new Map(), new Map(), directory)
 
   try {
+    const { createODFRegisteredTools, ODF_SYSTEM_RULES } = await import("../plugins/odf-delegation.js")
     registrations.push(await context.tool.transform((editor) => {
       const tools = createODFRegisteredTools(undefined, directory)
       for (const name of ODF_REGISTERED_TOOLS) {
@@ -211,7 +209,7 @@ export async function setupODFV2(context: V2Context): Promise<V2Cleanup> {
         })
       }
     }))
-    await registerV2Hooks(context, guard, registrations)
+    await registerV2Hooks(context, guard, registrations, ODF_SYSTEM_RULES)
     return async () => {
       await Promise.allSettled(registrations.splice(0).map(registration => registration.dispose()))
       await guard.dispose?.()
