@@ -163,7 +163,7 @@ Missing fields are collected via `question` tool.
 
 ```
 agent/              — 11 agent instructions (orchestrator + 10 sub-agents)
-command/            — 21 slash command definitions (Markdown)
+command/            — 22 slash command definitions (Markdown)
 plugins/            — odf-delegation.ts (OpenCode plugin)
 scripts/            — test runner (844 Vitest tests + 154 YAML scenarios), CLI wrapper, registry validator
 skills/              — 32 skills (OCA governance, ODF phases, patterns)

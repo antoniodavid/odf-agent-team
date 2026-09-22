@@ -58,7 +58,7 @@ Routing is deterministic: standard config can stop after DECIDE, a bugfix runs d
 | `/odf-verify` | Quality gate: tests, lint, spec compliance |
 | `/odf-health` | Installation + project detection check |
 
-21 commands total — full list in [AGENTS.md](AGENTS.md).
+22 commands total — full list in [AGENTS.md](AGENTS.md).
 
 ## Why developers use it
 
@@ -73,7 +73,7 @@ Routing is deterministic: standard config can stop after DECIDE, a bugfix runs d
 |-------|------------------|
 | Skills | 87 (`skills/` — OCA governance/style, Odoo patterns, ODF phases) |
 | Agents | 11 (`agent/` — orchestrator + 10 specialists) |
-| Commands | 21 (`command/`) |
+| Commands | 22 (`command/`) |
 | Plugin tools | 19 injected at runtime (`plugins/odf-delegation.ts` + `odf-plugin/`) |
 | Deterministic CLIs | `odf-project-scan`, `odf-toolkit` (`scripts/`) |
 
@@ -124,7 +124,7 @@ Versioning: `VERSION` + `package.json` + `package-lock.json` + `odf-registry.jso
 
 ```
 agent/            11 agent instructions (orchestrator + 10 specialists)
-command/          21 slash commands
+command/          22 slash commands
 skills/           87 skills (OCA + ODF + shared)
 odf-plugin/       deterministic modules (workflow, triage, policy, …)
 plugins/          odf-delegation.ts — plugin entrypoint, 19 tools
