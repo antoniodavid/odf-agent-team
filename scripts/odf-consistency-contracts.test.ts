@@ -34,7 +34,7 @@ describe("ADR-lite contract", () => {
     expect(design).toContain("hard to reverse")
     expect(design).toContain("surprising without context")
     expect(design).toContain("real trade-off")
-    expect(designContract).toContain("Architecture Decisions (condicional)")
+    expect(designContract).toContain("Architecture Decisions (conditional)")
   })
 })
 
