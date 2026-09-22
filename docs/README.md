@@ -1,6 +1,6 @@
 # ODF Docs
 
-Everything about ODF (Odoo Development Framework). Pick what you need:
+Everything about ODF — spec-driven Odoo delivery on OpenCode. Pick what you need:
 
 | I want to… | Read |
 |------------|------|

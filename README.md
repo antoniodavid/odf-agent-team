@@ -1,6 +1,6 @@
 # ODF Agent Team
 
-> **Spec-driven Odoo development on OpenCode** — a phase pipeline, 11 specialized agents, 87 skills, and deterministic CLIs so your AI team *finds* the codebase instead of inventing it.
+> **Spec-driven Odoo delivery on OpenCode** — a phase pipeline, 11 specialized agents, 87 skills, and deterministic CLIs so your AI team *finds* the codebase instead of inventing it.
 
 [![Tests](https://img.shields.io/badge/tests-844%20unit%20%2B%20154%20YAML%20%2B%2017%20harness-brightgreen)](#development)
 [![Registry](https://img.shields.io/badge/registry-87%20skills%20%C2%B7%2011%20agents-blue)](odf-registry.json)
@@ -8,7 +8,7 @@
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![Version](https://img.shields.io/badge/version-1.3.0-informational)](CHANGELOG.md)
 
-**ODF (Odoo Development Framework)** turns a generic AI assistant into a structured Odoo delivery team. An orchestrator routes every phase through a plugin that resolves the right agent, injects at most five skill rules, enforces Policy Gates, and seals evidence — so nothing ships on a guess.
+**ODF** — spec-driven Odoo delivery on OpenCode. Turns a generic AI assistant into a structured Odoo delivery team. An orchestrator routes every phase through a plugin that resolves the right agent, injects at most five skill rules, enforces Policy Gates, and seals evidence — so nothing ships on a guess.
 
 ```
 odf-delegation plugin ──► task() ──► specialist agent ──► Odoo worktree

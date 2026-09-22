@@ -7,7 +7,7 @@ sdd_init:
 project_context:
   name: odf-agent-team
   version: "1.0.0"
-  description: ODF (Odoo Development Framework) Agent Team for OpenCode
+  description: ODF — spec-driven Odoo delivery on OpenCode
   stack:
     primary: TypeScript / Node.js
     languages:

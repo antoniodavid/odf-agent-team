@@ -7,7 +7,7 @@ structured Odoo development. It is **not** an Odoo project itself. It installs i
 
 ## ODF Overview — What It Does
 
-ODF (Odoo Development Framework) is a spec-driven pipeline for building Odoo modules:
+ODF is a spec-driven pipeline for building Odoo modules:
 
 ```
 init → preflight → assess → qa-plan → design → implement → verify → archived

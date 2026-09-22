@@ -4,7 +4,7 @@
   "package": {
     "name": "odf-agent-team",
     "version": "1.3.0",
-    "description": "OpenCode skill/agent pack for structured Odoo development workflows",
+    "description": "ODF — spec-driven Odoo delivery on OpenCode",
     "repository": "https://github.com/antoniodavid/odf-agent-team",
     "dependencies": {
       "yaml": "^2.7.0",
