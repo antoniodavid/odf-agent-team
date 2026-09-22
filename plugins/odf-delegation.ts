@@ -6442,7 +6442,7 @@ function createODFWorkflowAdvance(): ReturnType<typeof tool> {  return tool({
 // SYSTEM PROMPT INJECTION
 // ==========================================
 
-const ODF_SYSTEM_RULES = `<odf-system>
+export const ODF_SYSTEM_RULES = `<odf-system>
 ## ODF Responsibilities
 
 | Layer | Responsibility |
@@ -6504,6 +6504,43 @@ export function createODFRuntimeHooks(
 // ==========================================
 // PLUGIN EXPORT
 // ==========================================
+
+export type ODFRegisteredToolMap = {
+  [Name in (typeof ODF_REGISTERED_TOOLS)[number]]: ReturnType<typeof tool>
+}
+
+/** Build the shared V1 tool definitions for either host adapter. */
+export function createODFRegisteredTools(
+  client?: OpencodeClient,
+  canonicalDirectory?: string,
+  entryAuthorizations: ODFEntryAuthorizations = new Map(),
+  entryGenerations: ODFEntryGenerations = new Map(),
+): ODFRegisteredToolMap {
+  return {
+    odf_delegate: createODFDelegate(client, canonicalDirectory),
+    odf_parallel_delegate: createODFParallelDelegate(client, canonicalDirectory),
+    odf_workflow_route: createODFWorkflowRoute(),
+    odf_workflow_advance: createODFWorkflowAdvance(),
+    odf_workflow_override: createODFWorkflowOverride(),
+    odf_workflow_bind: createODFWorkflowBind(entryAuthorizations, entryGenerations),
+    odf_entry_triage: createODFEntryTriage(),
+    odf_context_manifest: createODFContextManifest(),
+    odf_skill_inject: createODFSkillInject(),
+    odf_skill_resolve: createODFSkillResolve(),
+    odf_registry_read: createODFRegistryRead(),
+    odf_notebooklm_lookup: createODFNotebookLMLookup(),
+    odf_profile_select: createODFProfileSelect(),
+    odf_community_tool_detect: createODFCommunityToolDetect(),
+    odf_community_tool_install: createODFCommunityToolInstall(),
+    odf_status: createODFStatus(),
+    odf_workflow_status: createODFWorkflowStatus(),
+    odf_policy_gate: createODFPolicyGate(),
+    odf_receipt: createODFReceipt(),
+    odf_health: createODFHealth(client),
+    odf_governance_provenance: createODFGovernanceProvenance(),
+    odf_governance_check: createODFGovernanceCheck(),
+  }
+}
 
 export const OdfDelegationPlugin: Plugin = async (ctx) => {
   const { directory, client } = ctx
@@ -6581,30 +6618,7 @@ export const OdfDelegationPlugin: Plugin = async (ctx) => {
 
   return {
     ...runtimeHooks,
-    tool: {
-      odf_delegate: createODFDelegate(client, directory),
-      odf_parallel_delegate: createODFParallelDelegate(client, directory),
-      odf_workflow_route: createODFWorkflowRoute(),
-      odf_workflow_advance: createODFWorkflowAdvance(),
-      odf_workflow_override: createODFWorkflowOverride(),
-      odf_workflow_bind: createODFWorkflowBind(entryAuthorizations, entryGenerations),
-      odf_entry_triage: createODFEntryTriage(),
-      odf_context_manifest: createODFContextManifest(),
-      odf_skill_inject: createODFSkillInject(),
-      odf_skill_resolve: createODFSkillResolve(),
-      odf_registry_read: createODFRegistryRead(),
-      odf_notebooklm_lookup: createODFNotebookLMLookup(),
-      odf_profile_select: createODFProfileSelect(),
-      odf_community_tool_detect: createODFCommunityToolDetect(),
-      odf_community_tool_install: createODFCommunityToolInstall(),
-      odf_status: createODFStatus(),
-      odf_workflow_status: createODFWorkflowStatus(),
-      odf_policy_gate: createODFPolicyGate(),
-      odf_receipt: createODFReceipt(),
-      odf_health: createODFHealth(client),
-      odf_governance_provenance: createODFGovernanceProvenance(),
-      odf_governance_check: createODFGovernanceCheck(),
-    },
+    tool: createODFRegisteredTools(client, directory, entryAuthorizations, entryGenerations),
   }
 }
 

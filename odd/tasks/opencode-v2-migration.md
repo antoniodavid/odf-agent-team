@@ -33,7 +33,7 @@ OpenCode V2 is stable, but ODF must keep V1 support while the V2 adapter is vali
 ## Tasks
 
 - [x] T1 Establish a host-neutral runtime boundary and dual entrypoint skeleton without changing V1 behavior.
-- [ ] T2 Add the official V2 `Plugin.define`/`setup` adapter for all ODF tools and V2 hook mappings.
+- [x] T2 Add the official V2 `Plugin.define`/`setup` adapter for all ODF tools and V2 hook mappings.
 - [ ] T3 Wire V2 session delegation, cancellation, cleanup, and health diagnostics; preserve V1 native/SDK fallback order.
 - [ ] T4 Update installer/config handling for V2-native `plugins`, JSONC, MCP, and duplicate-load prevention.
 - [ ] T5 Add V1/V2 contract fixtures, live-host smoke coverage, documentation, and support matrix.
@@ -64,6 +64,7 @@ OpenCode V2 is stable, but ODF must keep V1 support while the V2 adapter is vali
 - [x] Created isolated worktree and branch from the latest `main` commit.
 - [x] Completed read-only compatibility audit and recorded the baseline.
 - [x] T1 implemented as an independently reviewable work unit.
+- [x] T2 implemented as an independently reviewable work unit; V1 tool factories remain the single tool-definition source.
 
 ## Verification evidence
 
@@ -71,7 +72,11 @@ OpenCode V2 is stable, but ODF must keep V1 support while the V2 adapter is vali
 - T1 evidence: focused V1/V2 boundary tests passed (3 tests); full unit/plugin suite passed (860 tests across 30 files); YAML scenarios passed (154/154); typecheck and `git diff --check` passed. Added peer package `@opencode/plugin@2.0.12`; installed peers resolve to `@opencode-ai/plugin@1.17.8` and `@opencode-ai/sdk@1.17.8`.
 - The V2 skeleton stays under `odf-plugin/` support files; the installer continues to emit only the existing V1 file under `plugins/` so T1 does not create duplicate auto-discovered plugins.
 - Runtime baseline: local `opencode --version` reports `1.18.29`; V2 host validation is pending.
+- T2 evidence: the focused V2 adapter suite passes 6 tests. It registers all 22 `ODF_REGISTERED_TOOLS` names through V2 `ctx.tool.transform`, converts the existing Zod schemas to JSON Schema, re-parses inputs before invoking the shared V1 execute functions, maps tool/session/event hooks, injects the shared system rules, and disposes registrations plus the event subscription.
+- T2 intentionally uses V2 `session.hook("prompt")` as the narrowest available substitute for V1 `command.execute.before`; V2 has no command-before hook, so command-expanded parts and exact pre-dispatch timing are not equivalent. No unsupported hook is fabricated.
+- T2 unit tests do not claim live-host compatibility. V2 session delegation/cancellation remains T3 work.
+- Post-T2 checks: `npm run typecheck` passed; `npm run test:unit` passed with 863/863 tests across 31 files; `npm run test:yaml` passed with 154/154 scenarios; `npm run test:harness` passed with 17/17 tests; registry validation passed; `git diff --check` passed.
 
 ## Next step
 
-T1 is complete. T2 remains responsible for registering V2 tools/hooks and must not be inferred from this lifecycle-only skeleton.
+T2 is complete. T3 remains responsible for V2 session delegation/cancellation/cleanup integration and V1 native/SDK fallback ordering; T4 remains responsible for V2-native installer/configuration and duplicate-load prevention; T5 remains responsible for contract fixtures, live-host smoke coverage, documentation, and the support matrix.
