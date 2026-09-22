@@ -825,11 +825,13 @@ function acquireAttempt(opts: {
     const latestPhaseRecord = ledger.records
       .filter(record => attemptBranchId(record) === branchId && record.phase === opts.phase)
       .at(-1)
+    // Only "running" blocks a new attempt (concurrency). Phase completion is
+    // owned by the canonical workflow, which is checked BEFORE acquisition
+    // (inspectPersistedTransition already-committed / workflow-complete).
+    // Rejecting "completed" here permanently closed the phase in the ledger
+    // while a multi-batch BUILD still had pending batches (issue #2).
     if (latestPhaseRecord?.status === "running") {
       return { acquired: false, reason: "attempt-phase-running", message: `A ${opts.phase} attempt is already running.` }
-    }
-    if (latestPhaseRecord?.status === "completed") {
-      return { acquired: false, reason: "attempt-phase-completed", message: `The ${opts.phase} phase is already completed.` }
     }
 
     const now = new Date().toISOString()
@@ -1411,7 +1413,16 @@ Use this instead of generic task() for ODF workflow delegation.`,
         span_id: telemetryContext.span_id,
         ...(telemetryContext.parent_span_id ? { parent_span_id: telemetryContext.parent_span_id } : {}),
       }
+      // Declared before blockWorkflow so blocked paths can settle the attempt:
+      // every post-acquisition rejection (policy gate, pre-tool safety,
+      // expectations) must leave a terminal ledger record, never a stuck
+      // "running" one (issues #2/#3).
+      let acquiredAttempt: AcquiredAttempt | null = executionOptions.pre_acquired_attempt || null
       const blockWorkflow = (reason: string, message: string, workflowResult: ReturnType<typeof advanceWorkflow> | null, extra: Record<string, unknown> = {}): string => {
+        if (acquiredAttempt && !executionOptions.suppress_attempt_settlement) {
+          settleAttempt(acquiredAttempt, "failed", "validation-failed", "validation-failed")
+          acquiredAttempt = null
+        }
         recordMetrics({
           timestamp: new Date().toISOString(),
           session_id: toolCtx.sessionID,
@@ -1469,7 +1480,6 @@ Use this instead of generic task() for ODF workflow delegation.`,
       const changeName = args.change?.trim() || extractChangeName(args.prompt)
       const sourceAuthorityRequired = isViewAuthorityWork(args.phase, args.prompt, args.context_files || [])
 
-      let acquiredAttempt: AcquiredAttempt | null = executionOptions.pre_acquired_attempt || null
       let workflowResult: ReturnType<typeof advanceWorkflow> | null = executionOptions.workflow_result || null
       let effectiveWorkflowAdvance: ODFDelegateWorkflowAdvance | null = null
       let selectedWorkflowSnapshot: SelectedWorkflowSnapshot | null = null
