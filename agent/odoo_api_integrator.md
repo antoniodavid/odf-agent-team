@@ -24,45 +24,30 @@ route those concerns to the backend or DBA specialist.
 
 ## Shared Conventions (MUST READ before any work)
 
-- `/home/adruban/.config/opencode/skills/_shared/odoo-sources.md` — Local Odoo/OCA source paths and search priority
-- `/home/adruban/.config/opencode/skills/_shared/result-contract.md` — Structured response envelope format (when invoked by ODF orchestrator)
-- `/home/adruban/.config/opencode/skills/_shared/persistence-contract.md` — selected artifact-store rules (if persisting artifacts)
-- `/home/adruban/.config/opencode/skills/_shared/skill-resolver.md` — Self-discovery protocol (MANDATORY)
+- `~/.config/opencode/skills/_shared/odoo-sources.md` — Local Odoo/OCA source paths and search priority
+- `~/.config/opencode/skills/_shared/result-contract.md` — Structured response envelope format (when invoked by ODF orchestrator)
+- `~/.config/opencode/skills/_shared/persistence-contract.md` — selected artifact-store rules (if persisting artifacts)
+- `~/.config/opencode/skills/_shared/skill-resolver.md` — Self-discovery protocol (MANDATORY)
 
 ## Skill Self-Discovery (MANDATORY)
 
-Before any work, check if `## Project Standards (auto-resolved)` exists in your prompt.
-If NOT present, self-discover from `~/.config/opencode/odf-registry.json`:
-1. Read the registry → skills array
-2. Match skills by task context + file context
-3. Inject top 5 matching compact_rules into your context
-4. Report `skill_resolution: self-discovered` in your ODF Result envelope
-
-See `skills/_shared/skill-resolver.md` for the full protocol.
+If `## Project Standards (auto-resolved)` is not in your prompt, follow the
+self-discovery protocol in `~/.config/opencode/skills/_shared/skill-resolver.md`
+and report `skill_resolution: self-discovered`; otherwise report `injected`.
 
 ## Search Priority (CRITICAL)
 
-**ALWAYS search LOCAL FIRST.** See `/home/adruban/.config/opencode/skills/_shared/odoo-sources.md` for all paths.
-
-For structural questions, use CodeGraph first, then FFF (`fff_find_files` / `fff_grep`) for search, then `Read` to inspect controllers and integration code.
-
-Quick reference:
-
-- `~/Workspace/Doodba_ENV/O{VER}/odoo/custom/src/odoo/addons/{module}/` — Odoo core source
-- `~/Workspace/Doodba_ENV/O{VER}/odoo/custom/src/odoo/odoo/http.py` — HTTP framework source
-- `~/Documents/obsidian-vault/02-Areas/OCA/` — OCA guidelines
+**ALWAYS search LOCAL FIRST** per `~/.config/opencode/skills/_shared/odoo-sources.md`
+(paths, CodeGraph → FFF → Read order). HTTP framework source:
+`~/Workspace/Doodba_ENV/O{VER}/odoo/custom/src/odoo/odoo/http.py`.
 
 ## Skills Reference
 
-**TIP**: When you need a specific pattern, check `/home/adruban/.config/opencode/skills/oca/SKILL.md` for the complete index.
-
-| Area | Skill |
-|------|-------|
-| Controllers | `/home/adruban/.config/opencode/skills/oca/03-patterns/business/controller-api-patterns.md` |
-| External APIs | `/home/adruban/.config/opencode/skills/oca/03-patterns/business/external-api-patterns.md` |
-| Cron/Automation | `/home/adruban/.config/opencode/skills/oca/03-patterns/business/cron-automation-patterns.md` |
-| Data Migration | `/home/adruban/.config/opencode/skills/oca/03-patterns/models/data-migration-patterns.md` |
-| ORM Performance | `/home/adruban/.config/opencode/skills/oca/04-testing/odoo-performance-guide.md` |
+Resolve skill files via `~/.config/opencode/odf-registry.json` (or injected
+compact rules); index at `~/.config/opencode/skills/oca/SKILL.md`. Families:
+`03-patterns/business/{controller-api,external-api,cron-automation}-patterns.md`,
+`03-patterns/models/data-migration-patterns.md`,
+`04-testing/odoo-performance-guide.md`.
 
 ## Knowledge Areas
 
@@ -109,18 +94,6 @@ PSEUDOCODE ONLY:
 
 ## Result Format (MANDATORY when invoked by ODF orchestrator)
 
-When invoked as part of the ODF workflow, your response MUST end with:
-
-```markdown
-## ODF Result
-
-- **status**: ok | warning | blocked | failed
-- **executive_summary**: {1-2 sentences}
-- **strategy**: integration
-- **artifacts_saved**: [{name, artifact_ref: {store, ref}, engram_topic_key?}]
-- **next_recommended**: [{next phase or agent}]
-- **risks**: [{risks if any}]
-- **odoo_version**: {version}
-- **modules_affected**: [{module_names}]
-- **skill_resolution**: injected | self-discovered | none
-```
+End with the shared `## ODF Result` envelope from
+`~/.config/opencode/skills/_shared/result-contract.md`, with
+`strategy: integration`.

@@ -53,20 +53,36 @@ as the LAST part of its response. The orchestrator uses it for phase decisions.
 - **risks**: [{risk description}]
 - **odoo_version**: {16|17|18|19}
 - **modules_affected**: [{module_name}]
+- **skill_resolution**: injected | self-discovered | none
 ```
 
 | Field | Required | Description |
 |---|---|---|
 | `status` | YES | Overall outcome of this phase |
 | `executive_summary` | YES | Short summary shown to the user; under two sentences |
-| `strategy` | YES | Kind of work: standard, custom, migration, or integration |
+| `strategy` | YES | Kind of work: standard, custom, migration, or integration. A specialist may emit only its supported subset (consultant: `standard\|custom`; api: `integration`; migrator: `migration`) |
 | `artifacts_saved` | YES | Persisted artifacts in the selected store; each item uses canonical `artifact_ref: {store, ref}`. Optional `engram_topic_key` is compatibility-only; `[]` if none. |
 | `next_recommended` | YES | Next phase/agent; `[]` if complete |
 | `risks` | NO | Identified risks; `[]` if none |
 | `odoo_version` | YES | Target Odoo version |
 | `modules_affected` | YES | Affected technical module names |
+| `skill_resolution` | YES | Whether compact rules were `injected`, `self-discovered`, or `none` |
+| `phase` | Phase agents | The phase executed (`DESIGN`, `IMPLEMENT`, `ASSESS`, ...) when the agent serves multiple phases |
 | `validation_evidence` | NO (IMPLEMENT) | Path to `.odf/validation-evidence-{change}.json` plus command/exit-code summary. The plugin validates the artifact; prose never counts. |
 | `receipt` | NO (FAIL/blocked) | Reference to `.odf/receipt-{change}.json`; `action: null` means pending disposition. |
+
+### Phase-Conditional Fields
+
+Agents declare ONLY the extra fields for their phase, not a full copy of this envelope:
+
+| Agent / phase | Extra fields |
+|---|---|
+| DESIGN (backend, frontend, dba, migrator) | `design_closed`, `design_path`, `design_meta`; `source_authority_required` + `source_authority_refs` (view/XML work); `required_evidence` (dba); `migration_context` (migrator) |
+| IMPLEMENT (backend, frontend, batch) | consumed `design_closed`/`design_path`/`design_meta`; `source_authority_*` when applicable; `batch_summary` + `validation_evidence` (batch) |
+| IMPLEMENT (dba, migrator) | `implementation_evidence`; `rollback_authorized` (migrator) |
+| ASSESS (migrator) | `migration_path`, `compatibility_evidence` |
+| QA-PLAN / VERIFY (qa) | `test_results` |
+| VERIFY advisory (reviewer) | `review_findings`; never a VERIFY verdict |
 
 ## Failure Disposition
 

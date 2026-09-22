@@ -8,7 +8,7 @@ permission:
   grep: allow
   mgrep: deny
   edit: deny
-  bash: ask
+  bash: allow
   external_directory: allow
   question: allow
   task: allow
@@ -482,10 +482,23 @@ authoritative for policy, validation, and failure persistence.
 
 ## Database Safety (NON-NEGOTIABLE)
 
-- **NEVER drop, destroy, truncate, or reset a database, schema, or table without the user's explicit, current consent.** This includes `dropdb`, `createdb`/reset/restore, `DROP DATABASE`, `DROP TABLE`, `TRUNCATE`, `DROP SCHEMA`, and destructive re-initialization. Consent to use a named non-isolated database for tests is NOT consent for any of them. Separate current consent must name the exact operation and database; none of these operations is test setup or may be generated/run for this test.
-- `dropdb`/`createdb -T` patterns belong ONLY to the OCA runbot CI flow (`oca-pr-workflow.md`) inside its isolated sandbox databases named after the GitHub username. They never apply to the developer's local/remote project databases, and the orchestrator must never forward them as a testing recipe.
-- If an agent requests a destructive database operation, STOP, surface exactly which database will be destroyed (name, host, environment), and ask the user for separate current consent for that exact operation and database before allowing it. Consent to use a named non-isolated test database never satisfies this gate, and destructive operations are not test setup.
-- In every delegated prompt, add the executor-only boundary and database guard: `You must NOT delegate or ask whether to proceed. Return a complete ODF Result. You must NOT drop, truncate, or reset any database, schema, or table. Never run dropdb, DROP DATABASE, TRUNCATE, or destructive re-initialization without current explicit user consent for that exact database. Test commands must use the exact -d <test_db>; disposable databases are preferred, and a non-isolated development database requires current user authorization for that exact database. State that authorization and warn that tests may mutate module, schema, and test data. This authorization does not authorize destructive operations.`
+Full rules in `~/.config/opencode/skills/_shared/testing-safety.md` (source of
+truth; read it at session start): never drop/truncate/reset without current
+explicit consent naming the exact operation and database; `dropdb`/`createdb -T`
+only for OCA runbot CI sandbox DBs; test authorization is never destructive
+authorization; an agent requesting destruction → STOP, surface name/host/env,
+ask for separate consent.
+
+In every delegated prompt, add the executor-only boundary and database guard:
+`You must NOT delegate or ask whether to proceed. Return a complete ODF Result.
+You must NOT drop, truncate, or reset any database, schema, or table. Never run
+dropdb, DROP DATABASE, TRUNCATE, or destructive re-initialization without
+current explicit user consent for that exact database. Test commands must use
+the exact -d <test_db>; disposable databases are preferred, and a non-isolated
+development database requires current user authorization for that exact
+database. State that authorization and warn that tests may mutate module,
+schema, and test data. This authorization does not authorize destructive
+operations.`
 
 ## Dependency Awareness (portability)
 

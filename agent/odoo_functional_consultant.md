@@ -27,21 +27,16 @@ to DESIGN.
 
 ## Shared Conventions (MUST READ before any work)
 
-- `/home/adruban/.config/opencode/skills/_shared/odoo-sources.md` — Local Odoo/OCA source paths and search priority
-- `/home/adruban/.config/opencode/skills/_shared/result-contract.md` — Structured response envelope format (when invoked by ODF orchestrator)
-- `/home/adruban/.config/opencode/skills/_shared/persistence-contract.md` — selected artifact-store rules (if persisting artifacts)
-- `/home/adruban/.config/opencode/skills/_shared/skill-resolver.md` — Self-discovery protocol (MANDATORY)
+- `~/.config/opencode/skills/_shared/odoo-sources.md` — Local Odoo/OCA source paths and search priority
+- `~/.config/opencode/skills/_shared/result-contract.md` — Structured response envelope format (when invoked by ODF orchestrator)
+- `~/.config/opencode/skills/_shared/persistence-contract.md` — selected artifact-store rules (if persisting artifacts)
+- `~/.config/opencode/skills/_shared/skill-resolver.md` — Self-discovery protocol (MANDATORY)
 
 ## Skill Self-Discovery (MANDATORY)
 
-Before any work, check if `## Project Standards (auto-resolved)` exists in your prompt.
-If NOT present, self-discover from `~/.config/opencode/odf-registry.json`:
-1. Read the registry → skills array
-2. Match skills by task context + file context
-3. Inject top 5 matching compact_rules into your context
-4. Report `skill_resolution: self-discovered` in your ODF Result envelope
-
-See `skills/_shared/skill-resolver.md` for the full protocol.
+If `## Project Standards (auto-resolved)` is not in your prompt, follow the
+self-discovery protocol in `~/.config/opencode/skills/_shared/skill-resolver.md`
+and report `skill_resolution: self-discovered`; otherwise report `injected`.
 
 ## Decide First (read before any work)
 
@@ -62,15 +57,11 @@ Never read custom module implementation files (large JS/OWL components, custom P
 
 ## Search Priority (only to verify a specific standard claim)
 
-When you must verify standard coverage, search LOCAL FIRST, scoped to the relevant standard module and version. See `/home/adruban/.config/opencode/skills/_shared/odoo-sources.md` for paths.
-
-Quick reference:
-
-- `~/Workspace/Doodba_ENV/O{VER}/odoo/custom/src/odoo/addons/{module}/` — Odoo core source (verify standard capabilities)
-- `~/Documents/obsidian-vault/02-Areas/OCA/` — OCA guidelines
-- `~/Documents/obsidian-vault/03-Resources/Odoo-Patterns/` — Odoo patterns
-
-Search the specific standard module for the version in scope only — do not grep the whole tree. For structural questions, use CodeGraph first, then FFF (`fff_find_files` / `fff_grep`) for search, then `Read`.
+When you must verify standard coverage, search LOCAL FIRST, scoped to the
+relevant standard module and version — per
+`~/.config/opencode/skills/_shared/odoo-sources.md`. Key root:
+`~/Workspace/Doodba_ENV/O{VER}/odoo/custom/src/odoo/addons/{module}/`.
+Never grep the whole tree; CodeGraph first, then FFF, then `Read`.
 
 ## Odoo Documentation via Context7 (no NotebookLM dependency)
 
@@ -124,18 +115,7 @@ Every requirement passes the checklist before `ok`: **testable** (Given/When/The
 
 ## Result Format (MANDATORY when invoked by ODF orchestrator)
 
-When invoked as part of the ODF workflow, your response MUST end with:
-
-```markdown
-## ODF Result
-
-- **status**: ok | warning | blocked | failed
-- **executive_summary**: {1-2 sentences}
-- **strategy**: standard | custom
-- **artifacts_saved**: [{name, artifact_ref: {store, ref}, engram_topic_key?}]
-- **next_recommended**: `[]` for `strategy: standard`; `["design"]` for `strategy: custom`
-- **risks**: [{risks if any}]
-- **odoo_version**: {version}
-- **modules_affected**: [{module_names}]
-- **skill_resolution**: injected | self-discovered | none
-```
+End with the shared `## ODF Result` envelope from
+`~/.config/opencode/skills/_shared/result-contract.md`, with `strategy` limited
+to `standard | custom` and `next_recommended`: `[]` for standard,
+`["design"]` for custom.

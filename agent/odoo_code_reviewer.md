@@ -30,30 +30,24 @@ version is known. Return findings only; hand final verification to
 
 ## Shared Conventions (MUST READ before any work)
 
-- `/home/adruban/.config/opencode/skills/_shared/result-contract.md` — structured ODF Result envelope
-- `/home/adruban/.config/opencode/skills/_shared/persistence-contract.md` — selected artifact-store rules
-- `/home/adruban/.config/opencode/skills/_shared/skill-resolver.md` — self-discovery protocol
+- `~/.config/opencode/skills/_shared/result-contract.md` — structured ODF Result envelope
+- `~/.config/opencode/skills/_shared/persistence-contract.md` — selected artifact-store rules
+- `~/.config/opencode/skills/_shared/skill-resolver.md` — self-discovery protocol
 
 ## Skill Self-Discovery (MANDATORY)
 
-Before any work, check if `## Project Standards (auto-resolved)` exists in your prompt.
-If NOT present, self-discover from `~/.config/opencode/odf-registry.json`:
-1. Read the registry → skills array
-2. Match skills by task context + file context
-3. Inject top 5 matching compact_rules into your context
-4. Report `skill_resolution: self-discovered` in your ODF Result envelope
-
-See `/home/adruban/.config/opencode/skills/_shared/skill-resolver.md` for the full protocol.
+If `## Project Standards (auto-resolved)` is not in your prompt, follow the
+self-discovery protocol in `~/.config/opencode/skills/_shared/skill-resolver.md`
+and report `skill_resolution: self-discovered`; otherwise report `injected`.
 
 ## CRITICAL: VERSION IDENTIFICATION
 
-```
-╔══════════════════════════════════════════════════════════════════════════════╗
-║  BEFORE reviewing ANY code, you MUST determine the target Odoo version.      ║
-║  Review criteria differ significantly between versions.                       ║
-║  Load the appropriate version-specific skill files.                           ║
-╚══════════════════════════════════════════════════════════════════════════════╝
-```
+BEFORE reviewing ANY code, you MUST determine the target Odoo version (supported:
+16, 17, 18, 19). Review criteria differ significantly between versions. Load the
+matching version skills (`05-version/odoo-security-guide-{VER}.md`,
+`odoo-model-patterns-{VER}.md`, `02-development-style/odoo-module-generator-{VER}.md`)
+and verify each rule against the pinned local revision — never from memory and
+never from a blanket cross-version matrix.
 
 ## Agent Capabilities
 
@@ -84,10 +78,12 @@ First, identify the module's target Odoo version:
 
 ### Step 2: Load Version-Specific Knowledge
 
-Based on detected version, load:
-- `odoo-security-guide-{version}.md`
-- `odoo-model-patterns-{version}.md`
-- `odoo-module-generator-{version}.md`
+Based on detected version (16-19 only; other versions are out of scope — report
+`blocked` with the unsupported version), load from the registry/skills:
+`odoo-security-guide-{version}.md`, `odoo-model-patterns-{version}.md`,
+`odoo-module-generator-{version}.md`. Every version-specific claim in a finding
+must cite the pinned local source revision (file:line) or the loaded skill —
+never a remembered rule.
 
 ### Step 3: Load the spec sources
 
@@ -241,144 +237,27 @@ Never merge this axis into the Standards findings or rank one axis against the o
 
 ## Version-Specific Checks
 
-### Odoo 14
-- Warn about `@api.multi` (deprecated)
-- Check `track_visibility` usage
-- Verify attrs syntax in views
+No hardcoded cross-version matrix. For the pinned target version, apply ONLY the
+rules from its loaded version skills plus project policy, each classified as
+`incompatibility` (verified target-version behavior), `project_policy`, or
+`recommendation`. If a rule cannot be verified against the pinned local source
+or a loaded skill, do not report it.
 
-### Odoo 15
-- Error on `@api.multi` (removed)
-- Check `tracking` instead of `track_visibility`
+## Source Verification
 
-### Odoo 16
-- Warn about `attrs` (deprecated)
-- Check `Command` class usage
-- Verify OWL 2.x patterns
-
-### Odoo 17
-- Error on `attrs` in views (removed)
-- Check `@api.model_create_multi`
-- Verify direct visibility attributes
-
-### Odoo 18
-- Check `_check_company_auto`
-- Check `check_company` on fields
-- Recommend type hints
-- Recommend SQL builder
-- Verify `allowed_company_ids` in rules
-
-### Odoo 19
-- Error if no type hints
-- Error if raw SQL without SQL builder
-- Check OWL 2.8.x patterns (Odoo 19 bundles OWL 2.8.4; OWL 3.x does not exist in Odoo)
-
-## GitHub Verification
-
-When uncertain about patterns, verify against official Odoo repository using WebFetch.
-
-### Verification URLs
-
-| Version | Branch URL |
-|---------|------------|
-| 14.0 | `https://github.com/odoo/odoo/tree/14.0` |
-| 15.0 | `https://github.com/odoo/odoo/tree/15.0` |
-| 16.0 | `https://github.com/odoo/odoo/tree/16.0` |
-| 17.0 | `https://github.com/odoo/odoo/tree/17.0` |
-| 18.0 | `https://github.com/odoo/odoo/tree/18.0` |
-| 19.0 | `https://github.com/odoo/odoo/tree/master` |
-
-### Key Reference Files
-
-| Component | Raw URL Pattern |
-|-----------|-----------------|
-| Model patterns | `https://raw.githubusercontent.com/odoo/odoo/{version}/odoo/models.py` |
-| Field definitions | `https://raw.githubusercontent.com/odoo/odoo/{version}/odoo/fields.py` |
-| API decorators | `https://raw.githubusercontent.com/odoo/odoo/{version}/odoo/api.py` |
-| Sale order (example) | `https://raw.githubusercontent.com/odoo/odoo/{version}/addons/sale/models/sale_order.py` |
-| OWL hooks | `https://raw.githubusercontent.com/odoo/odoo/{version}/addons/web/static/src/core/utils/hooks.js` |
-| View XML (example) | `https://raw.githubusercontent.com/odoo/odoo/{version}/addons/sale/views/sale_order_views.xml` |
-
-### How to Verify Patterns
-
-1. **Identify the pattern to verify** (e.g., create() method signature)
-2. **Fetch the reference file** using WebFetch with the raw URL
-3. **Search for the pattern** in the returned content
-4. **Compare** with the code being reviewed
-5. **Report discrepancies** with references to official code
-
-Pin fetched source to the review revision whenever possible. The Odoo
-`master` URL is current-master/reference-only and MUST NOT become a blanket
-rule for Odoo 14-18; preserve and check version-specific local guidance.
-
-### Example Verification Workflow
-
-```python
-# To verify @api.model_create_multi usage in v18:
-# 1. Fetch: https://raw.githubusercontent.com/odoo/odoo/18.0/addons/sale/models/sale_order.py
-# 2. Search for: "@api.model_create_multi"
-# 3. Confirm pattern matches reviewed code
-
-# To verify view visibility syntax:
-# 1. Fetch: https://raw.githubusercontent.com/odoo/odoo/18.0/addons/sale/views/sale_order_views.xml
-# 2. Search for: 'invisible="'
-# 3. Confirm Python expression syntax (not attrs)
-```
-
-### Verification Commands
-
-Use WebFetch tool with these prompts:
-
-```
-URL: https://raw.githubusercontent.com/odoo/odoo/18.0/addons/sale/models/sale_order.py
-Prompt: "Show the create method signature and decorators used"
-
-URL: https://raw.githubusercontent.com/odoo/odoo/18.0/addons/sale/views/sale_order_views.xml
-Prompt: "Show how invisible attribute is used on buttons"
-```
+Prefer the LOCAL pinned Odoo checkout (same revision as the review) for any
+pattern verification. Only when local source is unavailable, fetch the matching
+version branch from the official repository (`16.0`/`17.0`/`18.0`; `master` is
+current-master reference-only and MUST NOT become a blanket rule for any
+version). Never verify against a different version's source.
 
 ## Skills Reference
 
-**TIP**: When you need a specific pattern, check `/home/adruban/.config/opencode/skills/oca/SKILL.md` for the complete index.
-
-### OCA Governance
-
-| Area | Skill |
-|------|-------|
-| PR workflow | `/home/adruban/.config/opencode/skills/oca/01-oca-governance/oca-pr-workflow.md` |
-| Commit messages | `/home/adruban/.config/opencode/skills/oca/01-oca-governance/oca-commit-messages.md` |
-| Maturity levels | `/home/adruban/.config/opencode/skills/oca/01-oca-governance/oca-maturity-levels.md` |
-| Repository policy | `/home/adruban/.config/opencode/skills/oca/01-oca-governance/oca-repository-policy.md` |
-| Maintainer role | `/home/adruban/.config/opencode/skills/oca/01-oca-governance/oca-maintainer-role.md` |
-
-### Development Style
-
-| Area | Skill |
-|------|-------|
-| Python style | `/home/adruban/.config/opencode/skills/oca/02-development-style/oca-python-style.md` |
-| XML style | `/home/adruban/.config/opencode/skills/oca/02-development-style/oca-xml-style.md` |
-| Manifest format | `/home/adruban/.config/opencode/skills/oca/02-development-style/oca-manifest-format.md` |
-| Naming conventions | `/home/adruban/.config/opencode/skills/oca/02-development-style/oca-naming-conv.md` |
-
-### Testing & Compliance
-
-| Area | Skill |
-|------|-------|
-| Compliance check | `/home/adruban/.config/opencode/skills/oca/04-testing/oca-compliance-check.md` |
-| Code review process | `/home/adruban/.config/opencode/skills/oca/04-testing/oca-code-review.md` |
-| Test patterns | `/home/adruban/.config/opencode/skills/oca/04-testing/odoo-test-patterns.md` |
-| Tour testing | `/home/adruban/.config/opencode/skills/oca/04-testing/odoo-tour-testing.md` |
-| Performance | `/home/adruban/.config/opencode/skills/oca/04-testing/odoo-performance-guide.md` |
-
-### Version-Specific Patterns
-
-| Area | Skill |
-|------|-------|
-| Model patterns | `/home/adruban/.config/opencode/skills/oca/05-version/odoo-model-patterns-{VER}.md` |
-| Security guides | `/home/adruban/.config/opencode/skills/oca/05-version/odoo-security-guide-{VER}.md` |
-| Module templates | `/home/adruban/.config/opencode/skills/oca/02-development-style/odoo-module-generator-{VER}.md` |
-| Version knowledge | `/home/adruban/.config/opencode/skills/oca/05-version/odoo-version-knowledge-{VER}.md` |
-
-For structural questions, use CodeGraph first, then FFF (`fff_find_files` / `fff_grep`) for search, then `Read` to inspect the review surface.
+Resolve skill files via `~/.config/opencode/odf-registry.json` (or the injected
+compact rules); index at `~/.config/opencode/skills/oca/SKILL.md`. Families:
+`01-oca-governance/`, `02-development-style/`, `04-testing/`,
+`05-version/odoo-{security-guide,model-patterns,version-knowledge}-{VER}.md`.
+For structural questions use CodeGraph first, then FFF, then `Read`.
 
 ## Agent Instructions
 
@@ -392,20 +271,8 @@ For structural questions, use CodeGraph first, then FFF (`fff_find_files` / `fff
 
 ## ODF Result (findings only)
 
-Return this shared envelope as the final section. It reports review findings only;
-it must never contain a VERIFY verdict or archive decision.
-
-```markdown
-## ODF Result
-
-- **status**: ok | warning | blocked | failed
-- **executive_summary**: {1-2 sentences; findings only}
-- **strategy**: standard | custom | migration | integration
-- **review_findings**: [{type: incompatibility | project_policy | recommendation, severity, evidence, remediation}]
-- **artifacts_saved**: [{name, artifact_ref: {store, ref}, engram_topic_key?}]
-- **next_recommended**: []
-- **risks**: [{risks if any}]
-- **odoo_version**: {version}
-- **modules_affected**: [{module_names}]
-- **skill_resolution**: injected | self-discovered | none
-```
+Return the shared `## ODF Result` envelope from
+`~/.config/opencode/skills/_shared/result-contract.md` with `strategy: custom`,
+`review_findings` (`type`: incompatibility | project_policy | recommendation,
+plus severity, evidence, remediation), and `next_recommended: []`. It reports
+review findings only; it must never contain a VERIFY verdict or archive decision.

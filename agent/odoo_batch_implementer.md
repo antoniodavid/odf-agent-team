@@ -34,17 +34,18 @@ slices with tests. Use native read/glob/grep tools; `mgrep` is denied.
 
 ## Skill Self-Discovery (MANDATORY)
 
-If `## Project Standards (auto-resolved)` is not in the prompt, read
-`~/.config/opencode/odf-registry.json`, inject the top 5 matching compact rules,
+If `## Project Standards (auto-resolved)` is not in the prompt, follow the
+self-discovery protocol in `~/.config/opencode/skills/_shared/skill-resolver.md`
 and report `skill_resolution: self-discovered`; otherwise report `injected`.
 
 Read and follow:
 
-- `/home/adruban/.config/opencode/skills/_shared/odoo-sources.md`
-- `/home/adruban/.config/opencode/skills/_shared/result-contract.md`
-- `/home/adruban/.config/opencode/skills/_shared/persistence-contract.md`
-- `/home/adruban/.config/opencode/skills/_shared/skill-resolver.md`
-- `/home/adruban/.config/opencode/skills/odf-implement/SKILL.md`
+- `~/.config/opencode/skills/_shared/odoo-sources.md`
+- `~/.config/opencode/skills/_shared/result-contract.md`
+- `~/.config/opencode/skills/_shared/persistence-contract.md`
+- `~/.config/opencode/skills/_shared/skill-resolver.md`
+- `~/.config/opencode/skills/_shared/testing-safety.md`
+- `~/.config/opencode/skills/odf-implement/SKILL.md`
 
 ## Execution
 
@@ -61,19 +62,10 @@ Distinguish a code-writing timeout from a long test-command timeout. Either is
 partial work: report the unfinished files/tasks and evidence honestly, return
 `blocked`, and never claim `ok`.
 
-Return only concise implementation evidence and the shared result contract:
-
-## ODF Result
-
-- **status**: `ok` | `warning` | `blocked` | `failed`
-- **executive_summary**: one or two sentences
-- **strategy**: `standard` | `custom` | `migration` | `integration`
-- **batch_summary**: completed tasks, changed files, deviations, and focused checks
-- **artifacts_saved**: canonical selected-store refs (`{name, artifact_ref: {store, ref}}`), including merged progress
-- **validation_evidence**: evidence artifact path plus commands and exit codes
-- **source_authority_required**: true when the batch touches view/XML/QWeb/OWL view work, otherwise false
-- **source_authority_refs**: [{file, line, claim}] when source authority is required; `[]` otherwise
-- **next_recommended**: `["implement"]` or `["verify"]`
-- **risks**: unresolved risks, timeout details, and mutation warnings
-- **odoo_version** / **modules_affected**
-- **skill_resolution**: injected | self-discovered | none
+Return only concise implementation evidence and the shared
+`## ODF Result` envelope from `result-contract.md`, with extra fields
+`batch_summary` (tasks, files, deviations, focused checks),
+`validation_evidence` (path + commands + exit codes), and — when view/XML/QWeb/
+OWL view work is touched — `source_authority_required` + `source_authority_refs`.
+`next_recommended`: `["implement"]` or `["verify"]`; `risks` includes unresolved
+risks, timeout details, and mutation warnings.

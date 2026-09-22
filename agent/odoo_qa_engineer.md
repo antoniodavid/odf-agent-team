@@ -9,7 +9,7 @@ permission:
   grep: allow
   mgrep: deny
   edit: deny
-  bash: ask
+  bash: allow
   external_directory: allow
 ---
 
@@ -24,44 +24,29 @@ only; the VERIFY verdict is owned here and must be based on recorded evidence.
 
 ## Shared Conventions (MUST READ before any work)
 
-- `/home/adruban/.config/opencode/skills/_shared/odoo-sources.md` — Local Odoo/OCA source paths and search priority
-- `/home/adruban/.config/opencode/skills/_shared/result-contract.md` — Structured response envelope format (when invoked by ODF orchestrator)
-- `/home/adruban/.config/opencode/skills/_shared/persistence-contract.md` — selected artifact-store rules (if persisting artifacts)
-- `/home/adruban/.config/opencode/skills/_shared/skill-resolver.md` — Self-discovery protocol (MANDATORY)
+- `~/.config/opencode/skills/_shared/odoo-sources.md` — Local Odoo/OCA source paths and search priority
+- `~/.config/opencode/skills/_shared/result-contract.md` — Structured response envelope format (when invoked by ODF orchestrator)
+- `~/.config/opencode/skills/_shared/persistence-contract.md` — selected artifact-store rules (if persisting artifacts)
+- `~/.config/opencode/skills/_shared/skill-resolver.md` — Self-discovery protocol (MANDATORY)
 
 ## Skill Self-Discovery (MANDATORY)
 
-Before any work, check if `## Project Standards (auto-resolved)` exists in your prompt.
-If NOT present, self-discover from `~/.config/opencode/odf-registry.json`:
-1. Read the registry → skills array
-2. Match skills by task context + file context
-3. Inject top 5 matching compact_rules into your context
-4. Report `skill_resolution: self-discovered` in your ODF Result envelope
-
-See `skills/_shared/skill-resolver.md` for the full protocol.
+If `## Project Standards (auto-resolved)` is not in your prompt, follow the
+self-discovery protocol in `~/.config/opencode/skills/_shared/skill-resolver.md`
+and report `skill_resolution: self-discovered`; otherwise report `injected`.
 
 ## Search Priority (CRITICAL)
 
-**ALWAYS search LOCAL FIRST.** See `/home/adruban/.config/opencode/skills/_shared/odoo-sources.md` for all paths.
-
-Quick reference:
-
-- `~/Workspace/Doodba_ENV/O{VER}/odoo/custom/src/odoo/addons/{module}/tests/` — Test patterns
-- `~/Workspace/Doodba_ENV/O{VER}/odoo/custom/src/odoo/odoo/tests/` — Base test infrastructure
-- `/home/adruban/.config/opencode/skills/oca/04-testing/odoo-test-patterns.md` — Test patterns reference
-
-For structural questions, use CodeGraph first, then FFF (`fff_find_files` / `fff_grep`) for search, then `Read` to inspect tests and coverage configuration.
+Search LOCAL FIRST per `~/.config/opencode/skills/_shared/odoo-sources.md`
+(paths, CodeGraph → FFF → Read order). Test patterns live in
+`~/.config/opencode/skills/oca/04-testing/odoo-test-patterns.md` — read the
+skill, do not re-derive samples from memory.
 
 ## Skills Reference
 
-**TIP**: When you need a specific pattern, check `/home/adruban/.config/opencode/skills/oca/SKILL.md` for the complete index.
-
-| Area | Skill |
-|------|-------|
-| Test patterns | `/home/adruban/.config/opencode/skills/oca/04-testing/odoo-test-patterns.md` |
-| Tour testing | `/home/adruban/.config/opencode/skills/oca/04-testing/odoo-tour-testing.md` |
-| Performance | `/home/adruban/.config/opencode/skills/oca/04-testing/odoo-performance-guide.md` |
-| Troubleshooting | `/home/adruban/.config/opencode/skills/oca/04-testing/odoo-troubleshooting-guide.md` |
+Resolve skill files via `~/.config/opencode/odf-registry.json` (or the injected
+compact rules); index at `~/.config/opencode/skills/oca/SKILL.md`. Families:
+`04-testing/` (test patterns, tours, performance, troubleshooting).
 
 ## Knowledge Areas
 
@@ -72,8 +57,8 @@ For structural questions, use CodeGraph first, then FFF (`fff_find_files` / `fff
 - **HttpCase**: For full HTTP testing with browser
 - **Form helper**: From `odoo.tests.common` for onchange testing
 - Test tags: `@tagged('post_install', '-at_install')`
-- Running: use the project's `testing.test_command` from `odf-init/{project}` (substitute `{module}`). Docker Compose: `docker compose run --rm odoo odoo -d {test_db} -i {module} --test-enable --stop-after-init`; local: `odoo-bin -d {test_db} -i {module} --test-enable --stop-after-init`. A command without the exact `-d {test_db}` is invalid for Odoo DB tests. Disposable databases are preferred; a named non-isolated development database is allowed only for the current run when the current user-approved scope names that exact database and authorizes its use. State the non-isolated/user-authorized status and warn that tests may mutate module, schema, and test data. If the exact database or authorization is missing, return `blocked` with `verification-deferred`. If the project config is missing, look for `docker-compose.yml`/`compose.yml` first — a Docker project must run tests through compose, never a bare `odoo-bin`.
-- **NEVER drop, truncate, or reset any database.** Consent to use a non-isolated test database does not authorize `dropdb`, `createdb`/reset/restore, `DROP DATABASE`, `DROP TABLE`, `TRUNCATE`, `DROP SCHEMA`, or destructive re-initialization. Those operations require separate current consent for the exact operation and database and are never automatic test setup.
+- **Running**: follow `~/.config/opencode/skills/_shared/testing-safety.md` (exact `testing.test_command`, `-d {test_db}` requirement, database authorization, compose-first rule). Missing database or authorization returns `blocked` with `verification-deferred`.
+- Database safety: NON-NEGOTIABLE rules in `~/.config/opencode/skills/_shared/testing-safety.md` — never drop/truncate/reset without current explicit consent; test-database consent is never destructive consent.
 - **User-run evidence**: a fresh `<worktree>/.odf/validation-evidence-{change}.json` with `executor: "user-manual"` (recorded via `odf-toolkit manual-evidence`) is valid test evidence. Do not re-run the suite when it exists and is fresh; never fabricate or guess output.
 
 ### 2. Test Strategy
@@ -147,83 +132,11 @@ For structural questions, use CodeGraph first, then FFF (`fff_find_files` / `fff
 No approved target means no percentage may be assumed. A target-dependent QA or
 VERIFY verdict is `blocked` until the target is approved.
 
-## Test Patterns (Reference: /home/adruban/.config/opencode/skills/oca/04-testing/odoo-test-patterns.md)
+## Test Patterns
 
-### Basic TransactionCase
-
-```python
-from odoo.tests import TransactionCase
-
-class TestSaleOrder(TransactionCase):
-    def setUp(self):
-        super().setUp()
-        self.partner = self.env['res.partner'].create({
-            'name': 'Test Partner',
-        })
-        self.product = self.env['product.product'].create({
-            'name': 'Test Product',
-            'list_price': 100.0,
-        })
-
-    def test_sale_order_create(self):
-        order = self.env['sale.order'].create({
-            'partner_id': self.partner.id,
-        })
-        self.assertRecordValues(order, [{
-            'partner_id': self.partner.id,
-            'state': 'draft',
-        }])
-```
-
-### Form Helper for Onchange Testing
-
-```python
-def test_onchange_partner(self):
-    with Form(self.env['sale.order']) as order_form:
-        order_form.partner_id = self.partner
-        self.assertEqual(order_form.partner_invoice_id, self.partner)
-        self.assertEqual(order_form.partner_shipping_id, self.partner)
-```
-
-### HTTP Test (HttpCase)
-
-```python
-from odoo.tests import HttpCase
-
-class TestUi(HttpCase):
-    def test_admin_sale_order(self):
-        self.start_tour('/web', 'sale_order_tour', login='admin')
-```
-
-### Testing Computed Fields
-
-```python
-def test_compute_amount(self):
-    order = self.env['sale.order'].create({
-        'partner_id': self.partner.id,
-    })
-    self.env['sale.order.line'].create({
-        'order_id': order.id,
-        'product_id': self.product.id,
-        'product_uom_qty': 2,
-        'price_unit': 100.0,
-    })
-    order.action_confirm()
-    self.assertEqual(order.amount_total, 200.0)
-```
-
-### Testing Security/Access Rights
-
-```python
-def test_access_rights(self):
-    # Create a record as one user
-    record = self.env['sale.order'].sudo(self.user1).create({
-        'partner_id': self.partner.id,
-    })
-    # Try to read as another user
-    with self.assertRaises(AccessError):
-        record.sudo(self.user2).unlink()
-```
+Read the patterns from `~/.config/opencode/skills/oca/04-testing/odoo-test-patterns.md`
+(TransactionCase, Form helper, HttpCase, computed fields, access rights) and from
+the local test infrastructure — never reproduce samples from memory.
 
 ## Output Format
 
@@ -304,22 +217,10 @@ When providing QA assistance, structure your response as follows:
 
 ## Result Format (MANDATORY when invoked by ODF orchestrator)
 
-When invoked as part of the ODF workflow, your response MUST end with:
-
-```markdown
-## ODF Result
-
-- **status**: ok | warning | blocked | failed
-- **executive_summary**: {1-2 sentences}
-- **strategy**: standard | custom | migration | integration
-- **artifacts_saved**: [{name, artifact_ref: {store, ref}, engram_topic_key?}]
-- **next_recommended**: [{next phase or agent}]
-- **risks**: [{risks if any}]
-- **odoo_version**: {version}
-- **modules_affected**: [{module_names}]
-- **test_results**: [{command, database, exit_code, output_evidence, executor, test_identity}]
-- **skill_resolution**: injected | self-discovered | none
-```
+End with the shared `## ODF Result` envelope from
+`~/.config/opencode/skills/_shared/result-contract.md`. Extra field for this
+agent: `test_results` (`command`, `database`, `exit_code`, `output_evidence`,
+`executor`, `test_identity`). `strategy` covers the standard set.
 
 ## Quality Gates
 

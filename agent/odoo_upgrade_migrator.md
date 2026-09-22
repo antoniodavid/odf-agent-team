@@ -39,21 +39,16 @@ data-changing operation. If any required context is missing, return `blocked`.
 
 ## Shared Conventions (MUST READ before any work)
 
-- `/home/adruban/.config/opencode/skills/_shared/odoo-sources.md` — Local Odoo/OCA source paths and search priority
-- `/home/adruban/.config/opencode/skills/_shared/result-contract.md` — Structured response envelope format (when invoked by ODF orchestrator)
-- `/home/adruban/.config/opencode/skills/_shared/persistence-contract.md` — selected artifact-store rules (if persisting artifacts)
-- `/home/adruban/.config/opencode/skills/_shared/skill-resolver.md` — Self-discovery protocol (MANDATORY)
+- `~/.config/opencode/skills/_shared/odoo-sources.md` — Local Odoo/OCA source paths and search priority
+- `~/.config/opencode/skills/_shared/result-contract.md` — Structured response envelope format (when invoked by ODF orchestrator)
+- `~/.config/opencode/skills/_shared/persistence-contract.md` — selected artifact-store rules (if persisting artifacts)
+- `~/.config/opencode/skills/_shared/skill-resolver.md` — Self-discovery protocol (MANDATORY)
 
 ## Skill Self-Discovery (MANDATORY)
 
-Before any work, check if `## Project Standards (auto-resolved)` exists in your prompt.
-If NOT present, self-discover from `~/.config/opencode/odf-registry.json`:
-1. Read the registry → skills array
-2. Match skills by task context + file context
-3. Inject top 5 matching compact_rules into your context
-4. Report `skill_resolution: self-discovered` in your ODF Result envelope
-
-See `skills/_shared/skill-resolver.md` for the full protocol.
+If `## Project Standards (auto-resolved)` is not in your prompt, follow the
+self-discovery protocol in `~/.config/opencode/skills/_shared/skill-resolver.md`
+and report `skill_resolution: self-discovered`; otherwise report `injected`.
 
 ## CRITICAL: VERSION IDENTIFICATION
 
@@ -148,28 +143,23 @@ For an in-progress merge or rebase conflict:
 
 ## Search Priority (CRITICAL)
 
-**ALWAYS search LOCAL FIRST.** See `/home/adruban/.config/opencode/skills/_shared/odoo-sources.md` for all paths.
-
-Quick reference:
-- `~/Workspace/Doodba_ENV/O{VER}/odoo/custom/src/odoo/` — Odoo core source (check model changes)
-- `~/Documents/obsidian-vault/02-Areas/OCA/` — OCA guidelines (OpenUpgrade patterns)
-
-For structural questions, use CodeGraph first, then FFF (`fff_find_files` / `fff_grep`) for search, then `Read` to inspect migration files.
+**ALWAYS search LOCAL FIRST** per `~/.config/opencode/skills/_shared/odoo-sources.md`
+(paths, CodeGraph → FFF → Read order). Core: `~/Workspace/Doodba_ENV/O{VER}/odoo/custom/src/odoo/`.
 
 ## Skills Reference
 
-**TIP**: When you need a specific pattern, check `/home/adruban/.config/opencode/skills/oca/SKILL.md` for the complete index.
+Resolve skill files via `~/.config/opencode/odf-registry.json` (or injected
+compact rules); index at `~/.config/opencode/skills/oca/SKILL.md`. Families:
+`oca-{migration-assist,upgrade-analysis,migration-status}.md`,
+`03-patterns/models/data-migration-patterns.md`,
+`05-version/odoo-{model-patterns,security-guide,version-knowledge}-{VER}.md`.
 
-| Area | Skill |
-|------|-------|
-| Migration assist | `/home/adruban/.config/opencode/skills/oca/oca-migration-assist.md` |
-| Upgrade analysis | `/home/adruban/.config/opencode/skills/oca/oca-upgrade-analysis.md` |
-| Migration status | `/home/adruban/.config/opencode/skills/oca/oca-migration-status.md` |
-| Data migration | `/home/adruban/.config/opencode/skills/oca/03-patterns/models/data-migration-patterns.md` |
-| Model patterns (by version) | `/home/adruban/.config/opencode/skills/oca/05-version/odoo-model-patterns-{VER}.md` |
-| Security guides | `/home/adruban/.config/opencode/skills/oca/05-version/odoo-security-guide-{VER}.md` |
-| Version knowledge | `/home/adruban/.config/opencode/skills/oca/05-version/odoo-version-knowledge-{VER}.md` |
-| Version knowledge (all) | `/home/adruban/.config/opencode/skills/oca/05-version/odoo-version-knowledge-all.md` |
+## GitHub Verification
+
+When local source is unavailable, WebFetch the matching version branch only:
+`16.0`/`17.0`/`18.0` at `https://raw.githubusercontent.com/odoo/odoo/{branch}/`;
+Odoo 19 uses `master` as current-master reference-only — never a blanket rule.
+Never verify against a different version's source.
 
 ## Knowledge Areas
 
@@ -252,27 +242,9 @@ Use WebFetch to verify patterns against official Odoo repository.
 
 ## Result Format (MANDATORY when invoked by ODF orchestrator)
 
-When invoked as part of the ODF workflow, your response MUST end with:
-
-```markdown
-## ODF Result
-
-- **status**: ok | warning | blocked | failed
-- **executive_summary**: {1-2 sentences}
-- **strategy**: migration
-- **artifacts_saved**: [{name, artifact_ref: {store, ref}, engram_topic_key?}]
-- **next_recommended**: [{next phase or agent}]
-- **risks**: [{risks if any}]
-- **odoo_version**: {target_version}
-- **migration_path**: {source_version} → {target_version}
-- **modules_affected**: [{module_names}]
-- **skill_resolution**: injected | self-discovered | none
-- **phase**: ASSESS | DESIGN | IMPLEMENT
-- **design_closed**: true | false (required for DESIGN)
-- **design_path**: {canonical migration-plan reference; required for DESIGN and IMPLEMENT}
-- **design_meta**: {derived plan summary; required for DESIGN and IMPLEMENT}
-- **migration_context**: {source, target, module, database, environment, runner, authorization}
-- **rollback_authorized**: true | false
-- **compatibility_evidence**: [{finding, type, source_ref}] (ASSESS)
-- **implementation_evidence**: [{script, idempotence, command, approval, exit_code, output_evidence, rollback_status}] (IMPLEMENT)
-```
+End with the shared `## ODF Result` envelope from
+`~/.config/opencode/skills/_shared/result-contract.md`, with
+`strategy: migration`. Extra fields for this agent: `migration_path`,
+`phase` (ASSESS | DESIGN | IMPLEMENT), `design_closed`/`design_path`/`design_meta`,
+`migration_context`, `rollback_authorized`, `compatibility_evidence` (ASSESS),
+`implementation_evidence` (IMPLEMENT).

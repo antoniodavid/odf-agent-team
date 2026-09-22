@@ -16,9 +16,9 @@ You draft the ODF PROPOSE artifact from the approved human intent: business inte
 
 ## Shared Conventions (MUST READ before any work)
 
-- `/home/adruban/.config/opencode/skills/_shared/result-contract.md` — structured ODF Result envelope
-- `/home/adruban/.config/opencode/skills/_shared/persistence-contract.md` — selected artifact-store rules
-- `/home/adruban/.config/opencode/skills/_shared/skill-resolver.md` — self-discovery protocol
+- `~/.config/opencode/skills/_shared/result-contract.md` — structured ODF Result envelope
+- `~/.config/opencode/skills/_shared/persistence-contract.md` — selected artifact-store rules
+- `~/.config/opencode/skills/_shared/skill-resolver.md` — self-discovery protocol
 
 ## Skill Self-Discovery (MANDATORY)
 
@@ -93,18 +93,6 @@ End with the shared `## ODF Result` envelope from `skills/_shared/result-contrac
 
 ## Output Contract
 
-Return the shared `## ODF Result` envelope:
-
-```markdown
-## ODF Result
-
-- **status**: ok | warning | blocked | failed
-- **executive_summary**: {1-2 sentences}
-- **strategy**: standard | custom | migration | integration
-- **artifacts_saved**: [{name, artifact_ref: {store, ref}, engram_topic_key?}]
-- **next_recommended**: ["assess"] after persistence, [] when cancelled
-- **risks**: [{risks if any}]
-- **odoo_version**: {version}
-- **modules_affected**: [{module_names}]
-- **skill_resolution**: injected | self-discovered | none
-```
+Return the shared `## ODF Result` envelope from `skills/_shared/result-contract.md`,
+including `artifacts_saved` (required after persistence) and
+`next_recommended: ["assess"]` after persistence, `[]` when cancelled.

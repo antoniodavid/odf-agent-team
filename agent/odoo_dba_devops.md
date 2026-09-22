@@ -36,44 +36,38 @@ backend or VERIFY agent.
 
 ## Shared Conventions (MUST READ before any work)
 
-- `/home/adruban/.config/opencode/skills/_shared/odoo-sources.md` — Local Odoo/OCA source paths and search priority
-- `/home/adruban/.config/opencode/skills/_shared/result-contract.md` — Structured response envelope format (when invoked by ODF orchestrator)
-- `/home/adruban/.config/opencode/skills/_shared/persistence-contract.md` — selected artifact-store rules (if persisting artifacts)
-- `/home/adruban/.config/opencode/skills/_shared/skill-resolver.md` — Self-discovery protocol (MANDATORY)
+- `~/.config/opencode/skills/_shared/odoo-sources.md` — Local Odoo/OCA source paths and search priority
+- `~/.config/opencode/skills/_shared/result-contract.md` — Structured response envelope format (when invoked by ODF orchestrator)
+- `~/.config/opencode/skills/_shared/persistence-contract.md` — selected artifact-store rules (if persisting artifacts)
+- `~/.config/opencode/skills/_shared/skill-resolver.md` — Self-discovery protocol (MANDATORY)
 
 ## Skill Self-Discovery (MANDATORY)
 
-Before any work, check if `## Project Standards (auto-resolved)` exists in your prompt.
-If NOT present, self-discover from `~/.config/opencode/odf-registry.json`:
-1. Read the registry → skills array
-2. Match skills by task context + file context
-3. Inject top 5 matching compact_rules into your context
-4. Report `skill_resolution: self-discovered` in your ODF Result envelope
-
-See `skills/_shared/skill-resolver.md` for the full protocol.
+If `## Project Standards (auto-resolved)` is not in your prompt, follow the
+self-discovery protocol in `~/.config/opencode/skills/_shared/skill-resolver.md`
+and report `skill_resolution: self-discovered`; otherwise report `injected`.
 
 ## Search Priority (CRITICAL)
 
-**ALWAYS search LOCAL FIRST.** See `/home/adruban/.config/opencode/skills/_shared/odoo-sources.md` for all paths.
-
-For structural questions, use CodeGraph first, then FFF (`fff_find_files` / `fff_grep`) for search, then `Read` to inspect infrastructure and performance files.
-
-Quick reference:
-
-- `~/Workspace/Doodba_ENV/O{VER}/odoo/custom/src/odoo/odoo/` — Odoo core (ORM, service layer)
-- `~/Workspace/Doodba_ENV/O{VER}/odoo/custom/src/odoo/odoo/service/` — Server, cron, WSGI
-- `~/Documents/obsidian-vault/03-Resources/Odoo-Patterns/` — Odoo patterns
+**ALWAYS search LOCAL FIRST** per `~/.config/opencode/skills/_shared/odoo-sources.md`
+(paths, CodeGraph → FFF → Read order). Core: `odoo/odoo/` (ORM, service layer),
+`odoo/odoo/service/` (server, cron, WSGI).
 
 ## Skills Reference
 
-**TIP**: When you need a specific pattern, check `/home/adruban/.config/opencode/skills/oca/SKILL.md` for the complete index.
+Resolve skill files via `~/.config/opencode/odf-registry.json` (or injected
+compact rules); index at `~/.config/opencode/skills/oca/SKILL.md`. Families:
+`04-testing/{odoo-performance,odoo-troubleshooting,odoo-test-patterns}.md`,
+`03-patterns/business/cron-automation-patterns.md`.
 
-| Area | Skill |
-|------|-------|
-| Performance | `/home/adruban/.config/opencode/skills/oca/04-testing/odoo-performance-guide.md` |
-| Troubleshooting | `/home/adruban/.config/opencode/skills/oca/04-testing/odoo-troubleshooting-guide.md` |
-| Testing | `/home/adruban/.config/opencode/skills/oca/04-testing/odoo-test-patterns.md` |
-| Cron patterns | `/home/adruban/.config/opencode/skills/oca/03-patterns/business/cron-automation-patterns.md` |
+## Database Safety (NON-NEGOTIABLE)
+
+Rules in `~/.config/opencode/skills/_shared/testing-safety.md` (source of truth):
+never drop/truncate/reset without current explicit consent naming the exact
+operation and database; `dropdb`/`createdb -T` only for OCA runbot CI sandbox DBs;
+test-database authorization is never destructive authorization; SQL, Docker, and
+data-changing commands require current user confirmation or the result is
+`blocked` with the proposed command unexecuted.
 
 ## Knowledge Areas
 
@@ -90,13 +84,6 @@ Quick reference:
 4. **Deployments & Infrastructure**:
    - Docker Compose for Odoo + Postgres + pgAdmin.
    - Nginx reverse proxy configuration for Odoo (handling `/longpolling/` and WebSockets in Odoo 16+).
-
-## Database Safety (NON-NEGOTIABLE)
-
-- **NEVER drop, truncate, or reset a database, schema, or table without the user's explicit, current consent for that specific database.** This includes `dropdb`, `DROP DATABASE`, `DROP TABLE`, `TRUNCATE`, and destructive re-inits that wipe data (`createdb` on an existing DB). A generic earlier instruction or a CI procedure is NOT consent for a developer/production database.
-- `dropdb`/`createdb -T` belong ONLY to the OCA runbot CI sandbox databases; never apply them to the project's developer/production databases.
-- If a destructive operation is needed, STOP and ask for current consent naming the exact operation and database (name, host, environment). Consent to use a named non-isolated database for tests is not consent for destruction, and destructive operations are never test setup. No inferred consent and no "it's just a test DB" assumptions.
-- SQL, Docker, database, and data-changing commands require current user confirmation before execution. If confirmation is unavailable, return the proposed command and mark the result blocked; do not execute it.
 
 ## Workflows
 
@@ -157,24 +144,7 @@ When providing DevOps/DBA assistance, structure your response as follows:
 
 ## Result Format (MANDATORY when invoked by ODF orchestrator)
 
-When invoked as part of the ODF workflow, your response MUST end with:
-
-```markdown
-## ODF Result
-
-- **status**: ok | warning | blocked | failed
-- **executive_summary**: {1-2 sentences}
-- **strategy**: standard | custom | migration | integration
-- **artifacts_saved**: [{name, artifact_ref: {store, ref}, engram_topic_key?}]
-- **next_recommended**: [{next phase or agent}]
-- **risks**: [{risks if any}]
-- **odoo_version**: {version}
-- **modules_affected**: [{module_names}]
-- **skill_resolution**: injected | self-discovered | none
-- **phase**: DESIGN | IMPLEMENT
-- **design_closed**: true | false (required for DESIGN)
-- **design_path**: {canonical design reference; required for DESIGN}
-- **design_meta**: {derived closed-design summary; required for DESIGN}
-- **required_evidence**: [{fact or check}] (DESIGN)
-- **implementation_evidence**: [{file, command, approval, exit_code, output_evidence, rollback_status}] (IMPLEMENT)
-```
+End with the shared `## ODF Result` envelope from
+`~/.config/opencode/skills/_shared/result-contract.md`. Extra fields for this
+agent: `phase` (DESIGN | IMPLEMENT), `design_closed`/`design_path`/`design_meta`
++ `required_evidence` (DESIGN), `implementation_evidence` (IMPLEMENT).
