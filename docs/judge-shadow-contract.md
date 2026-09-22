@@ -1,87 +1,89 @@
 # Judge Shadow Contract (T10)
 
-El **judge shadow** mide la corrección semántica de un candidato (su
-`candidate_digest`) contra las **Expectations humanas aprobadas** (`EXP-XX`) y
-el plan técnico (`REQ-XX`), SIN asumir autoridad de entrega. Es un sensor de
-calibración, no un gate.
+The **judge shadow** measures the semantic correctness of a candidate (its
+`candidate_digest`) against the **approved human Expectations** (`EXP-XX`) and
+the technical plan (`REQ-XX`), WITHOUT assuming delivery authority. It is a
+calibration sensor, not a gate.
 
-## Qué es shadow
+## What shadow means
 
-- El judge corre **en paralelo** y su resultado se **registra** (JSONL), nunca
-  altera el estado del workflow (no toca `commitWorkflowTransition` ni VERIFY).
-- Un juicio `unavailable` NO es un juicio: es honestidad sobre falta de datos
-  (coherente con T7/T8 — no se sintetiza un verdict sin proveedor).
+- The judge runs **in parallel** and its result is **recorded** (JSONL); it
+  never alters workflow state (does not touch `commitWorkflowTransition` nor VERIFY).
+- An `unavailable` judgment is NOT a judgment: it is honesty about missing data
+  (consistent with T7/T8 — no verdict is synthesized without a provider).
 
 ## Schema version
 
-`JUDGE_SCHEMA_VERSION = 1`. Toda salida lleva `schema_version`. Cualquier
-cambio de contrato (rubric, shape, telemetría) incrementa la versión.
+`JUDGE_SCHEMA_VERSION = 1`. Every output carries `schema_version`. Any
+contract change (rubric, shape, telemetry) increments the version.
 
 ## Rubric
 
-`defaultJudgeRubric()` devuelve criterios versionados (JSON-serializable):
+`defaultJudgeRubric()` returns versioned (JSON-serializable) criteria:
 
-| id | weight | qué evalúa |
-|----|--------|-----------|
-| `correctness_vs_expectations` | 0.60 | El candidato satisface las `EXP-XX` que declara cubrir, con evidencia verificable por EXP. |
-| `regression_risk` | 0.25 | Riesgo de romper comportamiento existente / invariantes / la traza. |
-| `evidence_quality` | 0.15 | Evidencia completa, reproducible y ligada al digest. |
+| id | weight | what it evaluates |
+|----|--------|-------------------|
+| `correctness_vs_expectations` | 0.60 | The candidate satisfies the `EXP-XX` it claims to cover, with evidence verifiable per EXP. |
+| `regression_risk` | 0.25 | Risk of breaking existing behavior / invariants / the trace. |
+| `evidence_quality` | 0.15 | Evidence complete, reproducible and tied to the digest. |
 
-Política: `pass` solo con corrección satisfecha + riesgo aceptable + evidencia
-adecuada; si no, `fail`. Nunca fabricar verdict sin proveedor.
+Policy: `pass` only with correctness satisfied + acceptable risk + adequate
+evidence; otherwise `fail`. Never fabricate a verdict without a provider.
 
-## Ligadura (binding)
+## Binding
 
-Cada juicio se liga a identidad trazable vía `bound_to`:
+Each judgment is bound to traceable identity via `bound_to`:
 
 ```json
 { "expectation_ids": ["EXP-01", "EXP-02"], "candidate_digest": "…", "trace_ref": "…" }
 ```
 
-## Métricas
+## Metrics
 
-`compareHumanJudge({ human, judge })` devuelve:
+`compareHumanJudge({ human, judge })` returns:
 
-| campo | definición |
-|-------|-----------|
-| `agreement` | `true` si ambos pass/fail y coinciden; `false` si difieren; `null` si judge `unavailable`. |
-| `false_pass` | human `fail` y judge `pass`. |
-| `false_block` | human `pass` y judge `fail`. |
-| `unavailable` | judge `unavailable` (no hay opinión). |
-| `cost` | telemetría ausente → `null` (T7); un proveedor real la poblaria. |
+| field | definition |
+|-------|------------|
+| `agreement` | `true` if both pass/fail and match; `false` if they differ; `null` if judge `unavailable`. |
+| `false_pass` | human `fail` and judge `pass`. |
+| `false_block` | human `pass` and judge `fail`. |
+| `unavailable` | judge `unavailable` (no opinion). |
+| `cost` | telemetry absent → `null` (T7); a real provider would populate it. |
 
-Agregación acumulada: `agreement rate` y `false_pass rate` sobre juicios
-comparados; `unavailable rate` separado. KPI del roadmap: **agreement humano/judge
-medido y tasa de false-pass; sin impacto de gate.**
+Cumulative aggregation: `agreement rate` and `false_pass rate` over compared
+judgments; `unavailable rate` separate. Roadmap KPI: **measured human/judge
+agreement and false-pass rate; no gate impact.**
 
-## Shadow NUNCA bloquea
+## Shadow NEVER blocks
 
-- El judge shadow es **solo lectura**: registra, no gatea.
-- `judge: "fail"` en shadow no detiene nada; alimenta calibración.
-- Los verificadores deterministas (`evaluateGoldens`/`evaluateOffline`) y el
-  VERIFY humano (`odoo_qa_engineer`) siguen siendo los únicos gate.
+- The judge shadow is **read-only**: it records, it does not gate.
+- `judge: "fail"` in shadow stops nothing; it feeds calibration.
+- The deterministic verifiers (`evaluateGoldens`/`evaluateOffline`) and human
+  VERIFY (`odoo_qa_engineer`) remain the only gate.
 
-## Promoción a rol bloqueante (activador)
+## Promotion to blocking role (activator)
 
-Promover el judge a **cualquier rol que bloquee entrega** es una **decisión
-humana explícita** respaldada por **calibración medida**:
+Promoting the judge to **any role that blocks delivery** is an explicit
+**human decision** backed by **measured calibration**:
 
-1. Umbral de acuerdo humano/judge y techo de false-pass acordados con el
-   operador (p.ej. `agreement >= 0.9` y `false_pass <= 0.02` sobre N muestras).
-2. `unavailable` rate bajo (un judge que no opina no puede gatear).
-3. Revisión del operador sobre un sample de discrepancias.
-4. Decisión registrada por humano (nunca por el propio judge) antes de activar
-   cualquier gate.
+1. Human/judge agreement threshold and false-pass ceiling agreed with the
+   operator (e.g. `agreement >= 0.9` and `false_pass <= 0.02` over N samples).
+2. Low `unavailable` rate (a judge that does not opine cannot gate).
+3. Operator review over a sample of discrepancies.
+4. Decision recorded by a human (never by the judge itself) before activating
+   any gate.
 
-Sin esa decisión, el judge permanece en shadow. El repo no promueve a gate.
+Without that decision, the judge stays in shadow. The repo does not promote
+to gate.
 
-## Punto de extensión del proveedor
+## Provider extension point
 
-`evaluateShadow` lee `ODF_JUDGE_MODEL` (y opcional `ODF_JUDGE_PROVIDER`) para
-poblar `judge_version.model/provider`. Sin `ODF_JUDGE_MODEL` devuelve
-`verdict: "unavailable"`, `verdict_label: "N/A"`, `data_status: "no_data"`.
+`evaluateShadow` reads `ODF_JUDGE_MODEL` (and optionally `ODF_JUDGE_PROVIDER`)
+to populate `judge_version.model/provider`. Without `ODF_JUDGE_MODEL` it
+returns `verdict: "unavailable"`, `verdict_label: "N/A"`,
+`data_status: "no_data"`.
 
-Un operador cablea un proveedor real reemplazando el cuerpo de `runJudge` (en
-`scripts/odf-judge.js`) por una llamada a su LLM configurado, devolviendo
-`{ verdict, verdict_label, rationale }`. El adaptador conserva el contrato:
-schema, rubric, binding y telemetría.
+An operator wires a real provider by replacing the body of `runJudge` (in
+`scripts/odf-judge.js`) with a call to their configured LLM, returning
+`{ verdict, verdict_label, rationale }`. The adapter preserves the contract:
+schema, rubric, binding and telemetry.

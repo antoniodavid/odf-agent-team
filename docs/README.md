@@ -1,16 +1,17 @@
-# ODF Documentation Index
+# ODF Docs
 
-Everything about ODF (Odoo Development Framework), organized by audience.
+Everything about ODF (Odoo Development Framework). Pick what you need:
 
-## Start here
+| I want to… | Read |
+|------------|------|
+| **Start using ODF** — mental model, commands, workflow | [Intended usage](intended-usage.md) |
+| **Understand the system** — stages, components, data flow | [Architecture](architecture.md) |
+| **Extend the plugin** — the 19 tools, `odf_delegate` path | [Plugin reference](plugin.md) |
+| **Write a skill** — structure, frontmatter, compact rules | [Skill style guide](skill-style-guide.md) |
 
-| Doc | Read if you… |
-|-----|--------------|
-| [Intended usage](intended-usage.md) | are new and want the mental model + entry points |
-| [Architecture](architecture.md) | need the thin-spine vocabulary, components, and data flow |
-| [Plugin reference](plugin.md) | are extending the plugin or calling `odf_delegate` |
+## Diagrams
 
-## Diagrams (interactive HTML)
+Interactive, self-contained HTML (open locally or via [GitHub Pages](https://antoniodavid.github.io/odf-agent-team/)):
 
 | Diagram | Shows |
 |---------|-------|
@@ -18,9 +19,11 @@ Everything about ODF (Odoo Development Framework), organized by audience.
 | [Harness architecture](harness-architecture.html) | operator → orchestrator → plugin → fleet → Odoo |
 | [One-call delegation efficiency](delegation-flow.html) | ODF single round-trip vs naive context loop |
 
-Sources: `*.workflow.json` / `*.spec.json` next to each HTML (Archify schema).
+Sources next to each HTML: `*.workflow.json` / `*.spec.json` (Archify schema).
 
 ## Contracts
+
+Normative rules enforced by the pipeline — agents and tests read these.
 
 | Doc | Governs |
 |-----|---------|
@@ -30,17 +33,14 @@ Sources: `*.workflow.json` / `*.spec.json` next to each HTML (Archify schema).
 | [Judge shadow contract](judge-shadow-contract.md) | adversarial review shadow |
 | [Learning loop contract](learning-loop-contract.md) | Engram learning loop |
 
-## Style & conventions
+## Operations
 
 | Doc | Covers |
 |-----|--------|
-| [Skill style guide](skill-style-guide.md) | writing LLM-first skills |
-| [Metrics & Engram maintenance](metrics-and-engram-maintenance.md) | telemetry upkeep |
+| [Metrics & Engram maintenance](metrics-and-engram-maintenance.md) | telemetry upkeep, evaluation commands |
 
-## Roadmaps & plans
+## History
 
-| Doc | Status |
-|-----|--------|
-| [Harness roadmap](harness-roadmap.md) | long-range plan |
-| [Fast-lane plan](odf-fast-lane-plan.md) / [tasks](odf-fast-lane-tasks.md) | fast-lane build |
-| [Fast-lane baselines](odf-fast-lane-baseline-2026-09-16.md) | measured baselines |
+| Doc | Was |
+|-----|-----|
+| [Archive](archive/README.md) | completed roadmaps, fast-lane plans, baselines |

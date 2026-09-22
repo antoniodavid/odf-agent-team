@@ -84,7 +84,7 @@ Routing is deterministic: standard config can stop after DECIDE, a bugfix runs d
 - [Intended usage](docs/intended-usage.md) — mental model, entry points, when to use what
 - [Architecture](docs/architecture.md) — thin-spine vocabulary, components, data flow
 - [Plugin reference](docs/plugin.md) — the 19 tools, modules, `odf_delegate` path
-- [Harness roadmap](docs/harness-roadmap.md) — long-range plan
+- [Archive](docs/archive/README.md) — completed roadmaps and plans
 
 ## Honest status
 

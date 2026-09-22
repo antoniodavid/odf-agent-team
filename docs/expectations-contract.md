@@ -1,38 +1,38 @@
 # Expectations Contract (T9)
 
-Separa el **intento humano** (Expectations, `EXP-XX`) del **plan técnico
-generado por la IA** (Requisitos, `REQ-XX`). El objetivo es romper la
-autoevaluación circular: antes, el mismo sistema escribía los `REQ-XX` en
-ASSESS y luego los juzgaba en VERIFY. Ahora VERIFY evalúa contra las
-`EXP-XX` humanas aprobadas, y usa el plan/REQ solo como contexto técnico.
+Separates **human intent** (Expectations, `EXP-XX`) from the **AI-generated
+technical plan** (Requirements, `REQ-XX`). The goal is to break circular
+self-evaluation: previously the same system wrote the `REQ-XX` in ASSESS and
+then judged them in VERIFY. Now VERIFY evaluates against the approved human
+`EXP-XX`, and uses the plan/REQ only as technical context.
 
-## Artefacto canónico `expectations`
+## Canonical `expectations` artifact
 
-Un artefacto persistido en el store seleccionado (`openspec/changes/{change}/expectations.yaml`
-o Engram `odf/{change}/expectations`), separado de `assess`/`propose`.
+An artifact persisted in the selected store (`openspec/changes/{change}/expectations.yaml`
+or Engram `odf/{change}/expectations`), separate from `assess`/`propose`.
 
 ```yaml
 change: sale-discount-field
-intent: "Aplicar un descuento porcentual configurable por categoría de partner en las órdenes de venta"
+intent: "Apply a configurable percentage discount by partner category on sales orders"
 expectations:
   - id: "EXP-01"
-    statement: "El descuento se aplica sobre el total de la orden al confirmar."
+    statement: "The discount applies to the order total on confirmation."
     testable: true
     owned_by: "human"
   - id: "EXP-02"
-    statement: "El descuento máximo está limitado por configuración a nivel de compañía."
+    statement: "The maximum discount is limited by company-level configuration."
     testable: true
     owned_by: "human"
   - id: "EXP-03"
-    statement: "La configuración solo es editable por el manager de ventas."
+    statement: "The configuration is only editable by the sales manager."
     testable: true
     owned_by: "human"
 constraints:
-  - "No modificar los totales de factura."
+  - "Do not modify invoice totals."
 success_scenarios:
-  - { id: "SUC-01", statement: "Un descuento válido se aplica al confirmar la orden.", testable: true, owned_by: "human" }
+  - { id: "SUC-01", statement: "A valid discount is applied on order confirmation.", testable: true, owned_by: "human" }
 failure_scenarios:
-  - { id: "FAL-01", statement: "Un descuento inválido es rechazado.", testable: true, owned_by: "human" }
+  - { id: "FAL-01", statement: "An invalid discount is rejected.", testable: true, owned_by: "human" }
 connections:
   - { id: "CON-01", relation: "supports", reference: "EXP-01" }
 approved: true
@@ -41,92 +41,90 @@ approved_at: "2026-08-17T00:00:00Z"
 immutable_since: "2026-08-17T00:00:00Z"
 ```
 
-### Campos
+### Fields
 
-| Campo | Tipo | Descripción |
+| Field | Type | Description |
 |-------|------|-------------|
-| `change` | string | Nombre del cambio en kebab-case. |
-| `intent` | string | Frase humana del objetivo del cambio (del usuario, no del modelo). |
-| `expectations` | array | Lista de `EXP-XX`. |
-| `expectations[].id` | string | `EXP-01`, `EXP-02`, … (nunca `REQ-XX`). |
-| `expectations[].statement` | string | Criterio verificable redactado como afirmación del usuario. |
-| `expectations[].testable` | boolean | Si es comprobable por tests/evidencia. |
-| `expectations[].owned_by` | string | Siempre `"human"`. Nunca `"model"`/`"ai"`. |
-| `constraints` | string array | Opcional; máximo 32 cadenas no vacías, sin controles y de hasta 512 caracteres. No se permiten duplicados. |
-| `success_scenarios` | array | Opcional; máximo 32 entradas exactas con IDs únicos `SUC-1`–`SUC-999`. |
-| `failure_scenarios` | array | Opcional; máximo 32 entradas exactas con IDs únicos `FAL-1`–`FAL-999`. |
-| `success_scenarios[]` / `failure_scenarios[]` | object | Exactamente `{ id, statement, testable, owned_by }`; `owned_by` siempre `"human"`. |
-| `connections` | array | Opcional; máximo 32 entradas exactas con IDs únicos `CON-1`–`CON-999`. |
-| `connections[].relation` | string | Relación en minúsculas con guiones, de hasta 32 caracteres. |
-| `connections[].reference` | string | Referencia ASCII segura, de hasta 256 caracteres y sin `..`. |
-| `approved` | boolean | `true` solo tras confirmación explícita del usuario. |
-| `approved_by` | string | Identificador de quién aprobó (el usuario). |
-| `approved_at` | ISO date | Cuándo se aprobó. |
-| `immutable_since` | ISO date | Desde cuándo los `statement` no pueden reescribirse. |
-| `revision`, `supersedes`, `replan_from` | metadatos opcionales | Metadatos de revisión existentes; la extensión no agrega historial. |
+| `change` | string | Kebab-case change name. |
+| `intent` | string | Human phrase stating the change goal (from the user, not the model). |
+| `expectations` | array | List of `EXP-XX`. |
+| `expectations[].id` | string | `EXP-01`, `EXP-02`, … (never `REQ-XX`). |
+| `expectations[].statement` | string | Verifiable criterion written as a user assertion. |
+| `expectations[].testable` | boolean | Whether it is checkable by tests/evidence. |
+| `expectations[].owned_by` | string | Always `"human"`. Never `"model"`/`"ai"`. |
+| `constraints` | string array | Optional; at most 32 non-empty strings, no control characters, up to 512 characters each. Duplicates not allowed. |
+| `success_scenarios` | array | Optional; at most 32 exact entries with unique IDs `SUC-1`–`SUC-999`. |
+| `failure_scenarios` | array | Optional; at most 32 exact entries with unique IDs `FAL-1`–`FAL-999`. |
+| `success_scenarios[]` / `failure_scenarios[]` | object | Exactly `{ id, statement, testable, owned_by }`; `owned_by` always `"human"`. |
+| `connections` | array | Optional; at most 32 exact entries with unique IDs `CON-1`–`CON-999`. |
+| `connections[].relation` | string | Lowercase hyphenated relation, up to 32 characters. |
+| `connections[].reference` | string | ASCII-safe reference, up to 256 characters, no `..`. |
+| `approved` | boolean | `true` only after explicit user confirmation. |
+| `approved_by` | string | Identifier of who approved (the user). |
+| `approved_at` | ISO date | When it was approved. |
+| `immutable_since` | ISO date | Since when `statement` cannot be rewritten. |
+| `revision`, `supersedes`, `replan_from` | optional metadata | Existing revision metadata; this extension adds no history. |
 
-Las entradas de escenarios tienen exactamente `{ id, statement, testable, owned_by }`;
-las conexiones, `{ id, relation, reference }`. Claves desconocidas, valores
-nulos o malformados, IDs/referencias inseguras, duplicados y valores fuera de
-los límites son rechazados. Omitir los campos opcionales mantiene válidos los
-artefactos legacy.
+Scenario entries have exactly `{ id, statement, testable, owned_by }`;
+connections have `{ id, relation, reference }`. Unknown keys, null or
+malformed values, unsafe IDs/references, duplicates and out-of-limit values
+are rejected. Omitting optional fields keeps legacy artifacts valid.
 
-El contenido humano protegido incluye `change`, `intent`, `expectations`,
-`constraints`, `success_scenarios`, `failure_scenarios` y `connections`.
-La aprobación y los metadatos de revisión conservan su comportamiento actual.
+Protected human content includes `change`, `intent`, `expectations`,
+`constraints`, `success_scenarios`, `failure_scenarios` and `connections`.
+Approval and revision metadata keep their current behavior.
 
-## Origen (quién redacta las EXP)
+## Origin (who writes the EXP)
 
-Las `EXP-XX` se capturan en PROPOSE/entrada desde:
+`EXP-XX` are captured in PROPOSE/entry from:
 
-1. La descripción del comando (`/odf-new sale-discount-field "..."`), y
-2. **UNA ronda de aclaración** hecha al usuario (vía `question`), nunca del
-   modelo.
+1. The command description (`/odf-new sale-discount-field "..."`), and
+2. **ONE clarification round** asked to the user (via `question`), never from
+   the model.
 
-El orquestador NO redacta las `EXP-XX` a partir de su propio análisis; solo
-las reformula como afirmaciones verificables y pide confirmación explícita.
+The orchestrator does NOT author `EXP-XX` from its own analysis; it only
+rephrases them as verifiable assertions and asks for explicit confirmation.
 
-## Regla de inmutabilidad
+## Immutability rule
 
-Una vez `approved: true`:
+Once `approved: true`:
 
-- Ningún agente puede reescribir el `statement` de una `EXP` ni sus campos
-  opcionales.
-- Solo una **aprobación humana posterior explícita** puede modificar una
-  `EXP` o un campo opcional: se marca `approved: false`, se edita, y se vuelve
-  a aprobar con nuevos timestamps.
+- No agent may rewrite an `EXP` `statement` or its optional fields.
+- Only a later explicit **human approval** may modify an `EXP` or optional
+  field: set `approved: false`, edit, then re-approve with new timestamps.
 
-El mecanismo es un **contrato documentado** en las instrucciones de los
-agentes (orquestador, QA, assess) — no se construye ninguna DB ni lock de
-escritura a nivel de infraestructura. El QA engineer (VERIFY) es el guardián:
-si detecta que un `statement` aprobado fue reescrito, marca `blocked`.
+The mechanism is a **documented contract** in agent instructions
+(orchestrator, QA, assess) — no DB or infrastructure-level write lock is
+built. The QA engineer (VERIFY) is the guardian: if it detects that an
+approved `statement` was rewritten, it marks `blocked`.
 
 ## REQ vs EXP
 
 | | `EXP-XX` (Expectations) | `REQ-XX` (Requirements) |
 |---|---|---|
-| Autor | Humano (usuario) | Modelo (plan técnico ASSESS) |
-| Rol | Contrato inmutable a evaluar | Plan técnico / contexto |
-| Mutabilidad | Inmutable tras aprobación | Revisable en ASSESS/DESIGN |
-| Usado en VERIFY | Criterio principal | Contexto técnico |
+| Author | Human (user) | Model (ASSESS technical plan) |
+| Role | Immutable contract to evaluate | Technical plan / context |
+| Mutability | Immutable after approval | Revisable in ASSESS/DESIGN |
+| Used in VERIFY | Primary criterion | Technical context |
 
-`skills/odf-assess/SKILL.md` genera `REQ-XX` como plan técnico y **referencia**
-las `EXP-XX` (cada `REQ` indica qué `EXP` cubre), pero no las sustituye.
+`skills/odf-assess/SKILL.md` generates `REQ-XX` as a technical plan and
+**references** the `EXP-XX` (each `REQ` states which `EXP` it covers), but
+does not replace them.
 
-## Retrocompatibilidad (cambios legacy)
+## Backward compatibility (legacy changes)
 
-Si no existe artefacto `expectations` (cambios iniciados antes de T9):
+If no `expectations` artifact exists (changes started before T9):
 
-- VERIFY sigue evaluando contra los `REQ-XX` como antes.
-- VERIFY añade un **warning explícito**: `missing-expectations` — faltan
-  Expectations humanas; la evaluación es sobre plan generado y puede tener
-  autoevaluación circular.
+- VERIFY keeps evaluating against the `REQ-XX` as before.
+- VERIFY adds an **explicit warning**: `missing-expectations` — human
+  Expectations are missing; evaluation is against the generated plan and may
+  suffer circular self-evaluation.
 
-La omisión de los campos opcionales, el manejo de aprobación, las revisiones,
-el fallback y las rutas canónicas no cambian.
+Omission of optional fields, approval handling, revisions, fallback and
+canonical paths do not change.
 
-## Evaluación de goldens
+## Golden evaluation
 
-El corpus de referencia vive en `scripts/fixtures/golden-trajectories.json` y
-se valida con `evaluateGoldens()` en `scripts/odf-evaluation.js`. Ver
-`scripts/odf-evaluation.js` para la firma y shape.
+The reference corpus lives in `scripts/fixtures/golden-trajectories.json` and
+is validated with `evaluateGoldens()` in `scripts/odf-evaluation.js`. See
+`scripts/odf-evaluation.js` for the signature and shape.
