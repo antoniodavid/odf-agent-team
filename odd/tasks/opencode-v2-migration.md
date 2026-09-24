@@ -98,6 +98,21 @@ OpenCode V2 is stable, but ODF must keep V1 support while the V2 adapter is vali
 - Post-TDZ checks: `npm run typecheck` passed; `npm run test:unit` passed with 879/879 tests across 32 files; `npm run test:yaml` passed with 154/154 scenarios; `npm run test:harness` passed with 17/17 tests; `ODF_CONFIG_DIR="$PWD" node scripts/odf-registry-validate.js` passed; `git diff --check` passed.
 - Remaining live-host blocker: `opencode2 v0.0.0-beta-19059` is available, but the Console free tier rejects that V2 host version and requires OpenCode `1.18.0+` for provider execution. No live V2 load/tools/hooks/delegation smoke success is claimed until provider compatibility is resolved.
 
+## V2-only cut-over (2026-09-24)
+
+The dual-runtime window was closed: OpenCode V2 is the only runtime.
+
+- [x] Diagnosed the real load failure. `Cannot find package '@opencode-ai/plugin'` was **not** a code defect: the running service (PID 118614, started 11:28) predates `~/.config/opencode/node_modules` (installed 11:39), and a plugin that fails once stays `failed` until the service restarts. Reproduced the host's exact loader (`prepareSource` + `Host.load`) in a fresh process: scan tracks no missing npm packages and the entrypoint loads with `default` keys `[id, setup, server]`. The 2 uninstalled commits (#26, #27) were ruled out — the installed v1.3.0 import block is identical to `main`, and `main` was the build that passed.
+- [x] Isolated v2 smoke harness: `XDG_CONFIG_HOME/DATA/STATE/CACHE` under `/tmp/opencode/odf-v2-smoke` with `opencode serve --service` on its own port. Result: 88 plugins, 88 active, **0 failed**; catalog exposes 22 `odf-*` commands + 11 `odoo_*` agents; `odf_health` executed in-session with `plugin.loaded: true` and all 22 registered tools.
+- [x] V2-only entrypoint: removed `server`, `OdfDelegationPlugin` and `createODFRuntimeHooks`; `plugins/odf-delegation.ts` default-exports `OdfDelegationPluginV2`.
+- [x] Dependency cut: new `odf-plugin/odf-tool.ts` supplies the `tool` helper on `zod`; 9 files moved off `@opencode-ai/plugin` at runtime. `package.json`: `dependencies` = `yaml` + `zod`; `devDependencies` = `@opencode-ai/plugin` + `@opencode-ai/sdk` (types/fixtures); `peerDependencies` = `@opencode/plugin`.
+- [x] Preserved behavior that lived only in V1: extracted the registry/telemetry warm-up into `startOdfRuntime()`, awaited by `setupODFV2`.
+- [x] Closed a parity gap: the V2 `session.context` hook now injects the one-shot context-pressure notice (V1 did this through `experimental.chat.system.transform`; V2 never did).
+- [x] Installer: dependencies install before the plugin entrypoint is exposed, plus a restart reminder with an opt-in `--restart-service` / `ODF_RESTART_SERVICE=1` (dry-run never touches the filesystem).
+- [x] Evidence: typecheck, 899 unit, 325 YAML, 18 harness, registry validation and `git diff --check` all pass.
+
 ## Next step
 
-T5 contract fixtures, documentation, and the support matrix are complete. The TDZ fix is covered by a static import-order regression guard, but the live load/tools/hooks/delegation/cancellation/reload smoke remains blocked by provider compatibility; keep the V2-default acceptance item unchecked until that evidence exists.
+- [ ] Global deployment (backup + copy + `npm install` + service restart) is **deferred by decision**; `~/.config/opencode` still runs the 1.3.0 pack with `odf-delegation` in state `failed`.
+- [ ] Live delegation + cancellation smoke against a real v2 session.
+- [ ] Fix `getOdfConfigDir()` to honour `XDG_CONFIG_HOME` (README claims it; the resolver hardcodes `~/.config/opencode`).

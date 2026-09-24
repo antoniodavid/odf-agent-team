@@ -1,5 +1,20 @@
 # Changelog — ODF Agent Team
 
+## Unreleased
+
+### Changed
+- **OpenCode V2 only**: the entrypoint `plugins/odf-delegation.ts` now default-exports the official `Plugin.define({ id, setup })` shape. The V1 `server` export, `OdfDelegationPlugin` and `createODFRuntimeHooks` were removed along with their V1 contract fixtures.
+- Runtime code no longer imports `@opencode-ai/plugin`. The shared `tool` helper moved to `odf-plugin/odf-tool.ts` (identity function + `zod` schema namespace), so the plugin graph carries only the host-provided `@opencode/plugin` plus the declared `zod` and `yaml` dependencies. `@opencode-ai/plugin` and `@opencode-ai/sdk` are now devDependencies, used for types and the V1/V2 schema-parity fixtures.
+
+### Fixed
+- Registry/telemetry warm-up used to live inside the retired V1 `server` entrypoint, so the V2 host silently lost it. It is now `startOdfRuntime()`, awaited by `setupODFV2`: metrics flushing, the skills/permissions cache refresh, unregistered-skill discovery and the learning loop all run under OpenCode V2.
+- OpenCode V2 now injects the one-shot context-pressure notice through the `session.context` hook, restoring parity with the retired V1 `experimental.chat.system.transform` seam.
+- `install.sh` installs dependencies **before** exposing the plugin entrypoint, and reminds you to restart the OpenCode service afterwards (`--restart-service` / `ODF_RESTART_SERVICE=1` to do it immediately). A plugin that fails once stays `failed` inside a running service until it restarts — this was the root cause of the plugin never loading after a fresh install.
+- Three new installer tests cover the dependency/plugin ordering, the default no-op dry run and the opt-in restart flag.
+
+### Known limitations
+- `getOdfConfigDir()` ignores `XDG_CONFIG_HOME`: it resolves `ODF_CONFIG_DIR` and otherwise hardcodes `~/.config/opencode`, contradicting the README's `XDG_CONFIG_HOME resolution` claim.
+
 ## 1.3.1 (2026-09-24)
 
 ### Fixed

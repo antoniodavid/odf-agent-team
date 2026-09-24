@@ -1,6 +1,15 @@
 # OpenCode V2 migration support
 
-ODF ships one `odf-delegation` entrypoint that exposes the existing V1 server and the official V2 `Plugin.define({ id, setup })` adapter. V2 is not the default until the live-host checklist below passes.
+ODF ships **one V2-only `odf-delegation` entrypoint**: the official
+`Plugin.define({ id, setup })` shape. The V1 `server` export has been retired —
+OpenCode V2 has no V1 runtime, and the dual `{ id, setup, server }` object
+existed only for the transition window. Runtime code no longer imports
+`@opencode-ai/plugin`; the shared `tool` helper lives in `odf-plugin/odf-tool.ts`
+on top of the declared `zod` dependency, so the plugin graph carries only
+host-provided `@opencode/plugin` plus `zod` and `yaml`.
+
+> V1 references in this document describe the historical mapping that shaped the
+> V2 seams. They are no longer a supported surface.
 
 ## Support matrix
 
@@ -52,13 +61,20 @@ catalog check; validate discovery before diagnosing model connectivity.
 
 Run this checklist only with an actual V2 host. The current V1 host and Vitest fixtures are not substitutes.
 
-- [ ] Record a V2 host version and confirm it loads `@opencode/plugin` `2.x` and Node.js `18+`.
-- [ ] Test a global install and a project-local install in isolated config directories; confirm each has exactly one ODF plugin entry.
-- [ ] Start the V2 host and confirm one plugin load with ID `odf-delegation`, no duplicate-registration warning, and no startup error.
-- [ ] Enumerate all 22 registered ODF tools; invoke representative valid and invalid inputs and confirm schema rejection plus V1-equivalent result envelopes.
-- [ ] Exercise context injection, tool-before/after hooks, raw `/odf-new` prompt handling, event subscription, and cleanup.
+- [x] Record a V2 host version and confirm it loads `@opencode/plugin` `2.x` and Node.js `18+`. — OpenCode `2.0.16`, `@opencode/plugin@2.0.16`, Node `v24.15.0`.
+- [x] Test a global install and a project-local install in isolated config directories; confirm each has exactly one ODF plugin entry. — isolated config under an isolated `XDG_*` set yields exactly one `odf-delegation` entry.
+- [x] Start the V2 host and confirm one plugin load with ID `odf-delegation`, no duplicate-registration warning, and no startup error. — 88 plugins, 88 active, **0 failed**, no `failed to load plugin` in the log.
+- [ ] Enumerate all 22 registered ODF tools; invoke representative valid and invalid inputs and confirm schema rejection plus V1-equivalent result envelopes. — `odf_health` executed live and reported all 22 registered tools; invalid-input/schema-rejection coverage is Vitest-only (`opencode-v2-contract.test.ts`), and there is no HTTP endpoint for tool enumeration (`/api/tool` → 404), so the remaining 21 need model round trips.
+- [ ] Exercise context injection, tool-before/after hooks, raw `/odf-new` prompt handling, event subscription, and cleanup. — context/system injection confirmed live and asserted by fixtures; tool hooks, `/odf-new` detection, event subscription and cleanup are fixture-covered but not yet exercised against a real host session.
 - [ ] Run one real delegation, cancel it, and confirm the child session is interrupted without a fabricated success result.
-- [ ] Reload the host and repeat the load/tool checks; confirm no duplicate tools, hooks, or event subscriptions.
-- [ ] Re-run the V1 host smoke and the repository checks before changing the default runtime.
+- [x] Reload the host and repeat the load/tool checks; confirm no duplicate tools, hooks, or event subscriptions. — service restarted clean after the changes; single `odf-delegation`, 88/88 active, no duplicates.
+- [ ] Re-run the V1 host smoke and the repository checks before changing the default runtime. — moot: V1 is retired. Repository checks re-run green after the change.
 
-**Current result:** partial live V2 smoke passes in the isolated harness: the plugin loads and the catalog exposes 22 ODF commands plus 11 ODF agents. Full tool execution, delegation, cancellation, reload, and provider validation remain pending; the Console provider currently rejects the beta host with HTTP 426. No fake host harness was added.
+**Current result:** the plugin loads and validates end-to-end on a real V2 host
+(`OpenCode 2.0.16`): `odf-delegation` is `active`, the catalog exposes 22 ODF
+commands and 11 ODF agents, and `odf_health` executed in-session reporting
+`plugin.loaded: true` with all 22 tools. Remaining unchecked items are live
+delegation/cancellation and per-tool schema-rejection round trips. The
+`getOdfConfigDir()` resolver still ignores `XDG_CONFIG_HOME` (it is
+`ODF_CONFIG_DIR` → `~/.config/opencode`), which contradicts the README's
+XDG claim and remains an open defect.
