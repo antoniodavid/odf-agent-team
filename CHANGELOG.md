@@ -1,6 +1,11 @@
 # Changelog — ODF Agent Team
 
-## Unreleased
+## 1.4.0 (2026-09-24)
+
+> **BREAKING — OpenCode V2 only.** The plugin entrypoint no longer exports the
+> V1 `server` implementation, and `@opencode-ai/plugin` is not part of the
+> runtime graph. Packs installed from this release require an OpenCode V2 host:
+> a V1 host will not register the ODF plugin.
 
 ### Changed
 - **OpenCode V2 only**: the entrypoint `plugins/odf-delegation.ts` now default-exports the official `Plugin.define({ id, setup })` shape. The V1 `server` export, `OdfDelegationPlugin` and `createODFRuntimeHooks` were removed along with their V1 contract fixtures.
