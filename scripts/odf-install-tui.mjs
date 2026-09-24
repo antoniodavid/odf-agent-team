@@ -47,19 +47,26 @@ const bg = {
 };
 
 // ─── Terminal utilities ────────────────────────────────────────────────────
-const rl = readline.createInterface({
-  input: process.stdin,
-  output: process.stdout,
-});
+// Created lazily so the module can be imported (tests) without opening stdin.
+let rl;
 
-rl.on('close', () => {
-  process.stdout.write(SHOW_CURSOR);
-  process.exit(0);
-});
+function getRl() {
+  if (!rl) {
+    rl = readline.createInterface({
+      input: process.stdin,
+      output: process.stdout,
+    });
+    rl.on('close', () => {
+      process.stdout.write(SHOW_CURSOR);
+      process.exit(0);
+    });
+  }
+  return rl;
+}
 
 function ask(question) {
   return new Promise((resolve) => {
-    rl.question(question, (answer) => resolve(answer.trim()));
+    getRl().question(question, (answer) => resolve(answer.trim()));
   });
 }
 
@@ -101,10 +108,11 @@ const BRANCH = process.env.BRANCH || 'main';
 const COMPONENTS = [
   { name: 'registry',    label: 'Registry',         desc: 'odf-registry.json + cache', default: true },
   { name: 'agents',      label: 'Agents',           desc: 'Agents (orchestrator + sub-agents)', default: true },
-  { name: 'skills',      label: 'Skills',            desc: 'OCA + ODF skills (31 files)', default: true },
+  { name: 'skills',      label: 'Skills',            desc: 'OCA + ODF skills (87)', default: true },
   { name: 'commands',    label: 'Commands',          desc: 'Slash commands (/odf-*)', default: true },
-  { name: 'plugins',     label: 'Plugin',            desc: 'odf-delegation.ts (runtime tools)', default: true },
+  { name: 'plugins',     label: 'Plugin',            desc: 'odf-delegation.ts + odf-plugin/ support modules', default: true },
   { name: 'scripts',     label: 'Scripts',           desc: 'Test runner + CLI + validators', default: true },
+  { name: 'policies',    label: 'Policies',          desc: 'OCA governance policy + rules', default: true },
   { name: 'docs',        label: 'Contracts',         desc: 'Design + expectations contracts', default: true },
   { name: 'openspec',    label: 'OpenSpec',          desc: 'Spec/config templates', default: false },
   { name: 'codegraph',   label: 'CodeGraph',         desc: 'Community: code graph indexer', default: false },
@@ -117,6 +125,18 @@ const PROFILES = [
 ];
 
 const STALE_ODF_PLUGIN_FILES = [
+  'candidate-manifest.test.ts',
+  'candidate-manifest.ts',
+  'entry-triage.test.ts',
+  'entry-triage.ts',
+  'odf-delegation.test.ts',
+  'odf-expectations.test.ts',
+  'odf-expectations.ts',
+  'odf-parallel-join.ts',
+  'odf-workflow-status.test.ts',
+  'odf-workflow-status.ts',
+  'odf-workflow.test.ts',
+  'odf-workflow.ts',
   'odf-delegation.js',
   'odf-delegation-v2.ts',
   'odf-delegation-v2.js',
@@ -223,6 +243,8 @@ function managedPaths() {
   const paths = [
     path.join(CONFIG_DIR, 'odf-registry.json'),
     path.join(CONFIG_DIR, 'plugins', 'odf-delegation.ts'),
+    path.join(CONFIG_DIR, 'odf-plugin'),
+    path.join(CONFIG_DIR, 'policies'),
     ...MANAGED_SCRIPT_PATHS.map(entry => path.join(CONFIG_DIR, entry)),
     path.join(CONFIG_DIR, 'openspec', 'config.yaml'),
     path.join(CONFIG_DIR, 'openspec', 'sdd-init.yaml'),
@@ -281,6 +303,12 @@ function removeManagedPath(target) {
   return true;
 }
 
+function cleanupStalePluginFiles() {
+  for (const name of STALE_ODF_PLUGIN_FILES) {
+    removeManagedPath(path.join(CONFIG_DIR, 'plugins', name));
+  }
+}
+
 function installFiles(srcDir, components) {
   const mapping = {
     registry: { src: 'odf-registry.json', dst: path.join(CONFIG_DIR, 'odf-registry.json') },
@@ -289,6 +317,7 @@ function installFiles(srcDir, components) {
     commands: { src: 'command',            dst: path.join(CONFIG_DIR, 'command'),  mirror: 'commands' },
     plugins:  { src: 'plugins',            dst: path.join(CONFIG_DIR, 'plugins') },
     scripts:  { src: 'scripts',            dst: path.join(CONFIG_DIR, 'scripts') },
+    policies: { src: 'policies',           dst: path.join(CONFIG_DIR, 'policies') },
     docs:     { src: 'docs',               dst: path.join(CONFIG_DIR, 'docs') },
     openspec: { src: 'openspec',           dst: path.join(CONFIG_DIR, 'openspec') },
   };
@@ -321,6 +350,21 @@ function installFiles(srcDir, components) {
     }
     count++;
   }
+
+  // The plugin entrypoint imports its support modules from ../odf-plugin.
+  if (components.includes('plugins')) {
+    const supportSrc = path.join(srcDir, 'odf-plugin');
+    if (fs.existsSync(supportSrc)) {
+      copyPath(supportSrc, path.join(CONFIG_DIR, 'odf-plugin'));
+    }
+  }
+
+  // package.json drives `npm install` for the plugin/runtime dependencies.
+  const manifestSrc = path.join(srcDir, 'package.json');
+  if (fs.existsSync(manifestSrc)) {
+    copyPath(manifestSrc, path.join(CONFIG_DIR, 'package.json'));
+  }
+
   rewriteConfigPaths();
   return count;
 }
@@ -580,7 +624,7 @@ async function installProgress(components) {
   // Install files
   process.stdout.write(`${ESC}[A${progressBar(2, 5)}  Installing files...\n`);
   const count = installFiles(srcDir, components);
-  for (const name of STALE_ODF_PLUGIN_FILES) removeManagedPath(path.join(CONFIG_DIR, 'plugins', name));
+  cleanupStalePluginFiles();
   process.stdout.write(`${ESC}[A${progressBar(3, 5)}  ${fg.green}${count} components installed${RESET}\n`);
 
   // CodeGraph
@@ -651,7 +695,7 @@ async function uninstallFlow() {
     const targets = comp === 'registry'
       ? [path.join(CONFIG_DIR, 'odf-registry.json')]
       : comp === 'plugins'
-        ? [path.join(CONFIG_DIR, 'plugins', 'odf-delegation.ts')]
+        ? [path.join(CONFIG_DIR, 'plugins', 'odf-delegation.ts'), path.join(CONFIG_DIR, 'odf-plugin')]
         : comp === 'agents'
           ? [...registryPaths('agents'), ...managedDirEntries('agents', 'odoo_')]
           : comp === 'skills'
@@ -660,6 +704,8 @@ async function uninstallFlow() {
               ? [...managedDirEntries('command', 'odf-'), ...managedDirEntries('commands', 'odf-')]
               : comp === 'scripts'
                 ? MANAGED_SCRIPT_PATHS.map(entry => path.join(CONFIG_DIR, entry))
+                : comp === 'policies'
+                  ? ['oca-ai-policy.md', path.join('oca', 'rules.yaml')].map(entry => path.join(CONFIG_DIR, 'policies', entry))
                  : comp === 'docs'
                    ? ['docs/design-contract.md', 'docs/expectations-contract.md'].map(entry => path.join(CONFIG_DIR, entry))
                  : comp === 'openspec'
@@ -751,7 +797,20 @@ async function main() {
   }
 
   process.stdout.write(SHOW_CURSOR);
-  rl.close();
+  if (rl) rl.close();
 }
 
-main();
+const invokedDirectly = Boolean(process.argv[1])
+  && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+
+if (invokedDirectly) {
+  main();
+}
+
+export {
+  COMPONENTS,
+  CONFIG_DIR,
+  STALE_ODF_PLUGIN_FILES,
+  cleanupStalePluginFiles,
+  installFiles,
+};
