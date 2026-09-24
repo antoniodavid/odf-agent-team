@@ -11,7 +11,7 @@ set -euo pipefail
 ODF_SOURCE_DIR="${ODF_SOURCE_DIR:-}"
 REPO="${REPO:-https://github.com/antoniodavid/odf-agent-team}"
 BRANCH="${BRANCH:-main}"
-VERSION="1.3.0"
+VERSION="1.3.1"
 STALE_ODF_PLUGIN_FILES=(
   candidate-manifest.test.ts
   candidate-manifest.ts
@@ -117,7 +117,7 @@ while [[ "$arg_index" -lt "${#INSTALL_ARGS[@]}" ]]; do
       echo "  REPO, BRANCH                Git repo to pull from (default: odf-agent-team main)"
       echo ""
       echo "  Release-pinned install:"
-  echo "    curl -fsSL https://raw.githubusercontent.com/antoniodavid/odf-agent-team/v1.3.0/install.sh | BRANCH=v1.3.0 bash"
+  echo "    curl -fsSL https://raw.githubusercontent.com/antoniodavid/odf-agent-team/v1.3.1/install.sh | BRANCH=v1.3.1 bash"
       exit 0
       ;;
     *)

@@ -1,5 +1,21 @@
 # Changelog — ODF Agent Team
 
+## 1.3.1 (2026-09-24)
+
+### Fixed
+- Installer: `curl | bash` no longer dies silently — non-interactive stdin continues with an explicit notice (the TTY prompt is kept and tolerates EOF); regression tests cover the piped script and stdin at EOF (#17).
+- OpenCode V2 entry authorization: the prompt hook detects the expanded `/odf-new` command document, and the V2 adapter shares the entry-authorization maps between the loop guard and the registered tools, so the capability minted after `odf_health` reaches `odf_workflow_bind` (#18).
+- Stale IMPLEMENT attempts: audited `odf_workflow_override action=settle-attempt` appends a terminal settlement (preserving the running record and the override audit log) and requires `confirm_no_active_run` plus a human-approved reason; it refuses attempts still active in the runtime, unsafe ids, and already-terminal records (#9).
+- BUILD/VERIFY starts accept the completion-shape proof after an audited BUILD re-entry instead of rejecting it as a phase mismatch; `odf_workflow_advance` accepts an explicit `null` candidate_stage for initial transitions and documents the start convention (#28).
+- TUI installer parity with `install.sh`: copies `odf-plugin/`, `policies/`, and `package.json` (so `npm install` runs), syncs the stale-plugin cleanup list, and covers uninstall/backup; tool, command, and skill counts in the docs match the registry and are guarded by consistency tests.
+
+### Added
+- GitHub Actions CI with test-gated auto-merge: typecheck, unit tests, YAML scenarios, registry validation, and diff check run on every PR; passing same-repo PRs squash-merge automatically (Node 22, actions v7).
+
+### Verification boundary
+- Local repository checks cover 900 unit tests, 325 YAML scenarios, and 18 harness checks; CI runs the same suite on Node 22.
+- ODF 2.0 remains gated on representative Odoo validation, canary/cohort evidence, and end-to-end `/odf-new`/`/odf-fix` telemetry; this release does not claim ODF 2.0 production readiness.
+
 ## 1.3.0 (2026-09-21)
 
 ### Added
