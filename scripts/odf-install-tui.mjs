@@ -384,8 +384,10 @@ function installFiles(srcDir, components) {
 
   // The pack ships a narrowed tsconfig so `npm run typecheck` covers ODF-owned
   // files only; other host plugins live under plugins/ and are out of scope.
+  // Keep the source file too so a pack can re-install itself.
   const tsconfigSrc = path.join(srcDir, 'tsconfig.pack.json');
   if (fs.existsSync(tsconfigSrc)) {
+    copyPath(tsconfigSrc, path.join(CONFIG_DIR, 'tsconfig.pack.json'));
     copyPath(tsconfigSrc, path.join(CONFIG_DIR, 'tsconfig.json'));
   }
 
