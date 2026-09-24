@@ -1532,10 +1532,10 @@ Use this instead of generic task() for ODF workflow delegation.`,
         if (callerResult.status !== "advanced") {
           return blockWorkflow("workflow-advance-blocked", callerResult.reason, callerResult)
         }
-        if (callerResult.next_stage !== expectedStage) {
+        if (callerResult.next_stage !== expectedStage && !isStageStartProof(resolveWorkflowRoute(callerWorkType), args.workflow_advance, expectedStage)) {
           return blockWorkflow(
             "workflow-phase-mismatch",
-            `Workflow next_stage ${callerResult.next_stage || "none"} does not match ${args.phase}; expected ${expectedStage}.`,
+            `Workflow next_stage ${callerResult.next_stage || "none"} does not match ${args.phase}; expected ${expectedStage}. To start ${args.phase}, pass the stage that precedes ${expectedStage} as candidate_stage so next_stage is ${expectedStage}.`,
             callerResult,
           )
         }
@@ -2858,10 +2858,10 @@ must not overlap. VERIFY remains sequential after the aggregate join is complete
         archived_state: false,
       })
       if (callerResult.status !== "advanced") return blocked("workflow-advance-blocked", callerResult.reason)
-      if (callerResult.next_stage !== "BUILD") {
+      if (callerResult.next_stage !== "BUILD" && !isStageStartProof(resolveWorkflowRoute(callerWorkType), args.workflow_advance, "BUILD")) {
         return blocked(
           "workflow-phase-mismatch",
-          `Workflow next_stage ${callerResult.next_stage || "none"} does not match IMPLEMENT; expected BUILD.`,
+          `Workflow next_stage ${callerResult.next_stage || "none"} does not match IMPLEMENT; expected BUILD. To start IMPLEMENT, pass the stage that precedes BUILD as candidate_stage so next_stage is BUILD.`,
         )
       }
       if (!args.resume_from_join && (!Array.isArray(args.branches) || args.branches.length < 2 || args.branches.length > PARALLEL_BUILD_CONCURRENCY)) {
@@ -4365,6 +4365,22 @@ function workflowStateSignals(snapshot: SelectedWorkflowSnapshot): {
   }
 }
 
+/**
+ * True when a caller proof is the completion shape for the stage being started:
+ * candidate_stage === expectedStage and completed_stages exactly match the route
+ * prefix before it. Callers that ask odf_workflow_advance to "advance BUILD"
+ * produce this shape naturally; the delegate reinterprets it as the start intent
+ * for BUILD instead of rejecting it as a phase mismatch (issue #28).
+ */
+function isStageStartProof(route: WorkflowRoute, proof: ODFDelegateWorkflowAdvance, expectedStage: "BUILD" | "VERIFY"): boolean {
+  if (proof.candidate_stage !== expectedStage) return false
+  const expectedIndex = route.stages.indexOf(expectedStage)
+  if (expectedIndex < 0) return false
+  const expectedPrefix = route.stages.slice(0, expectedIndex)
+  const completed = route.stages.filter(stage => proof.completed_stages.includes(stage))
+  return sameStages(completed, expectedPrefix)
+}
+
 function canonicalizeWorkflowAdvance(
   snapshot: SelectedWorkflowSnapshot,
   proof: ODFDelegateWorkflowAdvance,
@@ -4391,11 +4407,18 @@ function canonicalizeWorkflowAdvance(
   }
   const signals = workflowStateSignals(snapshot)
   const expectedIndex = route.stages.indexOf(expectedStage)
-  const candidateIndex = proof.candidate_stage === null ? -1 : route.stages.indexOf(proof.candidate_stage)
+  // A completion-shape proof for the stage being started is the caller asking
+  // to start it; rewrite the candidate to the previous stage so the proof
+  // becomes the transition that leads into expectedStage (issue #28).
+  const effectiveCandidate = isStageStartProof(route, proof, expectedStage) && expectedIndex > 0
+    ? route.stages[expectedIndex - 1]
+    : proof.candidate_stage
+  const candidateIndex = effectiveCandidate === null ? -1 : route.stages.indexOf(effectiveCandidate)
   const persisted = persistedCompletedStages(snapshot, route)
   return {
     proof: {
       ...proof,
+      candidate_stage: effectiveCandidate,
       completed_stages: candidateIndex >= 0
         ? route.stages.slice(0, candidateIndex).filter(stage => persisted.includes(stage))
         : expectedIndex < 0 ? persisted : route.stages.slice(0, expectedIndex).filter(stage => persisted.includes(stage)),
@@ -6467,7 +6490,7 @@ Actions:
 }
 
 function createODFWorkflowAdvance(): ReturnType<typeof tool> {  return tool({
-    description: "Advance a canonical ODF workflow without writing state, receipts, artifacts, or files.",
+    description: "Advance a canonical ODF workflow without writing state, receipts, artifacts, or files. To start BUILD or VERIFY, pass the stage that precedes it as candidate_stage so the returned next_stage is the stage you are starting.",
     args: {
       work_type: tool.schema
         .enum([
@@ -6488,8 +6511,9 @@ function createODFWorkflowAdvance(): ReturnType<typeof tool> {  return tool({
         .describe("Canonical stages already completed"),
       candidate_stage: tool.schema
         .enum(["DECIDE", "PLAN", "BUILD", "VERIFY", "EXPLORE", "FIX"])
+        .nullable()
         .optional()
-        .describe("Canonical stage that just completed"),
+        .describe("Canonical stage that just completed; null or omitted only for an initial transition (empty completed_stages)"),
       phase_result_status: tool.schema
         .enum(["ok", "warning", "blocked", "failed"])
         .describe("Result-contract status for the completed phase"),
@@ -6509,7 +6533,7 @@ function createODFWorkflowAdvance(): ReturnType<typeof tool> {  return tool({
     async execute(args: {
       work_type: WorkType
       completed_stages: CanonicalStage[]
-      candidate_stage?: CanonicalStage
+      candidate_stage?: CanonicalStage | null
       phase_result_status: WorkflowPhaseResultStatus
       validation_status: WorkflowValidationStatus
       receipt_state: WorkflowReceiptState
@@ -6520,7 +6544,7 @@ function createODFWorkflowAdvance(): ReturnType<typeof tool> {  return tool({
       const input: WorkflowAdvanceInput = {
         route,
         completed_stages: args.completed_stages,
-        candidate_stage: args.candidate_stage || null,
+        candidate_stage: args.candidate_stage ?? null,
         phase_result_status: args.phase_result_status,
         validation_status: args.validation_status,
         receipt_state: args.receipt_state,
