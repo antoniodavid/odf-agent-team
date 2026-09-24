@@ -160,6 +160,7 @@ describe("install.sh", { timeout: 30000 }, () => {
       expect(fs.existsSync(path.join(configDir, "policies", "oca", "rules.yaml"))).toBe(true)
       expect(fs.existsSync(path.join(configDir, "tsconfig.json"))).toBe(true)
       expect(fs.readFileSync(path.join(configDir, "tsconfig.json"), "utf8")).toContain("plugins/odf-delegation.ts")
+      expect(fs.existsSync(path.join(configDir, "tsconfig.pack.json"))).toBe(true)
       expect(fs.existsSync(path.join(configDir, "scripts", "tests"))).toBe(false)
       expect(fs.existsSync(path.join(configDir, "scripts", "odf-consistency-contracts.test.ts"))).toBe(false)
     } finally {

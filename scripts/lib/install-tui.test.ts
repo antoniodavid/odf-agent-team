@@ -53,6 +53,7 @@ describe("odf-install-tui install parity", () => {
     const tsconfig = fs.readFileSync(path.join(configDir, "tsconfig.json"), "utf8")
     expect(tsconfig).toContain("plugins/odf-delegation.ts")
     expect(tsconfig).toContain("odf-plugin/**/*.ts")
+    expect(fs.existsSync(path.join(configDir, "tsconfig.pack.json"))).toBe(true)
   })
 
   it("installs an entrypoint whose relative imports resolve", async () => {

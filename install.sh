@@ -422,8 +422,10 @@ install_files() {
 
   # The pack ships a narrowed tsconfig so `npm run typecheck` covers ODF-owned
   # files only; other host plugins live under plugins/ and are out of scope.
+  # Keep the source file too so a pack can re-install itself.
   if [[ -f "$src_dir/tsconfig.pack.json" ]]; then
     copy_dir "$src_dir/tsconfig.pack.json" "$ODF_DIR/tsconfig.json"
+    copy_dir "$src_dir/tsconfig.pack.json" "$ODF_DIR/tsconfig.pack.json"
   fi
 
   cleanup_stale_odf_paths
