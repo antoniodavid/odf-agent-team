@@ -8232,6 +8232,7 @@ describe("odf_health", () => {
       operations: ["create", "get", "prompt", "wait", "context", "interrupt"],
       usability: "unverified",
       probe: "not-run",
+      detail: null,
     })
     expect(result.warnings).toContain("v2-session-api-unverified: session usability was not probed because probing executes a task")
     expect(Object.values(session).every(method => method.mock.calls.length === 0)).toBe(true)
@@ -8259,6 +8260,33 @@ describe("odf_health", () => {
     expect(result.v2_session.source).toBe("context.session")
     expect(Object.values(contextSession).every(method => method.mock.calls.length === 0)).toBe(true)
     expect(Object.values(sdkSession).every(method => method.mock.calls.length === 0)).toBe(true)
+  })
+
+  it("reports why the V2 context session is unavailable", async () => {
+    const partial = {
+      create: vi.fn(),
+      get: vi.fn(),
+      prompt: vi.fn(),
+      context: vi.fn(),
+      interrupt: vi.fn(),
+    }
+    const partialResult = await runHealth(
+      { [ODF_V2_SESSION]: partial, sessionID: "parent", directory: configDir },
+      noEngramIo(),
+      undefined,
+    )
+    expect(partialResult.v2_session).toMatchObject({
+      source: "unavailable",
+      function_present: false,
+      detail: "context.session is missing operations: wait",
+    })
+
+    const missingResult = await runHealth({ sessionID: "parent", directory: configDir }, noEngramIo(), undefined)
+    expect(missingResult.v2_session).toMatchObject({
+      source: "unavailable",
+      function_present: false,
+      detail: "context.session was not attached to the tool context",
+    })
   })
 
   it("fails for a malformed registry", async () => {

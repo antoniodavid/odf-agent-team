@@ -244,6 +244,7 @@ export async function inspectODFHealth(toolCtx: ToolContext, client: OpencodeCli
     operations: readonly string[]
     usability: "unverified" | "unavailable"
     probe: "not-run"
+    detail: string | null
   }
   engram: EngramHealth
   tooling: { codegraph: "available" | "unavailable"; docker: "available" | "unavailable"; git: "available" | "unavailable"; node: "available" | "unavailable" }
@@ -259,7 +260,8 @@ export async function inspectODFHealth(toolCtx: ToolContext, client: OpencodeCli
     checkHealthFile(commandPath, io),
   ])
   const taskApi = findTaskApi(toolCtx, client)
-  const contextSession = getV2ContextSession(toolCtx)
+  const contextSessionProbe = inspectV2ContextSession(toolCtx)
+  const contextSession = contextSessionProbe.session
   const sdkV2Session = contextSession ? undefined : getV2Session(client)
   const v2Session = contextSession || sdkV2Session
   const taskApiHealth = {
@@ -274,6 +276,11 @@ export async function inspectODFHealth(toolCtx: ToolContext, client: OpencodeCli
     operations: v2Session ? V2_SESSION_OPERATIONS : [],
     usability: v2Session ? "unverified" as const : "unavailable" as const,
     probe: "not-run" as const,
+    detail: v2Session
+      ? null
+      : contextSessionProbe.attached
+        ? `context.session is missing operations: ${contextSessionProbe.missing.join(", ")}`
+        : "context.session was not attached to the tool context",
   }
   const taskWarning = taskApi
     ? "task-api-unverified: task usability was not probed because probing executes a task"
@@ -519,13 +526,28 @@ function isV2SessionApi(value: unknown): value is V2SessionApi {
   return V2_SESSION_OPERATIONS.every(method => typeof session[method] === "function")
 }
 
-function getV2ContextSession(toolCtx: ToolContext): V2SessionApi | undefined {
+/**
+ * Read and validate the V2 session attached to the tool context. The `detail`
+ * string explains an unavailable session (not attached vs. which operations
+ * are missing) so /odf-health can diagnose host integration drift.
+ */
+function inspectV2ContextSession(toolCtx: ToolContext): { session: V2SessionApi | undefined; attached: boolean; missing: readonly string[] } {
+  let value: unknown
   try {
-    const session = (toolCtx as ToolContext & { [ODF_V2_SESSION]?: unknown })[ODF_V2_SESSION]
-    return isV2SessionApi(session) ? session : undefined
+    value = (toolCtx as ToolContext & { [ODF_V2_SESSION]?: unknown })[ODF_V2_SESSION]
   } catch {
-    return undefined
+    return { session: undefined, attached: false, missing: V2_SESSION_OPERATIONS }
   }
+  if (!value || typeof value !== "object") {
+    return { session: undefined, attached: false, missing: V2_SESSION_OPERATIONS }
+  }
+  const session = value as Record<string, unknown>
+  const missing = V2_SESSION_OPERATIONS.filter(method => typeof session[method] !== "function")
+  return { session: missing.length === 0 ? (value as V2SessionApi) : undefined, attached: true, missing }
+}
+
+function getV2ContextSession(toolCtx: ToolContext): V2SessionApi | undefined {
+  return inspectV2ContextSession(toolCtx).session
 }
 
 function getV2Session(client?: OpencodeClient): V2SessionApi | undefined {
