@@ -3,7 +3,8 @@ import { ODF_REGISTERED_TOOLS } from "./odf-delegation-shared.js"
 import { ODF_SYSTEM_RULES } from "../plugins/odf-delegation.js"
 import { invokeTask } from "../plugins/odf-delegation.js"
 import { createV2SessionTaskApi, findTaskApi } from "./odf-delegation-health.js"
-import { OdfDelegationPluginV2, createV2ToolContext, setupODFV2 } from "./opencode-v2-adapter.js"
+import { ODF_ENTRY_HEALTH_REASON } from "./odf-delegation-loopguard.js"
+import { OdfDelegationPluginV2, createV2ToolContext, detectOdfNewEntry, loadOdfNewCommandBody, setupODFV2 } from "./opencode-v2-adapter.js"
 
 function testContext() {
   const tools: any[] = []
@@ -209,5 +210,119 @@ describe("OpenCode V2 ODF adapter", () => {
     const task = createV2SessionTaskApi(taskContext() as any, session as any)
 
     await expect(task({ agent: "odoo_qa_engineer", prompt: "return" })).rejects.toThrow(expected)
+  })
+})
+
+const HEALTH_OK = JSON.stringify({
+  schema_version: 1,
+  status: "ok",
+  registry: { status: "valid", skills: { missing: [] }, agents: { missing: [] } },
+  plugin: { loaded: true, file_status: "readable" },
+  command: { status: "readable" },
+  task_api: { function_present: true },
+})
+
+function entryHooks(fixture: ReturnType<typeof testContext>) {
+  return {
+    prompt: fixture.hooks.find(hook => hook.domain === "session" && hook.name === "prompt")!,
+    before: fixture.hooks.find(hook => hook.domain === "tool" && hook.name === "execute.before")!,
+    after: fixture.hooks.find(hook => hook.domain === "tool" && hook.name === "execute.after")!,
+  }
+}
+
+async function runHealthFlow(
+  fixture: ReturnType<typeof testContext>,
+  sessionID: string,
+  messageID: string,
+  promptText: string,
+) {
+  const hooks = entryHooks(fixture)
+  await hooks.prompt.callback({ sessionID, messageID, prompt: { text: promptText } })
+  await hooks.before.callback({ tool: "odf_health", sessionID, agent: "odoo_orchestrator", messageID, id: "call-health", input: {} })
+  await hooks.after.callback({
+    tool: "odf_health", sessionID, agent: "odoo_orchestrator", messageID, id: "call-health", input: {},
+    status: "completed", result: { content: HEALTH_OK },
+  })
+}
+
+describe("OpenCode V2 /odf-new entry authorization", () => {
+  afterEach(() => vi.restoreAllMocks())
+
+  it("detects the raw form and the expanded command document", () => {
+    const body = loadOdfNewCommandBody()
+    expect(body && body.length).toBeGreaterThan(0)
+
+    expect(detectOdfNewEntry('/odf-new sample-change "desc"', body)).toEqual({ args: 'sample-change "desc"' })
+    expect(detectOdfNewEntry("odf-new sample-change", body)).toEqual({ args: "sample-change" })
+    expect(detectOdfNewEntry(`${body}\n\nsample-change "desc"`, body)).toEqual({ args: 'sample-change "desc"' })
+    expect(detectOdfNewEntry(body!, body)).toEqual({ args: "" })
+    expect(detectOdfNewEntry("hello world", body)).toBeNull()
+    expect(detectOdfNewEntry(`${body}\nnot-an-appended-argument`, body)).toBeNull()
+    expect(detectOdfNewEntry("odf-newer change", body)).toBeNull()
+  })
+
+  it("blocks gated tools before health when the command was expanded", async () => {
+    const fixture = testContext()
+    const cleanup = await setupODFV2(fixture.context as any)
+    const body = loadOdfNewCommandBody()!
+    const hooks = entryHooks(fixture)
+
+    await hooks.prompt.callback({ sessionID: "session-gated", messageID: "msg-gated", prompt: { text: `${body}\n\nsample-change` } })
+
+    await expect(hooks.before.callback({
+      tool: "odf_delegate", sessionID: "session-gated", agent: "odoo_orchestrator", messageID: "msg-gated", id: "call-1", input: {},
+    })).rejects.toThrow(ODF_ENTRY_HEALTH_REASON)
+
+    await cleanup()
+  })
+
+  it.each([
+    ["expanded", (body: string) => `${body}\n\nv2-entry-probe "desc"`],
+    ["raw", () => '/odf-new v2-entry-probe "desc"'],
+  ])("shares the minted entry capability with the registered bind tool (%s form)", async (_label, makePrompt) => {
+    const fsModule = await import("node:fs")
+    const osModule = await import("node:os")
+    const pathModule = await import("node:path")
+    const fixture = testContext()
+    const tmpDir = fsModule.realpathSync(fsModule.mkdtempSync(pathModule.join(osModule.tmpdir(), "odf-v2-entry-")))
+    fixture.context.location.directory = tmpDir
+    const cleanup = await setupODFV2(fixture.context as any)
+    const sessionID = "session-bind"
+    const messageID = "msg-bind"
+
+    try {
+      await runHealthFlow(fixture, sessionID, messageID, makePrompt(loadOdfNewCommandBody()!))
+
+      const bind = fixture.tools.find(tool => tool.name === "odf_workflow_bind")!
+      const result = await bind.execute({
+        change_name: "v2-entry-probe",
+        work_type: "feature",
+        workspace_dir: tmpDir,
+        artifact_store: "openspec",
+        preflight: {
+          change: "v2-entry-probe",
+          execution_mode: "interactive",
+          artifact_store: "openspec",
+          delivery_strategy: "ask-on-risk",
+          review_budget_lines: 400,
+          odoo_version: 18,
+          tdd_mode: false,
+          solution_strategy: "custom",
+          chain_strategy: "none",
+        },
+      }, {
+        sessionID,
+        messageID,
+        agent: "odoo_orchestrator",
+        signal: new AbortController().signal,
+        progress: vi.fn(async () => undefined),
+      })
+
+      expect(result.content).not.toContain("workflow-start-unauthorized")
+      expect(fsModule.existsSync(pathModule.join(tmpDir, "openspec", "changes", "v2-entry-probe", "state.yaml"))).toBe(true)
+    } finally {
+      fsModule.rmSync(tmpDir, { recursive: true, force: true })
+      await cleanup()
+    }
   })
 })
