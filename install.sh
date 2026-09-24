@@ -707,12 +707,19 @@ main() {
 
   # Confirmation (skip in update mode — backup protects you)
   if [[ "$INSTALL_UPDATE" == false && "$INSTALL_DRY_RUN" == false && "$INSTALL_YES" == false && "$INSTALL_FORCE" == false ]]; then
-    echo ""
-    read -p "Continue with installation? [Y/n] " -n 1 -r
-    echo ""
-    if [[ ! $REPLY =~ ^[Yy]$ ]] && [[ -n $REPLY ]]; then
-      log_warn "Installation cancelled."
-      exit 0
+    if [[ ! -t 0 ]]; then
+      # `curl | bash` and other non-TTY invocations have no one to answer the
+      # prompt; reading from the pipe would consume the script stream and
+      # `set -e` would abort silently (issue #17). Continue with a notice.
+      log_warn "Non-interactive stdin detected; continuing with installation (use --dry-run to preview, or --yes to silence this notice)."
+    else
+      echo ""
+      read -p "Continue with installation? [Y/n] " -n 1 -r || true
+      echo ""
+      if [[ ! $REPLY =~ ^[Yy]$ ]] && [[ -n $REPLY ]]; then
+        log_warn "Installation cancelled."
+        exit 0
+      fi
     fi
   fi
 

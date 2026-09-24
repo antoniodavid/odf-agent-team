@@ -97,6 +97,49 @@ describe("install.sh", { timeout: 30000 }, () => {
     }
   })
 
+  it("runs from piped stdin (curl | bash) without a TTY and installs", () => {
+    const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), "odf-installer-piped-"))
+    const script = fs.readFileSync(INSTALL_SCRIPT, "utf8")
+    const env = {
+      ...process.env,
+      HOME: tempHome,
+      ODF_CONFIG_DIR: path.join(tempHome, ".config", "opencode"),
+      ODF_SOURCE_DIR: REPO_ROOT,
+      ODF_SKIP_NPM: "1",
+      ODF_SKIP_SELFTEST: "1",
+    } as NodeJS.ProcessEnv
+
+    try {
+      const result = spawnSync("bash", [], { input: script, env, encoding: "utf8", cwd: REPO_ROOT })
+      const output = `${result.stdout}\n${result.stderr}`
+      expect(result.status).toBe(0)
+      expect(output).toContain("Non-interactive stdin detected")
+      expect(fs.existsSync(path.join(tempHome, ".config", "opencode", "odf-registry.json"))).toBe(true)
+    } finally {
+      cleanup(tempHome)
+    }
+  })
+
+  it("continues with stdin at EOF instead of dying silently under set -e", () => {
+    const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), "odf-installer-eof-"))
+    const env = {
+      ...process.env,
+      HOME: tempHome,
+      ODF_CONFIG_DIR: path.join(tempHome, ".config", "opencode"),
+      ODF_SOURCE_DIR: REPO_ROOT,
+      ODF_SKIP_NPM: "1",
+      ODF_SKIP_SELFTEST: "1",
+    } as NodeJS.ProcessEnv
+
+    try {
+      const result = spawnSync("bash", [INSTALL_SCRIPT], { env, encoding: "utf8", cwd: REPO_ROOT, stdio: ["ignore", "pipe", "pipe"] })
+      expect(result.status).toBe(0)
+      expect(`${result.stdout}\n${result.stderr}`).toContain("Non-interactive stdin detected")
+    } finally {
+      cleanup(tempHome)
+    }
+  })
+
   it("non-interactive install copies ODF files to the target directory", () => {
     const { result, tempHome } = runInstaller(["--yes"])
     try {
