@@ -97,6 +97,45 @@ describe("install.sh", { timeout: 30000 }, () => {
     }
   })
 
+  it("installs dependencies before exposing the plugin entrypoint", () => {
+    const { result, tempHome } = runInstaller(["--dry-run"])
+    try {
+      expect(result.status).toBe(0)
+      const output = `${result.stdout}\n${result.stderr}`
+      const npmIdx = output.indexOf("[dry-run] Would run npm install")
+      const pluginIdx = output.indexOf("plugins/odf-delegation.ts ->")
+      expect(npmIdx).toBeGreaterThan(-1)
+      expect(pluginIdx).toBeGreaterThan(-1)
+      expect(npmIdx).toBeLessThan(pluginIdx)
+    } finally {
+      cleanup(tempHome)
+    }
+  })
+
+  it("warns about the service restart without acting in a plain dry run", () => {
+    const { result, tempHome } = runInstaller(["--dry-run"])
+    try {
+      expect(result.status).toBe(0)
+      const output = `${result.stdout}\n${result.stderr}`
+      expect(output).not.toContain("Would restart the OpenCode service")
+      expect(fs.existsSync(path.join(tempHome, ".config"))).toBe(false)
+    } finally {
+      cleanup(tempHome)
+    }
+  })
+
+  it("honours the opt-in --restart-service flag", () => {
+    const { result, tempHome } = runInstaller(["--dry-run", "--restart-service"])
+    try {
+      expect(result.status).toBe(0)
+      const output = `${result.stdout}\n${result.stderr}`
+      expect(output).toContain("Would restart the OpenCode service")
+      expect(fs.existsSync(path.join(tempHome, ".config"))).toBe(false)
+    } finally {
+      cleanup(tempHome)
+    }
+  })
+
   it("runs from piped stdin (curl | bash) without a TTY and installs", () => {
     const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), "odf-installer-piped-"))
     const script = fs.readFileSync(INSTALL_SCRIPT, "utf8")
