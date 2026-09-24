@@ -71,7 +71,7 @@ Each phase is a sub-agent with a defined input/output contract. The orchestrator
 
 ### Plugin tools (`odf-delegation.ts`)
 
-19 tools injected at runtime into the orchestrator's tool list:
+22 tools injected at runtime into the orchestrator's tool list:
 
 | Tool | Purpose |
 |------|---------|
@@ -82,6 +82,7 @@ Each phase is a sub-agent with a defined input/output contract. The orchestrator
 | `odf_workflow_override` | Audited skip/re-enter/re-plan for an existing change |
 | `odf_workflow_bind` | Start or bind canonical workflow state in the selected store |
 | `odf_entry_triage` | Classify a change entry (micro/standard/full) and pick the work type |
+| `odf_context_manifest` | Bounded, read-only context manifest for a change candidate |
 | `odf_skill_inject` | Match and inject relevant skill compact rules into a prompt |
 | `odf_skill_resolve` | Preview which skills match a task WITHOUT executing |
 | `odf_registry_read` | Read and cache `odf-registry.json` with TTL and file watcher |
@@ -93,11 +94,13 @@ Each phase is a sub-agent with a defined input/output contract. The orchestrator
 | `odf_workflow_status` | Read canonical workflow status (stages, receipts, resumability) |
 | `odf_policy_gate` | Resolve + persist the TDD/risk Policy Gate before IMPLEMENT/VERIFY |
 | `odf_receipt` | Persist a failure-disposition receipt for a change |
+| `odf_governance_provenance` | Record OCA AI provenance in `.odf/ai-provenance.json` |
+| `odf_governance_check` | Read-only OCA governance gate (diff, trailers, provenance) |
 | `odf_health` | Read-only installed/runtime ODF health check |
 
 ### Skills system
 
-32 skills covering:
+87 skills covering:
 
 - **OCA governance**: PR workflow, maturity levels, commit messages, contribution guidelines
 - **OCA style**: Python, XML, JavaScript/CSS standards
@@ -165,15 +168,15 @@ Missing fields are collected via `question` tool.
 agent/              — 11 agent instructions (orchestrator + 10 sub-agents)
 command/            — 22 slash command definitions (Markdown)
 plugins/            — odf-delegation.ts (OpenCode plugin)
-scripts/            — test runner (844 Vitest tests + 154 YAML scenarios), CLI wrapper, registry validator
-skills/              — 32 skills (OCA governance, ODF phases, patterns)
+scripts/            — test runner (883 Vitest tests + 325 YAML scenarios), CLI wrapper, registry validator
+skills/              — 87 skills (OCA governance, ODF phases, patterns)
   _shared/          — conventions (engram persistence, skill-resolver, Odoo sources)
   oca/              — OCA governance, style, patterns
   odf-{phase}/      — phase-specific skills (assess, design, implement, etc.)
 openspec/           — SDD change artifacts (when artifact_store=openspec)
 docs/               — intended-usage, architecture, skill-style-guide
 install.sh          — idempotent installer (backup, --dry-run, --force)
-odf-registry.json   — SINGLE SOURCE OF TRUTH (32 skills, 11 agents, 2 profiles, community tools)
+odf-registry.json   — SINGLE SOURCE OF TRUTH (87 skills, 11 agents, 2 profiles, community tools)
 ```
 
 ## Quick start
@@ -206,7 +209,7 @@ ODF is a superset of the generic SDD workflow:
 ## Tests
 
 ```bash
-npm test              # 844 Vitest tests + 154 YAML scenarios
+npm test              # 883 Vitest tests + 325 YAML scenarios
 npm run test:yaml     # YAML scenario runner only
 npm run test:unit     # Vitest only
 npm run typecheck     # tsc --noEmit

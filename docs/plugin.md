@@ -1,6 +1,6 @@
 # Plugin Reference — `odf-delegation`
 
-The ODF plugin injects **19 tools** into the orchestrator's tool list at runtime. They are **not MCP tools** — they are registered by the OpenCode plugin host from `plugins/odf-delegation.ts`.
+The ODF plugin injects **22 tools** into the orchestrator's tool list at runtime. They are **not MCP tools** — they are registered by the OpenCode plugin host from `plugins/odf-delegation.ts`.
 
 ## Tool inventory
 
@@ -14,6 +14,7 @@ The ODF plugin injects **19 tools** into the orchestrator's tool list at runtime
 | `odf_workflow_bind` | write | Start or bind workflow state in the selected store |
 | `odf_workflow_status` | read | Canonical status from OpenSpec / Engram / `.odf` |
 | `odf_entry_triage` | read | Classify micro / standard / full entry + pick work type |
+| `odf_context_manifest` | read | Bounded, reference-only context manifest for a candidate |
 | `odf_skill_inject` | read | Match and inject skill compact rules into a prompt |
 | `odf_skill_resolve` | read | Preview matching skills **without** executing |
 | `odf_registry_read` | read | Read + cache `odf-registry.json` (TTL + file watcher) |
@@ -24,6 +25,8 @@ The ODF plugin injects **19 tools** into the orchestrator's tool list at runtime
 | `odf_notebooklm_lookup` | read | Search NotebookLM notebooks |
 | `odf_community_tool_detect` | read | Is an optional tool (e.g. CodeGraph) available? |
 | `odf_community_tool_install` | write | Install + wire an optional tool |
+| `odf_governance_provenance` | write | Record OCA AI provenance in `.odf/ai-provenance.json` |
+| `odf_governance_check` | read | OCA governance gate: diff, trailers, provenance |
 | `odf_health` | read | Installed/runtime health check |
 
 ## Modules (`odf-plugin/`)
@@ -51,6 +54,9 @@ The entrypoint stays a monolith for the delegation core; self-contained concerns
 | `odf-context-manifest.ts` | Bounded context manifest |
 | `candidate-manifest.ts` | Candidate tracking |
 | `odf-community-tools.ts` | CodeGraph detect/install |
+| `opencode-v2-adapter.ts` | Official V2 `Plugin.define`/`setup` adapter (tools, hooks, session bridge) |
+| `opencode-v2-entrypoint.ts` | V2-only entrypoint re-export |
+| `runtime-boundary.ts` | Host-neutral plugin id/lifecycle seam |
 
 ## `odf_delegate` flow
 
