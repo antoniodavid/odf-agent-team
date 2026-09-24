@@ -234,7 +234,7 @@ export function advanceWorkflow(input: WorkflowAdvanceInput): WorkflowAdvanceRes
   }
 
   if (input.candidate_stage === null) {
-    return blocked("Candidate stage is not part of the selected route.", nextStage)
+    return blocked("candidate_stage is required when completed_stages is non-empty; null is only valid for an initial transition.", nextStage)
   }
 
   if (input.candidate_stage !== nextStage) {

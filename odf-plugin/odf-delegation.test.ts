@@ -5,6 +5,7 @@ import * as fsSync from "node:fs"
 import * as os from "node:os"
 import { execSync } from "node:child_process"
 import YAML from "yaml"
+import { tool as v1Tool } from "@opencode-ai/plugin"
 
 // These pure functions do not depend on the registry file path, so they can be
 // imported normally. createODFDelegate is imported dynamically in its own tests
@@ -593,6 +594,48 @@ describe("createODFWorkflowAdvance", () => {
       completed_stages: ["DECIDE", "PLAN"],
       next_stage: "BUILD",
       reason: "Advanced to BUILD.",
+    })
+  })
+
+  it("accepts an explicit null candidate_stage only for an initial transition", async () => {
+    const definition = createODFWorkflowAdvance()
+    const schema = v1Tool.schema.object(definition.args)
+    expect(() => schema.parse({
+      work_type: "feature",
+      completed_stages: [],
+      candidate_stage: null,
+      phase_result_status: "ok",
+      validation_status: "not-required",
+      receipt_state: "none",
+      resumable_state: true,
+      archived_state: false,
+    })).not.toThrow()
+
+    const initial = JSON.parse(await definition.execute({
+      work_type: "feature",
+      completed_stages: [],
+      candidate_stage: null,
+      phase_result_status: "ok",
+      validation_status: "not-required",
+      receipt_state: "none",
+      resumable_state: true,
+      archived_state: false,
+    }, {} as any) as string)
+    expect(initial).toMatchObject({ status: "advanced", next_stage: "DECIDE" })
+
+    const midRoute = JSON.parse(await definition.execute({
+      work_type: "feature",
+      completed_stages: ["DECIDE"],
+      candidate_stage: null,
+      phase_result_status: "ok",
+      validation_status: "not-required",
+      receipt_state: "none",
+      resumable_state: true,
+      archived_state: false,
+    }, {} as any) as string)
+    expect(midRoute).toMatchObject({
+      status: "blocked",
+      reason: "candidate_stage is required when completed_stages is non-empty; null is only valid for an initial transition.",
     })
   })
 
@@ -6245,6 +6288,68 @@ ${overrides}`
     expect(envelope.message).toContain("expected VERIFY")
     expect(taskApi).not.toHaveBeenCalled()
     expect(getMetricsBuffer()[0].status).toBe("blocked")
+  })
+
+  it("accepts the completion-shape proof for an IMPLEMENT start after a BUILD re-entry (issue #28)", async () => {
+    const { createODFDelegate } = await import("./odf-delegation.js")
+    const taskApi = vi.fn().mockResolvedValue({ status: "ok" })
+    await prepareWorkflowState("issue-28-reentry", "IMPLEMENT")
+    await writeValidationEvidence("issue-28-reentry")
+    const delegateTool = createODFDelegate(undefined, tempHome)
+
+    const output = JSON.parse(await delegateTool.execute({
+      phase: "IMPLEMENT",
+      change: "issue-28-reentry",
+      artifact_store: "openspec",
+      attempt_id: "reentry-1",
+      prompt: "Retry the bounded implementation after re-entering BUILD",
+      context_files: [],
+      workflow_advance: {
+        work_type: "feature",
+        completed_stages: ["DECIDE", "PLAN"],
+        candidate_stage: "BUILD",
+        phase_result_status: "ok",
+        validation_status: "verified",
+        receipt_state: "none",
+        resumable_state: true,
+        archived_state: false,
+      },
+    }, { sessionID: "s1", task: taskApi } as any) as string)
+
+    expect(output.status).toBe("delegated")
+    expect(taskApi).toHaveBeenCalledTimes(1)
+  })
+
+  it("still rejects proofs that are neither a start nor a completion shape", async () => {
+    const { createODFDelegate } = await import("./odf-delegation.js")
+    const taskApi = vi.fn().mockResolvedValue({ status: "ok" })
+    await prepareWorkflowState("issue-28-invalid", "IMPLEMENT")
+    await writeValidationEvidence("issue-28-invalid")
+    const delegateTool = createODFDelegate(undefined, tempHome)
+
+    const output = JSON.parse(await delegateTool.execute({
+      phase: "IMPLEMENT",
+      change: "issue-28-invalid",
+      artifact_store: "openspec",
+      attempt_id: "invalid-1",
+      prompt: "Implement",
+      context_files: [],
+      workflow_advance: {
+        work_type: "feature",
+        completed_stages: [],
+        candidate_stage: "DECIDE",
+        phase_result_status: "ok",
+        validation_status: "not-required",
+        receipt_state: "none",
+        resumable_state: true,
+        archived_state: false,
+      },
+    }, { sessionID: "s1", task: taskApi } as any) as string)
+
+    expect(output.status).toBe("blocked")
+    expect(output.reason).toBe("workflow-phase-mismatch")
+    expect(output.message).toContain("To start IMPLEMENT")
+    expect(taskApi).not.toHaveBeenCalled()
   })
 
   it("blocks a supplied workflow gate for composite legacy adapters", async () => {
