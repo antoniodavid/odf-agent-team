@@ -452,6 +452,35 @@ describe("install.sh", { timeout: 30000 }, () => {
     }
   })
 
+  it("resolves a project-local pack from its own location without the launcher", () => {
+    const { result, tempHome, projectDir, env } = runProjectInstaller([
+      "--scope", "project", "--project", "__PROJECT__", "--yes",
+    ])
+    try {
+      expect(result.status).toBe(0)
+      const validator = path.join(projectDir, ".opencode", "scripts", "odf-registry-validate.js")
+      expect(fs.existsSync(validator)).toBe(true)
+
+      // Without the launcher, the plugin and the CLIs ship inside the project
+      // pack; the resolver must find it by its own location. ODF_CONFIG_DIR and
+      // XDG_CONFIG_HOME are cleared and HOME points at an empty temp home, so
+      // the legacy "~/.config/opencode" fallback has no registry to find and
+      // this assertion fails on the old resolver.
+      const clean = spawnSync("node", [validator], {
+        env: { ...env, ODF_CONFIG_DIR: "", XDG_CONFIG_HOME: "", HOME: tempHome },
+        encoding: "utf8",
+        cwd: tempHome,
+      })
+
+      expect(clean.status).toBe(0)
+      expect(clean.stdout).toContain(path.join(projectDir, ".opencode"))
+      expect(clean.stdout).not.toContain(REPO_ROOT)
+    } finally {
+      cleanup(tempHome)
+      cleanup(projectDir)
+    }
+  })
+
   it("backs up project ODF files before an idempotent overwrite", () => {
     const first = runProjectInstaller([
       "--scope", "project", "--project", "__PROJECT__", "--yes",

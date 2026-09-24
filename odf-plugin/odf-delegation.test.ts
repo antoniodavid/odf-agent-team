@@ -366,6 +366,19 @@ function sdkCreateResult(id: string): Record<string, unknown> {
   return { data: { id }, request: {}, response: {} }
 }
 
+// The pack resolver is env-driven. `ODF_CONFIG_DIR` is the supported override;
+// self-location would win over `$HOME` because this repository ships a
+// `odf-registry.json` of its own, so tests that need their own pack must set it
+// explicitly. `$HOME` alone only decides the `~/.config/opencode` default.
+const ORIGINAL_CONFIG_DIR = process.env.ODF_CONFIG_DIR
+function isolateConfigDir(tempHome: string): void {
+  process.env.ODF_CONFIG_DIR = path.join(tempHome, ".config", "opencode")
+}
+function restoreConfigDir(): void {
+  if (ORIGINAL_CONFIG_DIR === undefined) delete process.env.ODF_CONFIG_DIR
+  else process.env.ODF_CONFIG_DIR = ORIGINAL_CONFIG_DIR
+}
+
 describe("createODFWorkflowOverride", () => {
   let root: string
 
@@ -2205,13 +2218,13 @@ describe("recordMetrics", () => {
   beforeEach(async () => {
     tempHome = await fs.mkdtemp(path.join(os.tmpdir(), "odf-metrics-"))
     process.env.HOME = tempHome
-    process.env.ODF_CONFIG_DIR = ""
+    isolateConfigDir(tempHome)
     clearMetricsBuffer()
   })
 
   afterEach(async () => {
     process.env.HOME = originalHome
-    delete process.env.ODF_CONFIG_DIR
+    restoreConfigDir()
     delete process.env.ODF_METRICS_BUFFER_CAP
     clearMetricsBuffer()
     await fs.rm(tempHome, { recursive: true, force: true })
@@ -3055,6 +3068,7 @@ describe("createODFDelegate", () => {
   beforeEach(async () => {
     tempHome = await fs.mkdtemp(path.join(os.tmpdir(), "odf-test-"))
     process.env.HOME = tempHome
+    isolateConfigDir(tempHome)
     const configDir = path.join(tempHome, ".config", "opencode")
     await fs.mkdir(configDir, { recursive: true })
     await fs.copyFile(
@@ -3066,6 +3080,7 @@ describe("createODFDelegate", () => {
 
   afterEach(async () => {
     process.env.HOME = originalHome
+    restoreConfigDir()
     await fs.rm(tempHome, { recursive: true, force: true })
     vi.restoreAllMocks()
   })
@@ -7467,6 +7482,7 @@ describe("createODFPolicyGate", () => {
   beforeEach(async () => {
     tempHome = await fs.mkdtemp(path.join(os.tmpdir(), "odf-policy-tool-"))
     process.env.HOME = tempHome
+    isolateConfigDir(tempHome)
     const configDir = path.join(tempHome, ".config", "opencode")
     await fs.mkdir(configDir, { recursive: true })
     await fs.copyFile(
@@ -7478,6 +7494,7 @@ describe("createODFPolicyGate", () => {
 
   afterEach(async () => {
     process.env.HOME = originalHome
+    restoreConfigDir()
     await fs.rm(tempHome, { recursive: true, force: true })
     vi.restoreAllMocks()
   })
@@ -7515,6 +7532,7 @@ describe("odf_delegate policy gate hook", () => {
     execSync("git init -q", { cwd: workspace })
     execSync("git -c user.email=odf@test -c user.name=ODF commit -q --allow-empty -m init", { cwd: workspace })
     process.env.HOME = tempHome
+    isolateConfigDir(tempHome)
     const configDir = path.join(tempHome, ".config", "opencode")
     await fs.mkdir(configDir, { recursive: true })
     await fs.copyFile(
@@ -7527,6 +7545,7 @@ describe("odf_delegate policy gate hook", () => {
 
   afterEach(async () => {
     process.env.HOME = originalHome
+    restoreConfigDir()
     await fs.rm(tempHome, { recursive: true, force: true })
     vi.restoreAllMocks()
   })
@@ -7906,6 +7925,7 @@ describe("odf_delegate stop-validation seal", () => {
     workspace = path.join(tempHome, "worktree")
     await fs.mkdir(workspace, { recursive: true })
     process.env.HOME = tempHome
+    isolateConfigDir(tempHome)
     const configDir = path.join(tempHome, ".config", "opencode")
     await fs.mkdir(configDir, { recursive: true })
     await fs.copyFile(
@@ -7918,6 +7938,7 @@ describe("odf_delegate stop-validation seal", () => {
 
   afterEach(async () => {
     process.env.HOME = originalHome
+    restoreConfigDir()
     await fs.rm(tempHome, { recursive: true, force: true })
     vi.restoreAllMocks()
   })
@@ -8061,6 +8082,7 @@ describe("odf_delegate receipt auto-seal on error", () => {
     workspace = path.join(tempHome, "worktree")
     await fs.mkdir(workspace, { recursive: true })
     process.env.HOME = tempHome
+    isolateConfigDir(tempHome)
     const configDir = path.join(tempHome, ".config", "opencode")
     await fs.mkdir(configDir, { recursive: true })
     await fs.copyFile(
@@ -8073,6 +8095,7 @@ describe("odf_delegate receipt auto-seal on error", () => {
 
   afterEach(async () => {
     process.env.HOME = originalHome
+    restoreConfigDir()
     await fs.rm(tempHome, { recursive: true, force: true })
     vi.restoreAllMocks()
   })
@@ -8108,6 +8131,7 @@ describe("createODFReceipt tool", () => {
   beforeEach(async () => {
     tempHome = await fs.mkdtemp(path.join(os.tmpdir(), "odf-rtool-"))
     process.env.HOME = tempHome
+    isolateConfigDir(tempHome)
     const configDir = path.join(tempHome, ".config", "opencode")
     await fs.mkdir(configDir, { recursive: true })
     await fs.copyFile(
@@ -8119,6 +8143,7 @@ describe("createODFReceipt tool", () => {
 
   afterEach(async () => {
     process.env.HOME = originalHome
+    restoreConfigDir()
     await fs.rm(tempHome, { recursive: true, force: true })
     vi.restoreAllMocks()
   })
@@ -8181,6 +8206,7 @@ describe("odf_health", () => {
   beforeEach(async () => {
     tempHome = await fs.mkdtemp(path.join(os.tmpdir(), "odf-health-"))
     process.env.HOME = tempHome
+    isolateConfigDir(tempHome)
     configDir = path.join(tempHome, ".config", "opencode")
     process.env.ODF_CONFIG_DIR = configDir
     pluginPath = path.join(configDir, "plugins", "odf-delegation.ts")
@@ -8198,6 +8224,7 @@ describe("odf_health", () => {
 
   afterEach(async () => {
     process.env.HOME = originalHome
+    restoreConfigDir()
     if (originalConfigDir === undefined) delete process.env.ODF_CONFIG_DIR
     else process.env.ODF_CONFIG_DIR = originalConfigDir
     await fs.rm(tempHome, { recursive: true, force: true })

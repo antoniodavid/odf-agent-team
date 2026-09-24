@@ -19,15 +19,14 @@ import YAML from 'yaml';
 import * as preflight from './lib/preflight.js';
 import * as orchestrator from './lib/orchestrator.js';
 import { resolveAgent as sharedResolveAgent } from './lib/agent-resolve.js';
+import { resolveOdfConfigDir } from './lib/config-dir.js';
 import * as cli from './odf-cli.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 function getConfigDir() {
-  const configured = process.env.ODF_CONFIG_DIR?.trim();
-  if (configured && path.isAbsolute(configured)) return path.normalize(configured);
-  return path.join(os.homedir(), '.config', 'opencode');
+  return resolveOdfConfigDir(process.env).dir;
 }
 
 const REGISTRY_PATH = path.join(getConfigDir(), 'odf-registry.json');

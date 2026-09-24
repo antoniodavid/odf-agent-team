@@ -30,6 +30,7 @@ import * as fs from "node:fs"
 import * as path from "node:path"
 import * as os from "node:os"
 import { roundsFromDurationMs } from "./odf-estimator.js"
+import { resolveOdfConfigDir } from "./lib/config-dir.js"
 
 /* ------------------------------------------------------------------ */
 /* appendDesign                                                         */
@@ -235,9 +236,7 @@ export function calibrateFromHistory(library) {
  */
 export function resolveLibraryPath({ repo = false } = {}) {
   if (repo) return path.join(process.cwd(), "design-library", "index.json")
-  const configDir = process.env.ODF_CONFIG_DIR
-    ? path.resolve(process.env.ODF_CONFIG_DIR)
-    : path.join(os.homedir(), ".config", "opencode")
+  const configDir = resolveOdfConfigDir(process.env).dir
   return path.join(configDir, "design-library", "index.json")
 }
 

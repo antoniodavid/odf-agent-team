@@ -20,6 +20,7 @@ import * as nodeCrypto from "node:crypto"
 import { type ToolContext, tool } from "../odf-plugin/odf-tool.js"
 import { execFileSync, execSync } from "node:child_process"
 import { filterStopWords, resolveAgent, validateAgentSelection } from "../scripts/lib/agent-resolve.js"
+import { findOtherPackRoots } from "../scripts/lib/config-dir.js"
 import {
   canonicalChangeName,
   canonicalWorkspaceRoot,
@@ -6673,7 +6674,15 @@ export async function startOdfRuntime(): Promise<void> {
   try {
     await fs.access(REGISTRY_PATH)
   } catch {
-    console.warn(`[odf-delegation] Registry not found at ${REGISTRY_PATH}. Run /odf-init or create it manually.`)
+    // "Not found here" is only actionable if we can say where one does exist:
+    // an XDG machine with a pack under ~/.config/opencode, or a project-local
+    // pack installed but not selected, is the usual case.
+    const elsewhere = findOtherPackRoots(getOdfConfigDir())
+    const hint = elsewhere.length > 0
+      ? ` A pack with a registry exists at ${elsewhere.join(", ")} — export ODF_CONFIG_DIR to that path or reinstall the pack here.`
+      : " Run /odf-init or create it manually."
+    console.warn(`[odf-delegation] Registry not found at ${REGISTRY_PATH}.`)
+    console.warn(`[odf-delegation]${hint}`)
   }
 
   // Start metrics flusher (F1)

@@ -16,11 +16,10 @@ import * as path from "node:path"
 import * as os from "node:os"
 import { estimateFromHistory } from "./odf-estimator.js"
 import { readLibrary, resolveLibraryPath } from "./odf-design-library.js"
+import { resolveOdfConfigDir } from "./lib/config-dir.js"
 
 export function resolveMetricsDir() {
-  const configDir = process.env.ODF_CONFIG_DIR
-    ? path.resolve(process.env.ODF_CONFIG_DIR)
-    : path.join(os.homedir(), ".config", "opencode")
+  const configDir = resolveOdfConfigDir(process.env).dir
   return path.join(configDir, "metrics")
 }
 
