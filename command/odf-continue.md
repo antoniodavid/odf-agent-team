@@ -8,7 +8,7 @@ agent: odoo_orchestrator
 
 Resumes the ODF flow from the last completed stage of the most recent active change or of a named change. The canonical route is `DECIDE -> optional PLAN -> BUILD -> VERIFY`; legacy phases are only read through their adapter.
 
-When the user intentionally changes scope (skipping PLAN, repeating a stage, or re-planning with new Expectations), use `odf_workflow_override` (skip/re-enter/re-plan) after explicit user approval; never alter state by hand.
+When the user intentionally changes scope (skipping PLAN, repeating a stage, or re-planning with new Expectations), use `odf_workflow_override` (skip/re-enter/re-plan) after explicit user approval; never alter state by hand. For a stale running attempt left by a pre-fix interruption (visible as `active_attempts` with `status: running` in `odf_workflow_status` and no live task), settle it with `odf_workflow_override action=settle-attempt`, the `attempt_id`, `confirm_no_active_run: true`, and a human-approved reason.
 
 ## Usage
 

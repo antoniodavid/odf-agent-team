@@ -10,7 +10,7 @@ The ODF plugin injects **22 tools** into the orchestrator's tool list at runtime
 | `odf_parallel_delegate` | write | Cross-domain BUILD as 2–3 parallel branches, one aggregate join |
 | `odf_workflow_route` | read | Canonical thin-spine route for a work type |
 | `odf_workflow_advance` | read | Preview/verify a transition (never mutates) |
-| `odf_workflow_override` | write | Audited skip / re-enter / re-plan (BUILD & VERIFY can never be skipped) |
+| `odf_workflow_override` | write | Audited skip / re-enter / re-plan / settle-stale-attempt (BUILD & VERIFY can never be skipped) |
 | `odf_workflow_bind` | write | Start or bind workflow state in the selected store |
 | `odf_workflow_status` | read | Canonical status from OpenSpec / Engram / `.odf` |
 | `odf_entry_triage` | read | Classify micro / standard / full entry + pick work type |

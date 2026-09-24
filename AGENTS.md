@@ -79,7 +79,7 @@ Each phase is a sub-agent with a defined input/output contract. The orchestrator
 | `odf_parallel_delegate` | Run a cross-domain BUILD as 2-3 parallel branches with one aggregate join |
 | `odf_workflow_route` | Resolve the canonical stage route for a work type |
 | `odf_workflow_advance` | Preview/verify a canonical workflow transition (read-only) |
-| `odf_workflow_override` | Audited skip/re-enter/re-plan for an existing change |
+| `odf_workflow_override` | Audited skip/re-enter/re-plan/settle-stale-attempt for an existing change |
 | `odf_workflow_bind` | Start or bind canonical workflow state in the selected store |
 | `odf_entry_triage` | Classify a change entry (micro/standard/full) and pick the work type |
 | `odf_context_manifest` | Bounded, read-only context manifest for a change candidate |

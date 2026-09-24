@@ -599,6 +599,14 @@ interface AttemptAcquisitionAllowed {
 
 type AttemptAcquisitionResult = AttemptAcquisitionAllowed | AttemptAcquisitionBlocked
 
+// In-process liveness marker: audited recovery must never settle an attempt
+// that is still running in this runtime. It clears on process restart, which
+// is exactly the stale case the recovery exists for.
+const inFlightAttempts = new Set<string>()
+function attemptLivenessKey(change: string, attemptId: string): string {
+  return `${change}\u0000${attemptId}`
+}
+
 function attemptLedgerPath(workspaceDir: string, change: string): string {
   return path.join(workspaceDir, ".odf", `attempt-ledger-${change}.jsonl`)
 }
@@ -834,7 +842,11 @@ function acquireAttempt(opts: {
     // Rejecting "completed" here permanently closed the phase in the ledger
     // while a multi-batch BUILD still had pending batches (issue #2).
     if (latestPhaseRecord?.status === "running") {
-      return { acquired: false, reason: "attempt-phase-running", message: `A ${opts.phase} attempt is already running.` }
+      return {
+        acquired: false,
+        reason: "attempt-phase-running",
+        message: `A ${opts.phase} attempt is already running. If no task is active (for example after a host restart), settle the stale attempt with odf_workflow_override action=settle-attempt before retrying.`,
+      }
     }
 
     const now = new Date().toISOString()
@@ -856,6 +868,7 @@ function acquireAttempt(opts: {
     if (appendError) {
       return { acquired: false, reason: appendError, message: "The attempt could not be acquired safely." }
     }
+    inFlightAttempts.add(attemptLivenessKey(opts.change, opts.attemptId))
     return { acquired: true, handle: { workspaceRoot: opts.workspaceDir, ledgerPath, record } }
   })
   if (!result.locked) {
@@ -870,6 +883,7 @@ function settleAttempt(
   resultStatus: Exclude<AttemptLedgerResultStatus, "running">,
   reason: Exclude<AttemptLedgerReason, "acquired">,
 ): void {
+  inFlightAttempts.delete(attemptLivenessKey(attempt.record.change, attempt.record.attempt_id))
   const now = new Date().toISOString()
   const settled: AttemptLedgerRecord = {
     ...attempt.record,
@@ -6164,13 +6178,16 @@ Actions:
 - re-enter: move back to a completed stage; later completed stages are invalidated and must be re-run.
      - re-plan: like re-enter, plus persist a human-approved Expectations revision (revision > current, supersedes = digest of the previous artifact).
      - disable-fast-lane: disable an existing fast_lane_policy through a separate audited marker without rewriting workflow state or artifacts.
+- settle-attempt: append a terminal settlement for a stale running attempt (use the attempt_id from odf_workflow_status active_attempts) so a fresh attempt can be acquired. Requires confirm_no_active_run: true and refuses attempts that are still active in this runtime.
 
      Requires a human-approved reason (>=20 chars). Fast-lane disable additionally requires approved_by and a live session.`,
     args: {
       change_name: tool.schema.string().describe("Change name (kebab-case)"),
       artifact_store: tool.schema.enum(["openspec", "engram", "hybrid"]).describe("Authoritative workflow store"),
-      action: tool.schema.enum(["skip", "re-enter", "re-plan", "disable-fast-lane"]).describe("Override action"),
+      action: tool.schema.enum(["skip", "re-enter", "re-plan", "disable-fast-lane", "settle-attempt"]).describe("Override action"),
       target_stage: tool.schema.enum(["DECIDE", "PLAN", "BUILD", "VERIFY"]).optional().describe("Canonical stage to skip/re-enter/re-plan from"),
+      attempt_id: tool.schema.string().optional().describe("Stale attempt to settle (required for settle-attempt)"),
+      confirm_no_active_run: tool.schema.boolean().optional().describe("Required true for settle-attempt after verifying no task or run is active"),
       reason: tool.schema.string().describe("Human-approved reason (>=20 chars)"),
       approved_by: tool.schema.string().optional().describe("Human approver for disabling the fast lane"),
       expectations_revision: tool.schema.object({
@@ -6191,8 +6208,10 @@ Actions:
     async execute(args: {
       change_name: string
       artifact_store: "openspec" | "engram" | "hybrid"
-      action: "skip" | "re-enter" | "re-plan" | "disable-fast-lane"
+      action: "skip" | "re-enter" | "re-plan" | "disable-fast-lane" | "settle-attempt"
       target_stage?: "DECIDE" | "PLAN" | "BUILD" | "VERIFY"
+      attempt_id?: string
+      confirm_no_active_run?: boolean
       reason: string
       approved_by?: string
       expectations_revision?: Record<string, unknown>
@@ -6213,6 +6232,69 @@ Actions:
       if (args.action === "disable-fast-lane" &&
         (approvedBy.length === 0 || approvedBy.length > 256 || /[\r\n]/.test(approvedBy) || !toolCtx?.sessionID)) {
         return blocked("fast-lane-rollback-authorization-required", "Disabling the fast lane requires a named human approver and an active OpenCode session.")
+      }
+
+      if (args.action === "settle-attempt") {
+        const attemptId = (args.attempt_id || "").trim()
+        if (!attemptId || !SAFE_TOKEN_PATTERN.test(attemptId)) {
+          return blocked("attempt-recovery-id-required", "settle-attempt requires a safe attempt_id from odf_workflow_status active_attempts.")
+        }
+        if (args.confirm_no_active_run !== true) {
+          return blocked("attempt-recovery-confirmation-required", "settle-attempt requires confirm_no_active_run: true after verifying that no task or run is active for this attempt.")
+        }
+        if (inFlightAttempts.has(attemptLivenessKey(changeName, attemptId))) {
+          return blocked("attempt-still-running", "The attempt is still active in this runtime; wait for it to settle instead of recovering it.")
+        }
+        const ledgerPath = attemptLedgerPath(workspaceRoot, changeName)
+        const settled = withAttemptLedgerLock(workspaceRoot, ledgerPath, (): { error?: string; record?: AttemptLedgerRecord } => {
+          const ledger = readAttemptLedger(workspaceRoot, ledgerPath)
+          if (ledger.error) return { error: ledger.error }
+          const record = [...ledger.records].reverse().find(candidate => candidate.attempt_id === attemptId)
+          if (!record) return { error: "attempt-not-found" }
+          if (record.status !== "running") return { error: "attempt-not-running" }
+          const now = new Date().toISOString()
+          const terminal: AttemptLedgerRecord = {
+            ...record,
+            status: "failed",
+            updated_at: now,
+            settled_at: now,
+            reason: "task-cancelled",
+            result_status: "cancelled",
+          }
+          const appendError = appendAttemptLedgerRecord(workspaceRoot, ledgerPath, terminal)
+          return appendError ? { error: appendError } : { record: terminal }
+        })
+        if (!settled.locked) return blocked(settled.error, "The attempt ledger could not be locked safely.")
+        const recoveryError = settled.value.error
+        if (recoveryError || !settled.value.record) {
+          const messages: Record<string, string> = {
+            "attempt-not-found": "No ledger record matches that attempt_id in this change.",
+            "attempt-not-running": "Only a running attempt can be settled; this attempt already has a terminal record.",
+          }
+          return blocked(recoveryError || "attempt-recovery-failed", messages[recoveryError || ""] || "The attempt ledger could not be updated safely.")
+        }
+        const settledRecord = settled.value.record
+        const audit = {
+          at: new Date().toISOString(),
+          action: "settle-attempt",
+          attempt_id: attemptId,
+          phase: settledRecord.phase,
+          stage: settledRecord.next_stage,
+          reason,
+          settled_at: settledRecord.settled_at,
+        }
+        try {
+          fsSync.appendFileSync(path.join(workspaceRoot, ".odf", `override-${changeName}.jsonl`), JSON.stringify(audit) + "\n")
+        } catch { /* audit is best-effort */ }
+        return JSON.stringify({
+          status: "settled",
+          change_name: changeName,
+          action: args.action,
+          attempt_id: attemptId,
+          phase: settledRecord.phase,
+          settled_at: settledRecord.settled_at,
+          next_step: "Acquire a fresh attempt_id for the next delegation.",
+        }, null, 2)
       }
 
       const locked = await withWorkflowLock(workspaceRoot, changeName, async (): Promise<string> => {

@@ -513,6 +513,66 @@ describe("createODFWorkflowOverride", () => {
     expect(result).toMatchObject({ status: "blocked", reason: "fast-lane-rollback-authorization-required" })
     expect(fsSync.existsSync(path.join(root, ".odf", "fast-lane-rollback-ov-change.json"))).toBe(false)
   })
+
+  it("settles a stale running attempt and preserves the audit trail", async () => {
+    const ledgerPath = path.join(root, ".odf", "attempt-ledger-ov-change.jsonl")
+    await fs.mkdir(path.dirname(ledgerPath), { recursive: true })
+    await fs.writeFile(ledgerPath, JSON.stringify({
+      attempt_id: "stale-1", branch_id: "default", change: "ov-change", phase: "IMPLEMENT", next_stage: "BUILD",
+      status: "running", started_at: "2026-09-21T20:00:00.000Z", updated_at: "2026-09-21T20:00:00.000Z",
+      settled_at: null, reason: "acquired", result_status: "running", candidate_digest: null,
+    }) + "\n", "utf8")
+
+    const { createODFWorkflowOverride } = await import("./odf-delegation.js")
+    const tool = createODFWorkflowOverride()
+    const output = JSON.parse(await tool.execute(baseArgs({
+      action: "settle-attempt",
+      target_stage: undefined,
+      attempt_id: "stale-1",
+      confirm_no_active_run: true,
+    }), {} as any) as string)
+    expect(output).toMatchObject({ status: "settled", action: "settle-attempt", attempt_id: "stale-1", phase: "IMPLEMENT" })
+
+    const records = (await fs.readFile(ledgerPath, "utf8")).trim().split("\n").map(line => JSON.parse(line))
+    expect(records).toHaveLength(2)
+    expect(records[0]).toMatchObject({ attempt_id: "stale-1", status: "running" })
+    expect(records[1]).toMatchObject({ attempt_id: "stale-1", status: "failed", reason: "task-cancelled", result_status: "cancelled" })
+    expect(records[1].settled_at).toBeTruthy()
+
+    const audit = await fs.readFile(path.join(root, ".odf", "override-ov-change.jsonl"), "utf8")
+    expect(audit).toContain('"action":"settle-attempt"')
+    expect(audit).toContain('"attempt_id":"stale-1"')
+  })
+
+  it("requires confirmation, a safe attempt_id, and a running record", async () => {
+    const { createODFWorkflowOverride } = await import("./odf-delegation.js")
+    const tool = createODFWorkflowOverride()
+    const settleArgs = {
+      action: "settle-attempt",
+      target_stage: undefined,
+      attempt_id: "stale-2",
+      confirm_no_active_run: true,
+    }
+
+    const noConfirm = JSON.parse(await tool.execute(baseArgs({ ...settleArgs, confirm_no_active_run: false }), {} as any) as string)
+    expect(noConfirm).toMatchObject({ status: "blocked", reason: "attempt-recovery-confirmation-required" })
+
+    const noId = JSON.parse(await tool.execute(baseArgs({ ...settleArgs, attempt_id: "../escape" }), {} as any) as string)
+    expect(noId).toMatchObject({ status: "blocked", reason: "attempt-recovery-id-required" })
+
+    const notFound = JSON.parse(await tool.execute(baseArgs(settleArgs), {} as any) as string)
+    expect(notFound).toMatchObject({ status: "blocked", reason: "attempt-not-found" })
+
+    const ledgerPath = path.join(root, ".odf", "attempt-ledger-ov-change.jsonl")
+    await fs.mkdir(path.dirname(ledgerPath), { recursive: true })
+    await fs.writeFile(ledgerPath, JSON.stringify({
+      attempt_id: "stale-2", change: "ov-change", phase: "IMPLEMENT", next_stage: "BUILD",
+      status: "failed", started_at: "2026-09-21T20:00:00.000Z", updated_at: "2026-09-21T20:10:00.000Z",
+      settled_at: "2026-09-21T20:10:00.000Z", reason: "task-cancelled", result_status: "cancelled",
+    }) + "\n", "utf8")
+    const notRunning = JSON.parse(await tool.execute(baseArgs(settleArgs), {} as any) as string)
+    expect(notRunning).toMatchObject({ status: "blocked", reason: "attempt-not-running" })
+  })
 })
 
 describe("createODFWorkflowAdvance", () => {
@@ -4129,6 +4189,41 @@ ${overrides}`
     }, { sessionID: "s1", task: taskApi } as any) as string)
     expect(blocked).toMatchObject({ status: "blocked", reason: "attempt-phase-running" })
     expect(taskApi).toHaveBeenCalledTimes(1)
+    resolveTask({ status: "ok" })
+    await first
+  })
+
+  it("refuses to settle an attempt that is still active in this runtime", async () => {
+    const { createODFDelegate, createODFWorkflowOverride } = await import("./odf-delegation.js")
+    let resolveTask!: (value: unknown) => void
+    const taskApi = vi.fn().mockReturnValue(new Promise(resolve => { resolveTask = resolve }))
+    await prepareWorkflowState("attempt-live-recovery", "IMPLEMENT")
+    await writeValidationEvidence("attempt-live-recovery")
+    const delegateTool = createODFDelegate(undefined, tempHome)
+    const first = delegateTool.execute({
+      phase: "IMPLEMENT",
+      change: "attempt-live-recovery",
+      artifact_store: "openspec",
+      attempt_id: "live-1",
+      prompt: "Implement the change",
+      context_files: [],
+      workflow_advance: workflowAdvance("IMPLEMENT"),
+      timeout_ms: 5_000,
+    }, { sessionID: "s1", task: taskApi } as any)
+    await vi.waitFor(() => expect(taskApi).toHaveBeenCalledTimes(1))
+
+    const override = createODFWorkflowOverride()
+    const blocked = JSON.parse(await override.execute({
+      change_name: "attempt-live-recovery",
+      artifact_store: "openspec",
+      action: "settle-attempt",
+      attempt_id: "live-1",
+      confirm_no_active_run: true,
+      reason: "Intentando recuperar un intento que sigue activo en este runtime.",
+      workspace_dir: tempHome,
+    }, {} as any) as string)
+    expect(blocked).toMatchObject({ status: "blocked", reason: "attempt-still-running" })
+
     resolveTask({ status: "ok" })
     await first
   })
