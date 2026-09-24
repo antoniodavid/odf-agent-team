@@ -44,7 +44,7 @@ opencode2 api --standalone GET /api/command
 opencode2 api --standalone GET /api/agent
 ```
 
-The current registry should expose 21 ODF commands and 11 ODF agents in
+The current registry should expose 22 ODF commands and 11 ODF agents in
 addition to the host's built-ins. A provider/model error is independent of this
 catalog check; validate discovery before diagnosing model connectivity.
 
@@ -61,4 +61,4 @@ Run this checklist only with an actual V2 host. The current V1 host and Vitest f
 - [ ] Reload the host and repeat the load/tool checks; confirm no duplicate tools, hooks, or event subscriptions.
 - [ ] Re-run the V1 host smoke and the repository checks before changing the default runtime.
 
-**Current result:** partial live V2 smoke passes in the isolated harness: the plugin loads and the catalog exposes 21 ODF commands plus 11 ODF agents. Full tool execution, delegation, cancellation, reload, and provider validation remain pending; the Console provider currently rejects the beta host with HTTP 426. No fake host harness was added.
+**Current result:** partial live V2 smoke passes in the isolated harness: the plugin loads and the catalog exposes 22 ODF commands plus 11 ODF agents. Full tool execution, delegation, cancellation, reload, and provider validation remain pending; the Console provider currently rejects the beta host with HTTP 426. No fake host harness was added.

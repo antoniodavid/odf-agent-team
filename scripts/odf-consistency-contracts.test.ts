@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest"
 import fs from "node:fs"
+import { ODF_REGISTERED_TOOLS } from "../odf-plugin/odf-delegation-shared.js"
 
 const read = (rel: string): string => fs.readFileSync(new URL(rel, import.meta.url), "utf8")
 
@@ -119,5 +120,33 @@ describe("supervised-auto contracts", () => {
   it("fix escalates bounded multi-file fixes instead of stopping", () => {
     expect(fix).toContain("Scope escalation")
     expect(fixCommand).toContain("supervised auto")
+  })
+})
+
+const readme = read("../README.md")
+const agentsDoc = read("../AGENTS.md")
+const docsIndex = read("../docs/README.md")
+const pluginDoc = read("../docs/plugin.md")
+const migrationDoc = read("../docs/opencode-v2-migration.md")
+
+describe("documentation inventory counts", () => {
+  it("tool counts match the registered tool surface", () => {
+    const toolCount = ODF_REGISTERED_TOOLS.length
+    for (const [name, text] of [
+      ["README.md", readme],
+      ["AGENTS.md", agentsDoc],
+      ["docs/README.md", docsIndex],
+      ["docs/plugin.md", pluginDoc],
+    ] as const) {
+      expect(text, `${name} should mention ${toolCount} tools`).toContain(`${toolCount} tools`)
+    }
+  })
+
+  it("command counts match the command directory", () => {
+    const commandDir = new URL("../command/", import.meta.url)
+    const commandCount = fs.readdirSync(commandDir).filter(entry => entry.endsWith(".md")).length
+    expect(readme, `README.md should mention ${commandCount} commands`).toContain(`${commandCount} commands`)
+    expect(agentsDoc, `AGENTS.md should mention ${commandCount} slash command`).toContain(`${commandCount} slash command`)
+    expect(migrationDoc, `migration doc should mention ${commandCount} ODF commands`).toContain(`${commandCount} ODF commands`)
   })
 })

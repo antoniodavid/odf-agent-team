@@ -74,7 +74,7 @@ Routing is deterministic: standard config can stop after DECIDE, a bugfix runs d
 | Skills | 87 (`skills/` — OCA governance/style, Odoo patterns, ODF phases) |
 | Agents | 11 (`agent/` — orchestrator + 10 specialists) |
 | Commands | 22 (`command/`) |
-| Plugin tools | 19 injected at runtime (`plugins/odf-delegation.ts` + `odf-plugin/`) |
+| Plugin tools | 22 injected at runtime (`plugins/odf-delegation.ts` + `odf-plugin/`) |
 | Deterministic CLIs | `odf-project-scan`, `odf-toolkit` (`scripts/`) |
 
 ## Documentation
@@ -83,12 +83,12 @@ Routing is deterministic: standard config can stop after DECIDE, a bugfix runs d
 
 - [Intended usage](docs/intended-usage.md) — mental model, entry points, when to use what
 - [Architecture](docs/architecture.md) — thin-spine vocabulary, components, data flow
-- [Plugin reference](docs/plugin.md) — the 19 tools, modules, `odf_delegate` path
+- [Plugin reference](docs/plugin.md) — the 22 tools, modules, `odf_delegate` path
 - [Archive](docs/archive/README.md) — completed roadmaps and plans
 
 ## Honest status
 
-- **Mature and tested locally**: 844 unit tests + 154 YAML scenarios + 17 harness checks. Representative Odoo validation and end-to-end telemetry remain ODF 2.0 gates.
+- **Mature and tested locally**: 883 unit tests + 325 YAML scenarios + 18 harness checks. Representative Odoo validation and end-to-end telemetry remain ODF 2.0 gates.
 - **Portable**: Linux/macOS/Windows (Git Bash/WSL), `XDG_CONFIG_HOME` resolution, author-path rewriting at install time.
 - **Known limitations**:
   - `plugins/odf-delegation.ts` (~6k lines) is still a monolith for the delegation/workflow core; cohesive sections already live in `odf-plugin/`.
@@ -111,9 +111,9 @@ Full matrix: `node <pack>/scripts/odf-toolkit.js deps`
 
 ```bash
 npm test              # full suite: unit + YAML + plugin
-npm run test:unit     # 844 Vitest
-npm run test:yaml     # 154 YAML scenarios
-npm run test:harness  # 17 harness checks
+npm run test:unit     # 883 Vitest
+npm run test:yaml     # 325 YAML scenarios
+npm run test:harness  # 18 harness checks
 npm run typecheck     # tsc --noEmit
 ODF_CONFIG_DIR=$PWD node scripts/odf-registry-validate.js
 ```
@@ -127,7 +127,7 @@ agent/            11 agent instructions (orchestrator + 10 specialists)
 command/          22 slash commands
 skills/           87 skills (OCA + ODF + shared)
 odf-plugin/       deterministic modules (workflow, triage, policy, …)
-plugins/          odf-delegation.ts — plugin entrypoint, 19 tools
+plugins/          odf-delegation.ts — plugin entrypoint, 22 tools
 scripts/          CLIs + test runner + registry validator
 docs/             architecture, usage, plugin reference, diagrams
 install.sh        idempotent installer (backup, TUI, --force, --with-codegraph)
