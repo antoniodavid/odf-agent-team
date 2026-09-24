@@ -144,6 +144,17 @@ const STALE_ODF_PLUGIN_FILES = [
   'opencode-v2-entrypoint.js',
 ];
 
+// Paths older pack versions installed; they must disappear on update.
+const STALE_ODF_PATHS = [
+  'scripts/tests',
+];
+
+// Repo-only files: they audit repository docs and cannot run from the
+// installed pack (its README.md/AGENTS.md belong to the host user).
+const REPO_ONLY_ODF_PATHS = [
+  'scripts/odf-consistency-contracts.test.ts',
+];
+
 const MANAGED_SCRIPT_PATHS = [
   'scripts/odf-test-runner.js',
   'scripts/odf-cli.js',
@@ -309,6 +320,12 @@ function cleanupStalePluginFiles() {
   }
 }
 
+function cleanupStalePackPaths() {
+  for (const rel of [...STALE_ODF_PATHS, ...REPO_ONLY_ODF_PATHS]) {
+    removeManagedPath(path.join(CONFIG_DIR, rel));
+  }
+}
+
 function installFiles(srcDir, components) {
   const mapping = {
     registry: { src: 'odf-registry.json', dst: path.join(CONFIG_DIR, 'odf-registry.json') },
@@ -363,6 +380,13 @@ function installFiles(srcDir, components) {
   const manifestSrc = path.join(srcDir, 'package.json');
   if (fs.existsSync(manifestSrc)) {
     copyPath(manifestSrc, path.join(CONFIG_DIR, 'package.json'));
+  }
+
+  // The pack ships a narrowed tsconfig so `npm run typecheck` covers ODF-owned
+  // files only; other host plugins live under plugins/ and are out of scope.
+  const tsconfigSrc = path.join(srcDir, 'tsconfig.pack.json');
+  if (fs.existsSync(tsconfigSrc)) {
+    copyPath(tsconfigSrc, path.join(CONFIG_DIR, 'tsconfig.json'));
   }
 
   rewriteConfigPaths();
@@ -625,6 +649,7 @@ async function installProgress(components) {
   process.stdout.write(`${ESC}[A${progressBar(2, 5)}  Installing files...\n`);
   const count = installFiles(srcDir, components);
   cleanupStalePluginFiles();
+  cleanupStalePackPaths();
   process.stdout.write(`${ESC}[A${progressBar(3, 5)}  ${fg.green}${count} components installed${RESET}\n`);
 
   // CodeGraph
@@ -810,7 +835,10 @@ if (invokedDirectly) {
 export {
   COMPONENTS,
   CONFIG_DIR,
+  REPO_ONLY_ODF_PATHS,
+  STALE_ODF_PATHS,
   STALE_ODF_PLUGIN_FILES,
+  cleanupStalePackPaths,
   cleanupStalePluginFiles,
   installFiles,
 };
