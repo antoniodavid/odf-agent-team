@@ -2,12 +2,17 @@ import { Plugin } from "@opencode/plugin"
 import type { Context as V2Context, Cleanup as V2Cleanup } from "@opencode/plugin/promise/plugin"
 import type { ToolContext as V2ToolContext } from "@opencode/plugin/promise/tool"
 import { tool as v1Tool, type ToolContext as V1ToolContext, type ToolResult as V1ToolResult } from "@opencode-ai/plugin"
+import { readFileSync } from "node:fs"
+import * as path from "node:path"
+import { fileURLToPath } from "node:url"
 import {
   createStableDiscoveryGuard,
   type LoopGuardHooks,
 } from "./odf-delegation-loopguard.js"
 import {
   ODF_REGISTERED_TOOLS,
+  type ODFEntryAuthorizations,
+  type ODFEntryGenerations,
   type OpencodeClient,
 } from "./odf-delegation-shared.js"
 import {
@@ -91,6 +96,46 @@ function v2AbortClient(context: V2Context): OpencodeClient {
   } as unknown as OpencodeClient
 }
 
+function stripCommandFrontmatter(raw: string): string {
+  const match = raw.match(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/)
+  return (match ? raw.slice(match[0].length) : raw).trim()
+}
+
+/**
+ * Load the installed /odf-new command body: the template OpenCode V2 expands
+ * into a prompt (trimmed Markdown body, arguments appended after a blank line).
+ * The command files ship beside this module in every installed layout.
+ */
+export function loadOdfNewCommandBody(): string | null {
+  const here = path.dirname(fileURLToPath(import.meta.url))
+  const candidates = [
+    path.join(here, "..", "command", "odf-new.md"),
+    path.join(here, "..", "commands", "odf-new.md"),
+  ]
+  for (const candidate of candidates) {
+    try {
+      return stripCommandFrontmatter(readFileSync(candidate, "utf8"))
+    } catch {
+      // Try the next layout (singular command/ vs plural commands/).
+    }
+  }
+  return null
+}
+
+/**
+ * Detect a /odf-new entry in a V2 prompt. V2 expands the slash command before
+ * the prompt hook runs, so accept both the raw form and the expanded command
+ * document (template body plus appended arguments).
+ */
+export function detectOdfNewEntry(text: string, commandBody: string | null): { args: string } | null {
+  const raw = text.match(/^\/?odf-new(?:\s|$)/)
+  if (raw) return { args: text.slice(raw[0].length).trim() }
+  if (!commandBody) return null
+  if (text === commandBody) return { args: "" }
+  if (text.startsWith(`${commandBody}\n\n`)) return { args: text.slice(commandBody.length + 2).trim() }
+  return null
+}
+
 function eventForV1Guard(event: unknown): unknown {
   if (!event || typeof event !== "object" || Array.isArray(event)) return event
   const value = event as Record<string, unknown>
@@ -112,6 +157,7 @@ async function registerV2Hooks(
   guard: LoopGuardHooks,
   registrations: V2Registration[],
   systemRules: string,
+  odfNewCommandBody: string | null,
 ): Promise<void> {
   registrations.push(await context.tool.hook("execute.before", async (input) => {
     const output = { args: input.input }
@@ -145,19 +191,20 @@ async function registerV2Hooks(
   }))
 
   // V2 has no command.execute.before hook. The prompt hook is the narrowest
-  // supported seam: it observes raw /odf-new prompts, then initializes the
-  // existing V1 guard. It cannot observe command-expanded parts identically.
+  // supported seam: V2 expands the slash command before admission, so detect
+  // both the raw /odf-new form and the expanded command document, then
+  // initialize the existing V1 guard.
   registrations.push(await context.session.hook("prompt", async (input) => {
     const session = await context.session.get({ sessionID: input.sessionID })
     const agent = typeof session.agent === "string" ? session.agent : undefined
     if (!agent) return
     const parts = [{ type: "text", text: input.prompt.text }] as never
-    const command = input.prompt.text.match(/^\/?odf-new(?:\s|$)/)?.[0]
-    if (command) {
+    const entry = detectOdfNewEntry(input.prompt.text, odfNewCommandBody)
+    if (entry) {
       await guard["command.execute.before"]?.({
-        command,
+        command: "odf-new",
         sessionID: input.sessionID,
-        arguments: input.prompt.text.slice(command.length).trim(),
+        arguments: entry.args,
       }, { parts } as never)
     }
     await guard["chat.message"]?.({ sessionID: input.sessionID, agent, messageID: input.messageID } as never, {
@@ -188,12 +235,16 @@ async function registerV2Hooks(
 export async function setupODFV2(context: V2Context): Promise<V2Cleanup> {
   const registrations: V2Registration[] = []
   const directory = context.location.directory
-  const guard = createStableDiscoveryGuard(v2AbortClient(context), new Map(), new Map(), directory)
+  // The guard mints the single-use entry capability; the registered tools
+  // (odf_workflow_bind) consume it. Both sides must share the same maps.
+  const entryAuthorizations: ODFEntryAuthorizations = new Map()
+  const entryGenerations: ODFEntryGenerations = new Map()
+  const guard = createStableDiscoveryGuard(v2AbortClient(context), entryAuthorizations, entryGenerations, directory)
 
   try {
     const { createODFRegisteredTools, ODF_SYSTEM_RULES } = await import("../plugins/odf-delegation.js")
     registrations.push(await context.tool.transform((editor) => {
-      const tools = createODFRegisteredTools(undefined, directory)
+      const tools = createODFRegisteredTools(undefined, directory, entryAuthorizations, entryGenerations)
       for (const name of ODF_REGISTERED_TOOLS) {
         const definition = tools[name]
         const schema = schemaFor(name, definition)
@@ -209,7 +260,7 @@ export async function setupODFV2(context: V2Context): Promise<V2Cleanup> {
         })
       }
     }))
-    await registerV2Hooks(context, guard, registrations, ODF_SYSTEM_RULES)
+    await registerV2Hooks(context, guard, registrations, ODF_SYSTEM_RULES, loadOdfNewCommandBody())
     return async () => {
       await Promise.allSettled(registrations.splice(0).map(registration => registration.dispose()))
       await guard.dispose?.()

@@ -14,7 +14,7 @@ ODF ships one `odf-delegation` entrypoint that exposes the existing V1 server an
 | JSONC | Read by the host | Read by the host | `--configure-mcp` does not rewrite `opencode.jsonc`; edit it manually or convert to strict JSON first. |
 | Agent/command discovery | `agent/` and `command/` | `agents/` and `commands/` | The installer copies both layouts from the same source files. |
 | Tool contract | V1 tool factories and validation | JSON Schema generated from the V1 factories, with V1 parsing before execution | Contract fixtures cover all registered tools without claiming host execution. |
-| Hooks and lifecycle | `command.execute.before`, `chat.message`, tool hooks, system transform, events, dispose | Tool `execute.before/after`, `session.context`, `session.prompt`, event subscription, setup cleanup | `session.prompt` is the narrowest V2 substitute for command-before; exact command-expanded timing is not equivalent. |
+| Hooks and lifecycle | `command.execute.before`, `chat.message`, tool hooks, system transform, events, dispose | Tool `execute.before/after`, `session.context`, `session.prompt`, event subscription, setup cleanup | `session.prompt` detects both the raw `/odf-new` form and the command-expanded document; the entry capability maps are shared with the registered tools. |
 
 ## Hook mapping
 
@@ -23,7 +23,7 @@ ODF ships one `odf-delegation` entrypoint that exposes the existing V1 server an
 | `tool.execute.before` | `ctx.tool.hook("execute.before")` | Supported. |
 | `tool.execute.after` | `ctx.tool.hook("execute.after")` | Supported. |
 | `experimental.chat.system.transform` | `ctx.session.hook("context")` | Injects the shared ODF system rules. |
-| `command.execute.before` + `chat.message` | `ctx.session.hook("prompt")` | Best-effort raw prompt observation; V2 has no command-before hook. |
+| `command.execute.before` + `chat.message` | `ctx.session.hook("prompt")` | Detects the raw `/odf-new` form and the expanded command document (template body + appended arguments); V2 has no command-before hook, so timing still differs from V1. |
 | `event` | `ctx.event.subscribe({ signal })` | Abort the subscription during cleanup. |
 | `dispose` | `setup` cleanup function | Disposes registrations, event subscription, and loop-guard state. |
 
