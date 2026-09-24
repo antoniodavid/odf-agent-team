@@ -4,7 +4,8 @@
  * from plugins/odf-delegation.ts.
  */
 
-import type { Hooks, ToolContext } from "@opencode-ai/plugin"
+import type { Hooks } from "@opencode-ai/plugin"
+import type { ToolContext } from "./odf-tool.js"
 import * as nodeCrypto from "node:crypto"
 import { canonicalChangeName, canonicalWorkspaceRoot, ODF_REGISTERED_TOOLS, type ODFEntryAuthorizations, type ODFEntryGenerations, type OpencodeClient } from "./odf-delegation-shared.js"
 import { estimateTokens } from "./odf-delegation-metrics.js"

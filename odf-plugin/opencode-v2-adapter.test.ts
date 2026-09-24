@@ -145,6 +145,43 @@ describe("OpenCode V2 ODF adapter", () => {
     await cleanup()
   })
 
+  it("injects the one-shot context pressure notice through the V2 context hook", async () => {
+    const previous = process.env.ODF_CONTEXT_WARN_TOKENS
+    process.env.ODF_CONTEXT_WARN_TOKENS = "1000"
+    try {
+      const fixture = testContext()
+      const cleanup = await setupODFV2(fixture.context as any)
+      const contextHook = fixture.hooks.find(hook => hook.domain === "session" && hook.name === "context")!
+      const promptHook = fixture.hooks.find(hook => hook.domain === "session" && hook.name === "prompt")!
+      const afterHook = fixture.hooks.find(hook => hook.domain === "tool" && hook.name === "execute.after")!
+
+      // V2 replaces V1's chat.message seam with the prompt hook.
+      await promptHook.callback({ sessionID: "s1", messageID: "m1", prompt: { text: "go" } })
+      // Cross the threshold with a large tool result.
+      await afterHook.callback({
+        tool: "read",
+        sessionID: "s1",
+        id: "c1",
+        input: { filePath: "a" },
+        status: "completed",
+        result: { output: "y".repeat(20_000), metadata: {} },
+      })
+
+      const first: { system: Array<{ type: "text"; text: string }>; sessionID?: string } = { system: [], sessionID: "s1" }
+      await contextHook.callback(first as any)
+      expect(first.system.map(part => part.text).join("\n")).toContain("<odf-context-pressure>")
+
+      const second: { system: Array<{ type: "text"; text: string }>; sessionID?: string } = { system: [], sessionID: "s1" }
+      await contextHook.callback(second as any)
+      expect(second.system.map(part => part.text).join("\n")).not.toContain("<odf-context-pressure>")
+
+      await cleanup()
+    } finally {
+      if (previous === undefined) delete process.env.ODF_CONTEXT_WARN_TOKENS
+      else process.env.ODF_CONTEXT_WARN_TOKENS = previous
+    }
+  })
+
   it("disposes hook registrations and the event subscription", async () => {
     const fixture = testContext()
     const cleanup = await setupODFV2(fixture.context as any)

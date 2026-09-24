@@ -7,7 +7,7 @@ import * as fs from "node:fs/promises"
 import * as fsSync from "node:fs"
 import * as path from "node:path"
 import { execFileSync } from "node:child_process"
-import { tool, type ToolContext } from "@opencode-ai/plugin"
+import { tool, type ToolContext } from "./odf-tool.js"
 import type { SessionDomain } from "@opencode/plugin/promise/session"
 import type { createOpencodeClient } from "@opencode-ai/sdk"
 type OpencodeClient = ReturnType<typeof createOpencodeClient>

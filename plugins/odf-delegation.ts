@@ -17,7 +17,7 @@ import type { Dirent } from "node:fs"
 import * as path from "node:path"
 import * as os from "node:os"
 import * as nodeCrypto from "node:crypto"
-import { type Hooks, type Plugin, type ToolContext, tool } from "@opencode-ai/plugin"
+import { type ToolContext, tool } from "../odf-plugin/odf-tool.js"
 import { execFileSync, execSync } from "node:child_process"
 import { filterStopWords, resolveAgent, validateAgentSelection } from "../scripts/lib/agent-resolve.js"
 import {
@@ -112,7 +112,6 @@ import {
   contextPressureNotice,
   contextPressureThreshold,
   createStableDiscoveryGuard,
-  type LoopGuardHooks,
 } from "../odf-plugin/odf-delegation-loopguard.js"
 import type { createOpencodeClient } from "@opencode-ai/sdk"
 import { isMap, parseDocument, stringify } from "yaml"
@@ -6620,24 +6619,6 @@ export const ODF_SYSTEM_RULES = `<odf-system>
 - The outer plugin envelope and inner agent \`## ODF Result\` are separate; preserve the agent result and inspect both layers.
 </odf-system>`
 
-export function createODFRuntimeHooks(
-  client: OpencodeClient,
-  entryAuthorizations: ODFEntryAuthorizations = new Map(),
-  entryGenerations: ODFEntryGenerations = new Map(),
-  workspaceDir = process.cwd(),
-): LoopGuardHooks & Pick<Hooks, "experimental.chat.system.transform"> {
-  const { consumeContextPressureNotice, ...guardHooks } = createStableDiscoveryGuard(client, entryAuthorizations, entryGenerations, workspaceDir)
-  return {
-    ...guardHooks,
-    "experimental.chat.system.transform": async (input, output) => {
-      const parts = [...output.system, ODF_SYSTEM_RULES]
-      const pressureNotice = input.sessionID ? consumeContextPressureNotice(input.sessionID) : null
-      if (pressureNotice) parts.push(pressureNotice)
-      output.system = [parts.join("\n\n---\n\n")]
-    },
-  }
-}
-
 // ==========================================
 // PLUGIN EXPORT
 // ==========================================
@@ -6679,12 +6660,15 @@ export function createODFRegisteredTools(
   }
 }
 
-export const OdfDelegationPlugin: Plugin = async (ctx) => {
-  const { directory, client } = ctx
-  const entryAuthorizations: ODFEntryAuthorizations = new Map()
-  const entryGenerations: ODFEntryGenerations = new Map()
-  const runtimeHooks = createODFRuntimeHooks(client, entryAuthorizations, entryGenerations, directory)
-
+/**
+ * Warm up registry state and telemetry once per host process.
+ *
+ * This body lived inside the V1 `server` entrypoint, so the V2 runtime silently
+ * lost it: metrics flushing, the skills/permissions cache refresh, unregistered
+ * skill discovery and the learning loop never ran under OpenCode V2. `setupODFV2`
+ * now awaits this instead, keeping the side effects host-independent.
+ */
+export async function startOdfRuntime(): Promise<void> {
   // Ensure registry exists (log warning if not)
   try {
     await fs.access(REGISTRY_PATH)
@@ -6752,17 +6736,15 @@ export const OdfDelegationPlugin: Plugin = async (ctx) => {
   }
 
   debugLog(`[odf-delegation] Plugin loaded. Tools: ${ODF_REGISTERED_TOOLS.join(", ")}`)
-
-  return {
-    ...runtimeHooks,
-    tool: createODFRegisteredTools(client, directory, entryAuthorizations, entryGenerations),
-  }
 }
 
-export default {
-  ...OdfDelegationPluginV2,
-  server: OdfDelegationPlugin,
-}
+/**
+ * V2 entrypoint: a plain `Plugin.define({ id, setup })` shape.
+ *
+ * The V1 `server` export was removed — OpenCode V2 has no V1 runtime, and the
+ * dual `{ id, setup, server }` object existed only for the transition window.
+ */
+export default OdfDelegationPluginV2
 
 // Exported for unit testing
 export {

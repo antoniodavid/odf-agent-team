@@ -5,7 +5,7 @@
 
 import * as fs from "node:fs/promises"
 import * as path from "node:path"
-import { tool } from "@opencode-ai/plugin"
+import { tool } from "./odf-tool.js"
 import { filterStopWords, resolveAgent } from "../scripts/lib/agent-resolve.js"
 import { loadRegistry } from "./odf-registry-io.js"
 import { debugLog, type ODFRegistry, type ODFSkill } from "./odf-delegation-shared.js"

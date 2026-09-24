@@ -43,7 +43,6 @@ import {
   createODFWorkflowBind,
   evaluateExpectations,
   createODFEntryTriage,
-  createODFRuntimeHooks,
   createStableDiscoveryGuard,
   contextPressureThreshold,
   contextPressureNotice,
@@ -8835,18 +8834,6 @@ describe("stable discovery runtime guard", () => {
     expect(abort).not.toHaveBeenCalled()
   })
 
-  it("composes the guard with the existing system prompt hook", async () => {
-    const hooks = createODFRuntimeHooks({ session: { abort: vi.fn() } } as any)
-    expect(hooks["chat.message"]).toBeTypeOf("function")
-    expect(hooks["tool.execute.before"]).toBeTypeOf("function")
-    expect(hooks["tool.execute.after"]).toBeTypeOf("function")
-    const output = { system: ["base"] }
-    await hooks["experimental.chat.system.transform"]?.({} as any, output)
-    expect(output.system).toHaveLength(1)
-    expect(output.system[0]).toContain("base")
-    expect(output.system[0]).toContain("<odf-system>")
-  })
-
   it("warns once when estimated context pressure crosses the threshold", async () => {
     const previous = process.env.ODF_CONTEXT_WARN_TOKENS
     process.env.ODF_CONTEXT_WARN_TOKENS = "1000"
@@ -8918,31 +8905,4 @@ describe("stable discovery runtime guard", () => {
     expect(contextPressureNotice(250_000)).toContain("250k")
   })
 
-  it("injects the context pressure notice into the system prompt exactly once", async () => {
-    const previous = process.env.ODF_CONTEXT_WARN_TOKENS
-    process.env.ODF_CONTEXT_WARN_TOKENS = "1000"
-    try {
-      const showToast = vi.fn().mockResolvedValue({})
-      const hooks = createODFRuntimeHooks({ session: { abort: vi.fn() }, tui: { showToast } } as any)
-      await hooks["chat.message"]?.(
-        { sessionID: "s1", messageID: "m1", agent: "odoo_orchestrator" },
-        { message: { id: "m1", sessionID: "s1", agent: "odoo_orchestrator" } as any, parts: [{ type: "text", text: "go" } as any] },
-      )
-      await hooks["tool.execute.after"]?.(
-        { tool: "read", sessionID: "s1", callID: "c1", args: { filePath: "a" } },
-        { title: "t", output: "y".repeat(20_000), metadata: {} },
-      )
-      const first = { system: ["base"] }
-      await hooks["experimental.chat.system.transform"]?.({ sessionID: "s1" } as any, first)
-      expect(first.system).toHaveLength(1)
-      expect(first.system[0]).toContain("<odf-context-pressure>")
-
-      const second = { system: ["base"] }
-      await hooks["experimental.chat.system.transform"]?.({ sessionID: "s1" } as any, second)
-      expect(second.system[0]).not.toContain("<odf-context-pressure>")
-    } finally {
-      if (previous === undefined) delete process.env.ODF_CONTEXT_WARN_TOKENS
-      else process.env.ODF_CONTEXT_WARN_TOKENS = previous
-    }
-  })
 })

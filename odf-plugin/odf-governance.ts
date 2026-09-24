@@ -1,7 +1,7 @@
 import * as fsSync from "node:fs"
 import * as path from "node:path"
 import { execFileSync } from "node:child_process"
-import { tool } from "@opencode-ai/plugin"
+import { tool } from "./odf-tool.js"
 import { canonicalWorkspaceRoot, isWithinRoot } from "./odf-delegation-shared.js"
 
 export const OCA_POLICY_SOURCE = "https://github.com/OCA/.github/blob/master/AI_POLICY.md"
