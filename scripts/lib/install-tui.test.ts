@@ -49,6 +49,10 @@ describe("odf-install-tui install parity", () => {
     expect(fs.existsSync(path.join(configDir, "policies", "oca-ai-policy.md"))).toBe(true)
     expect(fs.existsSync(path.join(configDir, "policies", "oca", "rules.yaml"))).toBe(true)
     expect(fs.existsSync(path.join(configDir, "package.json"))).toBe(true)
+
+    const tsconfig = fs.readFileSync(path.join(configDir, "tsconfig.json"), "utf8")
+    expect(tsconfig).toContain("plugins/odf-delegation.ts")
+    expect(tsconfig).toContain("odf-plugin/**/*.ts")
   })
 
   it("installs an entrypoint whose relative imports resolve", async () => {
@@ -84,5 +88,24 @@ describe("odf-install-tui install parity", () => {
       expect(fs.existsSync(path.join(pluginsDir, name)), name).toBe(false)
     }
     expect(fs.readFileSync(path.join(pluginsDir, "custom-plugin.ts"), "utf8")).toBe("export default async () => ({})\n")
+  })
+
+  it("removes stale pack paths and repo-only tests on update", async () => {
+    const tui = await loadTui()
+    const staleDir = path.join(configDir, "scripts", "tests")
+    fs.mkdirSync(staleDir, { recursive: true })
+    fs.writeFileSync(path.join(staleDir, "odf-delegation.test.ts"), "// stale test\n", "utf8")
+    const repoOnly = path.join(configDir, "scripts", "odf-consistency-contracts.test.ts")
+    fs.mkdirSync(path.dirname(repoOnly), { recursive: true })
+    fs.writeFileSync(repoOnly, "// repo-only test\n", "utf8")
+    const keep = path.join(configDir, "scripts", "odf-test-runner.js")
+    fs.writeFileSync(keep, "// keep\n", "utf8")
+
+    tui.cleanupStalePackPaths()
+
+    for (const rel of [...tui.STALE_ODF_PATHS, ...tui.REPO_ONLY_ODF_PATHS]) {
+      expect(fs.existsSync(path.join(configDir, rel)), rel).toBe(false)
+    }
+    expect(fs.existsSync(keep)).toBe(true)
   })
 })

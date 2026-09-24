@@ -6565,19 +6565,34 @@ ${overrides}`
 
   it("rejects context directories", async () => {
     const { createODFDelegate } = await import("./odf-delegation.js")
-    const toolCtx = { sessionID: "s1" } as any
+    const workspace = await fs.mkdtemp(path.join(os.tmpdir(), "odf-context-dir-"))
 
-    const delegateTool = createODFDelegate(undefined)
-    const output = await delegateTool.execute(
-      { phase: "DESIGN", prompt: "Design a model", context_files: ["plugins"] },
-      toolCtx
-    )
+    try {
+      await fs.mkdir(path.join(workspace, "plugins"), { recursive: true })
+      const delegateTool = createODFDelegate(undefined, workspace)
+      const output = await delegateTool.execute(
+        { phase: "DESIGN", prompt: "Design a model", context_files: ["plugins"], workspace_dir: workspace },
+        { sessionID: "s1" } as any
+      )
 
-    expect(output).toContain("is not a file")
+      expect(output).toContain("is not a file")
+    } finally {
+      await fs.rm(workspace, { recursive: true, force: true })
+    }
   })
 
-  it("resolves the Git root from a nested working directory", () => {
-    expect(resolveWorkspaceRoot(path.join(process.cwd(), "plugins"))).toBe(process.cwd())
+  it("resolves the Git root from a nested working directory", async () => {
+    const repo = await fs.mkdtemp(path.join(os.tmpdir(), "odf-git-root-"))
+
+    try {
+      execSync("git init -q", { cwd: repo })
+      const nested = path.join(repo, "nested", "deep")
+      await fs.mkdir(nested, { recursive: true })
+      const expected = path.normalize(execSync("git rev-parse --show-toplevel", { cwd: nested, encoding: "utf8" }).trim())
+      expect(resolveWorkspaceRoot(nested)).toBe(expected)
+    } finally {
+      await fs.rm(repo, { recursive: true, force: true })
+    }
   })
 
   it("does not invent a runtime client.task fallback", async () => {
@@ -7461,9 +7476,14 @@ describe("createODFPolicyGate", () => {
 describe("odf_delegate policy gate hook", () => {
   const originalHome = process.env.HOME
   let tempHome: string
+  let workspace: string
 
   beforeEach(async () => {
     tempHome = await fs.mkdtemp(path.join(os.tmpdir(), "odf-hook-"))
+    workspace = path.join(tempHome, "worktree")
+    await fs.mkdir(workspace, { recursive: true })
+    execSync("git init -q", { cwd: workspace })
+    execSync("git -c user.email=odf@test -c user.name=ODF commit -q --allow-empty -m init", { cwd: workspace })
     process.env.HOME = tempHome
     const configDir = path.join(tempHome, ".config", "opencode")
     await fs.mkdir(configDir, { recursive: true })
@@ -7479,13 +7499,6 @@ describe("odf_delegate policy gate hook", () => {
     process.env.HOME = originalHome
     await fs.rm(tempHome, { recursive: true, force: true })
     vi.restoreAllMocks()
-    const odfDir = path.join(process.cwd(), ".odf")
-    await fs.rm(path.join(odfDir, "policy-gate-hook-test.json"), { force: true })
-    try {
-      await fs.rmdir(odfDir)
-    } catch {
-      // dir not empty or missing — leave it
-    }
   })
 
   it("injects the frozen policy gate into the VERIFY delegation", async () => {
@@ -7494,9 +7507,9 @@ describe("odf_delegate policy gate hook", () => {
     const taskApi = vi.fn().mockResolvedValue(taskResult)
     const toolCtx = { sessionID: "s1", task: taskApi } as any
 
-    const delegateTool = createODFDelegate(undefined)
+    const delegateTool = createODFDelegate(undefined, workspace)
     const output = await delegateTool.execute(
-      { phase: "VERIFY", prompt: "Change name: hook-test\nVerify the implementation", context_files: [] },
+      { phase: "VERIFY", prompt: "Change name: hook-test\nVerify the implementation", context_files: [], workspace_dir: workspace },
       toolCtx
     )
 
@@ -7856,10 +7869,12 @@ describe("validateValidationEvidence", () => {
 describe("odf_delegate stop-validation seal", () => {
   const originalHome = process.env.HOME
   let tempHome: string
-  const odfDir = path.join(process.cwd(), ".odf")
+  let workspace: string
 
   beforeEach(async () => {
     tempHome = await fs.mkdtemp(path.join(os.tmpdir(), "odf-seal-"))
+    workspace = path.join(tempHome, "worktree")
+    await fs.mkdir(workspace, { recursive: true })
     process.env.HOME = tempHome
     const configDir = path.join(tempHome, ".config", "opencode")
     await fs.mkdir(configDir, { recursive: true })
@@ -7874,8 +7889,6 @@ describe("odf_delegate stop-validation seal", () => {
   afterEach(async () => {
     process.env.HOME = originalHome
     await fs.rm(tempHome, { recursive: true, force: true })
-    await fs.rm(path.join(odfDir, "policy-gate-seal-test.json"), { force: true })
-    await fs.rm(path.join(odfDir, "validation-evidence-seal-test.json"), { force: true })
     vi.restoreAllMocks()
   })
 
@@ -7884,9 +7897,9 @@ describe("odf_delegate stop-validation seal", () => {
     const taskApi = vi.fn().mockResolvedValue({ status: "ok", executive_summary: "done" })
     const toolCtx = { sessionID: "s1", task: taskApi } as any
 
-    const delegateTool = createODFDelegate(undefined)
+    const delegateTool = createODFDelegate(undefined, workspace)
     const output = await delegateTool.execute(
-      { phase: "IMPLEMENT", prompt: "Change name: seal-test\nImplement tasks", context_files: [] },
+      { phase: "IMPLEMENT", prompt: "Change name: seal-test\nImplement tasks", context_files: [], workspace_dir: workspace },
       toolCtx
     )
 
@@ -7897,6 +7910,7 @@ describe("odf_delegate stop-validation seal", () => {
 
   it("stamps validation=verified on IMPLEMENT when evidence passes", async () => {
     const { createODFDelegate } = await import("./odf-delegation.js")
+    const odfDir = path.join(workspace, ".odf")
     await fs.mkdir(odfDir, { recursive: true })
     await fs.writeFile(
       path.join(odfDir, "validation-evidence-seal-test.json"),
@@ -7916,9 +7930,9 @@ describe("odf_delegate stop-validation seal", () => {
     const taskApi = vi.fn().mockResolvedValue({ status: "ok", executive_summary: "done" })
     const toolCtx = { sessionID: "s1", task: taskApi } as any
 
-    const delegateTool = createODFDelegate(undefined)
+    const delegateTool = createODFDelegate(undefined, workspace)
     const output = await delegateTool.execute(
-      { phase: "IMPLEMENT", prompt: "Change name: seal-test\nImplement tasks", context_files: [] },
+      { phase: "IMPLEMENT", prompt: "Change name: seal-test\nImplement tasks", context_files: [], workspace_dir: workspace },
       toolCtx
     )
 
@@ -7932,9 +7946,9 @@ describe("odf_delegate stop-validation seal", () => {
      const taskApi = vi.fn().mockResolvedValue({ status: "ok", design_closed: true, executive_summary: "planned" })
     const toolCtx = { sessionID: "s1", task: taskApi } as any
 
-    const delegateTool = createODFDelegate(undefined)
+    const delegateTool = createODFDelegate(undefined, workspace)
     const output = await delegateTool.execute(
-      { phase: "DESIGN", prompt: "Design the change", context_files: [] },
+      { phase: "DESIGN", prompt: "Design the change", context_files: [], workspace_dir: workspace },
       toolCtx
     )
 
@@ -8010,10 +8024,12 @@ describe("mergeReceipt", () => {
 describe("odf_delegate receipt auto-seal on error", () => {
   const originalHome = process.env.HOME
   let tempHome: string
-  const odfDir = path.join(process.cwd(), ".odf")
+  let workspace: string
 
   beforeEach(async () => {
     tempHome = await fs.mkdtemp(path.join(os.tmpdir(), "odf-rseal-"))
+    workspace = path.join(tempHome, "worktree")
+    await fs.mkdir(workspace, { recursive: true })
     process.env.HOME = tempHome
     const configDir = path.join(tempHome, ".config", "opencode")
     await fs.mkdir(configDir, { recursive: true })
@@ -8028,8 +8044,6 @@ describe("odf_delegate receipt auto-seal on error", () => {
   afterEach(async () => {
     process.env.HOME = originalHome
     await fs.rm(tempHome, { recursive: true, force: true })
-    await fs.rm(path.join(odfDir, "policy-gate-rseal.json"), { force: true })
-    await fs.rm(path.join(odfDir, "receipt-rseal.json"), { force: true })
     vi.restoreAllMocks()
   })
 
@@ -8038,16 +8052,16 @@ describe("odf_delegate receipt auto-seal on error", () => {
     const taskApi = vi.fn().mockRejectedValue(new Error("task() timed out after 120000ms"))
     const toolCtx = { sessionID: "s1", task: taskApi } as any
 
-    const delegateTool = createODFDelegate(undefined)
+    const delegateTool = createODFDelegate(undefined, workspace)
     const output = await delegateTool.execute(
-      { phase: "IMPLEMENT", prompt: "Change name: rseal\nImplement tasks", context_files: [] },
+      { phase: "IMPLEMENT", prompt: "Change name: rseal\nImplement tasks", context_files: [], workspace_dir: workspace },
       toolCtx
     )
 
     const envelope = JSON.parse(output as string)
     expect(envelope.status).toBe("timeout")
 
-    const receiptFile = path.join(odfDir, "receipt-rseal.json")
+    const receiptFile = path.join(workspace, ".odf", "receipt-rseal.json")
     expect(fsSync.existsSync(receiptFile)).toBe(true)
     const receipt = JSON.parse(fsSync.readFileSync(receiptFile, "utf8"))
     expect(receipt.status).toBe("failed")
@@ -8415,7 +8429,8 @@ describe("stable discovery runtime guard", () => {
   })
 
   it("allows /odf-new questions and binding only after warning health", async () => {
-    const { abort, authorizations, activateCommand, before, after } = setup()
+    const workspace = await fs.mkdtemp(path.join(os.tmpdir(), "odf-guard-ws-"))
+    const { abort, authorizations, activateCommand, before, after } = setup(workspace)
     await activateCommand("s1", "m-health", "odf-new", "healthy", "expanded odf-new command")
     await before("s1", "health", {}, "odf_health")
     await after("s1", "health", {}, successfulHealthOutput(), "odf_health")
@@ -8426,11 +8441,12 @@ describe("stable discovery runtime guard", () => {
       messageID: "m-health",
       generation: 1,
       changeName: "healthy",
-      workspaceRoot: fsSync.realpathSync(process.cwd()),
+      workspaceRoot: fsSync.realpathSync(workspace),
       claimed: false,
     })
     expect(authorizations.get("s1")?.nonce).toMatch(/^[0-9a-f-]{36}$/)
     expect(abort).not.toHaveBeenCalled()
+    await fs.rm(workspace, { recursive: true, force: true })
   })
 
   it("keeps start authorization across intervening messages and idle; revokes only on delete or supersede", async () => {

@@ -31,6 +31,17 @@ STALE_ODF_PLUGIN_FILES=(
   opencode-v2-entrypoint.ts
   opencode-v2-entrypoint.js
 )
+# Paths older pack versions installed; they must disappear on update.
+# scripts/tests/ held the pre-ODF-2.0 plugin tests and fails against the
+# current suite.
+STALE_ODF_PATHS=(
+  scripts/tests
+)
+# Repo-only files: they audit repository docs and cannot run from the
+# installed pack (its README.md/AGENTS.md belong to the host user).
+REPO_ONLY_ODF_PATHS=(
+  scripts/odf-consistency-contracts.test.ts
+)
 # Auto-detect local source when running from inside the cloned repo.
 # Respects explicit ODF_SOURCE_DIR if set.
 detect_local_source() {
@@ -342,6 +353,20 @@ cleanup_stale_odf_plugins() {
   done
 }
 
+cleanup_stale_odf_paths() {
+  local rel
+  local target
+  for rel in "${STALE_ODF_PATHS[@]}" "${REPO_ONLY_ODF_PATHS[@]}"; do
+    target="${ODF_DIR}/${rel}"
+    [[ -e "$target" ]] || continue
+    if [[ "$INSTALL_DRY_RUN" == true ]]; then
+      log_info "    [dry-run] Would remove stale ODF path $target"
+    else
+      rm -rf -- "$target"
+    fi
+  done
+}
+
 install_files() {
   local src_dir="$1"
 
@@ -394,6 +419,14 @@ install_files() {
   if [[ -f "$src_dir/package.json" ]]; then
     copy_dir "$src_dir/package.json" "$ODF_DIR/package.json"
   fi
+
+  # The pack ships a narrowed tsconfig so `npm run typecheck` covers ODF-owned
+  # files only; other host plugins live under plugins/ and are out of scope.
+  if [[ -f "$src_dir/tsconfig.pack.json" ]]; then
+    copy_dir "$src_dir/tsconfig.pack.json" "$ODF_DIR/tsconfig.json"
+  fi
+
+  cleanup_stale_odf_paths
 
   if [[ "$INSTALL_DRY_RUN" != true ]]; then
     rewrite_config_paths

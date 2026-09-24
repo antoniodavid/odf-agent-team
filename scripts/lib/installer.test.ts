@@ -158,6 +158,10 @@ describe("install.sh", { timeout: 30000 }, () => {
       expect(fs.existsSync(path.join(configDir, "commands", "odf-new.md"))).toBe(true)
       expect(fs.existsSync(path.join(configDir, "commands", "odf-agent-new.md"))).toBe(true)
       expect(fs.existsSync(path.join(configDir, "policies", "oca", "rules.yaml"))).toBe(true)
+      expect(fs.existsSync(path.join(configDir, "tsconfig.json"))).toBe(true)
+      expect(fs.readFileSync(path.join(configDir, "tsconfig.json"), "utf8")).toContain("plugins/odf-delegation.ts")
+      expect(fs.existsSync(path.join(configDir, "scripts", "tests"))).toBe(false)
+      expect(fs.existsSync(path.join(configDir, "scripts", "odf-consistency-contracts.test.ts"))).toBe(false)
     } finally {
       cleanup(tempHome)
     }
@@ -190,6 +194,37 @@ describe("install.sh", { timeout: 30000 }, () => {
       expect(fs.readFileSync(path.join(foreignAgents, "my-custom.md"), "utf8")).toBe("# foreign agent\n")
       expect(fs.existsSync(path.join(configDir, "commands", "odf-new.md"))).toBe(true)
       expect(fs.existsSync(path.join(configDir, "agents", "odoo_orchestrator.md"))).toBe(true)
+    } finally {
+      cleanup(tempHome)
+    }
+  })
+
+  it("prunes stale pack paths and repo-only tests on update", () => {
+    const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), "odf-installer-stale-"))
+    const configDir = path.join(tempHome, ".config", "opencode")
+    const env = {
+      ...process.env,
+      HOME: tempHome,
+      ODF_CONFIG_DIR: configDir,
+      ODF_SOURCE_DIR: REPO_ROOT,
+      ODF_SKIP_NPM: "1",
+      ODF_SKIP_SELFTEST: "1",
+    } as NodeJS.ProcessEnv
+
+    try {
+      const staleDir = path.join(configDir, "scripts", "tests")
+      fs.mkdirSync(staleDir, { recursive: true })
+      fs.writeFileSync(path.join(staleDir, "odf-delegation.test.ts"), "// stale test\n", "utf8")
+      const repoOnly = path.join(configDir, "scripts", "odf-consistency-contracts.test.ts")
+      fs.writeFileSync(repoOnly, "// repo-only test\n", "utf8")
+      const keep = path.join(configDir, "scripts", "user-script.sh")
+      fs.writeFileSync(keep, "#!/bin/sh\n", "utf8")
+
+      const result = spawnSync("bash", [INSTALL_SCRIPT, "--yes"], { env, encoding: "utf8", cwd: REPO_ROOT })
+      expect(result.status).toBe(0)
+      expect(fs.existsSync(staleDir)).toBe(false)
+      expect(fs.existsSync(repoOnly)).toBe(false)
+      expect(fs.existsSync(keep)).toBe(true)
     } finally {
       cleanup(tempHome)
     }

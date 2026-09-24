@@ -48,7 +48,9 @@ below. Do not replace static evidence with a runtime smoke test:
    under `skills/` and `agent/`.
 2. Run the deterministic test runner: `node scripts/odf-test-runner.js`.
 3. Run focused plugin tests, `npm run typecheck`, and `git diff --check` as
-   appropriate for the change.
+   appropriate for the change. The installed pack ships a narrowed
+   `tsconfig.json` (ODF-owned files only) and excludes the repo-only
+   doc-consistency test, so both checks are meaningful from the pack root.
 4. Inspect backups and metrics only as filesystem metadata; do not mutate them.
 
 Report the `odf_health` result separately from test-runner evidence.

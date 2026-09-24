@@ -1,0 +1,21 @@
+// Installed-pack TypeScript scope. The pack ships ODF-owned files only for
+// typecheck: other host plugins live under plugins/ and must never fail ODF's
+// own check. install.sh copies this file as <pack>/tsconfig.json.
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "lib": ["ES2022"],
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+    "declaration": false,
+    "noEmit": true,
+    "types": ["node", "vitest/globals"]
+  },
+  "include": ["plugins/odf-delegation.ts", "odf-plugin/**/*.ts", "scripts/**/*.ts"],
+  "exclude": ["node_modules", "tools", "backups"]
+}
