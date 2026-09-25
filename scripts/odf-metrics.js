@@ -3,7 +3,7 @@
  * ODF Agent Observatory — read-only metrics dashboard over the plugin JSONL.
  *
  * Canonical source: the delegation log written by the plugin at
- * ${ODF_CONFIG_DIR:-~/.config/opencode}/metrics/delegations-YYYY-MM-DD.jsonl.
+ * ${ODF_CONFIG_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/opencode}/metrics/delegations-YYYY-MM-DD.jsonl.
  * This script aggregates those lines; it never writes to Engram and never
  * appends to the metrics directory (the plugin owns the writer side).
  *

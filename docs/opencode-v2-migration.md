@@ -74,7 +74,29 @@ Run this checklist only with an actual V2 host. The current V1 host and Vitest f
 (`OpenCode 2.0.16`): `odf-delegation` is `active`, the catalog exposes 22 ODF
 commands and 11 ODF agents, and `odf_health` executed in-session reporting
 `plugin.loaded: true` with all 22 tools. Remaining unchecked items are live
-delegation/cancellation and per-tool schema-rejection round trips. The
-`getOdfConfigDir()` resolver still ignores `XDG_CONFIG_HOME` (it is
-`ODF_CONFIG_DIR` → `~/.config/opencode`), which contradicts the README's
-XDG claim and remains an open defect.
+delegation/cancellation and per-tool schema-rejection round trips.
+
+## Pack discovery
+
+`scripts/lib/config-dir.js` resolves the pack directory in this order:
+
+1. `ODF_CONFIG_DIR` (absolute) — the explicit override, and the channel the
+   project launcher exports.
+2. The pack the running module ships in, when it carries `odf-registry.json`.
+3. `$XDG_CONFIG_HOME/opencode`.
+4. `~/.config/opencode`.
+
+Step 2 is what makes a global install work under `XDG_CONFIG_HOME` and a
+project-local `<project>/.opencode` work without the launcher: the plugin and
+every CLI live inside the pack, so they locate themselves. `getOdfConfigDir()`
+and the five CLI copies of the logic share this resolver, and `install.sh`
+already ordered its own default the same way.
+
+`REGISTRY_PATH` and the registry cache are module-level constants evaluated at
+import time, when the workspace is not known yet — that is why self-location and
+environment variables are the only mechanisms that can work at this layer, and a
+workspace-driven fallback could not have fixed the project-local case.
+
+The `/odf-*` prompts default `PACK` to steps 1, 3 and 4
+(`ODF_CONFIG_DIR` → XDG → home). For a project-local pack, prefer the project
+launcher, which exports `ODF_CONFIG_DIR`.

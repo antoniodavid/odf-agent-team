@@ -27,7 +27,7 @@ read it without re-detecting.
    - If found AND `--force`: Proceed to re-detect
    - If not found: Proceed to detect
 
-2. **Launch deterministic scan**: run the CLI (preferred; no manual re-derivation). Resolve the pack path deterministically — `PACK="${ODF_CONFIG_DIR:-$HOME/.config/opencode}"`; never search the filesystem. If the script is missing, reinstall the pack and stop:
+2. **Launch deterministic scan**: run the CLI (preferred; no manual re-derivation). Resolve the pack path deterministically — `PACK="${ODF_CONFIG_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/opencode}"`; never search the filesystem. If the script is missing, reinstall the pack and stop:
    ```
    node "$PACK/scripts/odf-project-scan.js" --root <doodba-workspace-root> --repo <repo-dir> --persist --format summary
    ```

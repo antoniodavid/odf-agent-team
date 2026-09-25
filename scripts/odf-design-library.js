@@ -230,7 +230,7 @@ export function calibrateFromHistory(library) {
 
 /**
  * Where the library index lives. Default: the ODF config dir
- * (${ODF_CONFIG_DIR:-~/.config/opencode}/design-library/index.json) — runtime
+ * (${ODF_CONFIG_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/opencode}/design-library/index.json) — runtime
  * data outside the repo. `{ repo: true }` → a local `design-library/index.json`
  * next to the checkout (for teams that commit the index).
  */

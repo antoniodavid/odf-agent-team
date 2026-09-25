@@ -13,7 +13,7 @@ From a source checkout:
 
 ```bash
 node scripts/odf-evaluation.js offline fixtures/evaluation.json
-ODF_CONFIG_DIR="${ODF_CONFIG_DIR:-$HOME/.config/opencode}" node scripts/odf-evaluation.js online
+ODF_CONFIG_DIR="${ODF_CONFIG_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/opencode}" node scripts/odf-evaluation.js online
 ```
 
 Offline fixtures contain `{ "record": {}, "expect": {} }` pairs and are
@@ -36,7 +36,7 @@ From an installed runtime, `package.json` is not copied, so invoke the
 installed script directly:
 
 ```bash
-ODF_CONFIG_DIR="${ODF_CONFIG_DIR:-$HOME/.config/opencode}"
+ODF_CONFIG_DIR="${ODF_CONFIG_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/opencode}"
 node "$ODF_CONFIG_DIR/scripts/odf-engram-maintenance.js" status
 node "$ODF_CONFIG_DIR/scripts/odf-engram-maintenance.js" sync --confirm
 node "$ODF_CONFIG_DIR/scripts/odf-engram-maintenance.js" consolidate --all --confirm

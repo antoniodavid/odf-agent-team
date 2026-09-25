@@ -45,19 +45,19 @@ Use when entering a new Odoo project, or when project tooling changes (new test 
 
 0. **Deterministic scan (preferred)**: run the CLI once instead of hand-scanning:
    ```
-   PACK="${ODF_CONFIG_DIR:-$HOME/.config/opencode}"
+   PACK="${ODF_CONFIG_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/opencode}"
    node "$PACK/scripts/odf-project-scan.js" --root <doodba-workspace-root> --repo <repo-dir> --persist --format json
    ```
-   The pack path is deterministic: `$ODF_CONFIG_DIR` when set, else `$HOME/.config/opencode`. **Never search the filesystem for the script.** If `$PACK/scripts/odf-project-scan.js` does not exist, reinstall the pack (`install.sh` from the repo or `/odf-registry-refresh`) or fall back to the manual steps below. The CLI assembles the full config (sources, compose, linting, git, CodeGraph, dependency matrix), persists it to Engram under `odf-init/{project}`, verifies the readback with an explicit `--project {project}` scope (never the invocation cwd), and exits `0` (ok), `1` (warnings), or `2` (blocked). On verified persistence it prints `artifact_ref: {"store":"engram","ref":"odf-init/{project}"}`. Use `--diff` on re-detection to show changes vs the persisted config, `--fresh` to bypass the checksum cache, and flags for overrides (`--odoo-version`, `--docker-container`, `--codegraph` for CodeGraph init opt-in). The orchestrator relays the summary and interprets warnings only; it never re-derives the config. If the CLI cannot run (no node/script), fall back to the manual steps below — never guess.
+   The pack path is deterministic: `$ODF_CONFIG_DIR` when set, else the pack the running module ships in, else `${XDG_CONFIG_HOME:-$HOME/.config}/opencode`. **Never search the filesystem for the script.** If `$PACK/scripts/odf-project-scan.js` does not exist, reinstall the pack (`install.sh` from the repo or `/odf-registry-refresh`) or fall back to the manual steps below; for a project-local pack prefer the project launcher, which exports `ODF_CONFIG_DIR`. The CLI assembles the full config (sources, compose, linting, git, CodeGraph, dependency matrix), persists it to Engram under `odf-init/{project}`, verifies the readback with an explicit `--project {project}` scope (never the invocation cwd), and exits `0` (ok), `1` (warnings), or `2` (blocked). On verified persistence it prints `artifact_ref: {"store":"engram","ref":"odf-init/{project}"}`. Use `--diff` on re-detection to show changes vs the persisted config, `--fresh` to bypass the checksum cache, and flags for overrides (`--odoo-version`, `--docker-container`, `--codegraph` for CodeGraph init opt-in). The orchestrator relays the summary and interprets warnings only; it never re-derives the config. If the CLI cannot run (no node/script), fall back to the manual steps below — never guess.
 1. **Detect version**: __manifest__.py → odoo-bin → Dockerfile → ask
 2. **Detect modules**: Find all __manifest__.py, classify as custom/oca/core-override
 3. **Environment Context (Doodba)**: When the workspace is a Doodba layout, detect the source manifest and resolve project module dependencies:
    - Locate the workspace root (where `odoo/custom/src/addons.yaml` lives) and run:
    ```
-   PACK="${ODF_CONFIG_DIR:-$HOME/.config/opencode}"
+   PACK="${ODF_CONFIG_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/opencode}"
    node "$PACK/scripts/odf-env-detect.js" --root <root> --repo <repo> --json
    ```
-   (`$PACK` is deterministic — `$ODF_CONFIG_DIR` when set, else `$HOME/.config/opencode`; never search the filesystem.)
+   (`$PACK` is deterministic — `$ODF_CONFIG_DIR` when set, else `${XDG_CONFIG_HOME:-$HOME/.config}/opencode`; never search the filesystem.)
    - Persist under the config: `environment: { type: doodba, addons_yaml, sources: { active, declared_absent, undeclared, active_repos } }` and `dependency_matrix`.
    - Interpret `dependency_matrix.unresolved_in_sources` deps as `core-assumed` when they are standard Odoo addons (web, stock, sale, base, etc.) — they come from the Docker image. When an unresolved dep looks like a custom/OCA module not present in any active source, flag it as a WARNING/risk (missing repo, wrong branch, or undeclared source).
 4. **CodeGraph Index**:
