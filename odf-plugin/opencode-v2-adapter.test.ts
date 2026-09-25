@@ -238,6 +238,40 @@ describe("OpenCode V2 ODF adapter", () => {
     expect(session.interrupt).toHaveBeenCalledWith({ sessionID: "child-session" })
   })
 
+  it("interrupts the V2 child session when the task api is resolved through findTaskApi", async () => {
+    // The real delegation path: the adapter injects its own bridge as
+    // toolCtx.task, so findTaskApi resolves it. It used to re-wrap that bridge,
+    // which replaced the promise the bridge's abort keys on and dropped the
+    // interrupt — the child then ran past the timeout and finished on its own
+    // (measured live: parent returned `timeout` at 1.5s, child finished at 2.4s
+    // with `outcome: succeeded`).
+    const session = v2Session()
+    session.prompt.mockImplementation(() => new Promise(() => undefined))
+    const bridge = createV2SessionTaskApi(taskContext() as any, session as any)
+
+    const resolved = findTaskApi({ ...taskContext(), task: bridge } as any, undefined)
+    expect(resolved?.source).toBe("toolCtx.task")
+    expect(resolved?.taskApi).toBe(bridge)
+
+    await expect(invokeTask(resolved!.taskApi, "odoo_qa_engineer", "wait", undefined, 5)).rejects.toThrow("timed out")
+    expect(session.interrupt).toHaveBeenCalledWith({ sessionID: "child-session" })
+  })
+
+  it("still interrupts the child when a wrapper hides the promise identity", async () => {
+    // Safety net for the same failure mode: abort must not quietly do nothing
+    // when it is handed a promise it does not recognise.
+    const session = v2Session()
+    session.prompt.mockImplementation(() => new Promise(() => undefined))
+    const bridge = createV2SessionTaskApi(taskContext() as any, session as any)
+    const wrapper = Object.assign((input: never) => bridge(input), { abort: bridge.abort })
+
+    const invocation = wrapper({ agent: "odoo_qa_engineer", prompt: "wait" } as never)
+    await vi.waitFor(() => expect(session.prompt).toHaveBeenCalled())
+    await wrapper.abort?.(invocation)
+
+    expect(session.interrupt).toHaveBeenCalledWith({ sessionID: "child-session" })
+  })
+
   it.each([
     ["empty", [], "empty-task-result"],
     ["malformed", [{ type: "user", text: "not an ODF result" }], "invalid-task-result"],

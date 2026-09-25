@@ -103,6 +103,11 @@ export interface HealthInspection {
 // JSON while surviving duplicate module records, and the value is still
 // per-tool-context state, so nothing is shared across contexts.
 export const ODF_V2_SESSION = Symbol.for("odf.v2.session")
+
+// Marks a task API that ODF owns, so findTaskApi can recognise it and use it as
+// is. Well-known (see ODF_V2_SESSION) for the same reason: the host can hold
+// more than one module record of this graph.
+export const ODF_TASK_BRIDGE = Symbol.for("odf.task.bridge")
 const V2_SESSION_OPERATIONS = ["create", "get", "prompt", "wait", "context", "interrupt"] as const
 
 export function emptyRegistryHealth(registryPath: string, status: RegistryHealth["status"]): RegistryHealth {
@@ -646,23 +651,32 @@ function v2ContextResult(response: unknown): unknown {
   return sessionResultFromText(text)
 }
 
+type V2TaskInvocation = { childID?: string; abortRequested: boolean; aborting?: Promise<void> }
+
 export function createV2SessionTaskApi(toolCtx: ToolContext, session: V2SessionApi): TaskApi {
-  const pending = new WeakMap<Promise<unknown>, { childID?: string; abortRequested: boolean; aborting?: Promise<void> }>()
+  const pending = new WeakMap<Promise<unknown>, V2TaskInvocation>()
+  // WeakMap cannot be enumerated, so keep the live invocations reachable to make
+  // the abort resilient when a wrapper hides the promise identity.
+  const live = new Set<V2TaskInvocation>()
   const directory = typeof (toolCtx as any).directory === "string" ? (toolCtx as any).directory : process.cwd()
   const context = toolCtx as Record<string, unknown>
   const contextModel = resolveTaskModel(context)
 
+  // Hoisted out of the invocation body on purpose: a caller that forwards
+  // `abort` inspects the task API *before* the first call, so an abort that only
+  // appeared once an invocation started would never be forwarded.
+  const interruptChild = async (childID: string): Promise<void> => {
+    await callV2(() => session.interrupt({ sessionID: childID }), "session-prompt-error", true)
+  }
+  const abortInvocation = async (invocation: V2TaskInvocation): Promise<void> => {
+    invocation.abortRequested = true
+    if (!invocation.childID || invocation.aborting) return invocation.aborting
+    invocation.aborting = interruptChild(invocation.childID)
+    await invocation.aborting
+  }
+
   const taskApi = ((input: TaskApiInput): Promise<unknown> => {
-    const invocation = { abortRequested: false } as { childID?: string; abortRequested: boolean; aborting?: Promise<void> }
-    const abortSession = async (sessionID: string): Promise<void> => {
-      await callV2(() => session.interrupt({ sessionID }), "session-prompt-error", true)
-    }
-    const abortChild = async (): Promise<void> => {
-      invocation.abortRequested = true
-      if (!invocation.childID || invocation.aborting) return invocation.aborting
-      invocation.aborting = abortSession(invocation.childID)
-      await invocation.aborting
-    }
+    const invocation = { abortRequested: false } as V2TaskInvocation
     const promise = (async (): Promise<unknown> => {
       let model = contextModel
       if (!model) {
@@ -688,7 +702,7 @@ export function createV2SessionTaskApi(toolCtx: ToolContext, session: V2SessionA
       invocation.childID = typeof createdValue?.id === "string" ? createdValue.id : undefined
       if (!invocation.childID) throw new Error("session-create-error: session.create returned no child session id")
       if (invocation.abortRequested) {
-        await abortChild()
+        await abortInvocation(invocation)
         throw new Error("task-cancelled: child session was aborted")
       }
 
@@ -705,22 +719,38 @@ export function createV2SessionTaskApi(toolCtx: ToolContext, session: V2SessionA
       return v2ContextResult(response)
     })()
     pending.set(promise, invocation)
-    taskApi.abort = async (invocationPromise: Promise<unknown>): Promise<void> => {
-      const state = pending.get(invocationPromise)
-      if (!state) return
-      state.abortRequested = true
-      if (!state.childID || state.aborting) return state.aborting
-      state.aborting = abortSession(state.childID)
-      await state.aborting
-    }
+    live.add(invocation)
+    promise.then(
+      () => live.delete(invocation),
+      () => live.delete(invocation),
+    )
     return promise
   }) as TaskApi
+
+  taskApi.abort = async (invocationPromise: Promise<unknown>): Promise<void> => {
+    // The exact promise is the normal path. When a wrapper returns a different
+    // promise, fall back to the single live invocation so the child is still
+    // interrupted instead of the abort quietly doing nothing.
+    const invocation = pending.get(invocationPromise) ?? (live.size === 1 ? [...live][0] : undefined)
+    if (!invocation) return
+    await abortInvocation(invocation)
+  }
+  ;(taskApi as unknown as Record<symbol, unknown>)[ODF_TASK_BRIDGE] = true
   return taskApi
 }
 
 export function findTaskApi(toolCtx: ToolContext, client?: OpencodeClient): { taskApi: TaskApi; source: DelegationMetrics["task_api_source"] } | null {
   const nativeTask = (toolCtx as Record<string, unknown>).task
   if (typeof nativeTask === "function") {
+    // An ODF-owned bridge must be used as is, never re-wrapped: createNativeTaskApi
+    // returns a different promise, so the bridge's abort could no longer find the
+    // invocation whose child session it has to interrupt. That silently dropped
+    // the interrupt on timeout, and the child kept running past the deadline
+    // (measured live in OpenCode V2: parent returned `timeout` at 1.5s while the
+    // child went on to finish at 2.4s, `outcome: succeeded`).
+    if ((nativeTask as unknown as Record<symbol, unknown>)[ODF_TASK_BRIDGE]) {
+      return { taskApi: nativeTask as TaskApi, source: "toolCtx.task" }
+    }
     return { taskApi: createNativeTaskApi(nativeTask as NativeTaskFunction), source: "toolCtx.task" }
   }
   const v2Session = getV2Session(client)
