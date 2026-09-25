@@ -313,12 +313,25 @@ function renderMarkdown(config) {
   return `## ODF Project Scan: ${config.project_name}\n\n| Field | Value |\n|---|---|\n${table}\n`
 }
 
+/** Export Engram observations for the target project. `--project` keeps the scope
+ * explicit because `engram export` defaults to the CWD-detected project; older
+ * builds that reject the flag fall back to the legacy CWD-scoped export. */
+function exportEngramObservations(tmpFile, project, cwd) {
+  const options = { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], timeout: 15_000 }
+  try {
+    execFileSync("engram", ["export", tmpFile, "--project", project], options)
+  } catch (error) {
+    if (error?.code === "ENOENT" || error?.code === "ETIMEDOUT") throw error
+    execFileSync("engram", ["export", tmpFile], options)
+  }
+}
+
 /** Read the persisted `odf-init/{project}` config from Engram (export + filter). */
-export function readPersistedConfig(project) {
+export function readPersistedConfig(project, opts = {}) {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "odf-scan-"))
   const tmpFile = path.join(tmpDir, "export.json")
   try {
-    execFileSync("engram", ["export", tmpFile], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], timeout: 15_000 })
+    exportEngramObservations(tmpFile, project, opts.cwd)
     const raw = fs.readFileSync(tmpFile, "utf8")
     const parsed = JSON.parse(raw)
     const observations = Array.isArray(parsed) ? parsed : parsed?.observations
@@ -350,7 +363,7 @@ export function compactForPersist(config) {
   }
 }
 
-function persistConfig(config) {
+function persistConfig(config, opts = {}) {
   const project = config.project_name
   const topicKey = `odf-init/${project}`
   const yaml = YAML.stringify(compactForPersist(config))
@@ -358,7 +371,7 @@ function persistConfig(config) {
     execFileSync("engram", [
       "save", topicKey, yaml,
       "--type", "config", "--project", project, "--scope", "project", "--topic", topicKey,
-    ], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], timeout: 15_000, maxBuffer: 256 * 1024 })
+    ], { cwd: opts.cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], timeout: 15_000, maxBuffer: 256 * 1024 })
     return null
   } catch (error) {
     const code = error?.code
@@ -397,7 +410,7 @@ async function main(argv) {
   // bare repo name never produces a degraded scan of the wrong directory.
   const repo = resolveRepoArg(root, args.repo)
   const project = projectName(repo)
-  const cached = args.diff || !args.fresh ? readPersistedConfig(project) : null
+  const cached = args.diff || !args.fresh ? readPersistedConfig(project, { cwd: repo }) : null
 
   const config = buildConfig(root, repo, { odooVersion: args.odooVersion })
   if (args.dockerContainer && config.testing?.test_command) {
@@ -424,6 +437,7 @@ async function main(argv) {
 
   let exit = classifyExit(config)
   const lines = []
+  let artifactRef = null
   if (args.diff && cached) {
     const changes = diffConfigs(cached, config)
     if (changes.length) lines.push("## Diff vs persisted config", ...changes.map(c => `- ${c}`))
@@ -435,7 +449,7 @@ async function main(argv) {
       console.error("scan-degraded: 0 modules detected while a valid config exists. Pass an absolute --repo (or a repo path relative to --root) and retry; nothing was persisted.")
       process.exit(2)
     }
-    const error = persistConfig(config)
+    const error = persistConfig(config, { cwd: repo })
     if (error) {
       lines.push(`persist error: ${error}`)
       exit = Math.max(exit, 1)
@@ -446,10 +460,12 @@ async function main(argv) {
       for (let attempt = 0; attempt < 5 && !(verified && verified.scan_checksum === config.scan_checksum); attempt++) {
         const sleepMs = new Promise(resolve => setTimeout(resolve, 200))
         await sleepMs
-        verified = readPersistedConfig(project)
+        verified = readPersistedConfig(project, { cwd: repo })
       }
       if (verified && verified.scan_checksum === config.scan_checksum) {
         lines.push(`persisted to Engram topic odf-init/${project} (verified)`)
+        artifactRef = { store: "engram", ref: `odf-init/${project}` }
+        lines.push(`artifact_ref: ${JSON.stringify(artifactRef)}`)
         if (cached && cached.scan_checksum === config.scan_checksum) lines.push("cached: no environment changes since last scan.")
       } else {
         lines.push(`persist error: readback mismatch for topic odf-init/${project} — the CLI persist did not land. Reinstall the pack or check the engram CLI.`)
@@ -458,8 +474,9 @@ async function main(argv) {
     }
   }
 
-  if (args.format === "json") process.stdout.write(JSON.stringify(config, null, 2) + "\n")
-  else if (args.format === "yaml") process.stdout.write(YAML.stringify(config) + "\n")
+  const printable = artifactRef ? { ...config, artifact_ref: artifactRef } : config
+  if (args.format === "json") process.stdout.write(JSON.stringify(printable, null, 2) + "\n")
+  else if (args.format === "yaml") process.stdout.write(YAML.stringify(printable) + "\n")
   else if (args.format === "markdown") process.stdout.write(renderMarkdown(config) + (lines.length ? "\n" + lines.join("\n") + "\n" : ""))
   else process.stdout.write(renderSummary(config) + (lines.length ? "\n" + lines.join("\n") + "\n" : ""))
   process.exit(exit)
