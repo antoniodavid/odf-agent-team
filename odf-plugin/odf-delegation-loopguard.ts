@@ -236,8 +236,22 @@ export function createStableDiscoveryGuard(
         ? event.properties.sessionID
         : null
       if (sessionID) {
-        sessions.delete(sessionID)
         pendingCommands.delete(sessionID)
+        const state = sessions.get(sessionID)
+        // Keep an un-armed entry across idle/error so an interrupted odf_health
+        // stays retryable within the same /odf-new entry. Only the transient
+        // loop-guard data is dropped; a "running" health never survives the
+        // turn, so it is normalized back to not-run.
+        if (state && state.entryChange && !state.stopped &&
+          (state.entryHealth === "not-run" || state.entryHealth === "running") &&
+          entryGenerations.get(sessionID) === state.generation) {
+          state.entryHealth = "not-run"
+          state.tools.clear()
+          state.calls.clear()
+          state.stopped = false
+        } else {
+          sessions.delete(sessionID)
+        }
       }
     },
     "command.execute.before": async (input, output) => {
@@ -255,12 +269,20 @@ export function createStableDiscoveryGuard(
     "chat.message": async (input, output) => {
       const synthetic = output.parts.length > 0 && output.parts.every(part => "synthetic" in part && part.synthetic === true)
       if (synthetic) return
+      const previous = sessions.get(input.sessionID)
       const pendingCommand = pendingCommands.get(input.sessionID)
       pendingCommands.delete(input.sessionID)
       // Do NOT revoke the entry authorization here. It is single-use and scoped to change +
       // workspace, so letting it survive intervening messages keeps a legitimate /odf-new flow
       // resilient to rate-limit aborts and retries. It is superseded by a new command and
       // consumed by a successful bind.
+      // Keep an un-armed entry (change + pending health) across intervening messages too:
+      // an interrupted odf_health must stay retryable within the same /odf-new entry.
+      const carryEntry = !pendingCommand && !!previous &&
+        previous.entryChange !== null && !previous.stopped &&
+        (previous.entryHealth === "not-run" || previous.entryHealth === "running") &&
+        entryGenerations.get(input.sessionID) === previous.generation
+      const carriedChange = carryEntry ? previous?.entryChange ?? null : null
       const generation = pendingCommand?.generation ?? nextGeneration(input.sessionID)
       const agent = input.agent ?? output.message.agent
       if (agent !== "odoo_orchestrator") {
@@ -273,9 +295,11 @@ export function createStableDiscoveryGuard(
         intentID: input.messageID ?? output.message.id,
         generation,
         workspaceRoot,
-        entryChange: pendingCommand?.changeName || null,
+        entryChange: pendingCommand?.changeName || carriedChange,
         stopped: false,
-        entryHealth: pendingCommand?.partsDigest === expandedCommandDigest(output.parts) ? "not-run" : "not-required",
+        entryHealth: pendingCommand
+          ? (pendingCommand.partsDigest === expandedCommandDigest(output.parts) ? "not-run" : "not-required")
+          : (carriedChange ? "not-run" : "not-required"),
         tools: new Map(),
         calls: new Map(),
       }, LOOP_GUARD_MAX_SESSIONS)
@@ -327,6 +351,12 @@ export function createStableDiscoveryGuard(
         } catch {
           result = null
         }
+        // A parsed object with neither schema_version nor status is not a health
+        // verdict: the execution was interrupted or errored. Keep the entry armed
+        // and retryable instead of failing it closed; no capability is minted
+        // without a successful health, so fail-closed still holds.
+        const looksLikeHealthReport = Boolean(result) && typeof result === "object" && !Array.isArray(result) &&
+          ("schema_version" in (result as Record<string, unknown>) || "status" in (result as Record<string, unknown>))
         if (isSuccessfulODFEntryHealth(result)) {
           state.entryHealth = "passed"
           if (state.entryChange) {
@@ -340,6 +370,8 @@ export function createStableDiscoveryGuard(
               claimed: false,
             }, LOOP_GUARD_MAX_SESSIONS)
           }
+        } else if (!looksLikeHealthReport) {
+          state.entryHealth = "not-run"
         } else {
           entryAuthorizations.delete(input.sessionID)
           state.entryHealth = "failed"

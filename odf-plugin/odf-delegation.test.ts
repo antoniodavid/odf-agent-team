@@ -8445,8 +8445,8 @@ describe("stable discovery runtime guard", () => {
     }
   })
 
-  it("keeps /odf-new blocked after failed or malformed health", async () => {
-    for (const result of [JSON.stringify({ status: "blocked" }), JSON.stringify({ status: "warning" }), "not-json"]) {
+  it("fails closed after a completed health that reports failure", async () => {
+    for (const result of [JSON.stringify({ status: "blocked" }), JSON.stringify({ status: "warning" })]) {
       const { abort, activateCommand, before, after } = setup()
       await activateCommand("s1", `m-${result}`, "odf-new", "failed-health", "expanded odf-new command")
       await before("s1", "health", {}, "odf_health")
@@ -8454,6 +8454,37 @@ describe("stable discovery runtime guard", () => {
       await expect(before("s1", "question", {}, "question")).rejects.toThrow("requires a successful odf_health call")
       expect(abort).toHaveBeenCalledTimes(1)
     }
+  })
+
+  it("keeps an interrupted first odf_health retryable within the entry (issue #35)", async () => {
+    for (const output of ["not-json", "Error: Tool execution interrupted", JSON.stringify({ type: "aborted", message: "Tool execution interrupted" })]) {
+      const { abort, authorizations, activate, activateCommand, before, after } = setup()
+      await activateCommand("s1", "m-entry", "odf-new", "resilient", "expanded odf-new command")
+      await before("s1", "health-1", {}, "odf_health")
+      await after("s1", "health-1", {}, output, "odf_health")
+      expect(abort).not.toHaveBeenCalled()
+      expect(authorizations.has("s1")).toBe(false)
+
+      // A follow-up user message must not disarm the un-armed entry.
+      await activate("s1", "m-followup", "odoo_orchestrator", "continue")
+      await before("s1", "health-2", {}, "odf_health")
+      await after("s1", "health-2", {}, successfulHealthOutput(), "odf_health")
+      expect(authorizations.get("s1")).toMatchObject({ sessionID: "s1", changeName: "resilient", claimed: false })
+    }
+  })
+
+  it("preserves an un-armed entry across idle and mints on a later health", async () => {
+    const { abort, authorizations, hooks, activate, activateCommand, before, after } = setup()
+    await activateCommand("s1", "m-idle", "odf-new", "idle-retry", "expanded odf-new command")
+    await before("s1", "health-1", {}, "odf_health")
+    await after("s1", "health-1", {}, "Error: Tool execution interrupted", "odf_health")
+    await hooks.event?.({ event: { type: "session.idle", properties: { sessionID: "s1" } } } as any)
+    expect(abort).not.toHaveBeenCalled()
+
+    await activate("s1", "m-after-idle", "odoo_orchestrator", "continue")
+    await before("s1", "health-2", {}, "odf_health")
+    await after("s1", "health-2", {}, successfulHealthOutput(), "odf_health")
+    expect(authorizations.get("s1")).toMatchObject({ changeName: "idle-retry" })
   })
 
   it("allows /odf-new questions and binding only after warning health", async () => {

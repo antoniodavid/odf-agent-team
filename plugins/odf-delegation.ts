@@ -6003,7 +6003,7 @@ only after canonical state exists. Existing state and Expectations are reused on
             return blocked("workflow-start-preflight-required", "An ordinary Engram bind can only update existing state; initialization requires complete preflight.")
           }
           if (!stateObservation && !claimedCapability) {
-            return blocked("workflow-start-unauthorized", "Engram state initialization requires a same-session /odf-new entry plus a successful odf_health for this change. Recovery: re-run the clean slash command `/odf-new <change>`, let odf_health run first, then retry the bind.")
+            return blocked("workflow-start-unauthorized", "Engram state initialization requires a same-session /odf-new entry plus a successful odf_health for this change. Recovery: re-run odf_health in this entry (an interrupted health stays retryable), or re-run the clean slash command `/odf-new <change>` and let odf_health run first, then retry the bind.")
           }
           const terminalKey = terminalStage ? `odf/${changeName}/${terminalStage === "DECIDE" ? "decision" : "fix"}` : null
           const terminalObservation = terminalKey
@@ -6086,7 +6086,7 @@ only after canonical state exists. Existing state and Expectations are reused on
         } catch (error) {
           if ((error as NodeJS.ErrnoException).code !== "ENOENT") return blocked("state-unreadable", "Existing OpenSpec state.yaml could not be read.")
           if (!preflight) return blocked("workflow-start-preflight-required", "An ordinary OpenSpec bind can only update existing state; initialization requires complete preflight.")
-          if (!claimedCapability) return blocked("workflow-start-unauthorized", "OpenSpec state initialization requires a same-session /odf-new entry plus a successful odf_health for this change. Recovery: re-run the clean slash command `/odf-new <change>`, let odf_health run first, then retry the bind.")
+          if (!claimedCapability) return blocked("workflow-start-unauthorized", "OpenSpec state initialization requires a same-session /odf-new entry plus a successful odf_health for this change. Recovery: re-run odf_health in this entry (an interrupted health stays retryable), or re-run the clean slash command `/odf-new <change>` and let odf_health run first, then retry the bind.")
         }
         const expectationsAction = compareExpectations(existingExpectations?.content || null, stateExists)
         if (expectationsAction.startsWith("expectations-")) {
