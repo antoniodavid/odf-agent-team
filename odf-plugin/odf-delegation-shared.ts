@@ -67,7 +67,25 @@ export function debugLog(...args: unknown[]): void {
   if (ODF_DEBUG) console.log("[odf-delegation]", ...args)
 }
 
+/**
+ * Resolve the Engram project identity for a workspace. Engram (CLI and server)
+ * derives the project from the git remote basename; fall back to the git
+ * toplevel basename, then the directory basename for non-Git workspaces.
+ */
 export function workspaceProjectName(workspaceRoot: string): string {
+  try {
+    const remote = execFileSync("git", ["remote", "get-url", "origin"], {
+      cwd: workspaceRoot,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim()
+    if (remote) {
+      const base = remote.replace(/\.git$/, "").split(/[/:]/).pop()
+      if (base) return base
+    }
+  } catch {
+    // Fall through to the toplevel/directory basename.
+  }
   try {
     const gitRoot = execFileSync("git", ["rev-parse", "--show-toplevel"], {
       cwd: workspaceRoot,
