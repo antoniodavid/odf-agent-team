@@ -33,6 +33,15 @@ The selected store applies equally to all ODF artifacts: immutable human
 the design library, learning/retrospectives, receipts, and `artifacts_saved`.
 Preserve their semantics and references when moving between stores.
 
+## Project-Level Context (Engram-canonical)
+
+`odf-init/{project}` is project context consumed cross-phase by CLI and MCP
+readers, so it is persisted to Engram regardless of the change artifact store;
+its canonical reference is `artifact_ref: { store: engram, ref: odf-init/{project} }`.
+Change artifacts still follow the selected store, and the Engram
+`odf-learned/{project}` index is a cross-project compatibility index, never a
+substitute for the stored retrospective/learned artifacts.
+
 ## Prior Decisions / Out-of-Scope Base
 
 `odf-learned/{project}` is the durable base of prior outcomes: retrospectives,

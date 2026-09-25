@@ -16,15 +16,23 @@ scope:     project
 
 | Artifact Type | Produced By | Description |
 |---------------|-------------|-------------|
+| `propose` | odf-propose | Business proposal (intent, scope, capabilities, risks) |
 | `assess` | odf-assess | Functional assessment + strategy (standard vs custom) |
 | `design` | odf-design | Technical design + task breakdown |
 | `implement-progress` | odf-implement | Implementation batch progress (updated per batch) |
 | `verify-report` | odf-verify | Verification report (tests, OCA compliance, pre-commit) |
 | `state` | orchestrator | DAG state for recovery after compaction |
+| `expectations` | orchestrator | Approved immutable human Expectations (`EXP-XX`) |
 | `fix-report` | odf-fix | Lightweight bugfix report (diagnose + fix + verify) |
 | `learned` | orchestrator | Retrospective after successful verify |
 | `explore` | odf-explore | Deep investigation of Odoo codebase patterns |
 | `retrospective` | odf-archive | Final retrospective when archiving completed change |
+| `learning-proposals` | odf-archive | Reviewable skill/memory candidates (never auto-activated) |
+| `archive-report` | orchestrator | Terminal ARCHIVED report written by the workflow transition |
+| `qa-plan` | odf-qa | QA test plan |
+| `qa-review` | odf-qa | QA review of tests/coverage |
+| `qa-aggregate` | odf-qa | Aggregated QA results |
+| `qa-report` | odf-qa | QA report artifact |
 
 ### Standalone Exploration Artifacts (no change-name)
 
@@ -37,7 +45,12 @@ scope:     project
 | Artifact Type | Produced By | Description |
 |---------------|-------------|-------------|
 | `odf-init/{project}` | odf-init | Project context: Odoo version, modules, test runner, linting |
-| `odf-learned/{project}/{change}` | orchestrator | Knowledge accumulated from completed changes |
+| `odf-learned/{project}/{change}` | orchestrator | Knowledge accumulated from completed changes; durable base for the redundancy pre-check |
+| `odf/metrics/latest` | /odf-metrics | Denormalized dashboard snapshot cache (never a source of truth) |
+| `odf/registry/latest` | /odf-registry-refresh | Registry refresh summary (pack-level, not project-level) |
+
+Project names resolve from the git remote basename (Engram's own rule); never
+derive them from the checkout directory name.
 
 ## State Artifact Format
 

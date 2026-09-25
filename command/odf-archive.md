@@ -17,7 +17,7 @@ Formalizes the closure of a completed ODF change:
 1. Finalizes the retrospective (lessons learned + calibrated effort)
 2. Appends the design to the reusable design library (`design-library/index.json`)
 3. Proposes reviewable skill/memory candidates from the verified change (C1, never auto-activated)
-4. Saves to Engram for future reference
+4. Saves the retrospective, learned index, and learning proposals to the selected store for future reference
 5. Cleans up active state
 6. Updates metrics
 
@@ -44,24 +44,25 @@ or non-terminal, return `workflow-verify-not-terminal` and do not modify state.
 
 ## Orchestrator Instructions
 
-1. **Verify change is complete:**
-   ```
-   mem_search("odf/{change-name}/verify-report")
-   ```
+1. **Verify change is complete** (read from the selected store; never hardcode `mem_search`):
+   - `openspec` / `hybrid`: read `openspec/changes/{change-name}/verify-report.md` (OpenSpec is authoritative).
+   - `engram`: `mem_search("odf/{change-name}/verify-report")` then `mem_get_observation(id)` — search previews are truncated.
    - If not found: Error "Change not verified. Run /odf-verify first."
    - If found: Continue
     - The verify report MUST contain a real module test result with the exact `command`, exact `database`, `exit_code: 0`, and `output_evidence` showing the passing result. If the database is non-isolated, it must also state that it is non-isolated and user-authorized and warn that tests may mutate module, schema, and test data. Manual browser checks do not satisfy this requirement.
     - Reject reports whose tests are skipped, deferred, unavailable, unrecorded, or missing the exact `-d {test_db}`. Treat them as `blocked` with `verification-deferred`; never archive them. Consent to use a non-isolated database does not authorize `dropdb`, `createdb`/reset/restore, `DROP DATABASE`, `DROP TABLE`, `TRUNCATE`, `DROP SCHEMA`, or destructive re-initialization; those require separate current consent for the exact operation and database and are not test setup.
 
-2. **Collect all artifacts:**
-   ```
-   mem_search("odf/{change-name}/assess") → get ID
-   mem_search("odf/{change-name}/design") → get ID
-   mem_search("odf/{change-name}/implement-progress") → get ID
-   mem_search("odf/{change-name}/verify-report") → get ID
-   mem_search("odf/{change-name}/state") → get ID
-   mem_get_observation(id) for EACH
-   ```
+2. **Collect all artifacts** (read from the selected store; never hardcode `mem_search`):
+
+   | Artifact | `openspec` / `hybrid` | `engram` |
+   |----------|------------------------|----------|
+   | assess | `openspec/changes/{change-name}/assess.md` | `odf/{change-name}/assess` |
+   | design | `openspec/changes/{change-name}/design.md` | `odf/{change-name}/design` |
+   | implement-progress | `openspec/changes/{change-name}/implement-progress.md` | `odf/{change-name}/implement-progress` |
+   | verify-report | `openspec/changes/{change-name}/verify-report.md` | `odf/{change-name}/verify-report` |
+   | state | `openspec/changes/{change-name}/state.yaml` | `odf/{change-name}/state` |
+
+   For Engram, resolve each topic with `mem_search` and then `mem_get_observation(id)` — search previews are truncated. For `hybrid`, OpenSpec is authoritative and Engram is the mirror.
 
 3. **Derive `design_meta` and collect real IMPLEMENT effort (A3):**
    - `design_meta`: use the one persisted by DESIGN if present, else derive it from the design document with `deriveDesignMeta()` (`scripts/odf-estimator.js`). If it cannot be derived, skip the library append and calibration (N/A), do not invent values.
@@ -137,8 +138,8 @@ or non-terminal, return `workflow-verify-not-terminal` and do not modify state.
    ```
    appendAndWrite(index_path, design_meta, {
      rounds_real,            // from step 3 (null → N/A)
-     design_ref: "odf/{change-name}/design",
-     retrospective_ref: "odf/{change-name}/retrospective",
+     design_ref: "odf/{change-name}/design",          // openspec → openspec/changes/{change-name}/design.md
+     retrospective_ref: "odf/{change-name}/retrospective", // openspec → openspec/changes/{change-name}/retrospective.md
      archived_at: "{YYYY-MM-DD}",
    })                        // scripts/odf-design-library.js
    ```
@@ -146,27 +147,14 @@ or non-terminal, return `workflow-verify-not-terminal` and do not modify state.
    - **`--repo`:** `<repo>/design-library/index.json` — use when the team commits and shares the index.
    - Dedupe is by `change`: re-archiving updates the existing entry instead of duplicating it.
 
-6. **Save to Engram:**
-   ```
-   mem_save(
-     title: "odf/{change-name}/retrospective",
-     topic_key: "odf/{change-name}/retrospective",
-     type: "learning",
-     project: "{project}",
-     content: "{full retrospective}"
-   )
-   ```
+6. **Persist the retrospective in the selected store:**
+   - `openspec` / `hybrid`: write `openspec/changes/{change-name}/retrospective.md`.
+   - `engram`: `mem_save(title: "odf/{change-name}/retrospective", topic_key: "odf/{change-name}/retrospective", type: "learning", project: "{project}", content: "{full retrospective}")`.
+   - `hybrid`: both locations, OpenSpec authoritative.
 
-7. **Update learned index:**
-   ```
-   mem_save(
-     title: "odf-learned/{project}/{change-name}",
-     topic_key: "odf-learned/{project}/{change-name}",
-     type: "learning",
-     project: "{project}",
-     content: "{condensed retrospective}"
-   )
-   ```
+7. **Persist the learned index:**
+   - `engram` / `hybrid`: `mem_save(title: "odf-learned/{project}/{change-name}", topic_key: "odf-learned/{project}/{change-name}", type: "learning", project: "{project}", content: "{condensed retrospective}")`.
+   - `openspec`: write `openspec/changes/{change-name}/learned.md`. The `/odf-new` redundancy pre-check reads the Engram `odf-learned/{project}` index only, so also mirror the condensed entry to Engram when the project relies on that pre-check; the mirror is an index, never a substitute for the OpenSpec artifact.
 
 8. **Propose learning candidates from the archived change (C1):**
    Build a verified run from the change's artifacts and feed the T12 learning loop:
@@ -185,16 +173,10 @@ or non-terminal, return `workflow-verify-not-terminal` and do not modify state.
    - Skills are proposed ONLY from a difficult (`>= tool_calls_threshold`, default 5) verified success. NEVER auto-activate: every candidate is `proposed_for: "human"` (learning-loop-contract.md).
    - Only proceed when `data_status: "complete"`; with `no_data` skip steps 9 and the skill confirmation below (N/A).
 
-9. **Save learning proposals to Engram (C1):**
-   ```
-   mem_save(
-     title: "odf/{change-name}/learning-proposals",
-     topic_key: "odf/{change-name}/learning-proposals",
-     type: "learning",
-     project: "{project}",
-     content: "{skill_candidates + memory_candidates + golden_regression + kpi JSON}"
-   )
-   ```
+9. **Persist learning proposals in the selected store:**
+   - `openspec` / `hybrid`: write `openspec/changes/{change-name}/learning-proposals.md`.
+   - `engram`: `mem_save(title: "odf/{change-name}/learning-proposals", topic_key: "odf/{change-name}/learning-proposals", type: "learning", project: "{project}", content: "{skill_candidates + memory_candidates + golden_regression + kpi JSON}")`.
+   - Return the canonical `artifact_ref: { store, ref }`.
    Saved for human review later; nothing is activated at archive time.
 
 10. **Mark as archived:** use the store-aware transition above. Do not manually
