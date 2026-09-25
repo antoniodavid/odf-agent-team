@@ -9,7 +9,8 @@ import { tool as v1Tool } from "@opencode-ai/plugin"
 
 // These pure functions do not depend on the registry file path, so they can be
 // imported normally. createODFDelegate is imported dynamically in its own tests
-// so we can control $HOME and therefore REGISTRY_PATH.
+// so we can control the config dir (ODF_CONFIG_DIR, with HOME behind it) and
+// therefore REGISTRY_PATH.
 import {
   resolvePath,
   resolveWorkspaceRoot,
@@ -55,6 +56,7 @@ import {
 } from "./odf-delegation.js"
 import { recordAiProvenance } from "./odf-governance.js"
 import { ODF_V2_SESSION } from "./odf-delegation-health.js"
+import { getOdfConfigDir } from "./odf-delegation-shared.js"
 import { advanceWorkflow, resolveWorkflowRoute, type CanonicalStage } from "./odf-workflow.js"
 import { buildCandidateManifest, computeCandidateDigest } from "./candidate-manifest.js"
 import { createEntryRouteBinding, predictEntryRouteShadow, type EntryTriageInput } from "./entry-triage.js"
@@ -1737,15 +1739,18 @@ describe("resolvePath", () => {
   })
 
   it("expands ~/ paths that stay within the ODF config directory", () => {
-    const configDir = process.env.ODF_CONFIG_DIR && path.isAbsolute(process.env.ODF_CONFIG_DIR)
-      ? process.env.ODF_CONFIG_DIR
-      : path.join(os.homedir(), ".config/opencode")
-    const entry = process.env.ODF_CONFIG_DIR
-      ? path.join(configDir, "skills/odf-assess/SKILL.md")
-      : "~/.config/opencode/skills/odf-assess/SKILL.md"
-    expect(resolvePath(registryDir, entry)).toBe(
-      path.join(configDir, "skills/odf-assess/SKILL.md")
-    )
+    // The config dir is whatever the resolver says it is today (env override,
+    // self-located pack, XDG or home), so the tilde form is only used when it
+    // really lives under the user's home — that is the branch under test.
+    const configDir = getOdfConfigDir()
+    const skillsPath = path.join("skills", "odf-assess", "SKILL.md")
+    const relativeToHome = path.relative(os.homedir(), configDir)
+    const underHome = Boolean(relativeToHome) && !relativeToHome.startsWith("..") && !path.isAbsolute(relativeToHome)
+    const entry = underHome
+      ? path.posix.join("~", relativeToHome.split(path.sep).join(path.posix.sep), skillsPath)
+      : path.join(configDir, skillsPath)
+
+    expect(resolvePath(registryDir, entry)).toBe(path.join(configDir, skillsPath))
   })
 
   it("allows absolute paths inside the allowed roots", () => {
