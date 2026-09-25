@@ -100,3 +100,22 @@ workspace-driven fallback could not have fixed the project-local case.
 The `/odf-*` prompts default `PACK` to steps 1, 3 and 4
 (`ODF_CONFIG_DIR` → XDG → home). For a project-local pack, prefer the project
 launcher, which exports `ODF_CONFIG_DIR`.
+
+## Delegated session location
+
+`context_files` are validated against the resolved workspace root and then handed
+to the agent as **relative** paths. That is only correct while the delegated
+session works in that same root, so `odf_delegate` now creates the child session
+in the resolved workspace root (`TaskApiInput.directory` →
+`session.create({ location })` / `query.directory` on the SDK bridge). The V2 host
+honours it, verified live: the child came up in a scratch directory with its own
+`projectID` and read a relative `context_files` entry from there.
+
+Omitting `workspace_dir` keeps the previous behaviour exactly — the root resolves
+to the host session's directory, which is where the child already ran. Delegation
+is a no-op unless a caller passes a different root, which is the only case that
+used to resolve context paths against the wrong tree.
+
+Delegating into the installed pack itself is refused (`unsafe-workspace-path`):
+the session would run inside `~/.config/opencode`. The check is narrow, so a
+project-local pack used as a workspace and ODF's own checkout stay legal.

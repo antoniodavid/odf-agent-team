@@ -360,6 +360,13 @@ export type TaskApiInput = {
   agent: string
   prompt: string
   context_files?: string[]
+  /**
+   * Directory the delegated session must run in. Defaults to the host session's
+   * directory, which is what `context_files` (validated relative paths) assumes:
+   * they only resolve correctly when the child works in the same root. Set it to
+   * the resolved workspace root when the two differ.
+   */
+  directory?: string
 }
 
 export type TaskApi = ((input: TaskApiInput) => Promise<unknown>) & {
@@ -371,6 +378,8 @@ type NativeTaskInput = {
   prompt: string
   subagent_type: string
   background: false
+  /** Carried through to the child session; the host task API ignores it. */
+  directory?: string
 }
 
 type NativeTaskFunction = ((input: NativeTaskInput) => Promise<unknown>) & {
@@ -404,7 +413,10 @@ function createNativeTaskApi(nativeTask: NativeTaskFunction): TaskApi {
     prompt: appendValidatedContextFiles(input.prompt, input.context_files),
     subagent_type: input.agent,
     background: false,
-  }))) as TaskApi
+    // Forwarded rather than dropped: the host task API has no directory field, so
+    // this is how the resolved workspace root reaches the child session.
+    ...(input.directory ? { directory: input.directory } : {}),
+  } as unknown as NativeTaskInput))) as TaskApi
   if (typeof nativeTask.abort === "function") taskApi.abort = nativeTask.abort.bind(nativeTask)
   return taskApi
 }
@@ -443,19 +455,28 @@ function resolveTaskModel(context: Record<string, unknown>): TaskModel | undefin
 }
 
 export function createSDKSessionTaskApi(toolCtx: ToolContext, session: SDKSessionApi): TaskApi {
-  const pending = new WeakMap<Promise<unknown>, { childID?: string; abortRequested: boolean; aborting?: Promise<void> }>()
+  const pending = new WeakMap<Promise<unknown>, { childID?: string; abortRequested: boolean; directory: string; aborting?: Promise<void> }>()
   const directory = typeof (toolCtx as any).directory === "string" ? (toolCtx as any).directory : process.cwd()
+  // Per invocation, not per bridge: one bridge serves delegations with different
+  // workspace roots.
+  const targetDirectory = (input: TaskApiInput): string =>
+    typeof input.directory === "string" && input.directory.trim() ? input.directory : directory
   const context = toolCtx as Record<string, unknown>
   const model = resolveTaskModel(context)
 
   const taskApi = ((input: TaskApiInput): Promise<unknown> => {
-    const invocation = { abortRequested: false } as { childID?: string; abortRequested: boolean; aborting?: Promise<void> }
+    const invocation = { abortRequested: false, directory: targetDirectory(input) } as {
+      childID?: string
+      abortRequested: boolean
+      directory: string
+      aborting?: Promise<void>
+    }
     const abortChild = async (): Promise<void> => {
       invocation.abortRequested = true
       if (!invocation.childID || invocation.aborting) return invocation.aborting
       invocation.aborting = Promise.resolve(session.abort({
         path: { id: invocation.childID },
-        query: { directory },
+        query: { directory: invocation.directory },
       })).then(() => undefined)
       await invocation.aborting
     }
@@ -464,7 +485,7 @@ export function createSDKSessionTaskApi(toolCtx: ToolContext, session: SDKSessio
       try {
         created = await session.create({
           body: { parentID: toolCtx.sessionID, title: `ODF delegation: ${input.agent}` },
-          query: { directory },
+          query: { directory: invocation.directory },
         })
       } catch (error) {
         throw new Error(`session-create-error: ${error instanceof Error ? error.message : String(error)}`)
@@ -497,7 +518,7 @@ export function createSDKSessionTaskApi(toolCtx: ToolContext, session: SDKSessio
       try {
         response = await session.prompt({
           path: { id: invocation.childID },
-          query: { directory },
+          query: { directory: invocation.directory },
           body: {
             agent: input.agent,
             ...(model ? { model } : {}),
@@ -520,7 +541,7 @@ export function createSDKSessionTaskApi(toolCtx: ToolContext, session: SDKSessio
       if (!state.aborting) {
         state.aborting = Promise.resolve(session.abort({
           path: { id: state.childID },
-          query: { directory },
+          query: { directory: state.directory || directory },
         })).then(() => undefined)
       }
       await state.aborting
@@ -659,6 +680,10 @@ export function createV2SessionTaskApi(toolCtx: ToolContext, session: V2SessionA
   // the abort resilient when a wrapper hides the promise identity.
   const live = new Set<V2TaskInvocation>()
   const directory = typeof (toolCtx as any).directory === "string" ? (toolCtx as any).directory : process.cwd()
+  // Per invocation, not per bridge: one bridge serves delegations with different
+  // workspace roots.
+  const targetDirectory = (input: TaskApiInput): string =>
+    typeof input.directory === "string" && input.directory.trim() ? input.directory : directory
   const context = toolCtx as Record<string, unknown>
   const contextModel = resolveTaskModel(context)
 
@@ -694,7 +719,7 @@ export function createV2SessionTaskApi(toolCtx: ToolContext, session: V2SessionA
       const created = await callV2(() => session.create({
         agent: input.agent,
         ...(model ? { model: { providerID: model.providerID, id: model.modelID } } : {}),
-        location: { directory },
+        location: { directory: targetDirectory(input) },
       }), "session-create-error", false)
       const createdValue = created && typeof created === "object" && !Array.isArray(created)
         ? created as Record<string, unknown>

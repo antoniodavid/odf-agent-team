@@ -20,7 +20,7 @@ import * as nodeCrypto from "node:crypto"
 import { type ToolContext, tool } from "../odf-plugin/odf-tool.js"
 import { execFileSync, execSync } from "node:child_process"
 import { filterStopWords, resolveAgent, validateAgentSelection } from "../scripts/lib/agent-resolve.js"
-import { findOtherPackRoots } from "../scripts/lib/config-dir.js"
+import { findOtherPackRoots, hasPackRegistry } from "../scripts/lib/config-dir.js"
 import {
   canonicalChangeName,
   canonicalWorkspaceRoot,
@@ -367,8 +367,13 @@ async function invokeTask(
   contextFiles?: string[],
   timeoutMs = 600_000,
   abortSignal?: AbortSignal,
+  // Directory the child session runs in. Positional (not an options object) on
+  // purpose: this PR changes behaviour, not the call shape. `contextFiles` are
+  // validated relative paths, so they only resolve when the child works in the
+  // same root; callers pass the resolved workspace root.
+  directory?: string,
 ): Promise<{ status: string; result: unknown }> {
-  const taskPromise = taskApi({ agent: agentName, prompt, context_files: contextFiles })
+  const taskPromise = taskApi({ agent: agentName, prompt, context_files: contextFiles, directory })
   let timedOut = false
   let cancelled = false
   let timeoutHandle: ReturnType<typeof setTimeout> | undefined
@@ -1318,7 +1323,7 @@ Use this instead of generic task() for ODF workflow delegation.`,
       workspace_dir: tool.schema
         .string()
         .optional()
-        .describe("Selected project directory (defaults to the plugin directory, then cwd)"),
+        .describe("Absolute project root, which also becomes the delegated session's directory so the validated relative context_files resolve correctly. Omit it to use the current session's project directory. Pass it only when the change lives in another project; never point it at the installed ODF pack."),
       odoo_source_root: tool.schema
         .string()
         .optional()
@@ -1491,6 +1496,17 @@ Use this instead of generic task() for ODF workflow delegation.`,
         return blockWorkflow(
           "unsafe-workspace-path",
           "The workspace directory does not resolve to a safe existing root.",
+          null,
+        )
+      }
+      // The delegated session is now created in the workspace root, so a root
+      // pointing at the installed pack would put agent work inside the ODF
+      // install itself. Narrow on purpose: a project-local pack used as a
+      // workspace, and ODF's own checkout, both stay legal.
+      if (path.resolve(workspaceRoot) === path.resolve(getOdfConfigDir()) && hasPackRegistry(workspaceRoot)) {
+        return blockWorkflow(
+          "unsafe-workspace-path",
+          `The workspace root is the installed ODF pack (${workspaceRoot}); the delegated session would run inside the pack. Pass the project root instead, or omit workspace_dir.`,
           null,
         )
       }
@@ -2047,7 +2063,11 @@ Use this instead of generic task() for ODF workflow delegation.`,
           taskSpanStartTime = Date.now()
           recordTaskSpan("started")
           flushMetricsSync()
-          const taskResult = await invokeTask(taskApiInfo.taskApi, agentName, delegationPrompt, contextValidation.relativePaths, timeoutMs, toolCtx.abort)
+          // The child session is created in the resolved workspace root so the
+          // validated relative context paths resolve against it. With no
+          // workspace_dir this equals the host session's directory, so the
+          // behaviour is unchanged.
+          const taskResult = await invokeTask(taskApiInfo.taskApi, agentName, delegationPrompt, contextValidation.relativePaths, timeoutMs, toolCtx.abort, workspaceRoot)
           let resultForOutput: unknown = taskResult.result
           // Stop-validation seal (slice 2): after an IMPLEMENT delegation, stamp
           // the envelope with the deterministic evidence verdict. The sub-agent
@@ -2714,7 +2734,7 @@ must not overlap. VERIFY remains sequential after the aggregate join is complete
       workspace_dir: tool.schema
         .string()
         .optional()
-        .describe("Selected project directory (defaults to the plugin directory, then cwd)"),
+        .describe("Absolute project root, which also becomes the delegated session's directory so the validated relative context_files resolve correctly. Omit it to use the current session's project directory. Pass it only when the change lives in another project; never point it at the installed ODF pack."),
       odoo_source_root: tool.schema
         .string()
         .optional()

@@ -215,6 +215,42 @@ describe("OpenCode V2 ODF adapter", () => {
     expect(session.context).toHaveBeenCalledWith({ sessionID: "child-session" })
   })
 
+  it("creates the V2 child session in the requested directory, and in the host session's by default", async () => {
+    // context_files are validated relative paths: they only resolve when the child
+    // works in the same root, so the workspace root has to reach session.create.
+    const explicit = v2Session()
+    await createV2SessionTaskApi(taskContext() as any, explicit as any)({
+      agent: "odoo_qa_engineer",
+      prompt: "work",
+      directory: "/workspace/root",
+    })
+    expect(explicit.create).toHaveBeenCalledWith(expect.objectContaining({
+      location: { directory: "/workspace/root" },
+    }))
+
+    // No directory given: unchanged behaviour, the host session's own directory.
+    const fallback = v2Session()
+    await createV2SessionTaskApi({ ...taskContext(), directory: "/host/session" } as any, fallback as any)({
+      agent: "odoo_qa_engineer",
+      prompt: "work",
+    })
+    expect(fallback.create).toHaveBeenCalledWith(expect.objectContaining({
+      location: { directory: "/host/session" },
+    }))
+  })
+
+  it("keeps the workspace root on the task api that findTaskApi hands back", async () => {
+    const session = v2Session()
+    const bridge = createV2SessionTaskApi({ ...taskContext(), directory: "/host/session" } as any, session as any)
+    const resolved = findTaskApi({ ...taskContext(), directory: "/host/session", task: bridge } as any, undefined)
+
+    await resolved!.taskApi({ agent: "odoo_qa_engineer", prompt: "work", directory: "/workspace/root" })
+
+    expect(session.create).toHaveBeenCalledWith(expect.objectContaining({
+      location: { directory: "/workspace/root" },
+    }))
+  })
+
   it("aborts the V2 child session for explicit cancellation", async () => {
     const session = v2Session()
     let rejectPrompt: ((error: Error) => void) | undefined

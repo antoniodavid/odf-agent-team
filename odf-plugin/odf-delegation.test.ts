@@ -3423,6 +3423,60 @@ ${overrides}`
     expect(output).toMatchObject({ status: "delegated", result: taskResult })
   })
 
+  it("creates the delegated session in the resolved workspace root and keeps context paths relative", async () => {
+    // The relative context paths are the upstream contract; B' makes them correct
+    // by creating the child in the same root instead of re-anchoring them.
+    const { createODFDelegate } = await import("./odf-delegation.js")
+    const workspace = await fs.mkdtemp(path.join(os.tmpdir(), "odf-workspace-root-"))
+    try {
+      await fs.writeFile(path.join(workspace, "context.txt"), "external context\n", "utf8")
+      const taskApi = vi.fn().mockResolvedValue({ status: "ok", design_closed: true })
+
+      await createODFDelegate(undefined, "/host/session/dir").execute({
+        phase: "DESIGN",
+        prompt: "Design a Python model",
+        context_files: ["context.txt"],
+        workspace_dir: workspace,
+      }, { sessionID: "workspace-root", task: taskApi } as any)
+
+      const call = taskApi.mock.calls[0][0] as { directory?: string; prompt: string }
+      // The child is created where the validated relative paths resolve.
+      expect(call.directory).toBe(workspace)
+      expect(call.prompt).toContain("- context.txt")
+      expect(call.prompt).not.toContain(path.join(workspace, "context.txt"))
+    } finally {
+      await fs.rm(workspace, { recursive: true, force: true })
+    }
+  })
+
+  it("leaves the delegated session in the host session directory when no workspace_dir is given", async () => {
+    const { createODFDelegate } = await import("./odf-delegation.js")
+    const taskApi = vi.fn().mockResolvedValue({ status: "ok", design_closed: true })
+
+    await createODFDelegate(undefined, tempHome).execute({
+      phase: "DESIGN",
+      prompt: "Design a Python model",
+      context_files: [],
+    }, { sessionID: "default-directory", task: taskApi } as any)
+
+    expect((taskApi.mock.calls[0][0] as { directory?: string }).directory).toBe(tempHome)
+  })
+
+  it("refuses to run the delegated session inside the installed ODF pack", async () => {
+    const { createODFDelegate } = await import("./odf-delegation.js")
+    const taskApi = vi.fn().mockResolvedValue({ status: "ok", design_closed: true })
+
+    const output = JSON.parse(await createODFDelegate(undefined, "/host/session/dir").execute({
+      phase: "DESIGN",
+      prompt: "Design a Python model",
+      context_files: [],
+      workspace_dir: getOdfConfigDir(),
+    }, { sessionID: "pack-guard", task: taskApi } as any) as string)
+
+    expect(output).toMatchObject({ status: "blocked", reason: "unsafe-workspace-path" })
+    expect(taskApi).not.toHaveBeenCalled()
+  })
+
   it("honors a valid explicit agent override", async () => {
     const { createODFDelegate } = await import("./odf-delegation.js")
     const taskApi = vi.fn().mockResolvedValue({ status: "ok", design_closed: true })
