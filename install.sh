@@ -599,6 +599,36 @@ run_npm_install() {
 # it stays "failed" until the service restarts. Warn by default so an install
 # never yanks a live session out from under the user; --restart-service (or
 # ODF_RESTART_SERVICE=1) opts in to doing it now.
+# Report the ODF plugin state: `active`, `failed`, `missing`, or empty when the
+# API cannot be queried. `node` parses the JSON because node is already a hard
+# prerequisite of this installer.
+odf_plugin_state() {
+  local json
+  command -v node &> /dev/null || return 0
+  json="$(opencode api GET /api/plugin 2>/dev/null || true)"
+  [[ -n "$json" ]] || return 0
+  printf '%s' "$json" | node -e '
+    let raw = "";
+    process.stdin.on("data", (chunk) => { raw += chunk; });
+    process.stdin.on("end", () => {
+      try {
+        const list = JSON.parse(raw).data;
+        const entries = Array.isArray(list) ? list : [];
+        const plugin = entries.find((entry) => {
+          const source = entry && entry.source;
+          return (entry && entry.id === "odf-delegation") ||
+            (source && typeof source.path === "string" && source.path.includes("odf-delegation"));
+        });
+        if (!plugin) return process.stdout.write("missing");
+        const status = plugin.state && plugin.state.status;
+        process.stdout.write(status ? String(status) : "");
+      } catch {
+        process.stdout.write("");
+      }
+    });
+  ' 2>/dev/null || true
+}
+
 restart_opencode_service() {
   # A dry run must not touch the filesystem: probing `opencode service status`
   # would initialise ~/.config/opencode on a pristine HOME.
@@ -629,8 +659,22 @@ restart_opencode_service() {
     return 0
   fi
 
-  log_warn "⚠️  Restart OpenCode to load the ODF plugin: opencode service restart"
-  log_warn "     (a plugin that fails once stays 'failed' until the service restarts)"
+  # The host fully reloads plugins when a watched config file changes, so a
+  # healthy service has already picked the pack up. Only nag when the plugin
+  # demonstrably is not loaded — a restart is useless noise otherwise.
+  local plugin_state
+  plugin_state="$(odf_plugin_state)"
+  if [[ "$plugin_state" == "active" ]]; then
+    log_ok "✅ ODF plugin is active — the host reloaded it, no restart needed"
+    return 0
+  fi
+
+  if [[ -n "$plugin_state" ]]; then
+    log_warn "⚠️  ODF plugin state: ${plugin_state}. Restart OpenCode to load it: opencode service restart"
+    log_warn "     (a plugin that fails once stays 'failed' until the service restarts)"
+  else
+    log_warn "⚠️  Could not verify the ODF plugin state. If it is not loaded, restart: opencode service restart"
+  fi
 }
 
 run_self_test() {

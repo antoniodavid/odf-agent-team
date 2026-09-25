@@ -136,6 +136,84 @@ describe("install.sh", { timeout: 30000 }, () => {
     }
   })
 
+  function fakeOpencodeBin(): string {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "odf-fake-opencode-"))
+    fs.writeFileSync(
+      path.join(dir, "opencode"),
+      [
+        "#!/usr/bin/env bash",
+        'if [ "$1" = "service" ] && [ "$2" = "status" ]; then echo "http://127.0.0.1:4999"; exit 0; fi',
+        'if [ "$1" = "api" ]; then printf \'%s\' "$ODF_FAKE_PLUGIN_JSON"; exit 0; fi',
+        "exit 0",
+        "",
+      ].join("\n"),
+      "utf8",
+    )
+    fs.chmodSync(path.join(dir, "opencode"), 0o755)
+    return dir
+  }
+
+  function runWithFakeOpencode(pluginState: string): string {
+    const bin = fakeOpencodeBin()
+    const json = JSON.stringify({
+      data: [{
+        id: "odf-delegation",
+        source: { type: "local", path: "/home/x/.config/opencode/plugins/odf-delegation.ts" },
+        state: { status: pluginState },
+      }],
+    })
+    try {
+      const { result, tempHome } = runInstaller(["--yes"], {
+        PATH: `${bin}:${process.env.PATH || ""}`,
+        ODF_FAKE_PLUGIN_JSON: json,
+      })
+      try {
+        expect(result.status).toBe(0)
+        return `${result.stdout}\n${result.stderr}`
+      } finally {
+        cleanup(tempHome)
+      }
+    } finally {
+      fs.rmSync(bin, { recursive: true, force: true })
+    }
+  }
+
+  it("does not ask for a restart when the host already reloaded the plugin", () => {
+    // The host fully reloads plugins when a watched config file changes, so the
+    // default warning would be noise on every healthy install.
+    const output = runWithFakeOpencode("active")
+
+    expect(output).toContain("ODF plugin is active")
+    expect(output).toContain("no restart needed")
+    expect(output).not.toContain("Restart OpenCode to load it")
+  })
+
+  it("asks for a restart with the observed state when the plugin is not active", () => {
+    const output = runWithFakeOpencode("failed")
+
+    expect(output).toContain("ODF plugin state: failed")
+    expect(output).toContain("opencode service restart")
+  })
+
+  it("falls back to an unverifiable warning when the API answers nothing", () => {
+    const bin = fakeOpencodeBin()
+    try {
+      const { result, tempHome } = runInstaller(["--yes"], {
+        PATH: `${bin}:${process.env.PATH || ""}`,
+        ODF_FAKE_PLUGIN_JSON: "",
+      })
+      try {
+        expect(result.status).toBe(0)
+        const output = `${result.stdout}\n${result.stderr}`
+        expect(output).toContain("Could not verify the ODF plugin state")
+      } finally {
+        cleanup(tempHome)
+      }
+    } finally {
+      fs.rmSync(bin, { recursive: true, force: true })
+    }
+  })
+
   it("runs from piped stdin (curl | bash) without a TTY and installs", () => {
     const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), "odf-installer-piped-"))
     const script = fs.readFileSync(INSTALL_SCRIPT, "utf8")
