@@ -212,8 +212,10 @@ if (args[0] === "save") {
   process.exit(0)
 }
 if (args[0] === "export") {
-  const observations = fs.existsSync(storePath) ? fs.readFileSync(storePath, "utf8") : "[]"
-  fs.writeFileSync(args[1], JSON.stringify({ version: "test", exported_at: "2026-08-20T00:00:00.000Z", sessions: [], observations: JSON.parse(observations), prompts: [] }))
+  const project = flag("--project")
+  const all = fs.existsSync(storePath) ? JSON.parse(fs.readFileSync(storePath, "utf8")) : []
+  const observations = project ? all.filter((o) => !o.project || o.project === project) : all.filter((o) => !o.project)
+  fs.writeFileSync(args[1], JSON.stringify({ version: "test", exported_at: "2026-08-20T00:00:00.000Z", sessions: [], observations, prompts: [] }))
   process.exit(0)
 }
 process.exit(2)
@@ -2597,7 +2599,19 @@ async function configureEngramExport(observations: Array<Record<string, unknown>
   const cliPath = path.join(binDir, "engram")
   await fs.writeFile(
     cliPath,
-     "#!/bin/sh\nif [ \"$1\" = \"export\" ]; then\n  printf '{\"observations\":%s}' \"$ODF_TEST_ENGRAM_EXPORT\" > \"$2\"\nfi\n",
+     `#!/usr/bin/env node
+const fs = require("node:fs")
+const args = process.argv.slice(2)
+if (args[0] === "export") {
+  const flag = (name) => { const i = args.indexOf(name); return i >= 0 ? args[i + 1] : undefined }
+  const project = flag("--project")
+  const all = JSON.parse(process.env.ODF_TEST_ENGRAM_EXPORT || "[]")
+  const observations = project
+    ? all.filter((o) => !o.project || o.project === project)
+    : all.filter((o) => !o.project)
+  fs.writeFileSync(args[1], JSON.stringify({ observations }))
+}
+`,
     "utf8"
   )
   await fs.chmod(cliPath, 0o755)
@@ -2666,6 +2680,23 @@ describe("loadEngramStatus", () => {
       expect(legacy?.change).toBe("legacy")
       expect(legacy?.applyProgress).toEqual({ completed: 1, total: 2 })
       expect(fsSync.existsSync(path.join(process.cwd(), "--project"))).toBe(false)
+    } finally {
+      await cleanup()
+    }
+  })
+
+  it("resolves the Engram project from the git remote, not the checkout directory name", async () => {
+    const workspace = path.join(tmp, "renamed-checkout")
+    initGitRepo(workspace)
+    commitFile(workspace, "README.md", 1)
+    execSync("git remote add origin https://github.com/acme/canonical-project.git", { cwd: workspace })
+    const cleanup = await configureEngramExport([
+      { topic_key: "odf/remote-scoped/state", content: "work_type: feature", project: "canonical-project", created_at: "2026-09-01T10:00:00Z" },
+    ])
+
+    try {
+      const status = await loadEngramStatus(workspace, "remote-scoped")
+      expect(status?.change).toBe("remote-scoped")
     } finally {
       await cleanup()
     }

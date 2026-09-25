@@ -38,5 +38,5 @@ export function indexActiveSources(config: ScanConfig, workspaceRoot: string, ru
 export function buildConfig(workspaceRoot: string, repoDir: string, opts?: { odooVersion?: number | null }): ScanConfig
 export function classifyExit(config: ScanConfig): 0 | 1 | 2
 export function diffConfigs(cached: ScanConfig | null, fresh: ScanConfig): string[]
-export function readPersistedConfig(project: string): ScanConfig | null
+export function readPersistedConfig(project: string, opts?: { cwd?: string }): ScanConfig | null
 export function renderSummary(config: ScanConfig): string

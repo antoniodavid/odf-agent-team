@@ -69,14 +69,14 @@ Compare current period vs previous period of the same length. The script returns
 
 ### 4. Cache snapshot (optional, never a source)
 
-If a snapshot is wanted for cross-session reference, store the dashboard TEXT in Engram — it is a denormalized cache, NOT the source of truth:
+If a snapshot is wanted for cross-session reference, store the dashboard TEXT in Engram — it is a denormalized cache, NOT the source of truth. Always tag it with the current project; never hardcode a project name:
 
 ```
 mem_save(
   title: "odf/metrics/snapshot/{date}",
   topic_key: "odf/metrics/latest",
   type: "architecture",
-  project: "opencode",
+  project: "{project}",
   content: "{dashboard text}"
 )
 ```

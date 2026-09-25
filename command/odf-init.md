@@ -33,7 +33,7 @@ read it without re-detecting.
    ```
    - Add `--diff` when re-detecting (shows changes vs the persisted config), `--fresh` to bypass the checksum cache, and pass user overrides as flags (`--odoo-version 18`, `--docker-container odoo`, `--codegraph`).
    - Exit codes: `0` ok; `1` warnings — show them; `2` blocked — fall back to manual detection (read `skills/odf-init/SKILL.md` steps) or ask the user for the missing values; never guess.
-   - **Success requires the CLI output to include `persisted to Engram topic odf-init/{project} (verified)`.** If that line is absent (no `--persist`, persist error, or readback mismatch), the project is NOT initialized: stop and report, do not claim success, do not fall back to manual persistence.
+   - **Success requires the CLI output to include `persisted to Engram topic odf-init/{project} (verified)`.** The readback is scoped to `--project {project}`, so it does not depend on the invocation cwd. If that line is absent (no `--persist`, persist error, or readback mismatch), the project is NOT initialized: stop and report, do not claim success, do not fall back to manual persistence. On success, forward `artifact_ref: { store: engram, ref: odf-init/{project} }`.
    - If the CLI cannot run, read `skills/odf-init/SKILL.md` and run detection manually.
 
 3. **Show results** to user:
@@ -48,6 +48,7 @@ read it without re-detecting.
      OCA mode: {yes/no}
      Environment: {sources active} sources, {declared-absent} declared-absent, {undeclared} undeclared
      CodeGraph: {indexed yes/no} ({root})
+     artifact_ref: { store: engram, ref: odf-init/{project} }
      Config saved to Engram. All ODF commands will use this context.
    ```
    Show warnings when `declared_absent` or `undeclared` sources exist, when a project module depends on an unresolved non-core module, or when the CodeGraph index is missing.

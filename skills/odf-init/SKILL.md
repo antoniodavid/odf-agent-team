@@ -15,7 +15,7 @@ values.
 
 ## When to Use
 
-Use when entering a new Odoo project, or when project tooling changes (new test runner, new dependencies). Persist to the selected store so all ODF phases reuse the config without re-detecting.
+Use when entering a new Odoo project, or when project tooling changes (new test runner, new dependencies). Persist to Engram under `odf-init/{project}` so all ODF phases reuse the config without re-detecting.
 
 ## Hard Rules
 
@@ -48,7 +48,7 @@ Use when entering a new Odoo project, or when project tooling changes (new test 
    PACK="${ODF_CONFIG_DIR:-$HOME/.config/opencode}"
    node "$PACK/scripts/odf-project-scan.js" --root <doodba-workspace-root> --repo <repo-dir> --persist --format json
    ```
-   The pack path is deterministic: `$ODF_CONFIG_DIR` when set, else `$HOME/.config/opencode`. **Never search the filesystem for the script.** If `$PACK/scripts/odf-project-scan.js` does not exist, reinstall the pack (`install.sh` from the repo or `/odf-registry-refresh`) or fall back to the manual steps below. The CLI assembles the full config (sources, compose, linting, git, CodeGraph, dependency matrix), persists it to Engram under `odf-init/{project}`, and exits `0` (ok), `1` (warnings), or `2` (blocked). Use `--diff` on re-detection to show changes vs the persisted config, `--fresh` to bypass the checksum cache, and flags for overrides (`--odoo-version`, `--docker-container`, `--codegraph` for CodeGraph init opt-in). The orchestrator relays the summary and interprets warnings only; it never re-derives the config. If the CLI cannot run (no node/script), fall back to the manual steps below — never guess.
+   The pack path is deterministic: `$ODF_CONFIG_DIR` when set, else `$HOME/.config/opencode`. **Never search the filesystem for the script.** If `$PACK/scripts/odf-project-scan.js` does not exist, reinstall the pack (`install.sh` from the repo or `/odf-registry-refresh`) or fall back to the manual steps below. The CLI assembles the full config (sources, compose, linting, git, CodeGraph, dependency matrix), persists it to Engram under `odf-init/{project}`, verifies the readback with an explicit `--project {project}` scope (never the invocation cwd), and exits `0` (ok), `1` (warnings), or `2` (blocked). On verified persistence it prints `artifact_ref: {"store":"engram","ref":"odf-init/{project}"}`. Use `--diff` on re-detection to show changes vs the persisted config, `--fresh` to bypass the checksum cache, and flags for overrides (`--odoo-version`, `--docker-container`, `--codegraph` for CodeGraph init opt-in). The orchestrator relays the summary and interprets warnings only; it never re-derives the config. If the CLI cannot run (no node/script), fall back to the manual steps below — never guess.
 1. **Detect version**: __manifest__.py → odoo-bin → Dockerfile → ask
 2. **Detect modules**: Find all __manifest__.py, classify as custom/oca/core-override
 3. **Environment Context (Doodba)**: When the workspace is a Doodba layout, detect the source manifest and resolve project module dependencies:
@@ -77,7 +77,7 @@ Use when entering a new Odoo project, or when project tooling changes (new test 
 6. **Detect linting**: pre-commit config, pylint-odoo availability, OCA compliance flags
 7. **Detect conventions + project context**: Module prefix patterns, git workflow, CI platform, README conventions. Also detect project context when present: **principles** (engineering rules stated by the repo — CONTRIBUTING, README, pre-commit/OCA config; never invented) and **glossary** (existing `CONTEXT.md` or domain docs mapping business terms ↔ Odoo models/fields). Persist as `project_context: { principles: [], glossary: {} }`; leave both empty when absent — never invent entries
 8. **Build config**: Assemble YAML with project_name, odoo_version, modules[], environment{}, testing{}, linting{}, flags{}, conventions{}, project_context{}
-9. **Persist** the config in the selected store and return its canonical `artifact_ref`.
+9. **Persist** the config to Engram under `odf-init/{project}` (project context is Engram-canonical; the preflight-selected store applies to change artifacts) and return `artifact_ref: { store: engram, ref: odf-init/{project} }`.
      - Persist the resolved command under `testing.test_command` with literal `{test_db}` and `{module}` placeholders so IMPLEMENT/VERIFY can substitute the exact authorized database and module under test.
 
 ## Output Contract

@@ -2,9 +2,12 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import * as fs from "node:fs/promises"
 import * as path from "node:path"
 import * as os from "node:os"
-import { execFileSync } from "node:child_process"
+import { execFileSync, spawnSync } from "node:child_process"
+import { fileURLToPath } from "node:url"
 import { buildConfig, classifyExit, compactForPersist, computeChecksum, diffConfigs, indexActiveSources, readPersistedConfig, resolveRepoArg } from "./odf-project-scan.js"
 import YAML from "yaml"
+
+const SCAN_CLI = fileURLToPath(new URL("./odf-project-scan.js", import.meta.url))
 
 async function writeFile(dir: string, rel: string, content: string): Promise<void> {
   const file = path.join(dir, rel)
@@ -18,6 +21,69 @@ const manifest = (name: string, depends: string[]) => `{
     'license': 'AGPL-3',
     'depends': [${depends.map(d => `'${d}'`).join(", ")}],
 }`
+
+const FAKE_ENGRAM = `#!/usr/bin/env node
+const fs = require("node:fs")
+const args = process.argv.slice(2)
+const flag = (name) => { const i = args.indexOf(name); return i >= 0 ? args[i + 1] : undefined }
+const storePath = process.env.ODF_TEST_ENGRAM_STORE
+const read = () => fs.existsSync(storePath) ? JSON.parse(fs.readFileSync(storePath, "utf8")) : []
+if (args[0] === "save") {
+  const topic = flag("--topic")
+  const project = flag("--project")
+  const others = read().filter(o => o.topic_key !== topic)
+  fs.writeFileSync(storePath, JSON.stringify([...others, { topic_key: topic, content: args[2], project }]))
+  process.exit(0)
+}
+if (args[0] === "export") {
+  const project = flag("--project")
+  const observations = project ? read().filter(o => o.project === project) : []
+  fs.writeFileSync(args[1], JSON.stringify({ version: "test", observations }))
+  fs.appendFileSync(process.env.ODF_TEST_ENGRAM_LOG, JSON.stringify({ args, cwd: process.cwd() }) + "\\n")
+  process.exit(0)
+}
+process.exit(2)
+`
+
+async function withFakeEngram(
+  script: string,
+  run: (paths: { bin: string; log: string; store: string }) => Promise<void> | void,
+): Promise<void> {
+  const bin = await fs.mkdtemp(path.join(os.tmpdir(), "odf-engram-bin-"))
+  const previous = {
+    PATH: process.env.PATH,
+    log: process.env.ODF_TEST_ENGRAM_LOG,
+    store: process.env.ODF_TEST_ENGRAM_STORE,
+    config: process.env.ODF_TEST_ENGRAM_CONFIG,
+  }
+  const log = path.join(bin, "calls.jsonl")
+  const store = path.join(bin, "observations.json")
+  await fs.writeFile(path.join(bin, "engram"), script, "utf8")
+  await fs.chmod(path.join(bin, "engram"), 0o755)
+  process.env.PATH = `${bin}${path.delimiter}${previous.PATH || ""}`
+  process.env.ODF_TEST_ENGRAM_LOG = log
+  process.env.ODF_TEST_ENGRAM_STORE = store
+  try {
+    await run({ bin, log, store })
+  } finally {
+    process.env.PATH = previous.PATH
+    if (previous.log === undefined) delete process.env.ODF_TEST_ENGRAM_LOG
+    else process.env.ODF_TEST_ENGRAM_LOG = previous.log
+    if (previous.store === undefined) delete process.env.ODF_TEST_ENGRAM_STORE
+    else process.env.ODF_TEST_ENGRAM_STORE = previous.store
+    if (previous.config === undefined) delete process.env.ODF_TEST_ENGRAM_CONFIG
+    else process.env.ODF_TEST_ENGRAM_CONFIG = previous.config
+    await fs.rm(bin, { recursive: true, force: true })
+  }
+}
+
+async function readCalls(log: string): Promise<Array<{ args: string[]; cwd?: string }>> {
+  try {
+    return (await fs.readFile(log, "utf8")).trim().split("\n").filter(Boolean).map(line => JSON.parse(line))
+  } catch {
+    return []
+  }
+}
 
 describe("odf-project-scan", () => {
   let root: string
@@ -152,6 +218,67 @@ describe("odf-project-scan", () => {
       await fs.rm(bin, { recursive: true, force: true })
     }
   })
+
+  it("scopes the Engram export to the requested project and cwd", async () => {
+    await withFakeEngram(FAKE_ENGRAM, async ({ log }) => {
+      process.env.ODF_TEST_ENGRAM_CONFIG = YAML.stringify({ project_name: "proj", odoo_version: 19, modules: [] })
+      execFileSync("engram", ["save", "odf-init/proj", process.env.ODF_TEST_ENGRAM_CONFIG, "--type", "config", "--project", "proj", "--scope", "project", "--topic", "odf-init/proj"], { encoding: "utf8" })
+      const cwd = await fs.mkdtemp(path.join(os.tmpdir(), "odf-scan-cwd-"))
+      try {
+        const config = readPersistedConfig("proj", { cwd })
+        expect(config?.odoo_version).toBe(19)
+        const calls = await readCalls(log)
+        expect(calls).toHaveLength(1)
+        expect(calls[0].args).toEqual(["export", expect.any(String), "--project", "proj"])
+        expect(calls[0].cwd).toBe(await fs.realpath(cwd))
+      } finally {
+        await fs.rm(cwd, { recursive: true, force: true })
+      }
+    })
+  })
+
+  it("falls back to the legacy export when an older Engram rejects --project", async () => {
+    const fallbackCli = `#!/usr/bin/env node
+const fs = require("node:fs")
+const args = process.argv.slice(2)
+fs.appendFileSync(process.env.ODF_TEST_ENGRAM_LOG, JSON.stringify({ args }) + "\\n")
+if (args.includes("--project")) process.exit(17)
+fs.writeFileSync(args[1], JSON.stringify({ observations: [{ topic_key: "odf-init/proj", content: process.env.ODF_TEST_ENGRAM_CONFIG }] }))
+`
+    await withFakeEngram(fallbackCli, async ({ log }) => {
+      process.env.ODF_TEST_ENGRAM_CONFIG = YAML.stringify({ project_name: "proj", odoo_version: 18, modules: [] })
+      const config = readPersistedConfig("proj", { cwd: os.tmpdir() })
+      expect(config?.odoo_version).toBe(18)
+      const calls = await readCalls(log)
+      expect(calls).toHaveLength(2)
+      expect(calls[0].args).toContain("--project")
+      expect(calls[1].args).toEqual(["export", expect.any(String)])
+    })
+  })
+
+  it("persists and verifies odf-init from a cwd outside the repo", async () => {
+    await withFakeEngram(FAKE_ENGRAM, async ({ log, store }) => {
+      const outside = await fs.mkdtemp(path.join(os.tmpdir(), "odf-scan-cwd-"))
+      try {
+        const summary = spawnSync(process.execPath, [SCAN_CLI, "--root", root, "--repo", repo, "--persist", "--format", "summary"], { cwd: outside, env: { ...process.env }, encoding: "utf8" })
+        expect(summary.status).toBe(1)
+        expect(summary.stdout).toContain("persisted to Engram topic odf-init/myrepo (verified)")
+        expect(summary.stdout).toContain('"store":"engram"')
+        const stored = JSON.parse(await fs.readFile(store, "utf8")) as Array<Record<string, unknown>>
+        expect(stored[0]).toMatchObject({ topic_key: "odf-init/myrepo", project: "myrepo" })
+
+        const json = spawnSync(process.execPath, [SCAN_CLI, "--root", root, "--repo", repo, "--persist", "--format", "json"], { cwd: outside, env: { ...process.env }, encoding: "utf8" })
+        const parsed = JSON.parse(json.stdout) as { artifact_ref?: unknown }
+        expect(parsed.artifact_ref).toEqual({ store: "engram", ref: "odf-init/myrepo" })
+
+        const calls = await readCalls(log)
+        expect(calls.length).toBeGreaterThan(0)
+        expect(calls.every(call => call.args.includes("--project"))).toBe(true)
+      } finally {
+        await fs.rm(outside, { recursive: true, force: true })
+      }
+    })
+  }, 30_000)
 
   it("empty environment blocks and warns instead of throwing", () => {
     const config = buildConfig(path.join(root, "nowhere"), path.join(root, "nowhere-repo"))

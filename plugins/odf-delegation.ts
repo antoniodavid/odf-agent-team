@@ -3587,16 +3587,36 @@ interface EngramObservationRead {
   error: "engram-cli-unavailable" | "engram-export-timeout" | "engram-export-failed" | "engram-export-invalid" | null
 }
 
-function readEngramObservationsWithError(workspaceRoot: string): EngramObservationRead {
-  // ponytail: unique tmpdir (not a Date.now() filename) so parallel workers never race the same path
-  const tmpDir = fsSync.mkdtempSync(path.join(os.tmpdir(), "odf-status-"))
-  const tmpFile = path.join(tmpDir, "export.json")
+/** Export observations for the resolved project. `engram export` defaults to the
+ * CWD-detected project, so the scope is made explicit; older builds that reject
+ * `--project` on export fall back to a workspace-scoped export. */
+function exportEngramObservations(tmpFile: string, project: string, cwd: string): void {
   try {
-    execFileSync("engram", ["export", tmpFile], {
+    execFileSync("engram", ["export", tmpFile, "--project", project], {
+      cwd,
       encoding: "utf8",
       stdio: ["ignore", "pipe", "ignore"],
       timeout: 15_000,
     })
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code
+    if (code === "ENOENT" || code === "ETIMEDOUT") throw error
+    execFileSync("engram", ["export", tmpFile], {
+      cwd,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+      timeout: 15_000,
+    })
+  }
+}
+
+function readEngramObservationsWithError(workspaceRoot: string): EngramObservationRead {
+  // ponytail: unique tmpdir (not a Date.now() filename) so parallel workers never race the same path
+  const tmpDir = fsSync.mkdtempSync(path.join(os.tmpdir(), "odf-status-"))
+  const tmpFile = path.join(tmpDir, "export.json")
+  const project = workspaceProjectName(resolveWorkspaceRoot(workspaceRoot))
+  try {
+    exportEngramObservations(tmpFile, project, workspaceRoot)
   } catch (error) {
     try { fsSync.rmSync(tmpDir, { recursive: true, force: true }) } catch { /* ignore */ }
     const code = (error as NodeJS.ErrnoException).code
@@ -3615,7 +3635,6 @@ function readEngramObservationsWithError(workspaceRoot: string): EngramObservati
       ? parsed
       : (parsed as { observations?: unknown } | null)?.observations
     if (!Array.isArray(observations)) return { observations: null, error: "engram-export-invalid" }
-    const project = workspaceProjectName(resolveWorkspaceRoot(workspaceRoot))
     const hasProjectMetadata = observations.some(observation =>
       Boolean(observation && typeof observation === "object" && typeof (observation as { project?: unknown }).project === "string")
     )
