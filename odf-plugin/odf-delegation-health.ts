@@ -95,7 +95,14 @@ export interface HealthInspection {
   permissionDenied: boolean
 }
 
-export const ODF_V2_SESSION = Symbol("odf.v2.session")
+// Symbol.for, not Symbol(): the host can evaluate the plugin graph into more
+// than one module record (verified in a long-running shared service: the tool
+// context carried a Symbol(odf.v2.session) whose identity did not match the one
+// this module read, so odf_health reported "not attached" while the value was
+// right there). A well-known key keeps the property hidden from Object.keys /
+// JSON while surviving duplicate module records, and the value is still
+// per-tool-context state, so nothing is shared across contexts.
+export const ODF_V2_SESSION = Symbol.for("odf.v2.session")
 const V2_SESSION_OPERATIONS = ["create", "get", "prompt", "wait", "context", "interrupt"] as const
 
 export function emptyRegistryHealth(registryPath: string, status: RegistryHealth["status"]): RegistryHealth {
