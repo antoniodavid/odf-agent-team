@@ -4567,7 +4567,7 @@ function workflowArtifactGate(snapshot: SelectedWorkflowSnapshot, expectedStage:
   if (!declared) {
     return {
       reason: `workflow-${requiredType}-missing`,
-      message: `${expectedStage} requires a terminal ${requiredType} artifact; persist it in ${snapshot.store} and continue the phase.`,
+      message: `${expectedStage} requires a ${requiredType} artifact in ${snapshot.store} (accepted names: ${[...allowedTypes].join(", ")}). Create it and continue the phase.`,
     }
   }
 
@@ -4577,9 +4577,20 @@ function workflowArtifactGate(snapshot: SelectedWorkflowSnapshot, expectedStage:
     source: snapshot.store,
   })
   if (!artifactStatus.completed_canonical_stages.includes(expectedStage)) {
+    // Actionable on purpose: this block used to say only "requires a terminal
+    // artifact", which left an agent with finished work unable to tell what shape
+    // the artifact needed. The state-record keys (build_completed,
+    // completed_canonical_stages) are NOT read from artifacts — only from
+    // state.yaml — so an agent that mirrors them into the artifact still blocks.
+    // See issue #41.
+    const progressRef = refs.find((ref) => allowedTypes.has(normalizeArtifactKey(ref).type))
+    const where = progressRef ? ` \`${progressRef}\`` : ""
+    const how = artifactStatus.progress.known
+      ? `it reports ${artifactStatus.progress.completed}/${artifactStatus.progress.total} steps done`
+      : "it carries no checklist"
     return {
       reason: `workflow-${requiredType}-not-terminal`,
-      message: `${expectedStage} requires ${requiredType} to be terminal and successful; complete the artifact and continue the phase.`,
+      message: `${expectedStage} requires its progress artifact to be terminal: every step marked [x], or a success \`status:\` line. The current artifact${where} is not terminal — ${how}. Mark the remaining steps in that file and re-run the phase; do not add state-record keys such as \`build_completed\`, which are only read from state.yaml.`,
     }
   }
   return null
