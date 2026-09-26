@@ -2,9 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { tool as v1Tool } from "@opencode-ai/plugin"
 import {
   createODFRegisteredTools,
-  createODFRuntimeHooks,
   ODF_SYSTEM_RULES,
-  OdfDelegationPlugin,
   OdfDelegationPluginV2,
 } from "../plugins/odf-delegation.js"
 import OdfEntrypoint from "../plugins/odf-delegation.js"
@@ -88,15 +86,15 @@ const toolContext = {
 describe("OpenCode V1/V2 contract fixtures", () => {
   afterEach(() => vi.restoreAllMocks())
 
-  it("keeps one dual-runtime entrypoint and one stable plugin ID", () => {
+  it("keeps one V2 entrypoint and one stable plugin ID", () => {
     expect(ODF_PLUGIN_ID).toBe("odf-delegation")
     expect(OdfDelegationPluginV2.id).toBe(ODF_PLUGIN_ID)
-    expect(Object.keys(OdfEntrypoint).sort()).toEqual(["id", "server", "setup"])
-    expect(OdfEntrypoint).toEqual(expect.objectContaining({
+    expect(Object.keys(OdfEntrypoint).sort()).toEqual(["id", "setup"])
+    expect(OdfEntrypoint).toEqual({
       id: "odf-delegation",
       setup: OdfDelegationPluginV2.setup,
-      server: OdfDelegationPlugin,
-    }))
+    })
+    expect(OdfEntrypoint).not.toHaveProperty("server")
   })
 
   it("exposes the complete registered tool surface through both runtimes", async () => {
@@ -142,17 +140,6 @@ describe("OpenCode V1/V2 contract fixtures", () => {
   })
 
   it("preserves supported hook mappings and lifecycle cleanup without claiming command parity", async () => {
-    const v1Hooks = createODFRuntimeHooks({ session: { abort: vi.fn() } } as any)
-    expect(Object.keys(v1Hooks).sort()).toEqual([
-      "chat.message",
-      "command.execute.before",
-      "dispose",
-      "event",
-      "experimental.chat.system.transform",
-      "tool.execute.after",
-      "tool.execute.before",
-    ])
-
     const fixture = createContractFixture()
     const cleanup = await setupODFV2(fixture.context as any)
     const v2Hooks = fixture.hooks.map(hook => `${hook.domain}.${hook.name}`)

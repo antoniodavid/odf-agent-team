@@ -7,7 +7,7 @@ import * as fs from "node:fs/promises"
 import * as fsSync from "node:fs"
 import * as path from "node:path"
 import { execFileSync } from "node:child_process"
-import { tool, type ToolContext } from "@opencode-ai/plugin"
+import { tool, type ToolContext } from "./odf-tool.js"
 import type { SessionDomain } from "@opencode/plugin/promise/session"
 import type { createOpencodeClient } from "@opencode-ai/sdk"
 type OpencodeClient = ReturnType<typeof createOpencodeClient>
@@ -95,7 +95,19 @@ export interface HealthInspection {
   permissionDenied: boolean
 }
 
-export const ODF_V2_SESSION = Symbol("odf.v2.session")
+// Symbol.for, not Symbol(): the host can evaluate the plugin graph into more
+// than one module record (verified in a long-running shared service: the tool
+// context carried a Symbol(odf.v2.session) whose identity did not match the one
+// this module read, so odf_health reported "not attached" while the value was
+// right there). A well-known key keeps the property hidden from Object.keys /
+// JSON while surviving duplicate module records, and the value is still
+// per-tool-context state, so nothing is shared across contexts.
+export const ODF_V2_SESSION = Symbol.for("odf.v2.session")
+
+// Marks a task API that ODF owns, so findTaskApi can recognise it and use it as
+// is. Well-known (see ODF_V2_SESSION) for the same reason: the host can hold
+// more than one module record of this graph.
+export const ODF_TASK_BRIDGE = Symbol.for("odf.task.bridge")
 const V2_SESSION_OPERATIONS = ["create", "get", "prompt", "wait", "context", "interrupt"] as const
 
 export function emptyRegistryHealth(registryPath: string, status: RegistryHealth["status"]): RegistryHealth {
@@ -348,6 +360,13 @@ export type TaskApiInput = {
   agent: string
   prompt: string
   context_files?: string[]
+  /**
+   * Directory the delegated session must run in. Defaults to the host session's
+   * directory, which is what `context_files` (validated relative paths) assumes:
+   * they only resolve correctly when the child works in the same root. Set it to
+   * the resolved workspace root when the two differ.
+   */
+  directory?: string
 }
 
 export type TaskApi = ((input: TaskApiInput) => Promise<unknown>) & {
@@ -359,6 +378,8 @@ type NativeTaskInput = {
   prompt: string
   subagent_type: string
   background: false
+  /** Carried through to the child session; the host task API ignores it. */
+  directory?: string
 }
 
 type NativeTaskFunction = ((input: NativeTaskInput) => Promise<unknown>) & {
@@ -392,7 +413,10 @@ function createNativeTaskApi(nativeTask: NativeTaskFunction): TaskApi {
     prompt: appendValidatedContextFiles(input.prompt, input.context_files),
     subagent_type: input.agent,
     background: false,
-  }))) as TaskApi
+    // Forwarded rather than dropped: the host task API has no directory field, so
+    // this is how the resolved workspace root reaches the child session.
+    ...(input.directory ? { directory: input.directory } : {}),
+  } as unknown as NativeTaskInput))) as TaskApi
   if (typeof nativeTask.abort === "function") taskApi.abort = nativeTask.abort.bind(nativeTask)
   return taskApi
 }
@@ -431,19 +455,28 @@ function resolveTaskModel(context: Record<string, unknown>): TaskModel | undefin
 }
 
 export function createSDKSessionTaskApi(toolCtx: ToolContext, session: SDKSessionApi): TaskApi {
-  const pending = new WeakMap<Promise<unknown>, { childID?: string; abortRequested: boolean; aborting?: Promise<void> }>()
+  const pending = new WeakMap<Promise<unknown>, { childID?: string; abortRequested: boolean; directory: string; aborting?: Promise<void> }>()
   const directory = typeof (toolCtx as any).directory === "string" ? (toolCtx as any).directory : process.cwd()
+  // Per invocation, not per bridge: one bridge serves delegations with different
+  // workspace roots.
+  const targetDirectory = (input: TaskApiInput): string =>
+    typeof input.directory === "string" && input.directory.trim() ? input.directory : directory
   const context = toolCtx as Record<string, unknown>
   const model = resolveTaskModel(context)
 
   const taskApi = ((input: TaskApiInput): Promise<unknown> => {
-    const invocation = { abortRequested: false } as { childID?: string; abortRequested: boolean; aborting?: Promise<void> }
+    const invocation = { abortRequested: false, directory: targetDirectory(input) } as {
+      childID?: string
+      abortRequested: boolean
+      directory: string
+      aborting?: Promise<void>
+    }
     const abortChild = async (): Promise<void> => {
       invocation.abortRequested = true
       if (!invocation.childID || invocation.aborting) return invocation.aborting
       invocation.aborting = Promise.resolve(session.abort({
         path: { id: invocation.childID },
-        query: { directory },
+        query: { directory: invocation.directory },
       })).then(() => undefined)
       await invocation.aborting
     }
@@ -452,7 +485,7 @@ export function createSDKSessionTaskApi(toolCtx: ToolContext, session: SDKSessio
       try {
         created = await session.create({
           body: { parentID: toolCtx.sessionID, title: `ODF delegation: ${input.agent}` },
-          query: { directory },
+          query: { directory: invocation.directory },
         })
       } catch (error) {
         throw new Error(`session-create-error: ${error instanceof Error ? error.message : String(error)}`)
@@ -485,7 +518,7 @@ export function createSDKSessionTaskApi(toolCtx: ToolContext, session: SDKSessio
       try {
         response = await session.prompt({
           path: { id: invocation.childID },
-          query: { directory },
+          query: { directory: invocation.directory },
           body: {
             agent: input.agent,
             ...(model ? { model } : {}),
@@ -508,7 +541,7 @@ export function createSDKSessionTaskApi(toolCtx: ToolContext, session: SDKSessio
       if (!state.aborting) {
         state.aborting = Promise.resolve(session.abort({
           path: { id: state.childID },
-          query: { directory },
+          query: { directory: state.directory || directory },
         })).then(() => undefined)
       }
       await state.aborting
@@ -639,23 +672,36 @@ function v2ContextResult(response: unknown): unknown {
   return sessionResultFromText(text)
 }
 
+type V2TaskInvocation = { childID?: string; abortRequested: boolean; aborting?: Promise<void> }
+
 export function createV2SessionTaskApi(toolCtx: ToolContext, session: V2SessionApi): TaskApi {
-  const pending = new WeakMap<Promise<unknown>, { childID?: string; abortRequested: boolean; aborting?: Promise<void> }>()
+  const pending = new WeakMap<Promise<unknown>, V2TaskInvocation>()
+  // WeakMap cannot be enumerated, so keep the live invocations reachable to make
+  // the abort resilient when a wrapper hides the promise identity.
+  const live = new Set<V2TaskInvocation>()
   const directory = typeof (toolCtx as any).directory === "string" ? (toolCtx as any).directory : process.cwd()
+  // Per invocation, not per bridge: one bridge serves delegations with different
+  // workspace roots.
+  const targetDirectory = (input: TaskApiInput): string =>
+    typeof input.directory === "string" && input.directory.trim() ? input.directory : directory
   const context = toolCtx as Record<string, unknown>
   const contextModel = resolveTaskModel(context)
 
+  // Hoisted out of the invocation body on purpose: a caller that forwards
+  // `abort` inspects the task API *before* the first call, so an abort that only
+  // appeared once an invocation started would never be forwarded.
+  const interruptChild = async (childID: string): Promise<void> => {
+    await callV2(() => session.interrupt({ sessionID: childID }), "session-prompt-error", true)
+  }
+  const abortInvocation = async (invocation: V2TaskInvocation): Promise<void> => {
+    invocation.abortRequested = true
+    if (!invocation.childID || invocation.aborting) return invocation.aborting
+    invocation.aborting = interruptChild(invocation.childID)
+    await invocation.aborting
+  }
+
   const taskApi = ((input: TaskApiInput): Promise<unknown> => {
-    const invocation = { abortRequested: false } as { childID?: string; abortRequested: boolean; aborting?: Promise<void> }
-    const abortSession = async (sessionID: string): Promise<void> => {
-      await callV2(() => session.interrupt({ sessionID }), "session-prompt-error", true)
-    }
-    const abortChild = async (): Promise<void> => {
-      invocation.abortRequested = true
-      if (!invocation.childID || invocation.aborting) return invocation.aborting
-      invocation.aborting = abortSession(invocation.childID)
-      await invocation.aborting
-    }
+    const invocation = { abortRequested: false } as V2TaskInvocation
     const promise = (async (): Promise<unknown> => {
       let model = contextModel
       if (!model) {
@@ -673,7 +719,7 @@ export function createV2SessionTaskApi(toolCtx: ToolContext, session: V2SessionA
       const created = await callV2(() => session.create({
         agent: input.agent,
         ...(model ? { model: { providerID: model.providerID, id: model.modelID } } : {}),
-        location: { directory },
+        location: { directory: targetDirectory(input) },
       }), "session-create-error", false)
       const createdValue = created && typeof created === "object" && !Array.isArray(created)
         ? created as Record<string, unknown>
@@ -681,7 +727,7 @@ export function createV2SessionTaskApi(toolCtx: ToolContext, session: V2SessionA
       invocation.childID = typeof createdValue?.id === "string" ? createdValue.id : undefined
       if (!invocation.childID) throw new Error("session-create-error: session.create returned no child session id")
       if (invocation.abortRequested) {
-        await abortChild()
+        await abortInvocation(invocation)
         throw new Error("task-cancelled: child session was aborted")
       }
 
@@ -698,22 +744,38 @@ export function createV2SessionTaskApi(toolCtx: ToolContext, session: V2SessionA
       return v2ContextResult(response)
     })()
     pending.set(promise, invocation)
-    taskApi.abort = async (invocationPromise: Promise<unknown>): Promise<void> => {
-      const state = pending.get(invocationPromise)
-      if (!state) return
-      state.abortRequested = true
-      if (!state.childID || state.aborting) return state.aborting
-      state.aborting = abortSession(state.childID)
-      await state.aborting
-    }
+    live.add(invocation)
+    promise.then(
+      () => live.delete(invocation),
+      () => live.delete(invocation),
+    )
     return promise
   }) as TaskApi
+
+  taskApi.abort = async (invocationPromise: Promise<unknown>): Promise<void> => {
+    // The exact promise is the normal path. When a wrapper returns a different
+    // promise, fall back to the single live invocation so the child is still
+    // interrupted instead of the abort quietly doing nothing.
+    const invocation = pending.get(invocationPromise) ?? (live.size === 1 ? [...live][0] : undefined)
+    if (!invocation) return
+    await abortInvocation(invocation)
+  }
+  ;(taskApi as unknown as Record<symbol, unknown>)[ODF_TASK_BRIDGE] = true
   return taskApi
 }
 
 export function findTaskApi(toolCtx: ToolContext, client?: OpencodeClient): { taskApi: TaskApi; source: DelegationMetrics["task_api_source"] } | null {
   const nativeTask = (toolCtx as Record<string, unknown>).task
   if (typeof nativeTask === "function") {
+    // An ODF-owned bridge must be used as is, never re-wrapped: createNativeTaskApi
+    // returns a different promise, so the bridge's abort could no longer find the
+    // invocation whose child session it has to interrupt. That silently dropped
+    // the interrupt on timeout, and the child kept running past the deadline
+    // (measured live in OpenCode V2: parent returned `timeout` at 1.5s while the
+    // child went on to finish at 2.4s, `outcome: succeeded`).
+    if ((nativeTask as unknown as Record<symbol, unknown>)[ODF_TASK_BRIDGE]) {
+      return { taskApi: nativeTask as TaskApi, source: "toolCtx.task" }
+    }
     return { taskApi: createNativeTaskApi(nativeTask as NativeTaskFunction), source: "toolCtx.task" }
   }
   const v2Session = getV2Session(client)

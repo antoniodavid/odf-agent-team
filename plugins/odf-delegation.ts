@@ -17,9 +17,10 @@ import type { Dirent } from "node:fs"
 import * as path from "node:path"
 import * as os from "node:os"
 import * as nodeCrypto from "node:crypto"
-import { type Hooks, type Plugin, type ToolContext, tool } from "@opencode-ai/plugin"
+import { type ToolContext, tool } from "../odf-plugin/odf-tool.js"
 import { execFileSync, execSync } from "node:child_process"
 import { filterStopWords, resolveAgent, validateAgentSelection } from "../scripts/lib/agent-resolve.js"
+import { findOtherPackRoots, hasPackRegistry } from "../scripts/lib/config-dir.js"
 import {
   canonicalChangeName,
   canonicalWorkspaceRoot,
@@ -112,7 +113,6 @@ import {
   contextPressureNotice,
   contextPressureThreshold,
   createStableDiscoveryGuard,
-  type LoopGuardHooks,
 } from "../odf-plugin/odf-delegation-loopguard.js"
 import type { createOpencodeClient } from "@opencode-ai/sdk"
 import { isMap, parseDocument, stringify } from "yaml"
@@ -367,8 +367,13 @@ async function invokeTask(
   contextFiles?: string[],
   timeoutMs = 600_000,
   abortSignal?: AbortSignal,
+  // Directory the child session runs in. Positional (not an options object) on
+  // purpose: this PR changes behaviour, not the call shape. `contextFiles` are
+  // validated relative paths, so they only resolve when the child works in the
+  // same root; callers pass the resolved workspace root.
+  directory?: string,
 ): Promise<{ status: string; result: unknown }> {
-  const taskPromise = taskApi({ agent: agentName, prompt, context_files: contextFiles })
+  const taskPromise = taskApi({ agent: agentName, prompt, context_files: contextFiles, directory })
   let timedOut = false
   let cancelled = false
   let timeoutHandle: ReturnType<typeof setTimeout> | undefined
@@ -1318,7 +1323,7 @@ Use this instead of generic task() for ODF workflow delegation.`,
       workspace_dir: tool.schema
         .string()
         .optional()
-        .describe("Selected project directory (defaults to the plugin directory, then cwd)"),
+        .describe("Absolute project root, which also becomes the delegated session's directory so the validated relative context_files resolve correctly. Omit it to use the current session's project directory. Pass it only when the change lives in another project; never point it at the installed ODF pack."),
       odoo_source_root: tool.schema
         .string()
         .optional()
@@ -1491,6 +1496,17 @@ Use this instead of generic task() for ODF workflow delegation.`,
         return blockWorkflow(
           "unsafe-workspace-path",
           "The workspace directory does not resolve to a safe existing root.",
+          null,
+        )
+      }
+      // The delegated session is now created in the workspace root, so a root
+      // pointing at the installed pack would put agent work inside the ODF
+      // install itself. Narrow on purpose: a project-local pack used as a
+      // workspace, and ODF's own checkout, both stay legal.
+      if (path.resolve(workspaceRoot) === path.resolve(getOdfConfigDir()) && hasPackRegistry(workspaceRoot)) {
+        return blockWorkflow(
+          "unsafe-workspace-path",
+          `The workspace root is the installed ODF pack (${workspaceRoot}); the delegated session would run inside the pack. Pass the project root instead, or omit workspace_dir.`,
           null,
         )
       }
@@ -2047,7 +2063,11 @@ Use this instead of generic task() for ODF workflow delegation.`,
           taskSpanStartTime = Date.now()
           recordTaskSpan("started")
           flushMetricsSync()
-          const taskResult = await invokeTask(taskApiInfo.taskApi, agentName, delegationPrompt, contextValidation.relativePaths, timeoutMs, toolCtx.abort)
+          // The child session is created in the resolved workspace root so the
+          // validated relative context paths resolve against it. With no
+          // workspace_dir this equals the host session's directory, so the
+          // behaviour is unchanged.
+          const taskResult = await invokeTask(taskApiInfo.taskApi, agentName, delegationPrompt, contextValidation.relativePaths, timeoutMs, toolCtx.abort, workspaceRoot)
           let resultForOutput: unknown = taskResult.result
           // Stop-validation seal (slice 2): after an IMPLEMENT delegation, stamp
           // the envelope with the deterministic evidence verdict. The sub-agent
@@ -2714,7 +2734,7 @@ must not overlap. VERIFY remains sequential after the aggregate join is complete
       workspace_dir: tool.schema
         .string()
         .optional()
-        .describe("Selected project directory (defaults to the plugin directory, then cwd)"),
+        .describe("Absolute project root, which also becomes the delegated session's directory so the validated relative context_files resolve correctly. Omit it to use the current session's project directory. Pass it only when the change lives in another project; never point it at the installed ODF pack."),
       odoo_source_root: tool.schema
         .string()
         .optional()
@@ -4547,7 +4567,7 @@ function workflowArtifactGate(snapshot: SelectedWorkflowSnapshot, expectedStage:
   if (!declared) {
     return {
       reason: `workflow-${requiredType}-missing`,
-      message: `${expectedStage} requires a terminal ${requiredType} artifact; persist it in ${snapshot.store} and continue the phase.`,
+      message: `${expectedStage} requires a ${requiredType} artifact in ${snapshot.store} (accepted names: ${[...allowedTypes].join(", ")}). Create it and continue the phase.`,
     }
   }
 
@@ -4557,9 +4577,20 @@ function workflowArtifactGate(snapshot: SelectedWorkflowSnapshot, expectedStage:
     source: snapshot.store,
   })
   if (!artifactStatus.completed_canonical_stages.includes(expectedStage)) {
+    // Actionable on purpose: this block used to say only "requires a terminal
+    // artifact", which left an agent with finished work unable to tell what shape
+    // the artifact needed. The state-record keys (build_completed,
+    // completed_canonical_stages) are NOT read from artifacts — only from
+    // state.yaml — so an agent that mirrors them into the artifact still blocks.
+    // See issue #41.
+    const progressRef = refs.find((ref) => allowedTypes.has(normalizeArtifactKey(ref).type))
+    const where = progressRef ? ` \`${progressRef}\`` : ""
+    const how = artifactStatus.progress.known
+      ? `it reports ${artifactStatus.progress.completed}/${artifactStatus.progress.total} steps done`
+      : "it carries no checklist"
     return {
       reason: `workflow-${requiredType}-not-terminal`,
-      message: `${expectedStage} requires ${requiredType} to be terminal and successful; complete the artifact and continue the phase.`,
+      message: `${expectedStage} requires its progress artifact to be terminal: every step marked [x], or a success \`status:\` line. The current artifact${where} is not terminal — ${how}. Mark the remaining steps in that file and re-run the phase; do not add state-record keys such as \`build_completed\`, which are only read from state.yaml.`,
     }
   }
   return null
@@ -6620,24 +6651,6 @@ export const ODF_SYSTEM_RULES = `<odf-system>
 - The outer plugin envelope and inner agent \`## ODF Result\` are separate; preserve the agent result and inspect both layers.
 </odf-system>`
 
-export function createODFRuntimeHooks(
-  client: OpencodeClient,
-  entryAuthorizations: ODFEntryAuthorizations = new Map(),
-  entryGenerations: ODFEntryGenerations = new Map(),
-  workspaceDir = process.cwd(),
-): LoopGuardHooks & Pick<Hooks, "experimental.chat.system.transform"> {
-  const { consumeContextPressureNotice, ...guardHooks } = createStableDiscoveryGuard(client, entryAuthorizations, entryGenerations, workspaceDir)
-  return {
-    ...guardHooks,
-    "experimental.chat.system.transform": async (input, output) => {
-      const parts = [...output.system, ODF_SYSTEM_RULES]
-      const pressureNotice = input.sessionID ? consumeContextPressureNotice(input.sessionID) : null
-      if (pressureNotice) parts.push(pressureNotice)
-      output.system = [parts.join("\n\n---\n\n")]
-    },
-  }
-}
-
 // ==========================================
 // PLUGIN EXPORT
 // ==========================================
@@ -6679,17 +6692,28 @@ export function createODFRegisteredTools(
   }
 }
 
-export const OdfDelegationPlugin: Plugin = async (ctx) => {
-  const { directory, client } = ctx
-  const entryAuthorizations: ODFEntryAuthorizations = new Map()
-  const entryGenerations: ODFEntryGenerations = new Map()
-  const runtimeHooks = createODFRuntimeHooks(client, entryAuthorizations, entryGenerations, directory)
-
+/**
+ * Warm up registry state and telemetry once per host process.
+ *
+ * This body lived inside the V1 `server` entrypoint, so the V2 runtime silently
+ * lost it: metrics flushing, the skills/permissions cache refresh, unregistered
+ * skill discovery and the learning loop never ran under OpenCode V2. `setupODFV2`
+ * now awaits this instead, keeping the side effects host-independent.
+ */
+export async function startOdfRuntime(): Promise<void> {
   // Ensure registry exists (log warning if not)
   try {
     await fs.access(REGISTRY_PATH)
   } catch {
-    console.warn(`[odf-delegation] Registry not found at ${REGISTRY_PATH}. Run /odf-init or create it manually.`)
+    // "Not found here" is only actionable if we can say where one does exist:
+    // an XDG machine with a pack under ~/.config/opencode, or a project-local
+    // pack installed but not selected, is the usual case.
+    const elsewhere = findOtherPackRoots(getOdfConfigDir())
+    const hint = elsewhere.length > 0
+      ? ` A pack with a registry exists at ${elsewhere.join(", ")} — export ODF_CONFIG_DIR to that path or reinstall the pack here.`
+      : " Run /odf-init or create it manually."
+    console.warn(`[odf-delegation] Registry not found at ${REGISTRY_PATH}.`)
+    console.warn(`[odf-delegation]${hint}`)
   }
 
   // Start metrics flusher (F1)
@@ -6752,17 +6776,15 @@ export const OdfDelegationPlugin: Plugin = async (ctx) => {
   }
 
   debugLog(`[odf-delegation] Plugin loaded. Tools: ${ODF_REGISTERED_TOOLS.join(", ")}`)
-
-  return {
-    ...runtimeHooks,
-    tool: createODFRegisteredTools(client, directory, entryAuthorizations, entryGenerations),
-  }
 }
 
-export default {
-  ...OdfDelegationPluginV2,
-  server: OdfDelegationPlugin,
-}
+/**
+ * V2 entrypoint: a plain `Plugin.define({ id, setup })` shape.
+ *
+ * The V1 `server` export was removed — OpenCode V2 has no V1 runtime, and the
+ * dual `{ id, setup, server }` object existed only for the transition window.
+ */
+export default OdfDelegationPluginV2
 
 // Exported for unit testing
 export {

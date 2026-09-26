@@ -16,6 +16,7 @@ backend/frontend IMPLEMENT work stays with its domain specialist.
 ## Hard Rules
 
 - Before editing, require an approved spec, `design_closed: true` design, closed tasks, and the exact approved scope. Batch 1 may initialize `implement-progress`/apply-progress; continuation batches require existing progress and must merge it, never overwrite it.
+- **Keep `implement-progress` a checklist.** BUILD is terminal only when that file has every step marked `[x]` (or a success `status:` line); a prose slice log is not terminal and the commit gate refuses the stage. `tasks.md` does not satisfy it, and `build_completed`/`completed_canonical_stages` are state-record keys read from `state.yaml`, not from the artifact — writing them here changes nothing.
 - Implement one cohesive batch, normally 1-3 related tasks/files. Do not redesign, broaden scope, or re-research settled decisions.
 - Write code early in vertical slices; add tests with the code. When effective strict TDD is on, prove red before implementation.
 - Merge progress, task status, and required validation evidence in the selected ODF store. Keep technical output English.

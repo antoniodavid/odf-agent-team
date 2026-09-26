@@ -9,7 +9,7 @@ dependencies are installed.
 
 **VERIFY before you write (precision gate)**: every view XML ID (`inherit_id ref="module.id"`), model name, and `_inherit` used in design or code MUST be found in the local source first — never written from memory. Run:
 ```
-PACK="${ODF_CONFIG_DIR:-$HOME/.config/opencode}"
+PACK="${ODF_CONFIG_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/opencode}"
 node "$PACK/scripts/odf-toolkit.js" lookup --source <odoo-src-root> [--repos <src-dir>] --id <xmlid> | --model <model>
 node "$PACK/scripts/odf-toolkit.js" verify-refs --repo <module-dir> --source <odoo-src-root> [--repos <src-dir>]
 ```

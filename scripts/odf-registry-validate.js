@@ -15,14 +15,14 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { pathToFileURL } from 'node:url';
+import { resolveOdfConfigDir } from './lib/config-dir.js';
 
 function getConfigDir() {
-  const envDir = process.env.ODF_CONFIG_DIR?.trim();
-  if (envDir) {
-    if (path.isAbsolute(envDir)) return path.normalize(envDir);
-    console.warn(`ODF_CONFIG_DIR "${envDir}" is not absolute; using default.`);
+  const resolved = resolveOdfConfigDir(process.env);
+  if (resolved.ignored) {
+    console.warn(`ODF_CONFIG_DIR "${resolved.ignored}" is not absolute; using default.`);
   }
-  return path.join(os.homedir(), '.config', 'opencode');
+  return resolved.dir;
 }
 
 function resolveEntry(registryDir, entryPath) {

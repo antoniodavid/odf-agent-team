@@ -13,7 +13,7 @@ Examples:
 
 ## What This Does
 
-Reads delegation metrics from the plugin's local JSONL log (canonical source, `${ODF_CONFIG_DIR:-~/.config/opencode}/metrics/delegations-YYYY-MM-DD.jsonl`) and presents:
+Reads delegation metrics from the plugin's local JSONL log (canonical source, `${ODF_CONFIG_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/opencode}/metrics/delegations-YYYY-MM-DD.jsonl`) and presents:
 - Agent performance (delegations, duration, tokens)
 - Work type and branch attribution, including branch duration
 - Scheduler join lifecycle, bounded counts, and validation ratio

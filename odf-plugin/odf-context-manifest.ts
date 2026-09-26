@@ -1,7 +1,7 @@
 /** Bounded, reference-only Context Manifest. No filesystem or workflow access. */
 
 import { createHash } from "node:crypto"
-import { tool } from "@opencode-ai/plugin"
+import { tool } from "./odf-tool.js"
 
 export const CONTEXT_MANIFEST_VERSION = 1 as const
 export const CONTEXT_MANIFEST_LIMITS = {

@@ -9,7 +9,8 @@ import { tool as v1Tool } from "@opencode-ai/plugin"
 
 // These pure functions do not depend on the registry file path, so they can be
 // imported normally. createODFDelegate is imported dynamically in its own tests
-// so we can control $HOME and therefore REGISTRY_PATH.
+// so we can control the config dir (ODF_CONFIG_DIR, with HOME behind it) and
+// therefore REGISTRY_PATH.
 import {
   resolvePath,
   resolveWorkspaceRoot,
@@ -43,7 +44,6 @@ import {
   createODFWorkflowBind,
   evaluateExpectations,
   createODFEntryTriage,
-  createODFRuntimeHooks,
   createStableDiscoveryGuard,
   contextPressureThreshold,
   contextPressureNotice,
@@ -56,6 +56,7 @@ import {
 } from "./odf-delegation.js"
 import { recordAiProvenance } from "./odf-governance.js"
 import { ODF_V2_SESSION } from "./odf-delegation-health.js"
+import { getOdfConfigDir } from "./odf-delegation-shared.js"
 import { advanceWorkflow, resolveWorkflowRoute, type CanonicalStage } from "./odf-workflow.js"
 import { buildCandidateManifest, computeCandidateDigest } from "./candidate-manifest.js"
 import { createEntryRouteBinding, predictEntryRouteShadow, type EntryTriageInput } from "./entry-triage.js"
@@ -365,6 +366,19 @@ function sdkPromptResult(result: Record<string, unknown>): Record<string, unknow
 // Mirrors the SDK client's default "fields" responseStyle envelope.
 function sdkCreateResult(id: string): Record<string, unknown> {
   return { data: { id }, request: {}, response: {} }
+}
+
+// The pack resolver is env-driven. `ODF_CONFIG_DIR` is the supported override;
+// self-location would win over `$HOME` because this repository ships a
+// `odf-registry.json` of its own, so tests that need their own pack must set it
+// explicitly. `$HOME` alone only decides the `~/.config/opencode` default.
+const ORIGINAL_CONFIG_DIR = process.env.ODF_CONFIG_DIR
+function isolateConfigDir(tempHome: string): void {
+  process.env.ODF_CONFIG_DIR = path.join(tempHome, ".config", "opencode")
+}
+function restoreConfigDir(): void {
+  if (ORIGINAL_CONFIG_DIR === undefined) delete process.env.ODF_CONFIG_DIR
+  else process.env.ODF_CONFIG_DIR = ORIGINAL_CONFIG_DIR
 }
 
 describe("createODFWorkflowOverride", () => {
@@ -1725,15 +1739,18 @@ describe("resolvePath", () => {
   })
 
   it("expands ~/ paths that stay within the ODF config directory", () => {
-    const configDir = process.env.ODF_CONFIG_DIR && path.isAbsolute(process.env.ODF_CONFIG_DIR)
-      ? process.env.ODF_CONFIG_DIR
-      : path.join(os.homedir(), ".config/opencode")
-    const entry = process.env.ODF_CONFIG_DIR
-      ? path.join(configDir, "skills/odf-assess/SKILL.md")
-      : "~/.config/opencode/skills/odf-assess/SKILL.md"
-    expect(resolvePath(registryDir, entry)).toBe(
-      path.join(configDir, "skills/odf-assess/SKILL.md")
-    )
+    // The config dir is whatever the resolver says it is today (env override,
+    // self-located pack, XDG or home), so the tilde form is only used when it
+    // really lives under the user's home — that is the branch under test.
+    const configDir = getOdfConfigDir()
+    const skillsPath = path.join("skills", "odf-assess", "SKILL.md")
+    const relativeToHome = path.relative(os.homedir(), configDir)
+    const underHome = Boolean(relativeToHome) && !relativeToHome.startsWith("..") && !path.isAbsolute(relativeToHome)
+    const entry = underHome
+      ? path.posix.join("~", relativeToHome.split(path.sep).join(path.posix.sep), skillsPath)
+      : path.join(configDir, skillsPath)
+
+    expect(resolvePath(registryDir, entry)).toBe(path.join(configDir, skillsPath))
   })
 
   it("allows absolute paths inside the allowed roots", () => {
@@ -2206,13 +2223,13 @@ describe("recordMetrics", () => {
   beforeEach(async () => {
     tempHome = await fs.mkdtemp(path.join(os.tmpdir(), "odf-metrics-"))
     process.env.HOME = tempHome
-    process.env.ODF_CONFIG_DIR = ""
+    isolateConfigDir(tempHome)
     clearMetricsBuffer()
   })
 
   afterEach(async () => {
     process.env.HOME = originalHome
-    delete process.env.ODF_CONFIG_DIR
+    restoreConfigDir()
     delete process.env.ODF_METRICS_BUFFER_CAP
     clearMetricsBuffer()
     await fs.rm(tempHome, { recursive: true, force: true })
@@ -3056,6 +3073,7 @@ describe("createODFDelegate", () => {
   beforeEach(async () => {
     tempHome = await fs.mkdtemp(path.join(os.tmpdir(), "odf-test-"))
     process.env.HOME = tempHome
+    isolateConfigDir(tempHome)
     const configDir = path.join(tempHome, ".config", "opencode")
     await fs.mkdir(configDir, { recursive: true })
     await fs.copyFile(
@@ -3067,6 +3085,7 @@ describe("createODFDelegate", () => {
 
   afterEach(async () => {
     process.env.HOME = originalHome
+    restoreConfigDir()
     await fs.rm(tempHome, { recursive: true, force: true })
     vi.restoreAllMocks()
   })
@@ -3402,6 +3421,60 @@ ${overrides}`
     }, { sessionID: `unrelated-${phase}`, task: taskApi } as any) as string)
 
     expect(output).toMatchObject({ status: "delegated", result: taskResult })
+  })
+
+  it("creates the delegated session in the resolved workspace root and keeps context paths relative", async () => {
+    // The relative context paths are the upstream contract; B' makes them correct
+    // by creating the child in the same root instead of re-anchoring them.
+    const { createODFDelegate } = await import("./odf-delegation.js")
+    const workspace = await fs.mkdtemp(path.join(os.tmpdir(), "odf-workspace-root-"))
+    try {
+      await fs.writeFile(path.join(workspace, "context.txt"), "external context\n", "utf8")
+      const taskApi = vi.fn().mockResolvedValue({ status: "ok", design_closed: true })
+
+      await createODFDelegate(undefined, "/host/session/dir").execute({
+        phase: "DESIGN",
+        prompt: "Design a Python model",
+        context_files: ["context.txt"],
+        workspace_dir: workspace,
+      }, { sessionID: "workspace-root", task: taskApi } as any)
+
+      const call = taskApi.mock.calls[0][0] as { directory?: string; prompt: string }
+      // The child is created where the validated relative paths resolve.
+      expect(call.directory).toBe(workspace)
+      expect(call.prompt).toContain("- context.txt")
+      expect(call.prompt).not.toContain(path.join(workspace, "context.txt"))
+    } finally {
+      await fs.rm(workspace, { recursive: true, force: true })
+    }
+  })
+
+  it("leaves the delegated session in the host session directory when no workspace_dir is given", async () => {
+    const { createODFDelegate } = await import("./odf-delegation.js")
+    const taskApi = vi.fn().mockResolvedValue({ status: "ok", design_closed: true })
+
+    await createODFDelegate(undefined, tempHome).execute({
+      phase: "DESIGN",
+      prompt: "Design a Python model",
+      context_files: [],
+    }, { sessionID: "default-directory", task: taskApi } as any)
+
+    expect((taskApi.mock.calls[0][0] as { directory?: string }).directory).toBe(tempHome)
+  })
+
+  it("refuses to run the delegated session inside the installed ODF pack", async () => {
+    const { createODFDelegate } = await import("./odf-delegation.js")
+    const taskApi = vi.fn().mockResolvedValue({ status: "ok", design_closed: true })
+
+    const output = JSON.parse(await createODFDelegate(undefined, "/host/session/dir").execute({
+      phase: "DESIGN",
+      prompt: "Design a Python model",
+      context_files: [],
+      workspace_dir: getOdfConfigDir(),
+    }, { sessionID: "pack-guard", task: taskApi } as any) as string)
+
+    expect(output).toMatchObject({ status: "blocked", reason: "unsafe-workspace-path" })
+    expect(taskApi).not.toHaveBeenCalled()
   })
 
   it("honors a valid explicit agent override", async () => {
@@ -7468,6 +7541,7 @@ describe("createODFPolicyGate", () => {
   beforeEach(async () => {
     tempHome = await fs.mkdtemp(path.join(os.tmpdir(), "odf-policy-tool-"))
     process.env.HOME = tempHome
+    isolateConfigDir(tempHome)
     const configDir = path.join(tempHome, ".config", "opencode")
     await fs.mkdir(configDir, { recursive: true })
     await fs.copyFile(
@@ -7479,6 +7553,7 @@ describe("createODFPolicyGate", () => {
 
   afterEach(async () => {
     process.env.HOME = originalHome
+    restoreConfigDir()
     await fs.rm(tempHome, { recursive: true, force: true })
     vi.restoreAllMocks()
   })
@@ -7516,6 +7591,7 @@ describe("odf_delegate policy gate hook", () => {
     execSync("git init -q", { cwd: workspace })
     execSync("git -c user.email=odf@test -c user.name=ODF commit -q --allow-empty -m init", { cwd: workspace })
     process.env.HOME = tempHome
+    isolateConfigDir(tempHome)
     const configDir = path.join(tempHome, ".config", "opencode")
     await fs.mkdir(configDir, { recursive: true })
     await fs.copyFile(
@@ -7528,6 +7604,7 @@ describe("odf_delegate policy gate hook", () => {
 
   afterEach(async () => {
     process.env.HOME = originalHome
+    restoreConfigDir()
     await fs.rm(tempHome, { recursive: true, force: true })
     vi.restoreAllMocks()
   })
@@ -7907,6 +7984,7 @@ describe("odf_delegate stop-validation seal", () => {
     workspace = path.join(tempHome, "worktree")
     await fs.mkdir(workspace, { recursive: true })
     process.env.HOME = tempHome
+    isolateConfigDir(tempHome)
     const configDir = path.join(tempHome, ".config", "opencode")
     await fs.mkdir(configDir, { recursive: true })
     await fs.copyFile(
@@ -7919,6 +7997,7 @@ describe("odf_delegate stop-validation seal", () => {
 
   afterEach(async () => {
     process.env.HOME = originalHome
+    restoreConfigDir()
     await fs.rm(tempHome, { recursive: true, force: true })
     vi.restoreAllMocks()
   })
@@ -8062,6 +8141,7 @@ describe("odf_delegate receipt auto-seal on error", () => {
     workspace = path.join(tempHome, "worktree")
     await fs.mkdir(workspace, { recursive: true })
     process.env.HOME = tempHome
+    isolateConfigDir(tempHome)
     const configDir = path.join(tempHome, ".config", "opencode")
     await fs.mkdir(configDir, { recursive: true })
     await fs.copyFile(
@@ -8074,6 +8154,7 @@ describe("odf_delegate receipt auto-seal on error", () => {
 
   afterEach(async () => {
     process.env.HOME = originalHome
+    restoreConfigDir()
     await fs.rm(tempHome, { recursive: true, force: true })
     vi.restoreAllMocks()
   })
@@ -8109,6 +8190,7 @@ describe("createODFReceipt tool", () => {
   beforeEach(async () => {
     tempHome = await fs.mkdtemp(path.join(os.tmpdir(), "odf-rtool-"))
     process.env.HOME = tempHome
+    isolateConfigDir(tempHome)
     const configDir = path.join(tempHome, ".config", "opencode")
     await fs.mkdir(configDir, { recursive: true })
     await fs.copyFile(
@@ -8120,6 +8202,7 @@ describe("createODFReceipt tool", () => {
 
   afterEach(async () => {
     process.env.HOME = originalHome
+    restoreConfigDir()
     await fs.rm(tempHome, { recursive: true, force: true })
     vi.restoreAllMocks()
   })
@@ -8182,6 +8265,7 @@ describe("odf_health", () => {
   beforeEach(async () => {
     tempHome = await fs.mkdtemp(path.join(os.tmpdir(), "odf-health-"))
     process.env.HOME = tempHome
+    isolateConfigDir(tempHome)
     configDir = path.join(tempHome, ".config", "opencode")
     process.env.ODF_CONFIG_DIR = configDir
     pluginPath = path.join(configDir, "plugins", "odf-delegation.ts")
@@ -8199,6 +8283,7 @@ describe("odf_health", () => {
 
   afterEach(async () => {
     process.env.HOME = originalHome
+    restoreConfigDir()
     if (originalConfigDir === undefined) delete process.env.ODF_CONFIG_DIR
     else process.env.ODF_CONFIG_DIR = originalConfigDir
     await fs.rm(tempHome, { recursive: true, force: true })
@@ -8835,18 +8920,6 @@ describe("stable discovery runtime guard", () => {
     expect(abort).not.toHaveBeenCalled()
   })
 
-  it("composes the guard with the existing system prompt hook", async () => {
-    const hooks = createODFRuntimeHooks({ session: { abort: vi.fn() } } as any)
-    expect(hooks["chat.message"]).toBeTypeOf("function")
-    expect(hooks["tool.execute.before"]).toBeTypeOf("function")
-    expect(hooks["tool.execute.after"]).toBeTypeOf("function")
-    const output = { system: ["base"] }
-    await hooks["experimental.chat.system.transform"]?.({} as any, output)
-    expect(output.system).toHaveLength(1)
-    expect(output.system[0]).toContain("base")
-    expect(output.system[0]).toContain("<odf-system>")
-  })
-
   it("warns once when estimated context pressure crosses the threshold", async () => {
     const previous = process.env.ODF_CONTEXT_WARN_TOKENS
     process.env.ODF_CONTEXT_WARN_TOKENS = "1000"
@@ -8918,31 +8991,4 @@ describe("stable discovery runtime guard", () => {
     expect(contextPressureNotice(250_000)).toContain("250k")
   })
 
-  it("injects the context pressure notice into the system prompt exactly once", async () => {
-    const previous = process.env.ODF_CONTEXT_WARN_TOKENS
-    process.env.ODF_CONTEXT_WARN_TOKENS = "1000"
-    try {
-      const showToast = vi.fn().mockResolvedValue({})
-      const hooks = createODFRuntimeHooks({ session: { abort: vi.fn() }, tui: { showToast } } as any)
-      await hooks["chat.message"]?.(
-        { sessionID: "s1", messageID: "m1", agent: "odoo_orchestrator" },
-        { message: { id: "m1", sessionID: "s1", agent: "odoo_orchestrator" } as any, parts: [{ type: "text", text: "go" } as any] },
-      )
-      await hooks["tool.execute.after"]?.(
-        { tool: "read", sessionID: "s1", callID: "c1", args: { filePath: "a" } },
-        { title: "t", output: "y".repeat(20_000), metadata: {} },
-      )
-      const first = { system: ["base"] }
-      await hooks["experimental.chat.system.transform"]?.({ sessionID: "s1" } as any, first)
-      expect(first.system).toHaveLength(1)
-      expect(first.system[0]).toContain("<odf-context-pressure>")
-
-      const second = { system: ["base"] }
-      await hooks["experimental.chat.system.transform"]?.({ sessionID: "s1" } as any, second)
-      expect(second.system[0]).not.toContain("<odf-context-pressure>")
-    } finally {
-      if (previous === undefined) delete process.env.ODF_CONTEXT_WARN_TOKENS
-      else process.env.ODF_CONTEXT_WARN_TOKENS = previous
-    }
-  })
 })

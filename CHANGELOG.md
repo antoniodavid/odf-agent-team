@@ -1,5 +1,23 @@
 # Changelog — ODF Agent Team
 
+## 1.4.0 (2026-09-24)
+
+> **BREAKING — OpenCode V2 only.** The plugin entrypoint no longer exports the
+> V1 `server` implementation, and `@opencode-ai/plugin` is not part of the
+> runtime graph. Packs installed from this release require an OpenCode V2 host:
+> a V1 host will not register the ODF plugin.
+
+### Changed
+- **OpenCode V2 only**: the entrypoint `plugins/odf-delegation.ts` now default-exports the official `Plugin.define({ id, setup })` shape. The V1 `server` export, `OdfDelegationPlugin` and `createODFRuntimeHooks` were removed along with their V1 contract fixtures.
+- Runtime code no longer imports `@opencode-ai/plugin`. The shared `tool` helper moved to `odf-plugin/odf-tool.ts` (identity function + `zod` schema namespace), so the plugin graph carries only the host-provided `@opencode/plugin` plus the declared `zod` and `yaml` dependencies. `@opencode-ai/plugin` and `@opencode-ai/sdk` are now devDependencies, used for types and the V1/V2 schema-parity fixtures.
+
+### Fixed
+- Registry/telemetry warm-up used to live inside the retired V1 `server` entrypoint, so the V2 host silently lost it. It is now `startOdfRuntime()`, awaited by `setupODFV2`: metrics flushing, the skills/permissions cache refresh, unregistered-skill discovery and the learning loop all run under OpenCode V2.
+- OpenCode V2 now injects the one-shot context-pressure notice through the `session.context` hook, restoring parity with the retired V1 `experimental.chat.system.transform` seam.
+- `install.sh` installs dependencies **before** exposing the plugin entrypoint, and reminds you to restart the OpenCode service afterwards (`--restart-service` / `ODF_RESTART_SERVICE=1` to do it immediately). A plugin that fails once stays `failed` inside a running service until it restarts — this was the root cause of the plugin never loading after a fresh install.
+- Three new installer tests cover the dependency/plugin ordering, the default no-op dry run and the opt-in restart flag.
+- Config-dir resolution no longer ignores `XDG_CONFIG_HOME` and no longer depends on the project launcher: a single resolver (`scripts/lib/config-dir.js`) orders `ODF_CONFIG_DIR` → the pack the running module ships in (when it carries `odf-registry.json`) → `$XDG_CONFIG_HOME/opencode` → `~/.config/opencode`, and the five CLI copies of that logic delegate to it. A pack installed under `<project>/.opencode` resolves itself, so running `opencode` directly there reads the right registry. The README's `XDG_CONFIG_HOME resolution` claim holds again, the `/odf-*` prompts default `PACK` to the same order, and the YAML suite now passes with `ODF_CONFIG_DIR` unset instead of reading the installed registry instead of the checkout.
+
 ## 1.3.1 (2026-09-24)
 
 ### Fixed

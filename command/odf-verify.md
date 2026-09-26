@@ -99,7 +99,7 @@ orchestrator then records the user-run evidence deterministically and VERIFY
 proceeds with it:
 
 ```bash
-PACK="${ODF_CONFIG_DIR:-$HOME/.config/opencode}"
+PACK="${ODF_CONFIG_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/opencode}"
 node "$PACK/scripts/odf-toolkit.js" manual-evidence \
   --change <change> --command "<exact command with -d <test_db>>" \
   --database <test_db> --output-file <path-to-test-output> --root <worktree>

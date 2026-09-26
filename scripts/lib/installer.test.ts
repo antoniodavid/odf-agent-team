@@ -97,6 +97,123 @@ describe("install.sh", { timeout: 30000 }, () => {
     }
   })
 
+  it("installs dependencies before exposing the plugin entrypoint", () => {
+    const { result, tempHome } = runInstaller(["--dry-run"])
+    try {
+      expect(result.status).toBe(0)
+      const output = `${result.stdout}\n${result.stderr}`
+      const npmIdx = output.indexOf("[dry-run] Would run npm install")
+      const pluginIdx = output.indexOf("plugins/odf-delegation.ts ->")
+      expect(npmIdx).toBeGreaterThan(-1)
+      expect(pluginIdx).toBeGreaterThan(-1)
+      expect(npmIdx).toBeLessThan(pluginIdx)
+    } finally {
+      cleanup(tempHome)
+    }
+  })
+
+  it("warns about the service restart without acting in a plain dry run", () => {
+    const { result, tempHome } = runInstaller(["--dry-run"])
+    try {
+      expect(result.status).toBe(0)
+      const output = `${result.stdout}\n${result.stderr}`
+      expect(output).not.toContain("Would restart the OpenCode service")
+      expect(fs.existsSync(path.join(tempHome, ".config"))).toBe(false)
+    } finally {
+      cleanup(tempHome)
+    }
+  })
+
+  it("honours the opt-in --restart-service flag", () => {
+    const { result, tempHome } = runInstaller(["--dry-run", "--restart-service"])
+    try {
+      expect(result.status).toBe(0)
+      const output = `${result.stdout}\n${result.stderr}`
+      expect(output).toContain("Would restart the OpenCode service")
+      expect(fs.existsSync(path.join(tempHome, ".config"))).toBe(false)
+    } finally {
+      cleanup(tempHome)
+    }
+  })
+
+  function fakeOpencodeBin(): string {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "odf-fake-opencode-"))
+    fs.writeFileSync(
+      path.join(dir, "opencode"),
+      [
+        "#!/usr/bin/env bash",
+        'if [ "$1" = "service" ] && [ "$2" = "status" ]; then echo "http://127.0.0.1:4999"; exit 0; fi',
+        'if [ "$1" = "api" ]; then printf \'%s\' "$ODF_FAKE_PLUGIN_JSON"; exit 0; fi',
+        "exit 0",
+        "",
+      ].join("\n"),
+      "utf8",
+    )
+    fs.chmodSync(path.join(dir, "opencode"), 0o755)
+    return dir
+  }
+
+  function runWithFakeOpencode(pluginState: string): string {
+    const bin = fakeOpencodeBin()
+    const json = JSON.stringify({
+      data: [{
+        id: "odf-delegation",
+        source: { type: "local", path: "/home/x/.config/opencode/plugins/odf-delegation.ts" },
+        state: { status: pluginState },
+      }],
+    })
+    try {
+      const { result, tempHome } = runInstaller(["--yes"], {
+        PATH: `${bin}:${process.env.PATH || ""}`,
+        ODF_FAKE_PLUGIN_JSON: json,
+      })
+      try {
+        expect(result.status).toBe(0)
+        return `${result.stdout}\n${result.stderr}`
+      } finally {
+        cleanup(tempHome)
+      }
+    } finally {
+      fs.rmSync(bin, { recursive: true, force: true })
+    }
+  }
+
+  it("does not ask for a restart when the host already reloaded the plugin", () => {
+    // The host fully reloads plugins when a watched config file changes, so the
+    // default warning would be noise on every healthy install.
+    const output = runWithFakeOpencode("active")
+
+    expect(output).toContain("ODF plugin is active")
+    expect(output).toContain("no restart needed")
+    expect(output).not.toContain("Restart OpenCode to load it")
+  })
+
+  it("asks for a restart with the observed state when the plugin is not active", () => {
+    const output = runWithFakeOpencode("failed")
+
+    expect(output).toContain("ODF plugin state: failed")
+    expect(output).toContain("opencode service restart")
+  })
+
+  it("falls back to an unverifiable warning when the API answers nothing", () => {
+    const bin = fakeOpencodeBin()
+    try {
+      const { result, tempHome } = runInstaller(["--yes"], {
+        PATH: `${bin}:${process.env.PATH || ""}`,
+        ODF_FAKE_PLUGIN_JSON: "",
+      })
+      try {
+        expect(result.status).toBe(0)
+        const output = `${result.stdout}\n${result.stderr}`
+        expect(output).toContain("Could not verify the ODF plugin state")
+      } finally {
+        cleanup(tempHome)
+      }
+    } finally {
+      fs.rmSync(bin, { recursive: true, force: true })
+    }
+  })
+
   it("runs from piped stdin (curl | bash) without a TTY and installs", () => {
     const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), "odf-installer-piped-"))
     const script = fs.readFileSync(INSTALL_SCRIPT, "utf8")
@@ -370,7 +487,7 @@ describe("install.sh", { timeout: 30000 }, () => {
       expect(fs.existsSync(lockPath)).toBe(true)
 
       const lock = JSON.parse(fs.readFileSync(lockPath, "utf8"))
-      expect(lock.version).toBe("1.3.1")
+      expect(lock.version).toBe("1.4.0")
       expect(lock.source).toContain(`local:${REPO_ROOT}`)
       expect(lock.checksum).toMatch(/^[a-f0-9]{64}$/)
       expect(lock.config_dir).toBe(configDir)
@@ -407,6 +524,35 @@ describe("install.sh", { timeout: 30000 }, () => {
       })
       expect(launch.status).toBe(0)
       expect(fs.readFileSync(capturePath, "utf8")).toBe(path.join(projectDir, ".opencode"))
+    } finally {
+      cleanup(tempHome)
+      cleanup(projectDir)
+    }
+  })
+
+  it("resolves a project-local pack from its own location without the launcher", () => {
+    const { result, tempHome, projectDir, env } = runProjectInstaller([
+      "--scope", "project", "--project", "__PROJECT__", "--yes",
+    ])
+    try {
+      expect(result.status).toBe(0)
+      const validator = path.join(projectDir, ".opencode", "scripts", "odf-registry-validate.js")
+      expect(fs.existsSync(validator)).toBe(true)
+
+      // Without the launcher, the plugin and the CLIs ship inside the project
+      // pack; the resolver must find it by its own location. ODF_CONFIG_DIR and
+      // XDG_CONFIG_HOME are cleared and HOME points at an empty temp home, so
+      // the legacy "~/.config/opencode" fallback has no registry to find and
+      // this assertion fails on the old resolver.
+      const clean = spawnSync("node", [validator], {
+        env: { ...env, ODF_CONFIG_DIR: "", XDG_CONFIG_HOME: "", HOME: tempHome },
+        encoding: "utf8",
+        cwd: tempHome,
+      })
+
+      expect(clean.status).toBe(0)
+      expect(clean.stdout).toContain(path.join(projectDir, ".opencode"))
+      expect(clean.stdout).not.toContain(REPO_ROOT)
     } finally {
       cleanup(tempHome)
       cleanup(projectDir)
