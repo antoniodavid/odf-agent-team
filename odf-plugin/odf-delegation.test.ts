@@ -3477,6 +3477,64 @@ ${overrides}`
     expect(taskApi).not.toHaveBeenCalled()
   })
 
+  it("refuses a symlinked path to the installed ODF pack", async (ctx) => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "odf-pack-symlink-"))
+    try {
+      const pack = path.join(root, "pack")
+      await fs.mkdir(pack, { recursive: true })
+      await fs.copyFile(path.resolve(process.cwd(), "odf-registry.json"), path.join(pack, "odf-registry.json"))
+      const link = path.join(root, "config-link")
+      try {
+        await fs.symlink(pack, link, "dir")
+      } catch {
+        // Filesystem without symlink support (e.g. some Windows setups).
+        ctx.skip()
+        return
+      }
+      process.env.ODF_CONFIG_DIR = link
+      vi.resetModules()
+      const { createODFDelegate } = await import("./odf-delegation.js")
+      const taskApi = vi.fn().mockResolvedValue({ status: "ok", design_closed: true })
+
+      const output = JSON.parse(await createODFDelegate(undefined, "/host/session/dir").execute({
+        phase: "DESIGN",
+        prompt: "Design a Python model",
+        context_files: [],
+        workspace_dir: pack,
+      }, { sessionID: "pack-symlink", task: taskApi } as any) as string)
+
+      expect(output).toMatchObject({ status: "blocked", reason: "unsafe-workspace-path" })
+      expect(taskApi).not.toHaveBeenCalled()
+    } finally {
+      await fs.rm(root, { recursive: true, force: true })
+    }
+  })
+
+  it("refuses a subdirectory of the installed ODF pack", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "odf-pack-subdir-"))
+    try {
+      const pack = path.join(root, "pack")
+      await fs.mkdir(path.join(pack, "skills"), { recursive: true })
+      await fs.copyFile(path.resolve(process.cwd(), "odf-registry.json"), path.join(pack, "odf-registry.json"))
+      process.env.ODF_CONFIG_DIR = pack
+      vi.resetModules()
+      const { createODFDelegate } = await import("./odf-delegation.js")
+      const taskApi = vi.fn().mockResolvedValue({ status: "ok", design_closed: true })
+
+      const output = JSON.parse(await createODFDelegate(undefined, "/host/session/dir").execute({
+        phase: "DESIGN",
+        prompt: "Design a Python model",
+        context_files: [],
+        workspace_dir: path.join(pack, "skills"),
+      }, { sessionID: "pack-subdir", task: taskApi } as any) as string)
+
+      expect(output).toMatchObject({ status: "blocked", reason: "unsafe-workspace-path" })
+      expect(taskApi).not.toHaveBeenCalled()
+    } finally {
+      await fs.rm(root, { recursive: true, force: true })
+    }
+  })
+
   it("honors a valid explicit agent override", async () => {
     const { createODFDelegate } = await import("./odf-delegation.js")
     const taskApi = vi.fn().mockResolvedValue({ status: "ok", design_closed: true })
