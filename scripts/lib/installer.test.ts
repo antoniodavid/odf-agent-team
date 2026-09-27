@@ -112,6 +112,63 @@ describe("install.sh", { timeout: 30000 }, () => {
     }
   })
 
+  it("does not expose the plugin entrypoint when npm fails and dependencies are missing", () => {
+    const bin = fs.mkdtempSync(path.join(os.tmpdir(), "odf-fake-npm-fail-"))
+    fs.writeFileSync(path.join(bin, "npm"), "#!/usr/bin/env bash\necho 'fake npm failure' >&2\nexit 1\n", "utf8")
+    fs.writeFileSync(path.join(bin, "opencode"), "#!/usr/bin/env bash\nexit 1\n", "utf8")
+    fs.chmodSync(path.join(bin, "npm"), 0o755)
+    fs.chmodSync(path.join(bin, "opencode"), 0o755)
+    try {
+      const { result, tempHome } = runInstaller(["--yes"], {
+        PATH: `${bin}:${process.env.PATH || ""}`,
+        ODF_SKIP_NPM: "",
+      })
+      try {
+        expect(result.status).toBe(0)
+        const output = `${result.stdout}\n${result.stderr}`
+        expect(output).toContain("ODF plugin entrypoint NOT installed")
+        expect(fs.existsSync(path.join(tempHome, ".config", "opencode", "plugins", "odf-delegation.ts"))).toBe(false)
+        // The support directory is created empty by the installer scaffold.
+        expect(fs.readdirSync(path.join(tempHome, ".config", "opencode", "odf-plugin"))).toEqual([])
+      } finally {
+        cleanup(tempHome)
+      }
+    } finally {
+      fs.rmSync(bin, { recursive: true, force: true })
+    }
+  })
+
+  it("keeps the entrypoint when npm fails but the dependencies already resolve", () => {
+    const bin = fs.mkdtempSync(path.join(os.tmpdir(), "odf-fake-npm-fail-"))
+    fs.writeFileSync(path.join(bin, "npm"), "#!/usr/bin/env bash\nexit 1\n", "utf8")
+    fs.writeFileSync(path.join(bin, "opencode"), "#!/usr/bin/env bash\nexit 1\n", "utf8")
+    fs.chmodSync(path.join(bin, "npm"), 0o755)
+    fs.chmodSync(path.join(bin, "opencode"), 0o755)
+    const configDir = fs.mkdtempSync(path.join(os.tmpdir(), "odf-deps-ready-"))
+    for (const name of ["zod", "yaml"]) {
+      const dep = path.join(configDir, "node_modules", name)
+      fs.mkdirSync(dep, { recursive: true })
+      fs.writeFileSync(path.join(dep, "package.json"), JSON.stringify({ name, version: "0.0.0-stub", main: "index.js" }))
+      fs.writeFileSync(path.join(dep, "index.js"), "")
+    }
+    try {
+      const { result, tempHome } = runInstaller(["--yes"], {
+        PATH: `${bin}:${process.env.PATH || ""}`,
+        ODF_SKIP_NPM: "",
+        ODF_CONFIG_DIR: configDir,
+      })
+      try {
+        expect(result.status).toBe(0)
+        expect(fs.existsSync(path.join(configDir, "plugins", "odf-delegation.ts"))).toBe(true)
+      } finally {
+        cleanup(tempHome)
+      }
+    } finally {
+      fs.rmSync(bin, { recursive: true, force: true })
+      fs.rmSync(configDir, { recursive: true, force: true })
+    }
+  })
+
   it("warns about the service restart without acting in a plain dry run", () => {
     const { result, tempHome } = runInstaller(["--dry-run"])
     try {

@@ -423,13 +423,23 @@ install_files() {
   # Dependencies must resolve BEFORE the plugin file is exposed. OpenCode caches
   # a failed plugin import inside the running service: a first attempt with a
   # missing npm dependency stays "failed" until the service restarts, so the
-  # order matters even when the dependency lands moments later.
+  # order matters even when the dependency lands moments later. When they still
+  # do not resolve, the entrypoint is not exposed at all: the rest of the pack
+  # lands, but the host never gets a broken import to cache.
   if [[ -f "$src_dir/package.json" ]]; then
     copy_dir "$src_dir/package.json" "$ODF_DIR/package.json"
   fi
-  run_npm_install
-  copy_dir "$src_dir/plugins/odf-delegation.ts" "$PLUGIN_ENTRYPOINT"
-  copy_dir "$src_dir/odf-plugin" "$PLUGIN_SUPPORT_DIR"
+  local deps_ready=true
+  if ! run_npm_install; then
+    deps_ready=false
+  fi
+  if [[ "$deps_ready" == true ]]; then
+    copy_dir "$src_dir/plugins/odf-delegation.ts" "$PLUGIN_ENTRYPOINT"
+    copy_dir "$src_dir/odf-plugin" "$PLUGIN_SUPPORT_DIR"
+  else
+    log_warn "⚠️  ODF plugin entrypoint NOT installed: runtime dependencies did not resolve, and exposing it would be cached as a failed plugin import."
+    log_warn "    Fix npm/network access and re-run install.sh; the rest of the pack is already in place."
+  fi
 
   # The pack ships a narrowed tsconfig so `npm run typecheck` covers ODF-owned
   # files only; other host plugins live under plugins/ and are out of scope.
@@ -567,6 +577,22 @@ write_project_lock() {
   log_ok "✅ Wrote project lock metadata ${PROJECT_LOCK}"
 }
 
+# True when the plugin's runtime dependencies resolve from the pack directory.
+# `node` resolves bare specifiers from $ODF_DIR: zod is imported by
+# odf-plugin/odf-tool.ts and yaml by the registry/CLI layer.
+odf_runtime_deps_ready() {
+  command -v node &> /dev/null || return 1
+  (
+    cd "$ODF_DIR" 2>/dev/null || return 1
+    node -e "Promise.all([import('zod'), import('yaml')]).then(() => {}, () => process.exit(1))" &> /dev/null
+  )
+}
+
+# Install dependencies and report whether the plugin can actually import.
+# A non-zero return means "do not expose the entrypoint": OpenCode caches a
+# failed plugin import in the running service, so a missing dependency at first
+# load sticks as `failed` until the service restarts. An explicit
+# ODF_SKIP_NPM=1 is respected (warn only, keep the legacy copy behaviour).
 run_npm_install() {
   if [[ "$INSTALL_DRY_RUN" == true ]]; then
     log_warn "📦 [dry-run] Would run npm install in ${ODF_DIR}"
@@ -579,19 +605,27 @@ run_npm_install() {
 
   if [[ "${ODF_SKIP_NPM:-}" == "1" ]]; then
     log_warn "📦 Skipping npm install (ODF_SKIP_NPM=1)"
+    if ! odf_runtime_deps_ready; then
+      log_warn "⚠️  Runtime dependencies (zod, yaml) are not resolvable from ${ODF_DIR}; the plugin import will fail until they are installed."
+    fi
     return 0
   fi
 
   if ! command -v npm &> /dev/null; then
     log_warn "⚠️  npm not found; skipping npm install. Some self-tests may not run."
-    return 0
+  else
+    log_warn "📦 Running npm install..."
+    (
+      cd "$ODF_DIR"
+      npm install --no-audit --no-fund || true
+    )
   fi
 
-  log_warn "📦 Running npm install..."
-  (
-    cd "$ODF_DIR"
-    npm install --no-audit --no-fund || true
-  )
+  if odf_runtime_deps_ready; then
+    return 0
+  fi
+  log_warn "⚠️  Runtime dependencies (zod, yaml) do not resolve from ${ODF_DIR}."
+  return 1
 }
 
 # OpenCode caches a failed plugin import inside the running service: once an
