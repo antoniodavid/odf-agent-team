@@ -12,7 +12,7 @@
 
 import { createHash } from "node:crypto"
 import { resolveWorkflowRoute, WORK_TYPES, type CanonicalStage, type WorkType } from "./odf-workflow.js"
-import { tool } from "@opencode-ai/plugin"
+import { tool } from "./odf-tool.js"
 
 export type EntryLevel = "micro" | "standard" | "full"
 export type EntryClarity = "clear" | "unclear"

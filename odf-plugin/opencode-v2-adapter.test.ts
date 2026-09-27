@@ -145,6 +145,43 @@ describe("OpenCode V2 ODF adapter", () => {
     await cleanup()
   })
 
+  it("injects the one-shot context pressure notice through the V2 context hook", async () => {
+    const previous = process.env.ODF_CONTEXT_WARN_TOKENS
+    process.env.ODF_CONTEXT_WARN_TOKENS = "1000"
+    try {
+      const fixture = testContext()
+      const cleanup = await setupODFV2(fixture.context as any)
+      const contextHook = fixture.hooks.find(hook => hook.domain === "session" && hook.name === "context")!
+      const promptHook = fixture.hooks.find(hook => hook.domain === "session" && hook.name === "prompt")!
+      const afterHook = fixture.hooks.find(hook => hook.domain === "tool" && hook.name === "execute.after")!
+
+      // V2 replaces V1's chat.message seam with the prompt hook.
+      await promptHook.callback({ sessionID: "s1", messageID: "m1", prompt: { text: "go" } })
+      // Cross the threshold with a large tool result.
+      await afterHook.callback({
+        tool: "read",
+        sessionID: "s1",
+        id: "c1",
+        input: { filePath: "a" },
+        status: "completed",
+        result: { output: "y".repeat(20_000), metadata: {} },
+      })
+
+      const first: { system: Array<{ type: "text"; text: string }>; sessionID?: string } = { system: [], sessionID: "s1" }
+      await contextHook.callback(first as any)
+      expect(first.system.map(part => part.text).join("\n")).toContain("<odf-context-pressure>")
+
+      const second: { system: Array<{ type: "text"; text: string }>; sessionID?: string } = { system: [], sessionID: "s1" }
+      await contextHook.callback(second as any)
+      expect(second.system.map(part => part.text).join("\n")).not.toContain("<odf-context-pressure>")
+
+      await cleanup()
+    } finally {
+      if (previous === undefined) delete process.env.ODF_CONTEXT_WARN_TOKENS
+      else process.env.ODF_CONTEXT_WARN_TOKENS = previous
+    }
+  })
+
   it("disposes hook registrations and the event subscription", async () => {
     const fixture = testContext()
     const cleanup = await setupODFV2(fixture.context as any)
@@ -178,6 +215,42 @@ describe("OpenCode V2 ODF adapter", () => {
     expect(session.context).toHaveBeenCalledWith({ sessionID: "child-session" })
   })
 
+  it("creates the V2 child session in the requested directory, and in the host session's by default", async () => {
+    // context_files are validated relative paths: they only resolve when the child
+    // works in the same root, so the workspace root has to reach session.create.
+    const explicit = v2Session()
+    await createV2SessionTaskApi(taskContext() as any, explicit as any)({
+      agent: "odoo_qa_engineer",
+      prompt: "work",
+      directory: "/workspace/root",
+    })
+    expect(explicit.create).toHaveBeenCalledWith(expect.objectContaining({
+      location: { directory: "/workspace/root" },
+    }))
+
+    // No directory given: unchanged behaviour, the host session's own directory.
+    const fallback = v2Session()
+    await createV2SessionTaskApi({ ...taskContext(), directory: "/host/session" } as any, fallback as any)({
+      agent: "odoo_qa_engineer",
+      prompt: "work",
+    })
+    expect(fallback.create).toHaveBeenCalledWith(expect.objectContaining({
+      location: { directory: "/host/session" },
+    }))
+  })
+
+  it("keeps the workspace root on the task api that findTaskApi hands back", async () => {
+    const session = v2Session()
+    const bridge = createV2SessionTaskApi({ ...taskContext(), directory: "/host/session" } as any, session as any)
+    const resolved = findTaskApi({ ...taskContext(), directory: "/host/session", task: bridge } as any, undefined)
+
+    await resolved!.taskApi({ agent: "odoo_qa_engineer", prompt: "work", directory: "/workspace/root" })
+
+    expect(session.create).toHaveBeenCalledWith(expect.objectContaining({
+      location: { directory: "/workspace/root" },
+    }))
+  })
+
   it("aborts the V2 child session for explicit cancellation", async () => {
     const session = v2Session()
     let rejectPrompt: ((error: Error) => void) | undefined
@@ -198,6 +271,40 @@ describe("OpenCode V2 ODF adapter", () => {
     const task = createV2SessionTaskApi(taskContext() as any, session as any)
 
     await expect(invokeTask(task, "odoo_qa_engineer", "wait", undefined, 5)).rejects.toThrow("timed out")
+    expect(session.interrupt).toHaveBeenCalledWith({ sessionID: "child-session" })
+  })
+
+  it("interrupts the V2 child session when the task api is resolved through findTaskApi", async () => {
+    // The real delegation path: the adapter injects its own bridge as
+    // toolCtx.task, so findTaskApi resolves it. It used to re-wrap that bridge,
+    // which replaced the promise the bridge's abort keys on and dropped the
+    // interrupt — the child then ran past the timeout and finished on its own
+    // (measured live: parent returned `timeout` at 1.5s, child finished at 2.4s
+    // with `outcome: succeeded`).
+    const session = v2Session()
+    session.prompt.mockImplementation(() => new Promise(() => undefined))
+    const bridge = createV2SessionTaskApi(taskContext() as any, session as any)
+
+    const resolved = findTaskApi({ ...taskContext(), task: bridge } as any, undefined)
+    expect(resolved?.source).toBe("toolCtx.task")
+    expect(resolved?.taskApi).toBe(bridge)
+
+    await expect(invokeTask(resolved!.taskApi, "odoo_qa_engineer", "wait", undefined, 5)).rejects.toThrow("timed out")
+    expect(session.interrupt).toHaveBeenCalledWith({ sessionID: "child-session" })
+  })
+
+  it("still interrupts the child when a wrapper hides the promise identity", async () => {
+    // Safety net for the same failure mode: abort must not quietly do nothing
+    // when it is handed a promise it does not recognise.
+    const session = v2Session()
+    session.prompt.mockImplementation(() => new Promise(() => undefined))
+    const bridge = createV2SessionTaskApi(taskContext() as any, session as any)
+    const wrapper = Object.assign((input: never) => bridge(input), { abort: bridge.abort })
+
+    const invocation = wrapper({ agent: "odoo_qa_engineer", prompt: "wait" } as never)
+    await vi.waitFor(() => expect(session.prompt).toHaveBeenCalled())
+    await wrapper.abort?.(invocation)
+
     expect(session.interrupt).toHaveBeenCalledWith({ sessionID: "child-session" })
   })
 

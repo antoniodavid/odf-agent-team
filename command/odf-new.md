@@ -43,7 +43,7 @@ and `BUILD = IMPLEMENT`.
 8. **Classify the entry** with `odf_entry_triage`: pass the parsed `description` and the available optional fields (`module`, `domain`, `expected_files`, `expectations_clear`, `risk_signals`). Pass `known_modules` with the project modules from `odf-init/{project}` (persisted config) so triage flags nonexistent modules. If `needs_question` is `true`, ask ONE grouped question (data + intent/context/Expectations when the description is not concrete) and re-run triage. Use its `work_type`; do not choose it freely. Migration/security/payment/public API/data-loss/pii are never micro.
 9. **Redundancy pre-check (before PROPOSE)**: with domain terms from the `description`, run:
    ```
-   PACK="${ODF_CONFIG_DIR:-$HOME/.config/opencode}"
+   PACK="${ODF_CONFIG_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/opencode}"
    node "$PACK/scripts/odf-toolkit.js" redundancy --repo <repo-dir> --terms "<domain terms>" --project <project-name>
    ```
    It searches existing implementations (models/views/static/controllers/data/tests, bounded) and prior learnings (`odf-learned/{project}` = basis of "already seen/rejected"). If there are relevant matches or learnings that contradict, present them to the user (extend what exists / already implemented / cancel) BEFORE delegating PROPOSE; never decide alone.

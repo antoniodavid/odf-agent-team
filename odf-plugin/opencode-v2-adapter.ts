@@ -1,13 +1,13 @@
 import { Plugin } from "@opencode/plugin"
 import type { Context as V2Context, Cleanup as V2Cleanup } from "@opencode/plugin/promise/plugin"
 import type { ToolContext as V2ToolContext } from "@opencode/plugin/promise/tool"
-import { tool as v1Tool, type ToolContext as V1ToolContext, type ToolResult as V1ToolResult } from "@opencode-ai/plugin"
+import { tool, type ToolContext as V1ToolContext, type ToolResult as V1ToolResult } from "./odf-tool.js"
 import { readFileSync } from "node:fs"
 import * as path from "node:path"
 import { fileURLToPath } from "node:url"
 import {
   createStableDiscoveryGuard,
-  type LoopGuardHooks,
+  type LoopGuardRuntime,
 } from "./odf-delegation-loopguard.js"
 import {
   ODF_REGISTERED_TOOLS,
@@ -29,9 +29,9 @@ type V1Tool = ODFRegisteredToolMap[keyof ODFRegisteredToolMap]
 type V2Registration = { dispose: () => Promise<void> }
 
 function schemaFor(name: string, definition: V1Tool): { parse: (input: unknown) => unknown; input: JsonSchema } {
-  const schema = v1Tool.schema.object(definition.args)
+  const schema = tool.schema.object(definition.args)
   try {
-    const input = v1Tool.schema.toJSONSchema(schema) as unknown
+    const input = tool.schema.toJSONSchema(schema) as unknown
     if (!input || typeof input !== "object" || Array.isArray(input)) {
       throw new Error("schema conversion did not return an object")
     }
@@ -154,7 +154,7 @@ function eventForV1Guard(event: unknown): unknown {
 
 async function registerV2Hooks(
   context: V2Context,
-  guard: LoopGuardHooks,
+  guard: LoopGuardRuntime,
   registrations: V2Registration[],
   systemRules: string,
   odfNewCommandBody: string | null,
@@ -187,6 +187,14 @@ async function registerV2Hooks(
   registrations.push(await context.session.hook("context", async (input) => {
     if (!input.system.some(part => part.type === "text" && part.text === systemRules)) {
       input.system.push({ type: "text", text: systemRules })
+    }
+    // V1 injected this through experimental.chat.system.transform; V2's
+    // `context` hook is the equivalent seam. The notice is one-shot, so a later
+    // model call for the same session no longer receives it.
+    const sessionID = (input as { sessionID?: string }).sessionID
+    const pressureNotice = sessionID ? guard.consumeContextPressureNotice(sessionID) : null
+    if (pressureNotice && !input.system.some(part => part.type === "text" && part.text === pressureNotice)) {
+      input.system.push({ type: "text", text: pressureNotice })
     }
   }))
 
@@ -242,7 +250,11 @@ export async function setupODFV2(context: V2Context): Promise<V2Cleanup> {
   const guard = createStableDiscoveryGuard(v2AbortClient(context), entryAuthorizations, entryGenerations, directory)
 
   try {
-    const { createODFRegisteredTools, ODF_SYSTEM_RULES } = await import("../plugins/odf-delegation.js")
+    const { createODFRegisteredTools, ODF_SYSTEM_RULES, startOdfRuntime } = await import("../plugins/odf-delegation.js")
+    // Registry cache, metrics flusher, unregistered-skill discovery and the
+    // learning loop used to run inside the V1 `server` entrypoint. Running them
+    // here keeps those side effects alive under the V2 host.
+    await startOdfRuntime()
     registrations.push(await context.tool.transform((editor) => {
       const tools = createODFRegisteredTools(undefined, directory, entryAuthorizations, entryGenerations)
       for (const name of ODF_REGISTERED_TOOLS) {

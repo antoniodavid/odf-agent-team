@@ -216,7 +216,7 @@ npm run typecheck     # tsc --noEmit
 node scripts/odf-registry-validate.js   # validates all registered paths exist
 ```
 
-**Registry selection**: the test runner honors an absolute `ODF_CONFIG_DIR`; otherwise it derives the registry from `HOME/.config/opencode`. Set `ODF_CONFIG_DIR=/path/to/repo` to validate against the repo copy.
+**Registry selection**: the test runner honors an absolute `ODF_CONFIG_DIR`, otherwise `scripts/lib/config-dir.js` derives the registry from the pack the module ships in, then `XDG_CONFIG_HOME/opencode`, then `HOME/.config/opencode`. Set `ODF_CONFIG_DIR=/path/to/repo` to validate against the repo copy.
 
 ## Registry lifecycle
 

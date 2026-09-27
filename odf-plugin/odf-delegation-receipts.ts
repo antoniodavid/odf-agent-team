@@ -5,7 +5,7 @@
 
 import * as fsSync from "node:fs"
 import * as path from "node:path"
-import { tool } from "@opencode-ai/plugin"
+import { tool } from "./odf-tool.js"
 import { buildCandidateManifest, computeCandidateDigest } from "./candidate-manifest.js"
 import {
   gitHead,

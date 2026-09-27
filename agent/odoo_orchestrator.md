@@ -521,7 +521,7 @@ At session start (or before the first phase), check which tools are available:
 
 Prefer the read-side CLI for deterministic work instead of re-deriving with
 tools; it costs one bash call and compact JSON, never model tokens. Resolve the
-pack path deterministically — `PACK="${ODF_CONFIG_DIR:-$HOME/.config/opencode}"` —
+pack path deterministically — `PACK="${ODF_CONFIG_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/opencode}"` —
 and **never search the filesystem for the scripts**. If a script is missing,
 reinstall the pack (`install.sh` / `/odf-registry-refresh`) and stop.
 

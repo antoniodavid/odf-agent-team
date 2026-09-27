@@ -68,7 +68,7 @@ or non-terminal, return `workflow-verify-not-terminal` and do not modify state.
    - `design_meta`: use the one persisted by DESIGN if present, else derive it from the design document with `deriveDesignMeta()` (`scripts/odf-estimator.js`). If it cannot be derived, skip the library append and calibration (N/A), do not invent values.
    - Collect the change's IMPLEMENT telemetry records. Correlate by `candidate_digest` first; if absent, by `work_type` + the change's implementation window (from `implement-progress` timestamps). Records come from the plugin JSONL:
      ```
-     ${ODF_CONFIG_DIR:-~/.config/opencode}/metrics/delegations-YYYY-MM-DD.jsonl
+     ${ODF_CONFIG_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/opencode}/metrics/delegations-YYYY-MM-DD.jsonl
      ```
      Read them with `collectDelegations()`/`readDelegationFile()` (`scripts/odf-metrics.js`), then:
      ```
@@ -143,7 +143,7 @@ or non-terminal, return `workflow-verify-not-terminal` and do not modify state.
      archived_at: "{YYYY-MM-DD}",
    })                        // scripts/odf-design-library.js
    ```
-   - **Index location (default):** `${ODF_CONFIG_DIR:-~/.config/opencode}/design-library/index.json` — runtime data, keeps the repo clean. This is the recommended default.
+   - **Index location (default):** `${ODF_CONFIG_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/opencode}/design-library/index.json` — runtime data, keeps the repo clean. This is the recommended default.
    - **`--repo`:** `<repo>/design-library/index.json` — use when the team commits and shares the index.
    - Dedupe is by `change`: re-archiving updates the existing entry instead of duplicating it.
 

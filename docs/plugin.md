@@ -56,6 +56,7 @@ The entrypoint stays a monolith for the delegation core; self-contained concerns
 | `odf-community-tools.ts` | CodeGraph detect/install |
 | `opencode-v2-adapter.ts` | Official V2 `Plugin.define`/`setup` adapter (tools, hooks, session bridge) |
 | `opencode-v2-entrypoint.ts` | V2-only entrypoint re-export |
+| `odf-tool.ts` | Host-neutral `tool` helper (identity function + `zod` schema namespace) that replaces the runtime import of `@opencode-ai/plugin` |
 | `runtime-boundary.ts` | Host-neutral plugin id/lifecycle seam |
 
 ## `odf_delegate` flow

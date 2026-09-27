@@ -6,7 +6,7 @@
 import * as fsSync from "node:fs"
 import * as nodeCrypto from "node:crypto"
 import * as path from "node:path"
-import type { ToolContext } from "@opencode-ai/plugin"
+import type { ToolContext } from "./odf-tool.js"
 import { getOdfConfigDir } from "./odf-delegation-shared.js"
 import { WORK_TYPES, type WorkType } from "./odf-workflow.js"
 

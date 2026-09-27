@@ -26,8 +26,9 @@ import { StringDecoder } from "node:string_decoder"
 import { pathToFileURL } from "node:url"
 import YAML from "yaml"
 import { buildDashboard, collectDelegations, resolveMetricsDir } from "./odf-metrics.js"
+import { resolveOdfConfigDir } from "./lib/config-dir.js"
 
-const CONFIG_DIR = process.env.ODF_CONFIG_DIR || path.join(os.homedir(), ".config", "opencode")
+const CONFIG_DIR = resolveOdfConfigDir(process.env).dir
 const REGISTRY_PATH = path.join(CONFIG_DIR, "odf-registry.json")
 
 // ==========================================

@@ -10,6 +10,7 @@ import * as path from "node:path"
 import { execFileSync } from "node:child_process"
 import type { createOpencodeClient } from "@opencode-ai/sdk"
 import { sanitizeChangeName } from "../scripts/lib/preflight.js"
+import { resolveOdfConfigDir } from "../scripts/lib/config-dir.js"
 
 export const CHANGE_NAME_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]*$/
 
@@ -17,20 +18,22 @@ export const CHANGE_NAME_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]*$/
 // ==========================================
 
 /**
- * Return the ODF configuration directory.
+ * Return the ODF configuration directory (the pack root).
  *
- * Uses ODF_CONFIG_DIR when it is set and absolute. Falls back to
- * ~/.config/opencode. The resolved path is always absolute.
+ * Delegates to the shared resolver — `ODF_CONFIG_DIR` (absolute) → the pack this
+ * module ships in (when it carries a registry) → `$XDG_CONFIG_HOME/opencode` →
+ * `~/.config/opencode`. The resolved path is always absolute.
+ *
+ * The middle step is what makes a global install work under XDG and a
+ * project-local `<project>/.opencode` work without the launcher exporting
+ * `ODF_CONFIG_DIR`; both used to fall through to `~/.config/opencode`.
  */
 export function getOdfConfigDir(): string {
-  const envDir = process.env.ODF_CONFIG_DIR?.trim()
-  if (envDir) {
-    if (path.isAbsolute(envDir)) {
-      return path.normalize(envDir)
-    }
-    console.warn(`[odf-delegation] ODF_CONFIG_DIR "${envDir}" is not absolute; falling back to default.`)
+  const { dir, ignored } = resolveOdfConfigDir(process.env)
+  if (ignored) {
+    console.warn(`[odf-delegation] ODF_CONFIG_DIR "${ignored}" is not absolute; falling back to default.`)
   }
-  return path.join(os.homedir(), ".config", "opencode")
+  return dir
 }
 
 export function isWithinRoot(candidate: string, root: string): boolean {

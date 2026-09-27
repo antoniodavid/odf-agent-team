@@ -85,6 +85,8 @@ A task is DONE only when ALL hold:
 - No task is marked `[x]` without its verification evidence; no `[ ]` task is claimed as done.
 - Pre-commit and pylint-odoo pass on the changed files (auto-fixable failures fixed, not suppressed).
 - Progress is merged with the existing `implement-progress` artifact (never overwritten).
+- **BUILD is terminal only when `implement-progress.md` carries a checklist with every step marked `[x]`** (or a success `status:` line). A prose slice log with no `- [x]` items is *not* terminal, and the commit gate will refuse the stage. A task list in `tasks.md` does not satisfy it either. Before reporting DONE, confirm the checklist is complete — the workflow status adapter reports `Progress is unknown: … has no checklist` when it is not.
+- **Do not mirror state-record keys into the artifact.** `build_completed`, `build_done` and `completed_canonical_stages` are read from `state.yaml`; writing them into `implement-progress.md` has no effect and the stage stays blocked.
 - Tests live with the code they verify in the same commit unit.
 - Every XML ID/model written in the code resolves in the local source (run `odf-toolkit verify-refs` on the module before closing the batch); invented IDs are a BLOCKER.
 

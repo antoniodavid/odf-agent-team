@@ -3,7 +3,7 @@ import * as fs from "node:fs/promises"
 import * as os from "node:os"
 import * as path from "node:path"
 
-describe("ODF plugin dual-runtime entrypoint", () => {
+describe("ODF plugin V2 entrypoint", () => {
   let configDir: string
   let previousConfigDir: string | undefined
 
@@ -23,7 +23,7 @@ describe("ODF plugin dual-runtime entrypoint", () => {
     await fs.rm(configDir, { recursive: true, force: true })
   })
 
-  it("exports one stable dual-runtime object and registers every ODF tool through V1", { timeout: 20_000 }, async () => {
+  it("exports one stable V2 entrypoint and warms the runtime on demand", { timeout: 20_000 }, async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined)
     const log = vi.spyOn(console, "log").mockImplementation(() => undefined)
     const module = await import("../plugins/odf-delegation.js")
@@ -31,19 +31,15 @@ describe("ODF plugin dual-runtime entrypoint", () => {
     expect(module.default).toEqual({
       id: "odf-delegation",
       setup: module.OdfDelegationPluginV2.setup,
-      server: module.OdfDelegationPlugin,
     })
+    expect(module.default).not.toHaveProperty("server")
     expect(module.default).not.toHaveProperty("tui")
 
-    const hooks = await module.default.server({
-      directory: configDir,
-      client: { session: { abort: vi.fn() } },
-    } as any)
+    // Registry/telemetry warm-up used to live in the retired V1 `server`
+    // entrypoint; the V2 setup path now runs it.
+    expect(typeof module.startOdfRuntime).toBe("function")
+    await expect(module.startOdfRuntime()).resolves.toBeUndefined()
 
-    expect(Object.keys(hooks.tool ?? {})).toEqual(expect.arrayContaining([...module.ODF_REGISTERED_TOOLS]))
-    expect(Object.keys(hooks.tool ?? {})).toHaveLength(module.ODF_REGISTERED_TOOLS.length)
-
-    await hooks.dispose?.()
     warn.mockRestore()
     log.mockRestore()
   })

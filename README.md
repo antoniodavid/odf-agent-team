@@ -6,7 +6,7 @@
 [![Registry](https://img.shields.io/badge/registry-87%20skills%20%C2%B7%2011%20agents-blue)](odf-registry.json)
 [![Odoo](https://img.shields.io/badge/Odoo-16%20%E2%80%93%2019-EE7048)](docs/intended-usage.md)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
-[![Version](https://img.shields.io/badge/version-1.3.1-informational)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-1.4.0-informational)](CHANGELOG.md)
 
 **ODF** — spec-driven Odoo delivery on OpenCode. Turns a generic AI assistant into a structured Odoo delivery team. An orchestrator routes every phase through a plugin that resolves the right agent, injects at most five skill rules, enforces Policy Gates, and seals evidence — so nothing ships on a guess.
 
@@ -20,7 +20,7 @@ odf-delegation plugin ──► task() ──► specialist agent ──► Odoo
 
 ```bash
 # 1. Install into ~/.config/opencode (release-pinned)
-curl -fsSL https://raw.githubusercontent.com/antoniodavid/odf-agent-team/v1.3.1/install.sh | BRANCH=v1.3.1 bash
+curl -fsSL https://raw.githubusercontent.com/antoniodavid/odf-agent-team/v1.4.0/install.sh | BRANCH=v1.4.0 bash
 
 # 2. Inside OpenCode, from any Odoo worktree:
 /odf-init           # detect version, modules, test runner

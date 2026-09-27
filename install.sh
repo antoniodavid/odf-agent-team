@@ -11,7 +11,7 @@ set -euo pipefail
 ODF_SOURCE_DIR="${ODF_SOURCE_DIR:-}"
 REPO="${REPO:-https://github.com/antoniodavid/odf-agent-team}"
 BRANCH="${BRANCH:-main}"
-VERSION="1.3.1"
+VERSION="1.4.0"
 STALE_ODF_PLUGIN_FILES=(
   candidate-manifest.test.ts
   candidate-manifest.ts
@@ -67,6 +67,7 @@ INSTALL_PROJECT=""
 
 INSTALL_CODEGRAPH=false
 INSTALL_CONFIGURE_MCP=false
+INSTALL_RESTART_SERVICE=false
 
 INSTALL_ARGS=("$@")
 arg_index=0
@@ -80,6 +81,7 @@ while [[ "$arg_index" -lt "${#INSTALL_ARGS[@]}" ]]; do
     --tui|--interactive) INSTALL_TUI=true ;;
     --with-codegraph) INSTALL_CODEGRAPH=true ;;
     --configure-mcp) INSTALL_CONFIGURE_MCP=true ;;
+    --restart-service) INSTALL_RESTART_SERVICE=true ;;
     --scope)
       arg_index=$((arg_index + 1))
       if [[ "$arg_index" -ge "${#INSTALL_ARGS[@]}" ]]; then
@@ -99,7 +101,7 @@ while [[ "$arg_index" -lt "${#INSTALL_ARGS[@]}" ]]; do
       ;;
     --project=*) INSTALL_PROJECT="${arg#*=}" ;;
     -h|--help)
-      echo "Usage: $0 [--yes] [--dry-run] [--force] [--update] [--scope global|project] [--project /absolute/project] [--tui] [--with-codegraph]"
+      echo "Usage: $0 [--yes] [--dry-run] [--force] [--update] [--scope global|project] [--project /absolute/project] [--tui] [--with-codegraph] [--configure-mcp] [--restart-service]"
       echo ""
       echo "Modes:"
       echo "  (no flags)        Interactive install with prompts"
@@ -114,6 +116,10 @@ while [[ "$arg_index" -lt "${#INSTALL_ARGS[@]}" ]]; do
       echo "Options:"
       echo "  --with-codegraph   Install CodeGraph (npm package) after ODF files"
       echo "  --configure-mcp    Merge known-good MCP servers (context7, engram) into opencode.json (backup first)"
+      echo "  --restart-service  Restart the OpenCode service after install (otherwise it only warns)"
+      echo ""
+      echo "  A plugin that fails once stays 'failed' inside the running service until it"
+      echo "  restarts. After installing, run: opencode service restart"
       echo ""
       echo "Performance tip: set OPENCODE_EXPERIMENTAL_BACKGROUND_SUBAGENTS=true in your"
       echo "  OpenCode process environment to enable parallel sub-agent exploration."
@@ -128,7 +134,7 @@ while [[ "$arg_index" -lt "${#INSTALL_ARGS[@]}" ]]; do
       echo "  REPO, BRANCH                Git repo to pull from (default: odf-agent-team main)"
       echo ""
       echo "  Release-pinned install:"
-  echo "    curl -fsSL https://raw.githubusercontent.com/antoniodavid/odf-agent-team/v1.3.1/install.sh | BRANCH=v1.3.1 bash"
+  echo "    curl -fsSL https://raw.githubusercontent.com/antoniodavid/odf-agent-team/v1.4.0/install.sh | BRANCH=v1.4.0 bash"
       exit 0
       ;;
     *)
@@ -405,8 +411,6 @@ install_files() {
   copy_dir "$src_dir/agent" "$ODF_DIR/agent"
   copy_dir "$src_dir/agent" "$ODF_DIR/agents"
   copy_dir "$src_dir/skills" "$ODF_DIR/skills"
-  copy_dir "$src_dir/plugins/odf-delegation.ts" "$PLUGIN_ENTRYPOINT"
-  copy_dir "$src_dir/odf-plugin" "$PLUGIN_SUPPORT_DIR"
   copy_dir "$src_dir/command" "$ODF_DIR/command"
   copy_dir "$src_dir/command" "$ODF_DIR/commands"
   copy_dir "$src_dir/scripts" "$ODF_DIR/scripts"
@@ -416,9 +420,16 @@ install_files() {
   copy_dir "$src_dir/docs/design-contract.md" "$ODF_DIR/docs/design-contract.md"
   copy_dir "$src_dir/docs/expectations-contract.md" "$ODF_DIR/docs/expectations-contract.md"
 
+  # Dependencies must resolve BEFORE the plugin file is exposed. OpenCode caches
+  # a failed plugin import inside the running service: a first attempt with a
+  # missing npm dependency stays "failed" until the service restarts, so the
+  # order matters even when the dependency lands moments later.
   if [[ -f "$src_dir/package.json" ]]; then
     copy_dir "$src_dir/package.json" "$ODF_DIR/package.json"
   fi
+  run_npm_install
+  copy_dir "$src_dir/plugins/odf-delegation.ts" "$PLUGIN_ENTRYPOINT"
+  copy_dir "$src_dir/odf-plugin" "$PLUGIN_SUPPORT_DIR"
 
   # The pack ships a narrowed tsconfig so `npm run typecheck` covers ODF-owned
   # files only; other host plugins live under plugins/ and are out of scope.
@@ -581,6 +592,89 @@ run_npm_install() {
     cd "$ODF_DIR"
     npm install --no-audit --no-fund || true
   )
+}
+
+# OpenCode caches a failed plugin import inside the running service: once an
+# ODF plugin has failed (typically because a dependency was not resolvable yet),
+# it stays "failed" until the service restarts. Warn by default so an install
+# never yanks a live session out from under the user; --restart-service (or
+# ODF_RESTART_SERVICE=1) opts in to doing it now.
+# Report the ODF plugin state: `active`, `failed`, `missing`, or empty when the
+# API cannot be queried. `node` parses the JSON because node is already a hard
+# prerequisite of this installer.
+odf_plugin_state() {
+  local json
+  command -v node &> /dev/null || return 0
+  json="$(opencode api GET /api/plugin 2>/dev/null || true)"
+  [[ -n "$json" ]] || return 0
+  printf '%s' "$json" | node -e '
+    let raw = "";
+    process.stdin.on("data", (chunk) => { raw += chunk; });
+    process.stdin.on("end", () => {
+      try {
+        const list = JSON.parse(raw).data;
+        const entries = Array.isArray(list) ? list : [];
+        const plugin = entries.find((entry) => {
+          const source = entry && entry.source;
+          return (entry && entry.id === "odf-delegation") ||
+            (source && typeof source.path === "string" && source.path.includes("odf-delegation"));
+        });
+        if (!plugin) return process.stdout.write("missing");
+        const status = plugin.state && plugin.state.status;
+        process.stdout.write(status ? String(status) : "");
+      } catch {
+        process.stdout.write("");
+      }
+    });
+  ' 2>/dev/null || true
+}
+
+restart_opencode_service() {
+  # A dry run must not touch the filesystem: probing `opencode service status`
+  # would initialise ~/.config/opencode on a pristine HOME.
+  if [[ "$INSTALL_DRY_RUN" == true ]]; then
+    if [[ "$INSTALL_RESTART_SERVICE" == true || "${ODF_RESTART_SERVICE:-}" == "1" ]]; then
+      log_warn "🔄 [dry-run] Would restart the OpenCode service"
+    fi
+    return 0
+  fi
+
+  if ! command -v opencode &> /dev/null; then
+    return 0
+  fi
+
+  local status_url
+  status_url="$(opencode service status 2>/dev/null | head -1 || true)"
+  if [[ "$status_url" != http* ]]; then
+    return 0
+  fi
+
+  if [[ "$INSTALL_RESTART_SERVICE" == true || "${ODF_RESTART_SERVICE:-}" == "1" ]]; then
+    log_warn "🔄 Restarting the OpenCode service so it reloads ODF plugins..."
+    if opencode service restart > /dev/null 2>&1; then
+      log_ok "✅ OpenCode service restarted"
+    else
+      log_warn "⚠️  Could not restart the service. Run it manually: opencode service restart"
+    fi
+    return 0
+  fi
+
+  # The host fully reloads plugins when a watched config file changes, so a
+  # healthy service has already picked the pack up. Only nag when the plugin
+  # demonstrably is not loaded — a restart is useless noise otherwise.
+  local plugin_state
+  plugin_state="$(odf_plugin_state)"
+  if [[ "$plugin_state" == "active" ]]; then
+    log_ok "✅ ODF plugin is active — the host reloaded it, no restart needed"
+    return 0
+  fi
+
+  if [[ -n "$plugin_state" ]]; then
+    log_warn "⚠️  ODF plugin state: ${plugin_state}. Restart OpenCode to load it: opencode service restart"
+    log_warn "     (a plugin that fails once stays 'failed' until the service restarts)"
+  else
+    log_warn "⚠️  Could not verify the ODF plugin state. If it is not loaded, restart: opencode service restart"
+  fi
 }
 
 run_self_test() {
@@ -808,8 +902,7 @@ main() {
     write_project_lock "$src_dir"
   fi
 
-  # npm install
-  run_npm_install
+  # npm install already ran inside install_files, before the plugin was exposed
 
   # Community tools: CodeGraph
   if [[ "$INSTALL_CODEGRAPH" == true ]]; then
@@ -828,6 +921,9 @@ main() {
 
   # Self-test
   run_self_test
+
+  # Service reload (warn by default, --restart-service to act)
+  restart_opencode_service
 
   # Report
   if [[ "$INSTALL_DRY_RUN" == true ]]; then

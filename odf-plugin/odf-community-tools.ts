@@ -6,7 +6,7 @@
 import * as fs from "node:fs/promises"
 import * as path from "node:path"
 import { execFileSync } from "node:child_process"
-import { tool } from "@opencode-ai/plugin"
+import { tool } from "./odf-tool.js"
 import { getOdfConfigDir } from "./odf-delegation-shared.js"
 import { loadRegistry } from "./odf-registry-io.js"
 

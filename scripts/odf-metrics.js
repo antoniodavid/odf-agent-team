@@ -3,7 +3,7 @@
  * ODF Agent Observatory — read-only metrics dashboard over the plugin JSONL.
  *
  * Canonical source: the delegation log written by the plugin at
- * ${ODF_CONFIG_DIR:-~/.config/opencode}/metrics/delegations-YYYY-MM-DD.jsonl.
+ * ${ODF_CONFIG_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/opencode}/metrics/delegations-YYYY-MM-DD.jsonl.
  * This script aggregates those lines; it never writes to Engram and never
  * appends to the metrics directory (the plugin owns the writer side).
  *
@@ -16,11 +16,10 @@ import * as path from "node:path"
 import * as os from "node:os"
 import { estimateFromHistory } from "./odf-estimator.js"
 import { readLibrary, resolveLibraryPath } from "./odf-design-library.js"
+import { resolveOdfConfigDir } from "./lib/config-dir.js"
 
 export function resolveMetricsDir() {
-  const configDir = process.env.ODF_CONFIG_DIR
-    ? path.resolve(process.env.ODF_CONFIG_DIR)
-    : path.join(os.homedir(), ".config", "opencode")
+  const configDir = resolveOdfConfigDir(process.env).dir
   return path.join(configDir, "metrics")
 }
 
