@@ -107,7 +107,9 @@ export async function saveRegistryCache(cache: RegistryCache): Promise<void> {
 
 export async function computePermissionsFingerprint(registry: ODFRegistry): Promise<string> {
   // Include rule content so cache invalidation follows behavior, not only metadata.
-  const parts = registry.skills.map(s => JSON.stringify({
+  // `skills` may be absent on a parseable-but-partial registry: `loadRegistry`
+  // defaults it only while resolving paths and returns the parsed object as-is.
+  const parts = (registry.skills ?? []).map(s => JSON.stringify({
     name: s.name,
     version: (s as any).version || "1.0",
     triggers: s.triggers,

@@ -44,6 +44,25 @@ describe("ODF plugin V2 entrypoint", () => {
     log.mockRestore()
   })
 
+  it("tolerates a registry without a skills array in the permissions fingerprint", async () => {
+    const { computePermissionsFingerprint } = await import("../odf-plugin/odf-registry-io.js")
+
+    await expect(computePermissionsFingerprint({} as never)).resolves.toEqual(expect.any(String))
+  })
+
+  it("resolves the runtime warm-up with a registry that has no skills array", { timeout: 20_000 }, async () => {
+    // `loadRegistry` returns any parseable JSON as-is, so `{}` used to make the
+    // warm-up throw from computePermissionsFingerprint and fail plugin setup.
+    await fs.writeFile(path.join(configDir, "odf-registry.json"), "{}\n", "utf8")
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined)
+    vi.resetModules()
+    const module = await import("../plugins/odf-delegation.js")
+
+    await expect(module.startOdfRuntime()).resolves.toBeUndefined()
+
+    warn.mockRestore()
+  })
+
   it("defers the V1 entrypoint import until V2 setup to prevent the Bun load-time TDZ", async () => {
     const adapterSource = await fs.readFile(new URL("./opencode-v2-adapter.ts", import.meta.url), "utf8")
     const setupStart = adapterSource.indexOf("export async function setupODFV2")
