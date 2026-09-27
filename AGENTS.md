@@ -175,7 +175,9 @@ skills/              — 87 skills (OCA governance, ODF phases, patterns)
   odf-{phase}/      — phase-specific skills (assess, design, implement, etc.)
 openspec/           — SDD change artifacts (when artifact_store=openspec)
 docs/               — intended-usage, architecture, skill-style-guide
-install.sh          — idempotent installer (backup, --dry-run, --force)
+install.sh          — Unix bootstrap for the Node installer (backup, --dry-run, --force)
+install.ps1         — Windows bootstrap for the same Node installer
+bin/odf.mjs         — portable `odf install|doctor` CLI (core in scripts/lib/install-core.mjs)
 odf-registry.json   — SINGLE SOURCE OF TRUTH (87 skills, 11 agents, 2 profiles, community tools)
 ```
 
