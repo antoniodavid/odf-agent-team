@@ -1,0 +1,12 @@
+# Normalize line endings for every text file. Shell and Node entrypoints must
+# stay LF so they run on Linux/macOS and in Windows Git Bash; npm generates the
+# .cmd/.ps1 shims for bin/ on Windows.
+* text=auto eol=lf
+
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.woff binary
+*.woff2 binary

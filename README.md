@@ -18,9 +18,14 @@ odf-delegation plugin ──► task() ──► specialist agent ──► Odoo
 
 ## Quickstart
 
+Requires **Node.js 18+**.
+
 ```bash
-# 1. Install into ~/.config/opencode (release-pinned)
+# 1. Install into ~/.config/opencode (macOS / Linux, release-pinned)
 curl -fsSL https://raw.githubusercontent.com/antoniodavid/odf-agent-team/v1.4.0/install.sh | BRANCH=v1.4.0 bash
+
+# Windows (PowerShell)
+irm https://raw.githubusercontent.com/antoniodavid/odf-agent-team/v1.4.0/install.ps1 | iex
 
 # 2. Inside OpenCode, from any Odoo worktree:
 /odf-init           # detect version, modules, test runner
@@ -28,6 +33,17 @@ curl -fsSL https://raw.githubusercontent.com/antoniodavid/odf-agent-team/v1.4.0/
 ```
 
 Need CodeGraph structural queries? Add `-- --with-codegraph`. Non-interactive CI? Add `-- --yes`.
+
+Both bootstraps only locate the pack and delegate to the portable Node installer
+(`bin/odf.mjs` → `scripts/lib/install-core.mjs`), so Linux, macOS and Windows run
+the same tested code. For CLI installs:
+
+```bash
+npx odf-agent-team install --yes          # OpenCode, global scope
+npx odf-agent-team install --scope project --project /path/to/worktree
+npx odf-agent-team doctor                 # verify install + environment
+```
+
 
 ## How it works
 
@@ -130,7 +146,9 @@ odf-plugin/       deterministic modules (workflow, triage, policy, …)
 plugins/          odf-delegation.ts — plugin entrypoint, 22 tools
 scripts/          CLIs + test runner + registry validator
 docs/             architecture, usage, plugin reference, diagrams
-install.sh        idempotent installer (backup, TUI, --force, --with-codegraph)
+install.sh        — Unix bootstrap for the Node installer (backup, TUI, --force, --with-codegraph)
+install.ps1       — Windows bootstrap for the same Node installer
+bin/odf.mjs       — portable `odf install|doctor` CLI (shared core in scripts/lib/install-core.mjs)
 odf-registry.json single source of truth
 ```
 

@@ -1,5 +1,12 @@
 # Changelog — ODF Agent Team
 
+## Unreleased
+
+### Added
+- **Portable Node installer.** `install.sh` is now a thin Unix bootstrap and `install.ps1` a Windows bootstrap; both delegate to `bin/odf.mjs` (`odf install`, `odf doctor`) backed by `scripts/lib/install-core.mjs`. No GNU-only tooling (`sed -i`, `printf %q`, `cp -r`), so Linux, macOS and Windows run the same tested code (#48).
+- npm distribution metadata: `bin`, a `files` allowlist and `.gitattributes` line-ending normalization (#48).
+- Cross-OS packed-install smoke (`scripts/installer-smoke.mjs`) plus a CI matrix on ubuntu/macos/windows (#48).
+
 ## 1.4.0 (2026-09-24)
 
 > **BREAKING — OpenCode V2 only.** The plugin entrypoint no longer exports the
