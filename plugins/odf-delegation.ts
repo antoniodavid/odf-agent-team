@@ -6699,8 +6699,19 @@ export function createODFRegisteredTools(
  * lost it: metrics flushing, the skills/permissions cache refresh, unregistered
  * skill discovery and the learning loop never ran under OpenCode V2. `setupODFV2`
  * now awaits this instead, keeping the side effects host-independent.
+ *
+ * Best-effort on purpose: `setupODFV2` awaits it, and a throw here would fail
+ * plugin setup — which OpenCode caches as `failed` until the service restarts.
  */
 export async function startOdfRuntime(): Promise<void> {
+  try {
+    await warmOdfRuntime()
+  } catch (error) {
+    console.warn(`[odf-delegation] Runtime warm-up failed; continuing without it: ${error instanceof Error ? error.message : String(error)}`)
+  }
+}
+
+async function warmOdfRuntime(): Promise<void> {
   // Ensure registry exists (log warning if not)
   try {
     await fs.access(REGISTRY_PATH)
@@ -6733,7 +6744,7 @@ export async function startOdfRuntime(): Promise<void> {
     const cache = await loadRegistryCache()
     if (!cache || cache.permissions_fingerprint !== fp) {
       // Skills changed — save new fingerprint for faster next startup
-  const skillsDir = path.join(getOdfConfigDir(), "skills")
+      const skillsDir = path.join(getOdfConfigDir(), "skills")
       const newCache: RegistryCache = {
         timestamp: new Date().toISOString(),
         last_refresh: new Date().toISOString(),
