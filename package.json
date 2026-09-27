@@ -11,6 +11,28 @@
     "node": ">=18.0.0"
   },
   "type": "module",
+  "bin": {
+    "odf": "./bin/odf.mjs"
+  },
+  "files": [
+    "agent/",
+    "bin/",
+    "command/",
+    "docs/design-contract.md",
+    "docs/expectations-contract.md",
+    "install.ps1",
+    "install.sh",
+    "odf-plugin/",
+    "odf-registry.json",
+    "openspec/",
+    "package.json",
+    "plugins/",
+    "policies/",
+    "scripts/",
+    "skills/",
+    "tsconfig.pack.json",
+    "VERSION"
+  ],
   "scripts": {
     "test": "node scripts/odf-test-runner.js --plugin-tests",
     "test:yaml": "node scripts/odf-test-runner.js",
