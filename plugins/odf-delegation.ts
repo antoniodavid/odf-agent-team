@@ -449,6 +449,20 @@ function validateContextFiles(workspaceRoot: string, contextFiles: string[]): { 
   return { error: null, paths, relativePaths }
 }
 
+/**
+ * Real path of the pack the plugin is reading from, or null when it cannot be
+ * canonicalized. `getOdfConfigDir()` is env-driven and may be reached through a
+ * symlink, so it must be realpath'd before comparing it with a workspace root
+ * (which `canonicalWorkspaceRoot` already realpaths).
+ */
+function canonicalPackRoot(): string | null {
+  try {
+    return fsSync.realpathSync(getOdfConfigDir())
+  } catch {
+    return null
+  }
+}
+
 function resolveSelectedWorkspaceRoot(workspaceDir?: string, canonicalDirectory?: string): string | null {
   const selected = typeof workspaceDir === "string" && workspaceDir.trim()
     ? workspaceDir
@@ -1499,14 +1513,18 @@ Use this instead of generic task() for ODF workflow delegation.`,
           null,
         )
       }
-      // The delegated session is now created in the workspace root, so a root
-      // pointing at the installed pack would put agent work inside the ODF
-      // install itself. Narrow on purpose: a project-local pack used as a
-      // workspace, and ODF's own checkout, both stay legal.
-      if (path.resolve(workspaceRoot) === path.resolve(getOdfConfigDir()) && hasPackRegistry(workspaceRoot)) {
+      // The delegated session is created in the workspace root, so a root inside
+      // the installed pack would put agent work inside the ODF install itself.
+      // Compare canonical realpaths (an exact path.resolve match missed a
+      // symlinked config dir) and containment (a pack subdirectory slipped
+      // through because `hasPackRegistry(subdir)` is false). A project-local
+      // pack (`<project>/.opencode`) is not inside its own workspace root, so it
+      // stays legal.
+      const packRoot = canonicalPackRoot()
+      if (packRoot && hasPackRegistry(packRoot) && isWithinRoot(workspaceRoot, packRoot)) {
         return blockWorkflow(
           "unsafe-workspace-path",
-          `The workspace root is the installed ODF pack (${workspaceRoot}); the delegated session would run inside the pack. Pass the project root instead, or omit workspace_dir.`,
+          `The workspace root is inside the installed ODF pack (${workspaceRoot}); the delegated session would run inside the pack. Pass the project root instead, or omit workspace_dir.`,
           null,
         )
       }
