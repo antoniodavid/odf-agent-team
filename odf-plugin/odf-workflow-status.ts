@@ -233,9 +233,23 @@ function parseStateContent(content: string): ParsedWorkflowState {
   }
   for (const line of content.split(/\r?\n/)) {
     if (!line.trim() || line.trim().startsWith("#")) continue
+    // List items must be handled before the `key: value` matcher: a `- DECIDE`
+    // line never matches it, and falling through would silently drop block
+    // lists such as completed_canonical_stages.
+    const itemMatch = line.match(/^(\s*)-\s+(.*)$/)
+    if (itemMatch) {
+      if (listKey && itemMatch[1].length > 0) {
+        const scalar = parseScalar(itemMatch[2])
+        if (scalar.ok) (result[listKey] as unknown[]).push(scalar.value)
+        else warn(`Complex YAML state value ignored: ${listKey}`)
+      } else {
+        warn(`Malformed YAML state line ignored: ${line.trim()}`)
+      }
+      continue
+    }
     const match = line.match(/^(\s*)([A-Za-z0-9_-]+):(?:\s*(.*))?$/)
     if (!match) {
-      if (!/^\s*-\s+/.test(line)) warn(`Malformed YAML state line ignored: ${line.trim()}`)
+      warn(`Malformed YAML state line ignored: ${line.trim()}`)
       continue
     }
     const indent = match[1].length
@@ -260,14 +274,6 @@ function parseStateContent(content: string): ParsedWorkflowState {
         if (scalar.ok) result[key] = scalar.value
         else warn(`Complex YAML state value ignored: ${key}`)
       }
-      continue
-    }
-    if (listKey && indent > 0) {
-      const itemMatch = line.match(/^\s*-\s+(.*)$/)
-      if (!itemMatch) continue
-      const scalar = parseScalar(itemMatch[1])
-      if (scalar.ok) (result[listKey] as unknown[]).push(scalar.value)
-      else warn(`Complex YAML state value ignored: ${listKey}`)
       continue
     }
     if (!section || indent <= section.indent || !STATE_SECTIONS.has(section.name)) continue

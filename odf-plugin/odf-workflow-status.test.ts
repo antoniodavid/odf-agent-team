@@ -331,6 +331,27 @@ describe("workflow status adapter", () => {
     expect(status.pending_stage).toBe("BUILD")
   })
 
+  it("reads a block list without relying on canonical_stage inference", () => {
+    const status = deriveWorkflowStatus({
+      change: "yaml-block-list",
+      state: [
+        "canonical_stage: DECIDE",
+        "completed_canonical_stages:",
+        "  - DECIDE",
+        "  - PLAN",
+      ].join("\n"),
+    })
+
+    expect(status.completed_canonical_stages).toEqual(["DECIDE", "PLAN"])
+    expect(status.pending_stage).toBe("BUILD")
+  })
+
+  it("warns about orphan block list items without a list key", () => {
+    const parsed = parseWorkflowState("canonical_stage: DECIDE\n- orphan\n")
+
+    expect(parsed.warnings).toContain("Malformed YAML state line ignored: - orphan")
+  })
+
   it("reads a previous flow-style state without hiding valid workflow data", () => {
     const state = [
       "{ work_type: feature, artifact_store: openspec, phase: preflight, canonical_stage: DECIDE, completed_canonical_stages: [] }",
