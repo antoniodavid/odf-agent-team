@@ -6461,7 +6461,7 @@ Actions:
         const pending = route.stages.find(stage => !completed.includes(stage)) || null
 
         let newCompleted: CanonicalStage[]
-        let newStage: CanonicalStage
+        let newStage: WorkflowStage
         if (args.action === "skip") {
           if (target === "BUILD" || target === "VERIFY") {
             return blocked("override-skip-gated", "BUILD and VERIFY cannot be skipped; they keep validation and evidence gates.")
@@ -6503,6 +6503,17 @@ Actions:
         if (!parsed) return blocked("malformed-state", "The persisted workflow state is malformed.")
         parsed.document.set("canonical_stage", newStage)
         parsed.document.set("completed_canonical_stages", newCompleted)
+        // Reopening a stage unwinds the archive: a change is archived only through
+        // these markers, so leaving them behind re-derives ARCHIVED on the next
+        // read. Overrides only target route stages (never ARCHIVED), so the
+        // markers are always cleared here. The legacy `phase` is deleted (not
+        // rewritten to the target phase) because `legacyCompletedStages` treats
+        // `phase: verify` as VERIFY done.
+        parsed.document.delete("archived")
+        for (const marker of ["phase", "status"]) {
+          const value = parsed.document.get(marker)
+          if (typeof value === "string" && value.trim().toLowerCase() === "archived") parsed.document.delete(marker)
+        }
         const newStateContent = args.artifact_store === "engram"
           ? parsed.document.toString()
           : serializeOpenSpecState(parsed.document)

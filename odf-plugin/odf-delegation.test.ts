@@ -446,6 +446,51 @@ describe("createODFWorkflowOverride", () => {
     expect(output).toMatchObject({ status: "overridden", action: "re-enter", target_stage: "PLAN", completed_stages: ["DECIDE"] })
   })
 
+  it("reopens an archived change when re-entering a completed stage", async () => {
+    const changeDir = path.join(root, "openspec", "changes", "ov-change")
+    await fs.mkdir(changeDir, { recursive: true })
+    await fs.writeFile(path.join(changeDir, "state.yaml"), [
+      "work_type: feature",
+      "canonical_stage: ARCHIVED",
+      "completed_canonical_stages: [DECIDE, PLAN, BUILD, VERIFY]",
+      "phase: archived",
+      "status: archived",
+      "archived: true",
+      "",
+    ].join("\n"), "utf8")
+    await fs.writeFile(path.join(changeDir, "archive-report.yaml"), "status: archived\n", "utf8")
+    const { createODFWorkflowOverride } = await import("./odf-delegation.js")
+
+    const output = JSON.parse(await createODFWorkflowOverride().execute(
+      baseArgs({ action: "re-enter", target_stage: "VERIFY" }),
+      {} as any,
+    ) as string)
+    expect(output).toMatchObject({
+      status: "overridden",
+      action: "re-enter",
+      target_stage: "VERIFY",
+      completed_stages: ["DECIDE", "PLAN", "BUILD"],
+    })
+
+    const persisted = YAML.parse(await fs.readFile(path.join(changeDir, "state.yaml"), "utf8"))
+    expect(persisted).toMatchObject({ canonical_stage: "VERIFY", completed_canonical_stages: ["DECIDE", "PLAN", "BUILD"] })
+    expect(persisted.archived).toBeUndefined()
+    expect(persisted.phase).toBeUndefined()
+    expect(persisted.status).toBeUndefined()
+
+    const status = JSON.parse(await createODFWorkflowStatus().execute(
+      { change_name: "ov-change", workspace_dir: root },
+      {} as any,
+    ) as string)
+    expect(status).toMatchObject({
+      canonical_stage: "VERIFY",
+      legacy_phase: "VERIFY",
+      completed_canonical_stages: ["DECIDE", "PLAN", "BUILD"],
+      pending_stage: "VERIFY",
+      resumable: true,
+    })
+  })
+
   it("re-plans from DECIDE with an approved Expectations revision", async () => {
     const tool = await seedState("PLAN", ["DECIDE", "PLAN"], true)
     const current = await fs.readFile(path.join(root, "openspec", "changes", "ov-change", "expectations.yaml"), "utf8")

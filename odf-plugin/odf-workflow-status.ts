@@ -526,7 +526,11 @@ export function deriveWorkflowStatus(input: WorkflowStatusInput): WorkflowStatus
     return canonicalCompletion(stage, artifacts)
   })
   const archiveReport = artifacts.find((artifact) => artifact.normalized.type === "archive-report")
-  const archived = signals.archived || Boolean(archiveReport && successful(archiveReport))
+  // An explicit active canonical stage in the state means the change was
+  // reopened; the archive-report stays as historical evidence and must not
+  // force ARCHIVED back (odf_workflow_override re-enter/re-plan).
+  const explicitActiveStage = signals.current !== null && signals.current !== "ARCHIVED" && signals.current !== "INIT"
+  const archived = signals.archived || (!explicitActiveStage && Boolean(archiveReport && successful(archiveReport)))
   if (archived) completed.push(...routeStages.filter((stage) => !completed.includes(stage)))
 
   const progressArtifact = ["implement-progress", "apply-progress", "tasks"]
