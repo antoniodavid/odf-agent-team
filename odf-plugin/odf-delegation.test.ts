@@ -1638,6 +1638,64 @@ describe("createODFWorkflowBind", () => {
     }
   })
 
+  it("does not export Engram when a local OpenSpec state answers the status", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "odf-local-status-"))
+    const fake = await configureFakeEngram()
+    const change = "local-openspec"
+    const changeDir = path.join(root, "openspec", "changes", change)
+    await fs.mkdir(changeDir, { recursive: true })
+    await fs.writeFile(path.join(changeDir, "state.yaml"), [
+      "work_type: feature",
+      "artifact_store: openspec",
+      "canonical_stage: BUILD",
+      "completed_canonical_stages: [DECIDE, PLAN]",
+      "",
+    ].join("\n"), "utf8")
+
+    try {
+      const status = JSON.parse(await createODFWorkflowStatus().execute({ change_name: change, workspace_dir: root }, {} as any) as string)
+      expect(status).toMatchObject({ status: "found", state_present: true, work_type: "feature" })
+      expect(status.source.state).toBe("openspec")
+      const calls = fsSync.existsSync(fake.logPath)
+        ? JSON.parse(await fs.readFile(fake.logPath, "utf8")) as string[][]
+        : []
+      expect(calls.filter(call => call[0] === "export")).toHaveLength(0)
+    } finally {
+      await fake.cleanup()
+      await fs.rm(root, { recursive: true, force: true })
+    }
+  })
+
+  it("merges Engram artifacts for a hybrid store", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "odf-hybrid-status-"))
+    const fake = await configureFakeEngram()
+    const change = "hybrid-status"
+    const changeDir = path.join(root, "openspec", "changes", change)
+    await fs.mkdir(changeDir, { recursive: true })
+    await fs.writeFile(path.join(changeDir, "state.yaml"), [
+      "work_type: feature",
+      "artifact_store: hybrid",
+      "canonical_stage: BUILD",
+      "completed_canonical_stages: [DECIDE, PLAN]",
+      "",
+    ].join("\n"), "utf8")
+    await fake.setObservations([{
+      topic_key: `odf/${change}/verify`,
+      content: "status: passed",
+      created_at: new Date().toISOString(),
+    }])
+
+    try {
+      const status = JSON.parse(await createODFWorkflowStatus().execute({ change_name: change, workspace_dir: root }, {} as any) as string)
+      expect(status.artifacts.verify).toBe("done")
+      const calls = JSON.parse(await fs.readFile(fake.logPath, "utf8")) as string[][]
+      expect(calls.filter(call => call[0] === "export")).toHaveLength(1)
+    } finally {
+      await fake.cleanup()
+      await fs.rm(root, { recursive: true, force: true })
+    }
+  })
+
   it("recovers identical Engram-only orphan Expectations and blocks divergent recovery", async () => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), "odf-engram-recovery-"))
     const fake = await configureFakeEngram()

@@ -18,7 +18,8 @@ import * as path from "node:path"
 import * as os from "node:os"
 import * as nodeCrypto from "node:crypto"
 import { type ToolContext, tool } from "../odf-plugin/odf-tool.js"
-import { execFileSync, execSync } from "node:child_process"
+import { execFile, execFileSync, execSync } from "node:child_process"
+import { promisify } from "node:util"
 import { filterStopWords, resolveAgent, validateAgentSelection } from "../scripts/lib/agent-resolve.js"
 import { findOtherPackRoots, hasPackRegistry } from "../scripts/lib/config-dir.js"
 import {
@@ -3660,42 +3661,53 @@ interface EngramObservationRead {
   error: "engram-cli-unavailable" | "engram-export-timeout" | "engram-export-failed" | "engram-export-invalid" | null
 }
 
+const execFileAsync = promisify(execFile)
+
+/** True when an async `execFile` failure is the configured timeout kill. */
+function isExecTimeoutError(error: unknown): boolean {
+  const candidate = error as { code?: unknown; killed?: unknown; signal?: unknown } | null
+  if (!candidate) return false
+  return candidate.code === "ETIMEDOUT" || candidate.killed === true ||
+    candidate.signal === "SIGTERM" || candidate.signal === "SIGKILL"
+}
+
 /** Export observations for the resolved project. `engram export` defaults to the
  * CWD-detected project, so the scope is made explicit; older builds that reject
- * `--project` on export fall back to a workspace-scoped export. */
-function exportEngramObservations(tmpFile: string, project: string, cwd: string): void {
+ * `--project` on export fall back to a workspace-scoped export.
+ *
+ * Async on purpose: a slow or unavailable Engram must never block the event
+ * loop while a local OpenSpec state already answers the status query. */
+async function exportEngramObservations(tmpFile: string, project: string, cwd: string): Promise<void> {
   try {
-    execFileSync("engram", ["export", tmpFile, "--project", project], {
+    await execFileAsync("engram", ["export", tmpFile, "--project", project], {
       cwd,
       encoding: "utf8",
-      stdio: ["ignore", "pipe", "ignore"],
       timeout: 15_000,
     })
   } catch (error) {
     const code = (error as NodeJS.ErrnoException).code
-    if (code === "ENOENT" || code === "ETIMEDOUT") throw error
-    execFileSync("engram", ["export", tmpFile], {
+    if (code === "ENOENT" || isExecTimeoutError(error)) throw error
+    await execFileAsync("engram", ["export", tmpFile], {
       cwd,
       encoding: "utf8",
-      stdio: ["ignore", "pipe", "ignore"],
       timeout: 15_000,
     })
   }
 }
 
-function readEngramObservationsWithError(workspaceRoot: string): EngramObservationRead {
+async function readEngramObservationsWithError(workspaceRoot: string): Promise<EngramObservationRead> {
   // ponytail: unique tmpdir (not a Date.now() filename) so parallel workers never race the same path
   const tmpDir = fsSync.mkdtempSync(path.join(os.tmpdir(), "odf-status-"))
   const tmpFile = path.join(tmpDir, "export.json")
   const project = workspaceProjectName(resolveWorkspaceRoot(workspaceRoot))
   try {
-    exportEngramObservations(tmpFile, project, workspaceRoot)
+    await exportEngramObservations(tmpFile, project, workspaceRoot)
   } catch (error) {
     try { fsSync.rmSync(tmpDir, { recursive: true, force: true }) } catch { /* ignore */ }
     const code = (error as NodeJS.ErrnoException).code
     return {
       observations: null,
-      error: code === "ENOENT" ? "engram-cli-unavailable" : code === "ETIMEDOUT" ? "engram-export-timeout" : "engram-export-failed",
+      error: code === "ENOENT" ? "engram-cli-unavailable" : isExecTimeoutError(error) ? "engram-export-timeout" : "engram-export-failed",
     }
   }
 
@@ -3727,7 +3739,7 @@ function readEngramObservationsWithError(workspaceRoot: string): EngramObservati
 }
 
 async function readEngramObservations(workspaceRoot: string): Promise<EngramObservation[] | null> {
-  return readEngramObservationsWithError(workspaceRoot).observations
+  return (await readEngramObservationsWithError(workspaceRoot)).observations
 }
 
 function selectEngramSnapshot(observations: EngramObservation[], changeName?: string): EngramSnapshot | null {
@@ -4219,6 +4231,16 @@ function artifactStoreValue(value: unknown): ArtifactStore | null {
   return value === "openspec" || value === "engram" || value === "hybrid" ? value : null
 }
 
+/** `artifact_store` declared by a state document; malformed states read as null. */
+function stateArtifactStoreValue(stateContent: string | null | undefined): ArtifactStore | null {
+  if (!stateContent) return null
+  try {
+    return artifactStoreValue(parseStateDocument(stateContent)?.state.artifact_store)
+  } catch {
+    return null
+  }
+}
+
 async function resolveBoundArtifactStore(
   workspaceRoot: string,
   changeName: string,
@@ -4228,23 +4250,15 @@ async function resolveBoundArtifactStore(
 
   try {
     const openSpec = await loadOpenSpecStatus(workspaceRoot, changeName)
-    if (openSpec?.state) {
-      const parsed = parseStateDocument(openSpec.state.content)
-      return artifactStoreValue(parsed?.state.artifact_store) || "openspec"
-    }
+    if (openSpec?.state) return stateArtifactStoreValue(openSpec.state.content) || "openspec"
   } catch {
     // Fall through to the bound Engram state.
   }
 
-  const read = readEngramObservationsWithError(workspaceRoot)
+  const read = await readEngramObservationsWithError(workspaceRoot)
   const state = read.observations?.filter(observation => observation.topic_key === `odf/${changeName}/state`).at(-1)
   if (!state) return null
-  try {
-    const parsed = parseStateDocument(state.content)
-    return artifactStoreValue(parsed?.state.artifact_store) || "engram"
-  } catch {
-    return null
-  }
+  return stateArtifactStoreValue(state.content) || "engram"
 }
 
 function writeWorkflowState(
@@ -5551,21 +5565,54 @@ function attachRuntimeStatus(status: Omit<ODFChangeStatus, "observability">, wor
   return { ...status, observability }
 }
 
+/** Local OpenSpec change to report: the requested one, or the newest change
+ * that has a state file when no name is given. Bounded to the changes directory. */
+async function findLocalWorkflowChange(workspaceRoot: string, requestedChange?: string): Promise<OpenSpecSnapshot | null> {
+  if (requestedChange) return loadOpenSpecStatus(workspaceRoot, requestedChange)
+  const changesDir = path.join(workspaceRoot, "openspec", "changes")
+  let entries: Dirent[] = []
+  try {
+    entries = await fs.readdir(changesDir, { withFileTypes: true })
+  } catch {
+    return null
+  }
+  const candidates: Array<{ change: string; modified: number }> = []
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue
+    try {
+      const stat = await fs.stat(path.join(changesDir, entry.name, "state.yaml"))
+      if (stat.isFile()) candidates.push({ change: entry.name, modified: stat.mtimeMs })
+    } catch {
+      // Directories without a state file are legacy artifacts, not candidates.
+    }
+  }
+  candidates.sort((left, right) => right.modified - left.modified)
+  const newest = candidates[0]
+  return newest ? loadOpenSpecStatus(workspaceRoot, newest.change) : null
+}
+
 async function loadCombinedWorkflowStatus(workspaceRoot: string, changeName?: string): Promise<ODFChangeStatus | null> {
   const requestedChange = changeName?.trim() || undefined
+  // Local authority first: a state that explicitly declares the openspec store
+  // must not wait on (or block the event loop behind) an Engram export. States
+  // without a declared store keep the legacy merged view (OpenSpec wins
+  // conflicts, Engram artifacts are surfaced).
+  const openSpec = await findLocalWorkflowChange(workspaceRoot, requestedChange)
+  if (openSpec?.state && stateArtifactStoreValue(openSpec.state.content) === "openspec") {
+    return attachRuntimeStatus(buildMergedStatus(workspaceRoot, openSpec, null), workspaceRoot)
+  }
+
   const observations = await readEngramObservations(workspaceRoot)
   const engram = observations
-    ? selectEngramSnapshot(observations, requestedChange)
+    ? selectEngramSnapshot(observations, requestedChange || openSpec?.change)
     : null
-  const targetChange = requestedChange || engram?.change
-  const openSpec = targetChange ? await loadOpenSpecStatus(workspaceRoot, targetChange) : null
-  if (!openSpec?.state) {
-    if (engram) return attachRuntimeStatus(buildEngramStatus(workspaceRoot, engram, openSpec?.warnings || []), workspaceRoot)
-    return openSpec?.artifacts.length
-      ? attachRuntimeStatus(buildMergedStatus(workspaceRoot, openSpec, null), workspaceRoot)
-      : null
+  if (openSpec?.state) {
+    return attachRuntimeStatus(buildMergedStatus(workspaceRoot, openSpec, engram), workspaceRoot)
   }
-  return attachRuntimeStatus(buildMergedStatus(workspaceRoot, openSpec, engram), workspaceRoot)
+  if (engram) return attachRuntimeStatus(buildEngramStatus(workspaceRoot, engram, openSpec?.warnings || []), workspaceRoot)
+  return openSpec?.artifacts.length
+    ? attachRuntimeStatus(buildMergedStatus(workspaceRoot, openSpec, null), workspaceRoot)
+    : null
 }
 
 function createODFStatus(): ReturnType<typeof tool> {
@@ -6096,7 +6143,7 @@ only after canonical state exists. Existing state and Expectations are reused on
       try {
         locked = await withWorkflowLock(workspaceRoot, changeName, async (): Promise<string> => {
         if (artifactStore === "engram") {
-          const read = readEngramObservationsWithError(workspaceRoot)
+          const read = await readEngramObservationsWithError(workspaceRoot)
           if (!read.observations) return blocked(read.error || "engram-export-failed", "Existing Engram workflow state could not be inspected safely.")
           const stateKey = `odf/${changeName}/state`
           const expectationsKey = `odf/${changeName}/expectations`
