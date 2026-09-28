@@ -32,6 +32,9 @@ function validInput(overrides: Record<string, unknown> = {}) {
     agent: "odoo_batch_implementer",
     workspace,
     prompt: "# ODF IMPLEMENT — demo-change\nbody",
+    task: "Implement the demo change",
+    source_root: "/odoo/src",
+    source_repos: "/odoo/custom/src",
     artifact_store: "openspec" as const,
     context_files: ["models/x.py"],
     attempt_id: "impl-r1",
@@ -51,6 +54,9 @@ describe("delegation tokens", () => {
     expect(record!.created_at).toBe(now.toISOString())
     expect(Date.parse(record!.expires_at) - Date.parse(record!.created_at)).toBe(DELEGATION_TOKEN_TTL_MS)
     expect(record!.workspace).toBe(workspace)
+    expect(record!.task).toBe("Implement the demo change")
+    expect(record!.source_root).toBe("/odoo/src")
+    expect(record!.source_repos).toBe("/odoo/custom/src")
   })
 
   it("rejects unsafe or malformed token input", () => {
@@ -59,6 +65,9 @@ describe("delegation tokens", () => {
     expect(createDelegationTokenRecord(validInput({ phase: "NOT-A-PHASE" }))).toBeNull()
     expect(createDelegationTokenRecord(validInput({ attempt_id: "bad id" }))).toBeNull()
     expect(createDelegationTokenRecord(validInput({ workspace: path.join(workspace, "missing") }))).toBeNull()
+    expect(createDelegationTokenRecord(validInput({ task: "" }))).toBeNull()
+    expect(createDelegationTokenRecord(validInput({ task: "x".repeat(9000) }))).toBeNull()
+    expect(createDelegationTokenRecord(validInput({ source_root: "/bad\nroot" }))).toBeNull()
   })
 
   it("round-trips a token through the workspace .odf directory", async () => {

@@ -83,6 +83,7 @@ import {
 } from "../odf-plugin/odf-delegation-metrics.js"
 import {
   EXECUTOR_BOUNDARY,
+  ODF_V2_SESSION,
   defaultHealthIo,
   findTaskApi,
   hostTelemetryFromContext,
@@ -90,12 +91,25 @@ import {
   isCancellationMessage,
   isEmptyTaskResult,
   inspectODFHealth,
+  readV2ContextConversation,
+  sessionResultFromText,
   taskSessionIdOf,
   emitTaskProgress,
   type HealthIo,
   type TaskApi,
+  type V2SessionApi,
   createODFHealth,
 } from "../odf-plugin/odf-delegation-health.js"
+import {
+  createDelegationTokenRecord,
+  delegationPromptDigest,
+  deleteDelegationToken,
+  isDelegationTokenExpired,
+  newDelegationToken,
+  readDelegationToken,
+  writeDelegationToken,
+  type DelegationPhase,
+} from "../odf-plugin/odf-delegation-tokens.js"
 import {
   classifyRiskTier,
   classifyRiskTierWithContent,
@@ -1329,6 +1343,171 @@ function recordTerminalFlowMarkers(
   }
 }
 
+// ==========================================
+// NATIVE DELEGATION PREPARE/SEAL (roadmap issue #55)
+// ==========================================
+
+/** Enriched phase prompt shared by odf_delegate and odf_delegation_prepare. */
+function buildEnrichedPrompt(opts: { prompt: string; rules: string; profileBlock: string }): string {
+  const hasInjection = opts.rules || opts.profileBlock
+  return hasInjection
+    ? `${[opts.rules, opts.profileBlock].filter(Boolean).join("\n\n")}\n\n---\n\n${opts.prompt}\n\n## Skill Resolution Status\nReport: injected (received from odf-delegation plugin)`
+    : `${opts.prompt}\n\n## Skill Resolution Status\nReport: none (no matching skills in registry)`
+}
+
+/** Source-authority postcondition contract injected into view-authority work. */
+function buildSourceAuthorityPrompt(roots: SourceAuthorityRoots): string {
+  return `## Source Authority Contract (mandatory postcondition)\nThis DESIGN/IMPLEMENT task is view-authority work. Return result.source_authority with ok: true, verified: true, relation, target_xmlid, and bounded evidence.relation/evidence.target objects containing the exact file, line, and snippet. For action relations such as search_view_id, also return action_xmlid and evidence.action. For ordinary view inheritance, return view_xmlid and evidence.view, with relation exactly inherit_id. When the task references no concrete view/action XML ID and no inherit_id/search_view_id relation (for example an asset-only change), return result.source_authority with ok: true, verified: true, relation: "not_applicable", and a bounded reason string instead; not_applicable is rejected when the task names a concrete view/action XML ID or relation. Return result.source_authority as a single-line JSON object. Never put a view XML ID in action_xmlid. The plugin recomputes the explicit action or view relation from this source root; prose and verified flags are not proof.\nOdoo source root: ${roots.source}${roots.repos ? `\nOdoo repos root: ${roots.repos}` : ""}`
+}
+
+/** Final delegation prompt shared by odf_delegate and odf_delegation_prepare. */
+function buildDelegationPrompt(opts: {
+  enrichedPrompt: string
+  sourceAuthorityPrompt?: string
+  fastLanePrompt?: string
+  policyGate?: PolicyGateDecision | null
+}): string {
+  return [
+    opts.enrichedPrompt,
+    opts.sourceAuthorityPrompt || "",
+    opts.fastLanePrompt || "",
+    opts.policyGate ? `## Policy Gate Decision (authoritative, do not recompute)\n${JSON.stringify(opts.policyGate, null, 2)}` : "",
+    EXECUTOR_BOUNDARY,
+  ].filter(Boolean).join("\n\n")
+}
+
+interface CompositeGateFailure {
+  reason: string
+  message: string
+  workflow_materialization?: LegacyWorkflowMaterialization
+}
+
+interface CompositeGateOutcome {
+  result: unknown
+  warnings: string[]
+  materialization: LegacyWorkflowMaterialization | null
+  failure: CompositeGateFailure | null
+}
+
+/**
+ * Post-result gates shared by odf_delegate and odf_delegation_seal for the
+ * composite phases: source authority, design closure, artifact refs and the
+ * legacy PLAN boundary materialization. Never throws; failures are returned so
+ * the caller keeps its own envelope and receipt semantics.
+ */
+async function applyCompositeResultGates(opts: {
+  phase: string
+  task: string
+  rawResult: unknown
+  contextFiles?: string[]
+  sourceAuthorityRequired: boolean
+  sourceAuthorityRoots: SourceAuthorityRoots | null
+  innerAccepted: boolean
+  changeName: string | null
+  workspaceRoot: string
+  artifactStore?: ArtifactStore
+}): Promise<CompositeGateOutcome> {
+  let result: unknown = opts.rawResult
+  const warnings: string[] = []
+  let materialization: LegacyWorkflowMaterialization | null = null
+
+  if (opts.sourceAuthorityRequired && opts.innerAccepted && opts.sourceAuthorityRoots) {
+    const authority = validateSourceAuthority({
+      result: opts.rawResult,
+      task: opts.task,
+      contextFiles: opts.contextFiles,
+      roots: opts.sourceAuthorityRoots,
+    })
+    if (!authority.ok || !authority.envelope) {
+      const rawAuthority = opts.rawResult && typeof opts.rawResult === "object" && !Array.isArray(opts.rawResult)
+        ? (opts.rawResult as Record<string, unknown>).source_authority
+        : null
+      return {
+        result: replaceSourceAuthority(opts.rawResult, scrubSourceAuthority(rawAuthority)),
+        warnings,
+        materialization: null,
+        failure: {
+          reason: "source-authority-invalid",
+          message: `Source authority blocked: ${authority.reason || "deterministic lookup did not verify the action relation"}. Return the required structured evidence and retry.`,
+        },
+      }
+    }
+    result = replaceSourceAuthority(opts.rawResult, authority.envelope)
+  }
+
+  const designResult = result && typeof result === "object" ? result as Record<string, unknown> : null
+  if ((opts.phase === "DESIGN" || opts.phase === "PLAN") && opts.innerAccepted && !asBoolean(designResult?.design_closed)) {
+    return {
+      result,
+      warnings,
+      materialization: null,
+      failure: {
+        reason: "design-not-closed",
+        message: "DESIGN/PLAN must return design_closed: true. Resolve the listed open design decisions and continue DESIGN.",
+      },
+    }
+  }
+
+  if (opts.innerAccepted && designResult) {
+    const rawRefs = Array.isArray(designResult.artifacts_saved) ? designResult.artifacts_saved
+      : Array.isArray(designResult.artifact_refs) ? designResult.artifact_refs : []
+    const refs = rawRefs
+      .map((entry: unknown): string | null => {
+        if (typeof entry === "string") return entry
+        if (entry && typeof entry === "object" && !Array.isArray(entry)) {
+          const record = entry as Record<string, unknown>
+          const ref = (record.artifact_ref as Record<string, unknown> | undefined)?.ref ?? record.ref
+          return typeof ref === "string" ? ref : null
+        }
+        return null
+      })
+      .filter((ref: string | null): ref is string => Boolean(ref))
+    const missingOpenSpec = refs.filter(ref =>
+      ref.startsWith("openspec/") && !fsSync.existsSync(path.join(opts.workspaceRoot, ref)))
+    if (missingOpenSpec.length > 0) {
+      return {
+        result,
+        warnings,
+        materialization: null,
+        failure: {
+          reason: "artifact-ref-missing",
+          message: `Claimed artifact_ref(s) do not exist on disk: ${missingOpenSpec.join(", ")}. Persist the phase artifact in the selected store and retry.`,
+        },
+      }
+    }
+    if (refs.length === 0 && ["PROPOSE", "ASSESS", "QA-PLAN", "DESIGN", "IMPLEMENT"].includes(opts.phase)) {
+      warnings.push("missing-artifact-refs")
+    }
+  }
+
+  if (opts.innerAccepted && (opts.phase === "ASSESS" || opts.phase === "DESIGN") && opts.changeName) {
+    materialization = await materializeLegacyCanonicalBoundary({
+      workspaceRoot: opts.workspaceRoot,
+      changeName: opts.changeName,
+      phase: opts.phase,
+      artifactStore: opts.artifactStore,
+    })
+    if (materialization?.status === "blocked") {
+      return {
+        result,
+        warnings,
+        materialization,
+        failure: {
+          reason: materialization.reason,
+          message: materialization.message,
+          workflow_materialization: materialization,
+        },
+      }
+    }
+  }
+
+  return { result, warnings, materialization, failure: null }
+}
+
+/** Shared env for the native prepare/seal pair. */
+const NATIVE_DELEGATION_PHASES: readonly string[] = ["PROPOSE", "ASSESS", "QA-PLAN", "DESIGN", "EXPLORE", "FIX"]
+const NATIVE_PREPARE_MARKER = "<!-- ODF-DELEGATION "
+
 function createODFDelegate(
   client?: OpencodeClient,
   canonicalDirectory?: string,
@@ -1949,25 +2128,16 @@ Use this instead of generic task() for ODF workflow delegation.`,
 
       // Inject compact rules, profile, and the Policy Gate decision
       const rules = formatCompactRules(skills)
-      const hasInjection = rules || profileBlock
-      const enrichedPrompt = hasInjection
-        ? `${[rules, profileBlock].filter(Boolean).join("\n\n")}\n\n---\n\n${args.prompt}\n\n## Skill Resolution Status\nReport: injected (received from odf-delegation plugin)`
-        : `${args.prompt}\n\n## Skill Resolution Status\nReport: none (no matching skills in registry)`
+      const enrichedPrompt = buildEnrichedPrompt({ prompt: args.prompt, rules, profileBlock })
       const sourceAuthorityPrompt = sourceAuthorityRequired && sourceAuthorityRoots
-        ? `## Source Authority Contract (mandatory postcondition)\nThis DESIGN/IMPLEMENT task is view-authority work. Return result.source_authority with ok: true, verified: true, relation, target_xmlid, and bounded evidence.relation/evidence.target objects containing the exact file, line, and snippet. For action relations such as search_view_id, also return action_xmlid and evidence.action. For ordinary view inheritance, return view_xmlid and evidence.view, with relation exactly inherit_id. When the task references no concrete view/action XML ID and no inherit_id/search_view_id relation (for example an asset-only change), return result.source_authority with ok: true, verified: true, relation: "not_applicable", and a bounded reason string instead; not_applicable is rejected when the task names a concrete view/action XML ID or relation. Return result.source_authority as a single-line JSON object. Never put a view XML ID in action_xmlid. The plugin recomputes the explicit action or view relation from this source root; prose and verified flags are not proof.\nOdoo source root: ${sourceAuthorityRoots.source}${sourceAuthorityRoots.repos ? `\nOdoo repos root: ${sourceAuthorityRoots.repos}` : ""}`
+        ? buildSourceAuthorityPrompt(sourceAuthorityRoots)
         : ""
       const fastLanePrompt = fastLanePolicyActive
         ? `## Fast-Lane Policy (authoritative, opt-in)\n${JSON.stringify(fastLanePolicy, null, 2)}\nThis policy is valid only for the persisted eligible small-change binding. Keep the canonical BUILD/VERIFY transition and every existing safety gate.\n${args.phase === "IMPLEMENT"
           ? `For this bounded BUILD, run only the targeted inner-loop validation and write ${fastLaneEvidenceRelativePath(changeName!, "targeted")} with every command marked kind: targeted. Do not substitute full-gate evidence for targeted evidence.`
           : `For this final VERIFY, run the configured full module/CI validation and write ${fastLaneEvidenceRelativePath(changeName!, "full")} with every command marked kind: full. Targeted evidence cannot substitute for this full gate.`}`
         : ""
-      const delegationPrompt = [
-        enrichedPrompt,
-        sourceAuthorityPrompt,
-        fastLanePrompt,
-        policyGate ? `## Policy Gate Decision (authoritative, do not recompute)\n${JSON.stringify(policyGate, null, 2)}` : "",
-        EXECUTOR_BOUNDARY,
-      ].filter(Boolean).join("\n\n")
+      const delegationPrompt = buildDelegationPrompt({ enrichedPrompt, sourceAuthorityPrompt, fastLanePrompt, policyGate })
 
       // T11 pre-tool safety: inspect the USER task payload (args.prompt) BEFORE
       // delegating. Complements native OpenCode permissions
@@ -2197,84 +2367,31 @@ Use this instead of generic task() for ODF workflow delegation.`,
              }, null, 2)
            }
 
-           if (sourceAuthorityRequired && innerDisposition.accepted && sourceAuthorityRoots) {
-             const authority = validateSourceAuthority({
-               result: taskResult.result,
-               task: args.prompt,
-               contextFiles: args.context_files,
-               roots: sourceAuthorityRoots,
-             })
-             if (!authority.ok || !authority.envelope) {
-               const rawAuthority = taskResult.result && typeof taskResult.result === "object" && !Array.isArray(taskResult.result)
-                 ? (taskResult.result as Record<string, unknown>).source_authority
-                 : null
-               resultForOutput = replaceSourceAuthority(taskResult.result, scrubSourceAuthority(rawAuthority))
-               return settleProofFailure(
-                 `Source authority blocked: ${authority.reason || "deterministic lookup did not verify the action relation"}. Return the required structured evidence and retry.`,
-                 "source-authority-invalid",
-               )
-             }
-             resultForOutput = replaceSourceAuthority(taskResult.result, authority.envelope)
-           }
-
-           const designResult = resultForOutput && typeof resultForOutput === "object"
-             ? resultForOutput as Record<string, unknown>
-            : null
-          if ((args.phase === "DESIGN" || args.phase === "PLAN") && innerDisposition.accepted && !asBoolean(designResult?.design_closed)) {
-            return settleProofFailure(
-              "DESIGN/PLAN must return design_closed: true. Resolve the listed open design decisions and continue DESIGN.",
-              "design-not-closed",
-            )
-          }
-
-          // Artifact-ref enforcement: claimed OpenSpec refs must exist on disk.
-          // Engram topics cannot be verified here (warning only); a result with
-          // no claimed refs is a warning, not a blocker (legacy agents).
-          if (innerDisposition.accepted && designResult) {
-            const rawRefs = Array.isArray(designResult.artifacts_saved) ? designResult.artifacts_saved
-              : Array.isArray(designResult.artifact_refs) ? designResult.artifact_refs : []
-            const refs = rawRefs
-              .map((entry: unknown): string | null => {
-                if (typeof entry === "string") return entry
-                if (entry && typeof entry === "object" && !Array.isArray(entry)) {
-                  const record = entry as Record<string, unknown>
-                  const ref = (record.artifact_ref as Record<string, unknown> | undefined)?.ref ?? record.ref
-                  return typeof ref === "string" ? ref : null
-                }
-                return null
-              })
-              .filter((ref: string | null): ref is string => Boolean(ref))
-            const missingOpenSpec = refs.filter(ref =>
-              ref.startsWith("openspec/") && !fsSync.existsSync(path.join(workspaceRoot, ref)))
-            if (missingOpenSpec.length > 0) {
+            const composite = await applyCompositeResultGates({
+              phase: args.phase,
+              task: args.prompt,
+              rawResult: taskResult.result,
+              contextFiles: args.context_files,
+              sourceAuthorityRequired,
+              sourceAuthorityRoots,
+              innerAccepted: innerDisposition.accepted,
+              changeName,
+              workspaceRoot,
+              artifactStore: args.artifact_store,
+            })
+            resultForOutput = composite.result
+            phaseWarnings.push(...composite.warnings)
+            workflowMaterialization = composite.materialization
+            if (composite.failure) {
               return settleProofFailure(
-                `Claimed artifact_ref(s) do not exist on disk: ${missingOpenSpec.join(", ")}. Persist the phase artifact in the selected store and retry.`,
-                "artifact-ref-missing",
+                composite.failure.message,
+                composite.failure.reason,
+                undefined,
+                composite.failure.workflow_materialization ? { workflow_materialization: composite.failure.workflow_materialization } : {},
               )
             }
-             if (refs.length === 0 && ["PROPOSE", "ASSESS", "QA-PLAN", "DESIGN", "IMPLEMENT"].includes(args.phase)) {
-               phaseWarnings.push("missing-artifact-refs")
-             }
-           }
 
-           if (innerDisposition.accepted && (args.phase === "ASSESS" || args.phase === "DESIGN") && changeName) {
-             workflowMaterialization = await materializeLegacyCanonicalBoundary({
-               workspaceRoot,
-               changeName,
-               phase: args.phase,
-               artifactStore: args.artifact_store,
-             })
-             if (workflowMaterialization?.status === "blocked") {
-               return settleProofFailure(
-                 workflowMaterialization.message,
-                 workflowMaterialization.reason,
-                 undefined,
-                 { workflow_materialization: workflowMaterialization },
-               )
-             }
-           }
-
-           if (!innerDisposition.accepted && !proofBacked && policyGate && !executionOptions.suppress_failure_receipt) {
+            if (!innerDisposition.accepted && !proofBacked && policyGate && !executionOptions.suppress_failure_receipt) {
             persistWorkflowFailureReceipt(
               workspaceRoot,
               changeName!,
@@ -2765,6 +2882,393 @@ function parallelReceipt(
       validation_evidence_refs: validationEvidenceRefs,
     },
   }
+}
+
+/**
+ * Native delegation step 1 (roadmap issue #55): resolve the phase agent,
+ * skills, profile and source-authority contract, return the enriched prompt
+ * plus a bounded delegation token, and write no workflow state. The
+ * orchestrator then launches the host `subagent` tool and finishes with
+ * odf_delegation_seal.
+ *
+ * IMPLEMENT/VERIFY still belong to odf_delegate until proof parity (attempt
+ * ledger, policy gate, validation evidence, workflow commit) lands.
+ */
+function createODFDelegationPrepare(canonicalDirectory?: string): ReturnType<typeof tool> {
+  return tool({
+    description: `Prepare a native ODF delegation: resolve the phase agent, skills, profile and source-authority contract; return the enriched prompt plus a bounded delegation token. Then call the host subagent tool with the returned delegation values and finish with odf_delegation_seal({ token, change, session_id }).`,
+    args: {
+      phase: tool.schema.string().describe("ODF phase: PROPOSE, ASSESS, QA-PLAN, DESIGN, EXPLORE, FIX (IMPLEMENT/VERIFY still use odf_delegate)"),
+      change: tool.schema.string().describe("Change name (kebab-case)"),
+      prompt: tool.schema.string().describe("The full detailed phase prompt for the agent."),
+      agent: tool.schema.string().optional().describe("Optional explicit registered agent override; must be installed and eligible for the phase."),
+      context_files: tool.schema.array(tool.schema.string()).optional().describe("Files the agent will work with (for skill matching)"),
+      artifact_store: tool.schema.enum(["openspec", "engram", "hybrid"]).optional().describe("Bound workflow store, when the change has one"),
+      odoo_source_root: tool.schema.string().optional().describe("Explicit Odoo source root required for view-authority DESIGN tasks"),
+      odoo_source_repos: tool.schema.string().optional().describe("Optional explicit active Odoo repos root for view-authority lookup"),
+      profile: tool.schema.string().optional().describe("Optional SDD profile name override"),
+      workspace_dir: tool.schema.string().optional().describe("Absolute project root; omit it to use the current session's project directory."),
+    },
+    async execute(args: {
+      phase: string
+      change: string
+      prompt: string
+      agent?: string
+      context_files?: string[]
+      artifact_store?: "openspec" | "engram" | "hybrid"
+      odoo_source_root?: string
+      odoo_source_repos?: string
+      profile?: string
+      workspace_dir?: string
+    }, toolCtx: ToolContext): Promise<string> {
+      if (!toolCtx?.sessionID) return "❌ odf_delegation_prepare requires sessionID"
+      const blocked = (reason: string, message: string, extra: Record<string, unknown> = {}): string => JSON.stringify({
+        status: "blocked",
+        reason,
+        phase: args.phase,
+        agent: null,
+        token: null,
+        task_api_source: "subagent",
+        result: null,
+        message,
+        ...extra,
+      }, null, 2)
+
+      if (!ALLOWED_PHASES.includes(args.phase)) {
+        return `❌ Invalid phase "${args.phase}". Allowed: ${ALLOWED_PHASES.join(", ")}`
+      }
+      if (!NATIVE_DELEGATION_PHASES.includes(args.phase)) {
+        return blocked(
+          "native-delegation-proof-parity-pending",
+          `${args.phase} still requires odf_delegate: proof-backed BUILD/VERIFY parity (attempt ledger, policy gate, validation evidence, workflow commit) is the next migration slice.`,
+        )
+      }
+
+      const workspaceRoot = resolveSelectedWorkspaceRoot(args.workspace_dir, canonicalDirectory)
+      if (!workspaceRoot) {
+        return blocked("unsafe-workspace-path", "The workspace directory does not resolve to a safe existing root.")
+      }
+      const packRoot = canonicalPackRoot()
+      if (packRoot && hasPackRegistry(packRoot) && isWithinRoot(workspaceRoot, packRoot)) {
+        return blocked("unsafe-workspace-path", `The workspace root is inside the installed ODF pack (${workspaceRoot}); pass the project root instead, or omit workspace_dir.`)
+      }
+      const changeName = args.change?.trim() || extractChangeName(args.prompt)
+      if (!changeName) {
+        return blocked("change-required-for-native-delegation", "odf_delegation_prepare requires the change name (pass change or a prompt with 'Change name: <name>').")
+      }
+      const contextValidation = validateContextFiles(workspaceRoot, args.context_files || [])
+      if (contextValidation.error) return contextValidation.error
+
+      const registry = await loadRegistry()
+      if (!registry) {
+        return `❌ ODF registry not found. Run /odf-init or check ${REGISTRY_PATH}`
+      }
+
+      const sourceAuthorityRequired = isViewAuthorityWork(args.phase, args.prompt, args.context_files || [])
+      let sourceAuthorityRoots: SourceAuthorityRoots | null = null
+      if (sourceAuthorityRequired) {
+        const roots = establishSourceAuthorityRoots({
+          workspaceRoot,
+          sourceRoot: args.odoo_source_root,
+          reposRoot: args.odoo_source_repos,
+        })
+        if (!roots.ok) {
+          return blocked("source-authority-unavailable", `${roots.reason}. Provide the exact odoo_source_root and retry with /odf-continue ${changeName}.`, {
+            safe_continuation: `/odf-continue ${changeName}`,
+          })
+        }
+        sourceAuthorityRoots = roots.roots
+      }
+
+      const odooVersion = await detectOdooVersion(workspaceRoot)
+      const skills = matchSkills(registry, args.phase, {
+        files: args.context_files,
+        task: args.prompt,
+        odooVersion,
+      })
+      const keywords = args.prompt.split(/\s+/)
+      let agentName: string | null
+      if (args.agent !== undefined) {
+        const selection = validateAgentSelection(registry, args.phase, args.agent)
+        if (!selection.valid) {
+          return blocked(selection.reason, `Explicit agent "${args.agent}" is not registered, installed, and phase-eligible for ${args.phase}.`)
+        }
+        agentName = selection.agent.name
+      } else {
+        agentName = resolveAgent(registry, args.phase, keywords)
+      }
+      if (!agentName) {
+        return blocked("agent-routing-unavailable", `No registered, installed, phase-eligible agent is available for ${args.phase}.`)
+      }
+      const profile = await getProfileByPhase(registry, args.phase, args.profile)
+      const profileBlock = profile ? formatProfileBlock(profile, args.phase) : ""
+      const profilePayload = profile
+        ? { name: profile.name, model: profile.model, temperature: profile.temperature, reasoning: profile.reasoning }
+        : null
+
+      const safety = inspectToolArgs({
+        tool: "odf_delegation_prepare",
+        args: { prompt: args.prompt },
+        authorized_roots: [workspaceRoot],
+      })
+      if (safety.blocked) {
+        return blocked(
+          "pre-tool-safety",
+          `Pre-tool safety blocked delegation to ${agentName}: ${safety.classes.join(", ")}. ${safety.safe_continuation || "Request explicit user consent for the exact target."}`,
+          { classes: safety.classes, matched_rules: safety.matched_rules, safe_continuation: safety.safe_continuation },
+        )
+      }
+
+      const rules = formatCompactRules(skills)
+      const enrichedPrompt = buildEnrichedPrompt({ prompt: args.prompt, rules, profileBlock })
+      const sourceAuthorityPrompt = sourceAuthorityRequired && sourceAuthorityRoots
+        ? buildSourceAuthorityPrompt(sourceAuthorityRoots)
+        : ""
+      const delegationPrompt = buildDelegationPrompt({ enrichedPrompt, sourceAuthorityPrompt })
+      const token = newDelegationToken()
+      const marker = `<!-- ODF-DELEGATION ${JSON.stringify({ change: changeName, phase: args.phase, agent: agentName, token })} -->`
+      const finalPrompt = `${marker}\n\n${delegationPrompt}`
+      const record = createDelegationTokenRecord({
+        change: changeName,
+        phase: args.phase as DelegationPhase,
+        agent: agentName,
+        token,
+        skills_injected: skills.map(s => s.name),
+        profile: profilePayload,
+        workspace: workspaceRoot,
+        prompt: finalPrompt,
+        task: args.prompt,
+        ...(sourceAuthorityRoots
+          ? { source_root: sourceAuthorityRoots.source, ...(sourceAuthorityRoots.repos ? { source_repos: sourceAuthorityRoots.repos } : {}) }
+          : {}),
+        ...(args.artifact_store ? { artifact_store: args.artifact_store } : {}),
+        context_files: contextValidation.relativePaths,
+      })
+      if (!record) {
+        return blocked("delegation-token-invalid", "The delegation token could not be created from the provided inputs.")
+      }
+      const writeError = writeDelegationToken(workspaceRoot, record)
+      if (writeError) {
+        return blocked(writeError, "The delegation token could not be persisted safely.")
+      }
+
+      recordMetrics({
+        timestamp: new Date().toISOString(),
+        session_id: toolCtx.sessionID,
+        phase: args.phase,
+        agent: agentName,
+        skills_injected: skills.map(s => s.name),
+        skill_resolution: skills.length > 0 ? "injected" : "none",
+        duration_ms: 0,
+        token_estimate: estimateTokens(finalPrompt),
+        status: "ok",
+        task_api_source: "subagent",
+        change: changeName,
+        ...(odooVersion ? { odoo_version: odooVersion } : {}),
+        workspace: workspaceProjectName(workspaceRoot),
+      })
+      flushMetricsSync()
+
+      return JSON.stringify({
+        status: "prepared",
+        change: changeName,
+        phase: args.phase,
+        agent: agentName,
+        token,
+        delegation: {
+          agent: agentName,
+          description: `ODF ${args.phase} → ${agentName} · ${changeName}`,
+          prompt: finalPrompt,
+        },
+        skills_injected: skills.map(s => s.name),
+        profile: profilePayload,
+        source_authority_required: sourceAuthorityRequired,
+        artifact_store: args.artifact_store ?? null,
+        context_files: contextValidation.relativePaths,
+        next: "Call subagent with delegation.agent, delegation.description and delegation.prompt (verbatim), then odf_delegation_seal({ token, change, session_id }).",
+      }, null, 2)
+    },
+  })
+}
+
+/**
+ * Native delegation step 2 (roadmap issue #55): bind the child session to the
+ * prepared token, read its ODF Result, run the composite phase gates and return
+ * the standard delegation envelope. Fail-closed on any binding mismatch.
+ */
+function createODFDelegationSeal(canonicalDirectory?: string): ReturnType<typeof tool> {
+  return tool({
+    description: `Seal a native ODF delegation started with odf_delegation_prepare: verify the child session against the token, read its ODF Result, run the composite phase gates (source authority, design closure, artifact refs, PLAN materialization) and return the standard delegation envelope.`,
+    args: {
+      token: tool.schema.string().describe("Delegation token returned by odf_delegation_prepare."),
+      change: tool.schema.string().describe("Change name (kebab-case) the token belongs to."),
+      session_id: tool.schema.string().describe("Child session id returned by the host subagent tool."),
+      workspace_dir: tool.schema.string().optional().describe("Absolute project root; omit it to use the current session's project directory."),
+    },
+    async execute(args: {
+      token: string
+      change: string
+      session_id: string
+      workspace_dir?: string
+    }, toolCtx: ToolContext): Promise<string> {
+      if (!toolCtx?.sessionID) return "❌ odf_delegation_seal requires sessionID"
+      const blocked = (reason: string, message: string, extra: Record<string, unknown> = {}): string => JSON.stringify({
+        status: "blocked",
+        reason,
+        token: args.token,
+        task_api_source: "subagent",
+        result: null,
+        message,
+        ...extra,
+      }, null, 2)
+
+      const workspaceRoot = resolveSelectedWorkspaceRoot(args.workspace_dir, canonicalDirectory)
+      if (!workspaceRoot) {
+        return blocked("unsafe-workspace-path", "The workspace directory does not resolve to a safe existing root.")
+      }
+      const changeName = args.change?.trim()
+      if (!changeName) {
+        return blocked("delegation-token-invalid", "odf_delegation_seal requires the change name the token belongs to.")
+      }
+      const read = readDelegationToken(workspaceRoot, changeName, args.token)
+      if (read.error || !read.record) {
+        return blocked(read.error || "delegation-token-unknown", `The delegation token could not be read: ${read.error}.`)
+      }
+      const record = read.record
+      const withRecord = (extra: Record<string, unknown> = {}): Record<string, unknown> => ({
+        phase: record.phase,
+        agent: record.agent,
+        skills_injected: record.skills_injected,
+        profile: record.profile,
+        change: record.change,
+        task_session_id: args.session_id,
+        ...extra,
+      })
+
+      if (record.status !== "prepared") {
+        return blocked("delegation-token-already-sealed", "The delegation token was already sealed; a delegation seals exactly once.", withRecord())
+      }
+      if (isDelegationTokenExpired(record)) {
+        return blocked("delegation-token-expired", "The delegation token expired before seal; prepare a fresh delegation.", withRecord())
+      }
+
+      const session = (toolCtx as unknown as Record<PropertyKey, unknown>)[ODF_V2_SESSION] as V2SessionApi | undefined
+      if (!session || typeof session.get !== "function" || typeof session.context !== "function") {
+        return blocked("delegation-session-api-unavailable", "odf_delegation_seal requires the OpenCode V2 session API to read the child session.", withRecord())
+      }
+
+      let child: Record<string, unknown>
+      try {
+        const info = await session.get({ sessionID: args.session_id })
+        child = info && typeof info === "object" && !Array.isArray(info) ? info as unknown as Record<string, unknown> : {}
+      } catch {
+        return blocked("delegation-child-unknown", `The child session ${args.session_id} could not be read.`, withRecord())
+      }
+      if (typeof child.agent !== "string" || child.agent !== record.agent) {
+        return blocked("delegation-child-mismatch", `The child session agent ${typeof child.agent === "string" ? child.agent : "(unknown)"} does not match the prepared agent ${record.agent}.`, withRecord())
+      }
+      if (typeof child.parentID === "string" && child.parentID !== toolCtx.sessionID) {
+        return blocked("delegation-child-mismatch", "The child session does not belong to the orchestrating session.", withRecord())
+      }
+      const location = child.location && typeof child.location === "object" && !Array.isArray(child.location)
+        ? child.location as Record<string, unknown>
+        : null
+      const childDirectory = typeof location?.directory === "string" ? location.directory : null
+      if (childDirectory) {
+        let canonicalChild: string | null = null
+        try {
+          canonicalChild = canonicalWorkspaceRoot(childDirectory)
+        } catch {
+          canonicalChild = null
+        }
+        if (canonicalChild && canonicalChild !== record.workspace) {
+          return blocked("delegation-child-mismatch", "The child session runs in a different workspace than the prepared delegation.", withRecord())
+        }
+      }
+
+      let conversation: { userTexts: string[]; assistantText: string } | null = null
+      try {
+        const response = await session.context({ sessionID: args.session_id })
+        conversation = readV2ContextConversation(response)
+      } catch {
+        conversation = null
+      }
+      if (!conversation || conversation.userTexts.length === 0) {
+        return blocked("delegation-child-unreadable", "The child session returned no readable conversation.", withRecord())
+      }
+      if (delegationPromptDigest(conversation.userTexts[0]) !== record.prompt_digest) {
+        return blocked(
+          "delegation-prompt-mismatch",
+          "The child session did not receive the prepared prompt verbatim; the delegation gates cannot be trusted. Re-run prepare/subagent without modifying delegation.prompt.",
+          withRecord(),
+        )
+      }
+
+      let childResult: unknown
+      try {
+        childResult = sessionResultFromText(conversation.assistantText)
+      } catch (error) {
+        return blocked("invalid-task-result", `The child session did not return an ODF Result: ${error instanceof Error ? error.message : String(error)}.`, withRecord())
+      }
+
+      const innerDisposition = innerResultDisposition(childResult)
+      const outcome = await applyCompositeResultGates({
+        phase: record.phase,
+        task: record.task,
+        rawResult: childResult,
+        contextFiles: record.context_files,
+        sourceAuthorityRequired: Boolean(record.source_root),
+        sourceAuthorityRoots: record.source_root
+          ? { source: record.source_root, ...(record.source_repos ? { repos: record.source_repos } : {}) }
+          : null,
+        innerAccepted: innerDisposition.accepted,
+        changeName: record.change,
+        workspaceRoot,
+        artifactStore: record.artifact_store,
+      })
+      // The delegation is processed either way: the token seals exactly once.
+      deleteDelegationToken(workspaceRoot, record.change, record.token)
+
+      recordMetrics({
+        timestamp: new Date().toISOString(),
+        session_id: toolCtx.sessionID,
+        phase: record.phase,
+        agent: record.agent,
+        skills_injected: record.skills_injected,
+        skill_resolution: record.skills_injected.length > 0 ? "injected" : "none",
+        duration_ms: Math.max(0, Date.now() - Date.parse(record.created_at)),
+        token_estimate: estimateTokens(record.task),
+        status: outcome.failure ? "blocked" : innerDisposition.metricStatus,
+        task_api_source: "subagent",
+        change: record.change,
+        workspace: workspaceProjectName(workspaceRoot),
+      })
+      flushMetricsSync()
+
+      if (outcome.failure) {
+        return blocked(outcome.failure.reason, outcome.failure.message, withRecord({
+          ...(outcome.failure.workflow_materialization ? { workflow_materialization: outcome.failure.workflow_materialization } : {}),
+          ...(outcome.warnings.length ? { warnings: outcome.warnings } : {}),
+        }))
+      }
+
+      return JSON.stringify({
+        status: "delegated",
+        phase: record.phase,
+        agent: record.agent,
+        skills_injected: record.skills_injected,
+        profile: record.profile,
+        policy_gate: null,
+        validation: null,
+        receipt: null,
+        task_api_source: "subagent",
+        result: outcome.result,
+        task_session_id: args.session_id,
+        ...(outcome.materialization ? { workflow_materialization: outcome.materialization } : {}),
+        ...(outcome.warnings.length ? { warnings: outcome.warnings } : {}),
+      }, null, 2)
+    },
+  })
 }
 
 function createODFParallelDelegate(client?: OpencodeClient, canonicalDirectory?: string): ReturnType<typeof tool> {
@@ -6861,6 +7365,8 @@ export function createODFRegisteredTools(
 ): ODFRegisteredToolMap {
   return {
     odf_delegate: createODFDelegate(client, canonicalDirectory),
+    odf_delegation_prepare: createODFDelegationPrepare(canonicalDirectory),
+    odf_delegation_seal: createODFDelegationSeal(canonicalDirectory),
     odf_parallel_delegate: createODFParallelDelegate(client, canonicalDirectory),
     odf_workflow_route: createODFWorkflowRoute(),
     odf_workflow_advance: createODFWorkflowAdvance(),

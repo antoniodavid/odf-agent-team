@@ -21,6 +21,8 @@ export const DELEGATION_TOKEN_PATTERN = /^odf-tok-[a-f0-9]{32}$/
 
 const MAX_TOKEN_FILE_BYTES = 16 * 1024
 const MAX_CONTEXT_FILES = 64
+const MAX_TASK_CHARS = 8192
+const MAX_ROOT_CHARS = 2048
 const SAFE_LABEL_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/
 const PROMPT_DIGEST_PATTERN = /^[a-f0-9]{64}$/
 
@@ -33,10 +35,24 @@ export interface DelegationTokenInput {
   change: string
   phase: DelegationPhase
   agent: string
+  /** Pre-minted token (obtained with newDelegationToken) so the prompt marker can carry it. */
+  token?: string
+  /** Skills injected at prepare time, for envelope parity at seal. */
+  skills_injected?: string[]
+  /** Profile payload (name/model/temperature/reasoning) for envelope parity. */
+  profile?: Record<string, unknown> | null
   /** Workspace root the delegation belongs to; canonicalized before storage. */
   workspace: string
   /** Enriched prompt the orchestrator must pass to the host subagent tool verbatim. */
   prompt: string
+  /**
+   * Raw phase task text. Seal uses it for deterministic source-authority hints
+   * so injected contract text cannot change the relation detection.
+   */
+  task: string
+  /** Deterministic Odoo source roots resolved at prepare time, when required. */
+  source_root?: string
+  source_repos?: string
   artifact_store?: DelegationArtifactStore
   context_files?: string[]
   attempt_id?: string
@@ -56,6 +72,12 @@ export interface DelegationTokenRecord {
   workspace: string
   /** SHA-256 of the enriched prompt the child session must have received. */
   prompt_digest: string
+  /** Raw phase task text used for source-authority hints at seal time. */
+  task: string
+  source_root?: string
+  source_repos?: string
+  skills_injected: string[]
+  profile: Record<string, unknown> | null
   context_files: string[]
   attempt_id?: string
   branch_id?: string
@@ -75,6 +97,31 @@ function safeLabel(value: unknown): string | null {
 
 function safeTimestamp(value: unknown): string | null {
   return typeof value === "string" && Number.isFinite(Date.parse(value)) ? value : null
+}
+
+function safeTask(value: unknown): string | null {
+  return typeof value === "string" && value.trim().length > 0 && value.length <= MAX_TASK_CHARS && !/[\0\r\n]/.test(value)
+    ? value.trim()
+    : null
+}
+
+function safeRoot(value: unknown): string | null {
+  return typeof value === "string" && value.trim().length > 0 && value.length <= MAX_ROOT_CHARS && !/[\0\r\n]/.test(value)
+    ? value.trim()
+    : null
+}
+
+function safeProfile(value: unknown): { ok: boolean; profile: Record<string, unknown> | null } {
+  if (value === undefined || value === null) return { ok: true, profile: null }
+  if (typeof value !== "object" || Array.isArray(value)) return { ok: false, profile: null }
+  let serialized: string
+  try {
+    serialized = JSON.stringify(value)
+  } catch {
+    return { ok: false, profile: null }
+  }
+  if (typeof serialized !== "string" || serialized.length > 1024 || serialized.includes("\0")) return { ok: false, profile: null }
+  return { ok: true, profile: value as Record<string, unknown> }
 }
 
 function canonicalWorkspace(workspace: string): string | null {
@@ -100,6 +147,17 @@ export function createDelegationTokenRecord(input: DelegationTokenInput): Delega
   const phase = DELEGATION_PHASES.includes(input.phase) ? input.phase : null
   const workspace = canonicalWorkspace(input.workspace)
   if (!change || !agent || !phase || !workspace) return null
+  const task = safeTask(input.task)
+  if (!task) return null
+  const token = input.token === undefined ? newDelegationToken() : (DELEGATION_TOKEN_PATTERN.test(input.token) ? input.token : null)
+  if (!token) return null
+  const skills = Array.isArray(input.skills_injected)
+    ? input.skills_injected.filter((name): name is string => safeLabel(name) !== null).slice(0, 8)
+    : []
+  const profile = safeProfile(input.profile)
+  if (!profile.ok) return null
+  if (input.source_root !== undefined && !safeRoot(input.source_root)) return null
+  if (input.source_repos !== undefined && !safeRoot(input.source_repos)) return null
   if (input.artifact_store !== undefined && !["openspec", "engram", "hybrid"].includes(input.artifact_store)) return null
   if (input.attempt_id !== undefined && !safeLabel(input.attempt_id)) return null
   if (input.branch_id !== undefined && !safeLabel(input.branch_id)) return null
@@ -113,13 +171,18 @@ export function createDelegationTokenRecord(input: DelegationTokenInput): Delega
   const expires = new Date(created.getTime() + ttl)
   return {
     schema_version: DELEGATION_TOKEN_SCHEMA_VERSION,
-    token: newDelegationToken(),
+    token,
     change,
     phase,
     agent,
     ...(input.artifact_store ? { artifact_store: input.artifact_store } : {}),
     workspace,
     prompt_digest: delegationPromptDigest(input.prompt),
+    task,
+    ...(input.source_root ? { source_root: input.source_root } : {}),
+    ...(input.source_repos ? { source_repos: input.source_repos } : {}),
+    skills_injected: skills,
+    profile: profile.profile,
     context_files: contextFiles,
     ...(input.attempt_id ? { attempt_id: input.attempt_id } : {}),
     ...(input.branch_id ? { branch_id: input.branch_id } : {}),
@@ -140,6 +203,11 @@ function isDelegationTokenRecord(value: unknown): value is DelegationTokenRecord
     (record.artifact_store === undefined || ["openspec", "engram", "hybrid"].includes(record.artifact_store as string)) &&
     typeof record.workspace === "string" && record.workspace.length > 0 &&
     typeof record.prompt_digest === "string" && PROMPT_DIGEST_PATTERN.test(record.prompt_digest) &&
+    safeTask(record.task) !== null &&
+    (record.source_root === undefined || safeRoot(record.source_root) !== null) &&
+    (record.source_repos === undefined || safeRoot(record.source_repos) !== null) &&
+    Array.isArray(record.skills_injected) && record.skills_injected.every(name => safeLabel(name) !== null) &&
+    (record.profile === null || (typeof record.profile === "object" && !Array.isArray(record.profile))) &&
     Array.isArray(record.context_files) && record.context_files.every(file => typeof file === "string") &&
     safeTimestamp(record.created_at) !== null &&
     safeTimestamp(record.expires_at) !== null &&

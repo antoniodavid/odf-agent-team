@@ -678,6 +678,46 @@ function v2ContextResult(response: unknown): unknown {
   return sessionResultFromText(text)
 }
 
+export interface V2ContextConversation {
+  /** Text parts of every user message, oldest first. */
+  userTexts: string[]
+  /** Text parts of the latest assistant message. */
+  assistantText: string
+}
+
+/**
+ * Bounded conversation view for the native seal path: the first user text is
+ * the delegated prompt and the latest assistant text is the phase result.
+ * Returns null when the response has no usable structure (caller decides the
+ * failure reason); never throws.
+ */
+export function readV2ContextConversation(response: unknown): V2ContextConversation | null {
+  if (!Array.isArray(response) || response.length === 0) return null
+  const userTexts: string[] = []
+  let assistantText: string | null = null
+  for (const message of response) {
+    if (!message || typeof message !== "object" || Array.isArray(message)) continue
+    const value = message as Record<string, any>
+    const info = value.info && typeof value.info === "object" ? value.info : value
+    const role = typeof info.type === "string" ? info.type : typeof info.role === "string" ? info.role : null
+    const parts = Array.isArray(value.content)
+      ? value.content
+      : Array.isArray(value.parts)
+        ? value.parts
+        : Array.isArray(info.content) ? info.content : []
+    const text = parts
+      .filter((part: any) => part?.type === "text" && typeof part.text === "string")
+      .map((part: any) => part.text)
+      .join("\n")
+      .trim()
+    if (!text) continue
+    if (role === "user") userTexts.push(text)
+    if (role === "assistant") assistantText = text
+  }
+  if (!assistantText) return null
+  return { userTexts, assistantText }
+}
+
 type V2TaskInvocation = { childID?: string; abortRequested: boolean; aborting?: Promise<void> }
 
 /**
