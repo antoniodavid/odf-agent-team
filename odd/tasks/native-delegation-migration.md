@@ -75,9 +75,11 @@ Usability is part of harness quality: a delegation the user cannot see is a dele
 
 ### M2 — Prepare/seal design + implementation
 
-- [ ] ADR-lite design: token shape; binding fields (change, phase, agent, prompt digest, workspace, artifact_store); `.odf/` storage; TTL/cleanup; tamper behavior.
-- [ ] `odf_delegation_prepare`: agent/skills/profile/policy-gate/source-authority contract; returns enriched prompt + token; writes no workflow state.
-- [ ] `odf_delegation_seal`: token + child-session verification; ODF Result parsing (existing parser); gate execution; materialization; workflow commit; receipts; metrics; standard envelope.
+- [x] ADR-lite design: `odd/tasks/native-delegation-prepare-seal-design.md` (token shape, binding fields, `.odf/` storage, TTL, supersede/replay behavior).
+- [x] Token module: `odf-plugin/odf-delegation-tokens.ts` (mint, atomic write, read, expiry, seal-once, delete; bounded and workspace-contained) with its test file.
+- [ ] `odf_delegation_prepare`: agent/skills/profile/policy-gate/source-authority contract; returns enriched prompt + token; acquires the attempt; writes no workflow state.
+- [ ] `odf_delegation_seal`: token + child-session verification (agent, prompt digest, workspace, parentID when available); ODF Result parsing; gate execution; materialization; workflow commit; receipts; metrics; standard envelope.
+- [ ] Register both tools (map, `ODF_REGISTERED_TOOLS`, V2 adapter tool-list test) and extend `task_api_source` with `"subagent"`.
 - [ ] Orchestrator and command instructions: prepare → `subagent` → seal; hook warnings/blocks for missing tokens.
 - [ ] Parallel BUILD (stretch): background subagents + aggregate seal.
 
