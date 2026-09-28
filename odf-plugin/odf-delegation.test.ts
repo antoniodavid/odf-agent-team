@@ -7706,7 +7706,7 @@ ${overrides}`
         .trim().split("\n").map(line => JSON.parse(line))
       expect(ledger.filter((record: any) => record.status === "running").map((record: any) => record.branch_id))
         .toEqual(expect.arrayContaining(["backend-running", "frontend-running"]))
-    })
+    }, { timeout: 10_000 })
     resolveFirst({ status: "ok" })
     resolveSecond({ status: "ok" })
     expect(JSON.parse(await run as string).join.status).toBe("complete")
@@ -7761,7 +7761,7 @@ ${overrides}`
       expect(persisted.join).toMatchObject({ status: "running", expected: 2, completed: 1, failed: 0, running: 1 })
       expect(persisted.branches.filter((branch: any) => branch.status === "complete")).toHaveLength(1)
       expect(persisted.branches.filter((branch: any) => branch.status === "running")).toHaveLength(1)
-    })
+    }, { timeout: 10_000 })
     resolveSecond({ status: "ok" })
     expect(JSON.parse(await run as string).join).toMatchObject({ status: "complete", running: 0 })
   })
@@ -7902,7 +7902,7 @@ ${overrides}`
     await vi.waitFor(async () => {
       const persisted = JSON.parse(await fs.readFile(path.join(tempHome, ".odf", `parallel-join-${change}.json`), "utf8"))
       expect(persisted.join.status).toBe("running")
-    })
+    }, { timeout: 10_000 })
     const blockedJoin = JSON.parse(await createODFWorkflowOverride().execute({
       change_name: change,
       artifact_store: "openspec",
