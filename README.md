@@ -88,7 +88,7 @@ Routing is deterministic: standard config can stop after DECIDE, a bugfix runs d
 
 ## Honest status
 
-- **Mature and tested locally**: 900 unit tests + 325 YAML scenarios + 18 harness checks. Representative Odoo validation and end-to-end telemetry remain ODF 2.0 gates.
+- **Mature and tested locally**: 970 unit tests + 325 YAML scenarios + 18 harness checks. Representative Odoo validation and end-to-end telemetry remain ODF 2.0 gates.
 - **Portable**: Linux/macOS/Windows (Git Bash/WSL), `XDG_CONFIG_HOME` resolution, author-path rewriting at install time.
 - **Known limitations**:
   - `plugins/odf-delegation.ts` (~6k lines) is still a monolith for the delegation/workflow core; cohesive sections already live in `odf-plugin/`.
@@ -111,7 +111,7 @@ Full matrix: `node <pack>/scripts/odf-toolkit.js deps`
 
 ```bash
 npm test              # full suite: unit + YAML + plugin
-npm run test:unit     # 900 Vitest
+npm run test:unit     # 970 Vitest
 npm run test:yaml     # 325 YAML scenarios
 npm run test:harness  # 18 harness checks
 npm run typecheck     # tsc --noEmit

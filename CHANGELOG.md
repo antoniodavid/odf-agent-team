@@ -1,11 +1,15 @@
 # Changelog — ODF Agent Team
 
-## 1.4.0 (2026-09-24)
+## 1.4.0 (2026-09-28)
 
 > **BREAKING — OpenCode V2 only.** The plugin entrypoint no longer exports the
 > V1 `server` implementation, and `@opencode-ai/plugin` is not part of the
 > runtime graph. Packs installed from this release require an OpenCode V2 host:
 > a V1 host will not register the ODF plugin.
+
+### Added
+- Native delegation visibility under OpenCode V2: child sessions carry a descriptive `ODF <phase> → <agent> · <change>` title, the delegated agent is surfaced through tool progress while the phase runs, and the outer delegation envelope reports `task_session_id` (#54, #56).
+- Source-authority `not_applicable` evidence: non-view DESIGN/IMPLEMENT work can return a bounded `not_applicable` envelope when the task names no concrete view/action XML ID or `inherit_id`/`search_view_id` relation; concrete references still require the deterministic `odf-toolkit lookup` (#50, #52).
 
 ### Changed
 - **OpenCode V2 only**: the entrypoint `plugins/odf-delegation.ts` now default-exports the official `Plugin.define({ id, setup })` shape. The V1 `server` export, `OdfDelegationPlugin` and `createODFRuntimeHooks` were removed along with their V1 contract fixtures.
@@ -17,6 +21,18 @@
 - `install.sh` installs dependencies **before** exposing the plugin entrypoint, and reminds you to restart the OpenCode service afterwards (`--restart-service` / `ODF_RESTART_SERVICE=1` to do it immediately). A plugin that fails once stays `failed` inside a running service until it restarts — this was the root cause of the plugin never loading after a fresh install.
 - Three new installer tests cover the dependency/plugin ordering, the default no-op dry run and the opt-in restart flag.
 - Config-dir resolution no longer ignores `XDG_CONFIG_HOME` and no longer depends on the project launcher: a single resolver (`scripts/lib/config-dir.js`) orders `ODF_CONFIG_DIR` → the pack the running module ships in (when it carries `odf-registry.json`) → `$XDG_CONFIG_HOME/opencode` → `~/.config/opencode`, and the five CLI copies of that logic delegate to it. A pack installed under `<project>/.opencode` resolves itself, so running `opencode` directly there reads the right registry. The README's `XDG_CONFIG_HOME resolution` claim holds again, the `/odf-*` prompts default `PACK` to the same order, and the YAML suite now passes with `ODF_CONFIG_DIR` unset instead of reading the installed registry instead of the checkout.
+- The installed pack is self-verifiable: `tsconfig.pack.json` ships and installs as both `tsconfig.json` and `tsconfig.pack.json`, so `/odf-health --full` can typecheck the installed pack (#32, #33).
+- Engram persistence is project-scoped and store-aware end to end: `odf-init` readback no longer depends on the working directory, the plugin resolves one project identity, and archive/metrics respect the selected store (#37, #38).
+- `odf_health` reports why the V2 context session is unavailable instead of a bare failure (#34), and an interrupted first `odf_health` stays retryable instead of dead-ending `/odf-new` with `workflow-start-unauthorized` (#35, #36).
+- `odf_delegate` blocks every path inside the installed ODF pack with symlink-resolved containment: the pack root, a symlinked config dir, and pack subdirectories (#42, #45).
+- The ODF Result text parser is section-authoritative: it prefers `## ODF Result`, parses nested bullet fields into objects (prototype-pollution safe), coerces `true`/`false`/`null`, accepts the dash-less bold form, and no longer lets an unrelated fenced JSON block replace the result (#51, #53).
+- Workflow recovery: re-entering an archived stage reopens the archived state (#63), block-YAML `completed_canonical_stages` lists parse correctly (#65), Engram state resolution reads local state before Engram (#66), and orphan workflow locks are recovered instead of dead-ending delegation (#67).
+- Delegation cancellation bounds the child abort wait after a timeout (#64), and the TUI installer reports a degraded install honestly instead of claiming success (#68).
+- The installer only exposes the plugin entrypoint once runtime dependencies resolve (#47).
+
+### Verification boundary
+- Local repository checks cover 970 unit tests (35 files), 325 YAML scenarios, and 18 harness checks; CI runs the same suite on Node 22.
+- This release is OpenCode V2 only (see the breaking note above); a V1 host cannot register the plugin.
 
 ## 1.3.1 (2026-09-24)
 
