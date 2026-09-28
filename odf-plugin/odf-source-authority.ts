@@ -6,6 +6,7 @@ const MAX_FILE_LENGTH = 256
 const MAX_SNIPPET_LENGTH = 160
 const MAX_XMLID_LENGTH = 160
 const MAX_ROOT_LENGTH = 4096
+const MAX_REASON_LENGTH = 500
 
 export interface SourceAuthorityEvidence {
   file: string
@@ -45,7 +46,20 @@ export interface SourceAuthorityViewEnvelope {
   }
 }
 
-export type SourceAuthorityEnvelope = SourceAuthorityActionEnvelope | SourceAuthorityViewEnvelope
+/**
+ * Explicit "this task references no view/action relation" envelope. Accepted
+ * only when the task itself names no concrete view/action XML ID or
+ * inherit_id/search_view_id relation (see validateSourceAuthority), so an
+ * asset-only or otherwise non-view delta is not blocked by the trigger.
+ */
+export interface SourceAuthorityNotApplicableEnvelope {
+  ok: true
+  verified: true
+  relation: "not_applicable"
+  reason: string
+}
+
+export type SourceAuthorityEnvelope = SourceAuthorityActionEnvelope | SourceAuthorityViewEnvelope | SourceAuthorityNotApplicableEnvelope
 
 export interface SourceAuthorityRoots {
   source: string
@@ -166,6 +180,21 @@ export function isViewAuthorityWork(phase: string, task: string, contextFiles: s
     /\b(?:action|view)[\s_-]+xml[\s_-]*id\b/i.test(text)
 }
 
+/**
+ * Bounded reason for a not_applicable envelope: a direct `reason` string, or
+ * the `not_applicable_reasons` object some agents emit (joined values). Both
+ * are bounded and reject control characters through safeText.
+ */
+function notApplicableReason(envelope: Record<string, unknown>): string | null {
+  if (safeText(envelope.reason, MAX_REASON_LENGTH)) return envelope.reason as string
+  const reasons = envelope.not_applicable_reasons
+  if (reasons && typeof reasons === "object" && !Array.isArray(reasons)) {
+    const values = Object.values(reasons).filter((value): value is string => safeText(value, MAX_REASON_LENGTH))
+    if (values.length > 0) return values.join(" | ").slice(0, MAX_REASON_LENGTH)
+  }
+  return null
+}
+
 export function validateSourceAuthority(opts: {
   result: unknown
   task: string
@@ -188,6 +217,26 @@ export function validateSourceAuthority(opts: {
   const viewXmlid = safeText(rawViewXmlid, MAX_XMLID_LENGTH) ? rawViewXmlid : null
   const relation = safeText(rawRelation, MAX_XMLID_LENGTH) ? rawRelation : null
   const targetXmlid = safeText(rawTargetXmlid, MAX_XMLID_LENGTH) ? rawTargetXmlid : null
+
+  // Explicit not_applicable envelope: only when the task names no concrete
+  // view/action XML ID and no inherit_id/search_view_id relation. Any concrete
+  // hint keeps the deterministic lookup mandatory, so the escape hatch cannot
+  // bypass real view-authority work.
+  if (relation?.toLowerCase() === "not_applicable") {
+    if (envelope.ok !== true || envelope.verified !== true || actionXmlid || viewXmlid) {
+      return { ok: false, reason: "source authority not_applicable must declare ok: true, verified: true, and no action/view XML ID" }
+    }
+    const hints = authorityHints(`${opts.task}\n${opts.contextFiles?.join("\n") || ""}`)
+    if (hints.action || hints.target || hints.relation) {
+      return { ok: false, reason: "source authority not_applicable is rejected when the task references a concrete view/action relation" }
+    }
+    const reason = notApplicableReason(envelope)
+    if (!reason) {
+      return { ok: false, reason: "source authority not_applicable requires a bounded reason" }
+    }
+    return { ok: true, envelope: { ok: true, verified: true, relation: "not_applicable", reason } }
+  }
+
   if (envelope.ok !== true || envelope.verified !== true || Boolean(actionXmlid) === Boolean(viewXmlid) || !relation || !targetXmlid) {
     return { ok: false, reason: "source authority evidence is malformed or must declare ok: true and verified: true" }
   }

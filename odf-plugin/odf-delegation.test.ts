@@ -3007,7 +3007,7 @@ describe("source authority adapter", () => {
         roots: { source },
       })
       expect(result, `Odoo ${golden.odoo_version}`).toMatchObject({ ok: true })
-      expect(result.envelope?.target_xmlid).toBe(golden.target)
+      expect(result.envelope).toMatchObject({ target_xmlid: golden.target })
     }
   })
 
@@ -3063,6 +3063,87 @@ describe("source authority adapter", () => {
       roots: { source },
     })
     expect(unbounded).toMatchObject({ ok: false, reason: expect.stringContaining("malformed or unbounded") })
+  })
+
+  it("accepts a bounded not_applicable envelope when the task names no concrete relation", () => {
+    const source = path.join(sourcePrecisionFixtureRoot, "odoo-19.0")
+    const result = validateSourceAuthority({
+      result: {
+        status: "ok",
+        source_authority: {
+          ok: true,
+          verified: true,
+          relation: "not_applicable",
+          reason: "Frontend SCSS-only delta; no ir.ui.view or ir.actions.* record is introduced.",
+        },
+      },
+      task: "Design the cycle-count list assets and resolve any view XML ID claims as not applicable",
+      roots: { source },
+    })
+
+    expect(result).toMatchObject({
+      ok: true,
+      envelope: { ok: true, verified: true, relation: "not_applicable", reason: expect.stringContaining("SCSS-only") },
+    })
+  })
+
+  it("accepts the not_applicable_reasons object shape and bounds its values", () => {
+    const source = path.join(sourcePrecisionFixtureRoot, "odoo-19.0")
+    const result = validateSourceAuthority({
+      result: {
+        source_authority: {
+          ok: true,
+          verified: true,
+          relation: "not_applicable",
+          not_applicable_reasons: {
+            relation: "No view inheritance: the module has no views directory.",
+            target: "No ir.ui.view or ir.actions.* record is targeted.",
+          },
+        },
+      },
+      task: "Implement the asset-only delta and confirm there is no view XML ID relation",
+      roots: { source },
+    })
+
+    expect(result.ok).toBe(true)
+    expect(result.envelope?.relation).toBe("not_applicable")
+    const reason = (result.envelope as { reason?: string } | undefined)?.reason || ""
+    expect(reason).toContain("No view inheritance")
+    expect(reason.length).toBeLessThanOrEqual(500)
+  })
+
+  it("rejects not_applicable when the task names a concrete view/action relation", () => {
+    const source = path.join(sourcePrecisionFixtureRoot, "odoo-19.0")
+    const result = validateSourceAuthority({
+      result: {
+        source_authority: { ok: true, verified: true, relation: "not_applicable", reason: "Nothing to prove" },
+      },
+      task: "Design view inheritance with inherit_id for custom.view_child",
+      roots: { source },
+    })
+
+    expect(result).toMatchObject({ ok: false, reason: expect.stringContaining("not_applicable is rejected") })
+  })
+
+  it("rejects malformed not_applicable envelopes", () => {
+    const source = path.join(sourcePrecisionFixtureRoot, "odoo-19.0")
+    const missingReason = validateSourceAuthority({
+      result: { source_authority: { ok: true, verified: true, relation: "not_applicable" } },
+      task: "Implement the asset-only delta and confirm there is no view XML ID relation",
+      roots: { source },
+    })
+    expect(missingReason).toMatchObject({ ok: false, reason: expect.stringContaining("requires a bounded reason") })
+
+    const withViewXmlid = validateSourceAuthority({
+      result: {
+        source_authority: {
+          ok: true, verified: true, relation: "not_applicable", view_xmlid: "custom.view_child", reason: "N/A",
+        },
+      },
+      task: "Implement the asset-only delta and confirm there is no view XML ID relation",
+      roots: { source },
+    })
+    expect(withViewXmlid).toMatchObject({ ok: false, reason: expect.stringContaining("no action/view XML ID") })
   })
 })
 
@@ -3615,6 +3696,32 @@ ${overrides}`
     expect(output).toMatchObject({ status: "blocked", reason: "source-authority-invalid" })
     expect(output.message).toContain("missing or malformed")
     expect(output.result.source_authority).toMatchObject({ ok: false, verified: false })
+  })
+
+  it("accepts a not_applicable authority envelope for non-view work", async () => {
+    const { createODFDelegate } = await import("./odf-delegation.js")
+    const taskApi = vi.fn().mockResolvedValue({
+      status: "ok",
+      design_closed: true,
+      source_authority: {
+        ok: true,
+        verified: true,
+        relation: "not_applicable",
+        reason: "Asset-only SCSS delta; no view or action record is introduced.",
+      },
+    })
+    const output = JSON.parse(await createODFDelegate(undefined, tempHome).execute({
+      phase: "DESIGN",
+      prompt: "Design the cycle-count list assets and resolve any view XML ID claims as not applicable",
+      context_files: [],
+      odoo_source_root: path.join(sourcePrecisionFixtureRoot, "odoo-19.0"),
+    }, { sessionID: "authority-not-applicable", task: taskApi } as any) as string)
+
+    expect(output).toMatchObject({
+      status: "delegated",
+      result: { source_authority: { ok: true, verified: true, relation: "not_applicable" } },
+    })
+    expect(taskApi.mock.calls[0][0].prompt).toContain('relation: "not_applicable"')
   })
 
   it("blocks a generic target that does not match the deterministic action relation", async () => {
