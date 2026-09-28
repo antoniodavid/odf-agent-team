@@ -58,7 +58,8 @@ function getRl() {
     });
     rl.on('close', () => {
       process.stdout.write(SHOW_CURSOR);
-      process.exit(0);
+      // Preserve a degraded-install exit code instead of masking it with 0.
+      process.exit(process.exitCode ?? 0);
     });
   }
   return rl;
@@ -191,6 +192,34 @@ function run(cmd, opts = {}) {
     encoding: 'utf-8',
     ...opts,
   });
+}
+
+/** True when the plugin runtime dependencies resolve from `dir`. Mirrors
+ * odf_runtime_deps_ready in install.sh: a failed npm install is only benign
+ * when zod and yaml still import. */
+function runtimeDepsReady(dir = CONFIG_DIR) {
+  if (!fs.existsSync(path.join(dir, 'package.json'))) return true;
+  try {
+    execFileSync(process.execPath, ['-e', "Promise.all([import('zod'), import('yaml')]).then(() => {}, () => process.exit(1))"], {
+      cwd: dir,
+      stdio: 'pipe',
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Report contract for the final screen: a degraded install must never read as
+ * complete. Pure on purpose so it is testable without the interactive TUI. */
+function installOutcome(mode, failures) {
+  const degraded = Array.isArray(failures) && failures.length > 0;
+  const label = mode === 'install' ? 'Install' : 'Update';
+  return {
+    degraded,
+    heading: `${label} ${degraded ? 'Incomplete' : 'Complete'}`,
+    failures: degraded ? [...failures] : [],
+  };
 }
 
 function detectExistingInstall() {
@@ -663,12 +692,22 @@ async function installProgress(components) {
     process.stdout.write(`${ESC}[A${progressBar(4, 5)}  ${DIM}CodeGraph — skipped${RESET}\n`);
   }
 
+  const failures = [];
+
   // npm install
   if (fs.existsSync(path.join(CONFIG_DIR, 'package.json'))) {
     process.stdout.write(`${ESC}[A${progressBar(4, 5)}  Running npm install...\n`);
+    let npmFailed = false;
     try { run(`cd "${CONFIG_DIR}" && npm install --no-audit --no-fund`, { silent: true }); }
-    catch { /* non-fatal */ }
-    process.stdout.write(`${ESC}[A${progressBar(5, 5)}  ${fg.green}npm install done${RESET}\n`);
+    catch { npmFailed = true; }
+    if (!npmFailed) {
+      process.stdout.write(`${ESC}[A${progressBar(5, 5)}  ${fg.green}npm install done${RESET}\n`);
+    } else if (runtimeDepsReady()) {
+      process.stdout.write(`${ESC}[A${progressBar(5, 5)}  ${fg.yellow}npm install failed; zod/yaml already resolve from the config dir${RESET}\n`);
+    } else {
+      failures.push('npm install failed and the runtime dependencies (zod, yaml) do not resolve from the config directory');
+      process.stdout.write(`${ESC}[A${progressBar(5, 5)}  ${fg.red}npm install failed${RESET}\n`);
+    }
   } else {
     process.stdout.write(`${ESC}[A${progressBar(5, 5)}  ${DIM}npm — no package.json${RESET}\n`);
   }
@@ -679,6 +718,8 @@ async function installProgress(components) {
     run(`node "${path.join(CONFIG_DIR, 'scripts', 'odf-test-runner.js')}"`, { silent: true });
     process.stdout.write(`  ${fg.green}✅ Self-test passed${RESET}\n`);
   } catch (e) {
+    const detail = String(e.stderr || e.message || e).split('\n').map(line => line.trim()).filter(Boolean)[0] || 'unknown error';
+    failures.push(`self-test failed: ${detail.slice(0, 200)}`);
     process.stdout.write(`  ${fg.red}❌ Self-test failed${RESET}\n`);
     process.stdout.write(`  ${DIM}${e.stderr?.split('\n').slice(0, 3).join('\n')}${RESET}\n`);
   }
@@ -686,8 +727,8 @@ async function installProgress(components) {
   // Cleanup
   fs.rmSync(tmpDir, { recursive: true, force: true });
 
-  console.log(`\n  ${fg.green}${BOLD}Done!${RESET}`);
-  return backupDir;
+  console.log(`\n  ${failures.length ? fg.red : fg.green}${BOLD}${failures.length ? 'Completed with errors' : 'Done!'}${RESET}`);
+  return { backupDir, failures };
 }
 
 async function uninstallFlow() {
@@ -770,7 +811,7 @@ async function installFlow(mode) {
     return;
   }
 
-  const backupDir = await installProgress(components);
+  const { backupDir, failures } = await installProgress(components);
   if (components.includes('mcp')) {
     try {
       configureMCP();
@@ -780,13 +821,21 @@ async function installFlow(mode) {
       console.log(`  ${fg.yellow}⚠ MCP configuration skipped: ${String(err.message || err).slice(0, 80)}${RESET}`);
     }
   }
-  await showResult(mode, backupDir);
+  await showResult(mode, backupDir, failures);
 }
 
-async function showResult(mode, backupDir) {
+async function showResult(mode, backupDir, failures = []) {
   clearScreen();
   showLogo();
-  console.log(`  ${header(mode === 'install' ? 'Install Complete' : 'Update Complete')}\n`);
+  const outcome = installOutcome(mode, failures);
+  console.log(`  ${header(outcome.heading)}\n`);
+  if (outcome.degraded) {
+    process.exitCode = 1;
+    console.log(`  ${fg.red}${BOLD}The installation finished with errors:${RESET}`);
+    for (const failure of outcome.failures) console.log(`  ${fg.red}✗${RESET} ${failure}`);
+    console.log(`  ${DIM}Files were installed at ${CONFIG_DIR}. Fix the causes and re-run, or restore the backup.${RESET}`);
+    console.log(`\n  ${divider()}\n`);
+  }
   console.log(`  ${bullet('Version', `v${getCurrentVersion()}`)}`);
   console.log(`  ${bullet('Directory', CONFIG_DIR)}`);
   console.log(`  ${bullet('Backup', backupDir)}`);
@@ -843,4 +892,6 @@ export {
   cleanupStalePackPaths,
   cleanupStalePluginFiles,
   installFiles,
+  installOutcome,
+  runtimeDepsReady,
 };
