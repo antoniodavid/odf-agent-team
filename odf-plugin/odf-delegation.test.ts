@@ -55,7 +55,7 @@ import {
   type ODFAgent,
 } from "./odf-delegation.js"
 import { recordAiProvenance } from "./odf-governance.js"
-import { ODF_V2_SESSION } from "./odf-delegation-health.js"
+import { ODF_V2_SESSION, sessionResultFromText } from "./odf-delegation-health.js"
 import { getOdfConfigDir } from "./odf-delegation-shared.js"
 import { advanceWorkflow, resolveWorkflowRoute, type CanonicalStage } from "./odf-workflow.js"
 import { buildCandidateManifest, computeCandidateDigest } from "./candidate-manifest.js"
@@ -2213,6 +2213,90 @@ describe("findTaskApi", () => {
     expect(findTaskApi({ sessionID: "s1" } as any, {
       session: { create: vi.fn(), prompt: vi.fn() },
     } as any)).toBeNull()
+  })
+})
+
+describe("sessionResultFromText", () => {
+  it("parses a nested ODF Result section and never lets a fenced JSON block replace it", () => {
+    const result = sessionResultFromText([
+      "## ODF Result",
+      "- **status**: ok",
+      "- **design_closed**: true",
+      "- **source_authority**:",
+      "  - ok: true",
+      "  - verified: true",
+      "  - relation: not_applicable",
+      "  - reason: Asset-only delta",
+      "",
+      "```json",
+      '{"unrelated": true}',
+      "```",
+    ].join("\n"))
+
+    expect(result).toMatchObject({
+      status: "ok",
+      design_closed: true,
+      source_authority: { ok: true, verified: true, relation: "not_applicable", reason: "Asset-only delta" },
+    })
+  })
+
+  it("parses the real nested source_authority shape with not_applicable_reasons", () => {
+    const result = sessionResultFromText([
+      "## ODF Result",
+      "- **status**: ok",
+      "- **source_authority**:",
+      "  - ok: true",
+      "  - verified: true",
+      "  - relation: not_applicable",
+      "  - target_xmlid: none",
+      "  - not_applicable_reasons:",
+      '    - relation: "SCSS-only delta"',
+      '    - target: "No ir.ui.view or ir.actions.* record"',
+    ].join("\n"))
+
+    const authority = result.source_authority as Record<string, any>
+    expect(authority.ok).toBe(true)
+    expect(authority.relation).toBe("not_applicable")
+    expect(authority.not_applicable_reasons.relation).toContain("SCSS-only")
+  })
+
+  it("accepts the dash-less bold form and single-line JSON values", () => {
+    const result = sessionResultFromText([
+      "## ODF Result",
+      "**status**: ok",
+      '- **artifacts_saved**: [{"name": "design", "artifact_ref": {"store": "openspec", "ref": "openspec/changes/x/design/design.md"}}]',
+      "**skill_resolution**: injected",
+    ].join("\n"))
+
+    expect(result.status).toBe("ok")
+    expect(result.artifacts_saved).toEqual([
+      { name: "design", artifact_ref: { store: "openspec", ref: "openspec/changes/x/design/design.md" } },
+    ])
+    expect(result.skill_resolution).toBe("injected")
+  })
+
+  it("still parses a pure JSON result when no ODF Result section exists", () => {
+    const result = sessionResultFromText('{"status":"ok","executive_summary":"json only"}')
+    expect(result).toEqual({ status: "ok", executive_summary: "json only" })
+  })
+
+  it("fails closed when the section has no status", () => {
+    expect(() => sessionResultFromText("## ODF Result\n- **design_closed**: true")).toThrow(/invalid-task-result/)
+  })
+
+  it("drops prototype-polluting keys from nested structures", () => {
+    const result = sessionResultFromText([
+      "## ODF Result",
+      "- **status**: ok",
+      "- **source_authority**:",
+      "  - __proto__: polluted",
+      "  - ok: true",
+    ].join("\n"))
+
+    const authority = result.source_authority as Record<string, unknown>
+    expect(authority.ok).toBe(true)
+    expect(Object.prototype.hasOwnProperty.call(authority, "polluted")).toBe(false)
+    expect(Object.getPrototypeOf(authority)).toBe(Object.prototype)
   })
 })
 

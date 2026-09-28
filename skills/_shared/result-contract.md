@@ -48,7 +48,7 @@ as the LAST part of its response. The orchestrator uses it for phase decisions.
 - **status**: ok | warning | blocked | failed
 - **executive_summary**: {1-2 sentence decision-grade summary}
 - **strategy**: standard | custom | migration | integration
-- **artifacts_saved**: [{name, artifact_ref: {store, ref}, engram_topic_key?}]
+- **artifacts_saved**: [{"name": "design", "artifact_ref": {"store": "openspec", "ref": "openspec/changes/<change>/design/design.md"}}]
 - **next_recommended**: [{phase or agent to invoke next}]
 - **risks**: [{risk description}]
 - **odoo_version**: {16|17|18|19}
@@ -71,13 +71,32 @@ as the LAST part of its response. The orchestrator uses it for phase decisions.
 | `validation_evidence` | NO (IMPLEMENT) | Path to `.odf/validation-evidence-{change}.json` plus command/exit-code summary. The plugin validates the artifact; prose never counts. |
 | `receipt` | NO (FAIL/blocked) | Reference to `.odf/receipt-{change}.json`; `action: null` means pending disposition. |
 
+### Serialization Rules
+
+The host parses this envelope from the agent's final text, so serialization is
+part of the contract:
+
+- One `- **key**: value` line per field. A bold line without the list marker
+  (`**key**: value`) is also accepted.
+- Structured values (objects, arrays) MUST be single-line JSON, e.g.
+  `- **source_authority**: {"ok": true, "verified": true, "relation": "inherit_id", ...}`.
+  Nested `- key: value` bullet lists are parsed as objects, but single-line JSON
+  is the only shape guaranteed for deep structures.
+- `true`, `false`, and `null` are parsed as their JSON values.
+- The `## ODF Result` section is authoritative when present: the parser reads it
+  first and never replaces it with an unrelated fenced JSON block. Without that
+  section, the first fenced JSON block or the whole message is parsed as JSON.
+- A section without a `status` line is an invalid task result.
+- Do not add fenced code blocks to the final message unless the whole message is
+  the JSON result.
+
 ### Phase-Conditional Fields
 
 Agents declare ONLY the extra fields for their phase, not a full copy of this envelope:
 
 | Agent / phase | Extra fields |
 |---|---|
-| DESIGN (backend, frontend, dba, migrator) | `design_closed`, `design_path`, `design_meta`; `source_authority_required` + `source_authority_refs` (view/XML work); `required_evidence` (dba); `migration_context` (migrator) |
+| DESIGN (backend, frontend, dba, migrator) | `design_closed`, `design_path`, `design_meta`; view/XML work also returns the structured `source_authority` envelope (a verified view/action relation, or `relation: "not_applicable"` + bounded `reason` when the task references nothing); `source_authority_required` + `source_authority_refs`; `required_evidence` (dba); `migration_context` (migrator) |
 | IMPLEMENT (backend, frontend, batch) | consumed `design_closed`/`design_path`/`design_meta`; `source_authority_*` when applicable; `batch_summary` + `validation_evidence` (batch) |
 | IMPLEMENT (dba, migrator) | `implementation_evidence`; `rollback_authorized` (migrator) |
 | ASSESS (migrator) | `migration_path`, `compatibility_evidence` |

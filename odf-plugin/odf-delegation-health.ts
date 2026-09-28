@@ -883,51 +883,89 @@ export function isCancellation(result: unknown): boolean {
   return typeof status === "string" && /^(cancelled|canceled|aborted)$/i.test(status.trim())
 }
 
-function sessionResultFromText(text: string): Record<string, unknown> {
+const UNSAFE_RESULT_KEYS = new Set(["__proto__", "constructor", "prototype"])
+
+function resultKey(rawKey: string): string {
+  return rawKey.trim().toLowerCase().replace(/[\s-]+/g, "_")
+}
+
+function resultValue(rawValue: string, key: string): unknown {
+  if (key === "status") return rawValue.split("|")[0].trim()
+  if (rawValue === "null") return null
+  if (rawValue === "true") return true
+  if (rawValue === "false") return false
+  if (rawValue.startsWith("[") || rawValue.startsWith("{")) {
+    try {
+      return JSON.parse(rawValue)
+    } catch {
+      // Preserve non-JSON Markdown values as text.
+    }
+  }
+  return rawValue
+}
+
+/**
+ * Parse the `## ODF Result` section. Flat `- **key**: value` lines are the
+ * contract; nested `- key: value` bullets under a key become nested objects,
+ * and a bold line without the list marker (`**key**: value`) is accepted too.
+ * Structured values are still expected as single-line JSON, which is the only
+ * shape guaranteed for deep structures. `__proto__`-style keys are dropped so
+ * agent text can never mutate prototypes.
+ */
+function parseResultSection(section: string): Record<string, unknown> {
+  const result: Record<string, unknown> = {}
+  const stack: Array<{ indent: number; container: Record<string, unknown> }> = [{ indent: -1, container: result }]
+  for (const line of section.split(/\r?\n/)) {
+    const bold = line.match(/^(\s*)(?:-\s+)?\*\*([^*]+)\*\*:\s*(.*?)\s*$/)
+    const item = bold ? null : line.match(/^(\s*)-\s+([A-Za-z0-9_.-]+):\s*(.*?)\s*$/)
+    const match = bold || item
+    if (!match) continue
+    const indent = match[1].length
+    const key = resultKey(match[2])
+    if (!key || UNSAFE_RESULT_KEYS.has(key)) continue
+    while (stack.length > 1 && indent <= stack[stack.length - 1].indent) stack.pop()
+    if (!bold && stack.length === 1) continue
+    const parent = stack[stack.length - 1].container
+    const rawValue = match[3].trim()
+    if (rawValue === "") {
+      const child: Record<string, unknown> = {}
+      parent[key] = child
+      stack.push({ indent, container: child })
+      continue
+    }
+    parent[key] = resultValue(rawValue, key)
+    // Children of a scalar-valued key belong to that key, not to its parent.
+    stack.push({ indent, container: {} })
+  }
+  return result
+}
+
+export function sessionResultFromText(text: string): Record<string, unknown> {
   const trimmed = text.trim()
+  const resultSection = trimmed.match(/##\s*ODF Result\s*([\s\S]*)/i)?.[1]
+  if (resultSection !== undefined) {
+    const result = parseResultSection(resultSection)
+    if (typeof result.status !== "string" || result.status.length === 0) {
+      throw new Error("invalid-task-result: session.prompt did not return an ODF Result")
+    }
+    return result
+  }
+
+  // No ODF Result section: accept the whole message or the first fenced block
+  // as JSON. A fenced block can never replace a declared ODF Result section.
   const candidates = [
     trimmed.match(/```(?:json)?\s*([\s\S]*?)```/i)?.[1]?.trim(),
     trimmed,
   ].filter((candidate): candidate is string => Boolean(candidate))
-
   for (const candidate of candidates) {
     try {
       const parsed = JSON.parse(candidate)
-      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) return parsed
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) return parsed as Record<string, unknown>
     } catch {
-      // The agent contract is Markdown, so try the ODF Result section next.
+      // Keep looking for a structured result.
     }
   }
-
-  const resultSection = trimmed.match(/##\s*ODF Result\s*([\s\S]*)/i)?.[1] || ""
-  const result: Record<string, unknown> = {}
-  for (const line of resultSection.split(/\r?\n/)) {
-    const match = line.match(/^\s*-\s+\*\*([^*]+)\*\*:\s*(.*?)\s*$/)
-    if (!match) continue
-    const key = match[1].trim().toLowerCase().replace(/[\s-]+/g, "_")
-    const rawValue = match[2].trim()
-    if (key === "status") {
-      result[key] = rawValue.split("|")[0].trim()
-      continue
-    }
-    if (rawValue === "null") {
-      result[key] = null
-      continue
-    }
-    if (rawValue.startsWith("[") || rawValue.startsWith("{")) {
-      try {
-        result[key] = JSON.parse(rawValue)
-        continue
-      } catch {
-        // Preserve non-JSON Markdown values as text.
-      }
-    }
-    result[key] = rawValue
-  }
-  if (typeof result.status !== "string" || result.status.length === 0) {
-    throw new Error("invalid-task-result: session.prompt did not return an ODF Result")
-  }
-  return result
+  throw new Error("invalid-task-result: session.prompt did not return an ODF Result")
 }
 
 
