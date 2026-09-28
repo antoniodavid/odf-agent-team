@@ -93,6 +93,7 @@ export interface MetricsEntryToFinalGate {
   sample_count: number
   p50_ms: number | null
   p95_ms: number | null
+  stage_durations_ms: MetricsEntryToFinalGateStageDuration[]
   changes: number
   calls_per_change: number | null
   verified_completions: number
@@ -120,6 +121,14 @@ export interface MetricsEntryToFinalGateCohort {
   p50_ms: number | null
   p95_ms: number | null
   verified_completions: number
+}
+
+export interface MetricsEntryToFinalGateStageDuration {
+  from: string
+  to: string
+  sample_count: number
+  p50_ms: number | null
+  p95_ms: number | null
 }
 
 export interface MetricsBaseline {
