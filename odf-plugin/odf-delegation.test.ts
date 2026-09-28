@@ -4158,6 +4158,29 @@ ${overrides}`
     expect(session.abort).toHaveBeenCalledWith({ path: { id: "child-timeout" }, query: { directory: tempHome } })
   })
 
+  it("returns the timeout result when the child abort never settles", async () => {
+    const { createODFDelegate } = await import("./odf-delegation.js")
+    process.env.ODF_TASK_ABORT_GRACE_MS = "25"
+    try {
+      const session = {
+        create: vi.fn().mockResolvedValue(sdkCreateResult("child-abort-hang")),
+        prompt: vi.fn().mockReturnValue(new Promise(() => {})),
+        abort: vi.fn().mockReturnValue(new Promise(() => {})),
+      }
+      const started = Date.now()
+      const output = await createODFDelegate({ session } as any, tempHome).execute(
+        { phase: "ASSESS", prompt: "Assess a sales feature", context_files: [], timeout_ms: 10 },
+        { sessionID: "parent-abort-hang", directory: tempHome, abort: new AbortController().signal } as any,
+      )
+
+      expect(JSON.parse(output as string)).toMatchObject({ status: "timeout" })
+      expect(Date.now() - started).toBeLessThan(2_000)
+      expect(session.abort).toHaveBeenCalledWith({ path: { id: "child-abort-hang" }, query: { directory: tempHome } })
+    } finally {
+      delete process.env.ODF_TASK_ABORT_GRACE_MS
+    }
+  })
+
   it("aborts the child session when the tool is cancelled", async () => {
     const { createODFDelegate } = await import("./odf-delegation.js")
     const controller = new AbortController()
@@ -4197,6 +4220,32 @@ ${overrides}`
 
     expect(JSON.parse(output as string)).toMatchObject({ status: "timeout" })
     expect(session.interrupt).toHaveBeenCalledWith({ sessionID: "v2-timeout" })
+  })
+
+  it("returns the timeout result when the V2 interrupt never settles", async () => {
+    const { createODFDelegate } = await import("./odf-delegation.js")
+    process.env.ODF_TASK_ABORT_GRACE_MS = "25"
+    try {
+      const session = {
+        create: vi.fn().mockResolvedValue({ id: "v2-abort-hang" }),
+        get: vi.fn(),
+        prompt: vi.fn().mockReturnValue(new Promise(() => {})),
+        wait: vi.fn(),
+        context: vi.fn(),
+        interrupt: vi.fn().mockReturnValue(new Promise(() => {})),
+      }
+      const started = Date.now()
+      const output = await createODFDelegate({ v2: { session } } as any, tempHome).execute(
+        { phase: "ASSESS", prompt: "Assess a sales feature", context_files: [], timeout_ms: 10 },
+        { sessionID: "parent-v2-abort-hang", directory: tempHome, abort: new AbortController().signal } as any,
+      )
+
+      expect(JSON.parse(output as string)).toMatchObject({ status: "timeout" })
+      expect(Date.now() - started).toBeLessThan(2_000)
+      expect(session.interrupt).toHaveBeenCalledWith({ sessionID: "v2-abort-hang" })
+    } finally {
+      delete process.env.ODF_TASK_ABORT_GRACE_MS
+    }
   })
 
   it("aborts a V2 child session when the tool is cancelled", async () => {
