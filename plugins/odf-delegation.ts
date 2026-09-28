@@ -4703,6 +4703,68 @@ function workflowLockPath(workspaceRoot: string, changeName: string): string {
   return path.join(workspaceRoot, ".odf", `workflow-${changeName}${WORKFLOW_LOCK_SUFFIX}`)
 }
 
+const DEFAULT_WORKFLOW_LOCK_STALE_MS = 60_000
+
+/** TTL for locks whose owner cannot be probed (dead/other host/malformed). */
+function workflowLockStaleMs(): number {
+  const raw = Number(process.env.ODF_WORKFLOW_LOCK_STALE_MS)
+  return Number.isFinite(raw) && raw >= 0 ? raw : DEFAULT_WORKFLOW_LOCK_STALE_MS
+}
+
+function readWorkflowLockOwner(lockPath: string): Record<string, unknown> | null {
+  try {
+    const parsed: unknown = JSON.parse(fsSync.readFileSync(lockPath, "utf8"))
+    return parsed !== null && typeof parsed === "object" && !Array.isArray(parsed) ? parsed as Record<string, unknown> : null
+  } catch {
+    return null
+  }
+}
+
+/** true = running, false = dead, null = unknown (invalid pid). */
+function lockOwnerAlive(pid: unknown): boolean | null {
+  if (typeof pid !== "number" || !Number.isInteger(pid) || pid <= 0) return null
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch (error) {
+    // EPERM means the process exists but belongs to another user.
+    return (error as NodeJS.ErrnoException).code === "ESRCH" ? false : true
+  }
+}
+
+/** A lock is stale when its owner is provably dead, or when it is old enough
+ * that a crashed/partial acquisition (empty file) cannot belong to a live
+ * operation. A live owner on this host is never considered stale. */
+function isStaleWorkflowLock(lockPath: string, staleMs: number): boolean {
+  let ageMs: number
+  try {
+    ageMs = Date.now() - fsSync.statSync(lockPath).mtimeMs
+  } catch {
+    return true // The lock vanished; the retry will arbitrate through `wx`.
+  }
+  const owner = readWorkflowLockOwner(lockPath)
+  if (owner && typeof owner.hostname === "string" && owner.hostname === os.hostname()) {
+    const alive = lockOwnerAlive(owner.pid)
+    if (alive !== null) return !alive
+  }
+  return ageMs >= staleMs
+}
+
+/** Remove an orphan lock. Re-checks staleness first so a concurrent recovery
+ * cannot unlink a lock acquired after the first check. Returns false when the
+ * lock is no longer provably stale. */
+function recoverStaleWorkflowLock(lockPath: string, staleMs: number): boolean {
+  if (!isStaleWorkflowLock(lockPath, staleMs)) return false
+  const tombstone = `${lockPath}.stale-${process.pid}-${nodeCrypto.randomUUID()}`
+  try {
+    fsSync.renameSync(lockPath, tombstone)
+  } catch {
+    return false
+  }
+  try { fsSync.unlinkSync(tombstone) } catch { /* best-effort */ }
+  return true
+}
+
 function workflowStateReference(store: ArtifactStore, changeName: string): string {
   return store === "openspec"
     ? `openspec/changes/${changeName}/state.yaml`
@@ -4727,7 +4789,27 @@ async function withWorkflowLock<T>(
       lockFd = fsSync.openSync(lockPath, "wx")
     } catch (error) {
       const code = (error as NodeJS.ErrnoException).code
-      return { locked: false, error: code === "EEXIST" ? "workflow-state-locked" : "workflow-lock-failed" }
+      if (code !== "EEXIST") return { locked: false, error: "workflow-lock-failed" }
+      const staleMs = workflowLockStaleMs()
+      if (!isStaleWorkflowLock(lockPath, staleMs)) return { locked: false, error: "workflow-state-locked" }
+      const recovered = recoverStaleWorkflowLock(lockPath, staleMs)
+      try {
+        lockFd = fsSync.openSync(lockPath, "wx")
+      } catch {
+        return { locked: false, error: recovered ? "workflow-state-locked" : "workflow-lock-failed" }
+      }
+    }
+    // Owner metadata makes a crashed holder recoverable; `wx` remains the
+    // arbiter, so a failed write never weakens mutual exclusion.
+    try {
+      fsSync.writeSync(lockFd, JSON.stringify({
+        pid: process.pid,
+        hostname: os.hostname(),
+        started_at: new Date().toISOString(),
+        token: nodeCrypto.randomUUID(),
+      }))
+    } catch {
+      // Best-effort: the lock is still held through the open file descriptor.
     }
     return { locked: true, value: await operation() }
   } catch {

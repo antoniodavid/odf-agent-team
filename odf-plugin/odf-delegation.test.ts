@@ -3,7 +3,7 @@ import * as path from "node:path"
 import * as fs from "node:fs/promises"
 import * as fsSync from "node:fs"
 import * as os from "node:os"
-import { execSync } from "node:child_process"
+import { execSync, spawnSync } from "node:child_process"
 import YAML from "yaml"
 import { tool as v1Tool } from "@opencode-ai/plugin"
 
@@ -489,6 +489,53 @@ describe("createODFWorkflowOverride", () => {
       pending_stage: "VERIFY",
       resumable: true,
     })
+  })
+
+  it("recovers an orphan workflow lock whose owner process is dead", async () => {
+    const tool = await seedState("DECIDE", ["DECIDE"])
+    const lockPath = path.join(root, ".odf", "workflow-ov-change.workflow.lock")
+    await fs.mkdir(path.dirname(lockPath), { recursive: true })
+    const dead = spawnSync(process.execPath, ["-e", "process.exit(0)"])
+    await fs.writeFile(lockPath, JSON.stringify({
+      pid: dead.pid, hostname: os.hostname(), started_at: new Date().toISOString(), token: "dead",
+    }), "utf8")
+
+    const output = JSON.parse(await tool.execute(baseArgs(), {} as any) as string)
+    expect(output).toMatchObject({ status: "overridden" })
+    expect(fsSync.existsSync(lockPath)).toBe(false)
+  })
+
+  it("recovers a stale empty workflow lock but keeps a fresh one blocking", async () => {
+    const tool = await seedState("DECIDE", ["DECIDE"])
+    const lockPath = path.join(root, ".odf", "workflow-ov-change.workflow.lock")
+    await fs.mkdir(path.dirname(lockPath), { recursive: true })
+
+    await fs.writeFile(lockPath, "", "utf8")
+    const blocking = JSON.parse(await tool.execute(baseArgs(), {} as any) as string)
+    expect(blocking).toMatchObject({ status: "blocked", reason: "workflow-state-locked" })
+
+    const past = new Date(Date.now() - 120_000)
+    await fs.utimes(lockPath, past, past)
+    const recovered = JSON.parse(await tool.execute(baseArgs(), {} as any) as string)
+    expect(recovered).toMatchObject({ status: "overridden" })
+  })
+
+  it("never steals a lock held by a live process and recovers corrupted stale metadata", async () => {
+    const tool = await seedState("DECIDE", ["DECIDE"])
+    const lockPath = path.join(root, ".odf", "workflow-ov-change.workflow.lock")
+    await fs.mkdir(path.dirname(lockPath), { recursive: true })
+
+    await fs.writeFile(lockPath, JSON.stringify({
+      pid: process.pid, hostname: os.hostname(), started_at: new Date().toISOString(),
+    }), "utf8")
+    const live = JSON.parse(await tool.execute(baseArgs(), {} as any) as string)
+    expect(live).toMatchObject({ status: "blocked", reason: "workflow-state-locked" })
+
+    await fs.writeFile(lockPath, "{corrupted", "utf8")
+    const past = new Date(Date.now() - 120_000)
+    await fs.utimes(lockPath, past, past)
+    const recovered = JSON.parse(await tool.execute(baseArgs(), {} as any) as string)
+    expect(recovered).toMatchObject({ status: "overridden" })
   })
 
   it("re-plans from DECIDE with an approved Expectations revision", async () => {
