@@ -1,12 +1,14 @@
 # Plugin Reference — `odf-delegation`
 
-The ODF plugin injects **22 tools** into the orchestrator's tool list at runtime. They are **not MCP tools** — they are registered by the OpenCode plugin host from `plugins/odf-delegation.ts`.
+The ODF plugin injects **24 tools** into the orchestrator's tool list at runtime. They are **not MCP tools** — they are registered by the OpenCode plugin host from `plugins/odf-delegation.ts`.
 
 ## Tool inventory
 
 | Tool | Kind | Purpose |
 |------|------|---------|
 | `odf_delegate` | write | Route a phase + prompt to the right sub-agent with skill injection |
+| `odf_delegation_prepare` | write | Resolve agent/skills/profile/prompt and mint a bounded delegation token for the host `subagent` tool |
+| `odf_delegation_seal` | write | Bind the child session to the token, run the phase gates and return the standard envelope |
 | `odf_parallel_delegate` | write | Cross-domain BUILD as 2–3 parallel branches, one aggregate join |
 | `odf_workflow_route` | read | Canonical thin-spine route for a work type |
 | `odf_workflow_advance` | read | Preview/verify a transition (never mutates) |

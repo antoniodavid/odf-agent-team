@@ -137,8 +137,11 @@ Behavior:
    lifecycle (validation evidence + workflow commit), attempt settlement,
    failure receipts, `task_session_id` in the envelope, metrics with
    `task_api_source: "subagent"`.
-5. Mark the token sealed and delete it. Duplicate seal (`already-sealed`),
-   unknown token and expiry each block with a distinct reason.
+5. The token is consumed (deleted) after the delegation is processed, even when
+   the inner result is blocked/failed; binding failures, expiry and unknown
+   tokens leave it in place for a retry. A token file found with
+   `status: "sealed"` blocks with `delegation-token-already-sealed`; a replayed
+   seal after consumption reports `delegation-token-unknown`.
 
 The returned envelope keeps the exact `odf_delegate` field set so orchestrator
 and tests can consume either path.
@@ -156,10 +159,15 @@ and tests can consume either path.
 ## Compatibility
 
 - `odf_delegate`, `odf_parallel_delegate` and the V2 bridge stay unchanged.
-- New registered tools `odf_delegation_prepare` / `odf_delegation_seal` must be
-  added to `ODF_REGISTERED_TOOLS`, the V2 adapter test that asserts the tool
-  list, `operator` docs and the architecture docs.
-- `DelegationMetrics["task_api_source"]` gains `"subagent"`.
+- Proof-backed IMPLEMENT/VERIFY stay on `odf_delegate` until the next slice
+  (attempt ledger, prepared policy gate reuse, validation evidence and workflow
+  commit parity): prepare blocks them with
+  `native-delegation-proof-parity-pending`.
+- New registered tools `odf_delegation_prepare` / `odf_delegation_seal` are in
+  `ODF_REGISTERED_TOOLS`, covered by the V2 adapter tool-list test, and listed in
+  `AGENTS.md`, `docs/plugin.md` and `docs/architecture.md`.
+- `DelegationMetrics["task_api_source"]` gained `"subagent"`; the seal records
+  the run duration from the token creation time.
 - Parallel BUILD (Phase 3) reuses the token with `branch_id`; the aggregate join
   stays with `odf_parallel_delegate` semantics.
 
