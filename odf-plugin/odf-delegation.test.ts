@@ -7766,6 +7766,175 @@ ${overrides}`
     expect(JSON.parse(await run as string).join).toMatchObject({ status: "complete", running: 0 })
   })
 
+  it("settles a stale running join after a host restart and retries only the incomplete branch", async () => {
+    const { createODFWorkflowOverride, createODFParallelDelegate } = await import("./odf-delegation.js")
+    const change = "parallel-join-recovery"
+    const branches = parallelBranches("recovery")
+    await prepareWorkflowState(change, "IMPLEMENT", "cross-domain")
+    await writeParallelEvidence(change, branches.map(branch => branch.branch_id))
+
+    // Host-death fixture: the host persisted the join while one branch was
+    // still running; the other branch had already completed and validated.
+    await fs.mkdir(path.join(tempHome, ".odf"), { recursive: true })
+    const ledgerRef = `.odf/attempt-ledger-${change}.jsonl`
+    const backendEvidenceRef = `.odf/validation-evidence-${change}-backend-recovery.json`
+    const frontendEvidenceRef = `.odf/validation-evidence-${change}-frontend-recovery.json`
+    await fs.writeFile(path.join(tempHome, ledgerRef), JSON.stringify({
+      attempt_id: "frontend-attempt-recovery", branch_id: "frontend-recovery", change, phase: "IMPLEMENT", next_stage: "BUILD",
+      status: "running", started_at: "2026-09-28T00:00:00.000Z", updated_at: "2026-09-28T00:00:00.000Z",
+      settled_at: null, reason: "acquired", result_status: "running", candidate_digest: null,
+    }) + "\n", "utf8")
+    await fs.writeFile(path.join(tempHome, ".odf", `parallel-join-${change}.json`), JSON.stringify({
+      schema_version: 1,
+      change,
+      work_type: "cross-domain",
+      phase: "IMPLEMENT",
+      timestamp: "2026-09-28T00:00:00.000Z",
+      join: { status: "running", expected: 2, completed: 1, failed: 0, running: 1, validation_verified: false },
+      branches: [
+        {
+          status: "complete", branch_id: "backend-recovery", attempt_id: "backend-attempt-recovery",
+          descriptor: { prompt: branches[0].prompt, context_files: branches[0].context_files },
+          outcome: {
+            status: "delegated", result_status: "ok", successful: true,
+            validation: { status: "verified", reason: "branch verified", commands_validated: 2 },
+            validation_verified: true, validation_evidence_ref: backendEvidenceRef,
+            attempt_ledger_ref: ledgerRef, summary: "backend done",
+          },
+        },
+        {
+          status: "running", branch_id: "frontend-recovery", attempt_id: "frontend-attempt-recovery",
+          descriptor: { prompt: branches[1].prompt, context_files: branches[1].context_files },
+          outcome: {
+            status: "running", result_status: "running", successful: false, validation: null,
+            validation_verified: false, validation_evidence_ref: frontendEvidenceRef,
+            attempt_ledger_ref: ledgerRef, summary: "parallel branch is running",
+          },
+        },
+      ],
+      evidence_refs: [backendEvidenceRef, frontendEvidenceRef],
+      attempt_ledger_refs: [ledgerRef],
+      receipt_ref: null,
+    }, null, 2), "utf8")
+
+    const override = createODFWorkflowOverride()
+    const settleJoinArgs = {
+      change_name: change,
+      artifact_store: "openspec",
+      action: "settle-join",
+      confirm_no_active_run: true,
+      reason: "El host se reinició y no queda ninguna rama activa para este join.",
+      workspace_dir: tempHome,
+    }
+
+    // The ledger is authoritative: a running branch attempt must be settled first.
+    const unsettled = JSON.parse(await override.execute(settleJoinArgs, {} as any) as string)
+    expect(unsettled).toMatchObject({ status: "blocked", reason: "join-attempts-unsettled" })
+
+    const settledAttempt = JSON.parse(await override.execute({
+      ...settleJoinArgs,
+      action: "settle-attempt",
+      attempt_id: "frontend-attempt-recovery",
+    }, {} as any) as string)
+    expect(settledAttempt).toMatchObject({ status: "settled", action: "settle-attempt" })
+
+    const settledJoin = JSON.parse(await override.execute(settleJoinArgs, {} as any) as string)
+    expect(settledJoin).toMatchObject({
+      status: "settled",
+      action: "settle-join",
+      join: { status: "blocked", expected: 2, completed: 1, failed: 1, running: 0 },
+      settled_branches: ["frontend-recovery"],
+      receipt_ref: `.odf/receipt-${change}.json`,
+    })
+    const persisted = JSON.parse(await fs.readFile(path.join(tempHome, ".odf", `parallel-join-${change}.json`), "utf8"))
+    expect(persisted.join).toMatchObject({ status: "blocked", completed: 1, failed: 1, running: 0 })
+    expect(persisted.branches.find((branch: any) => branch.branch_id === "frontend-recovery"))
+      .toMatchObject({ status: "failed", outcome: { result_status: "cancelled", successful: false } })
+    const audit = await fs.readFile(path.join(tempHome, ".odf", `override-${change}.jsonl`), "utf8")
+    expect(audit).toContain('"action":"settle-join"')
+
+    // Idempotent: settling again is a no-op.
+    const again = JSON.parse(await override.execute(settleJoinArgs, {} as any) as string)
+    expect(again).toMatchObject({ status: "already-settled", join_status: "blocked" })
+
+    // The existing retry gate still governs continuation: commit a retry
+    // receipt, then resume and relaunch only the incomplete branch.
+    await fs.writeFile(
+      path.join(tempHome, ".odf", `receipt-${change}.json`),
+      JSON.stringify({ status: "failed", action: { committed: "retry" } }),
+      "utf8",
+    )
+    const taskApi = vi.fn().mockResolvedValue({ status: "ok", executive_summary: "branch done" })
+    const resumed = JSON.parse(await createODFParallelDelegate(undefined, tempHome).execute({
+      work_type: "cross-domain",
+      phase: "IMPLEMENT",
+      change,
+      artifact_store: "openspec",
+      workflow_advance: parallelWorkflowAdvance(),
+      resume_from_join: true,
+    }, { sessionID: "recovered-session", task: taskApi } as any) as string)
+    expect(taskApi).toHaveBeenCalledTimes(1)
+    expect(resumed).toMatchObject({ status: "parallel-delegated", resumed: true, join: { status: "complete", expected: 2, completed: 2, failed: 0 } })
+    expect(resumed.branches.find((branch: any) => branch.branch_id === "backend-recovery").attempt_id).toBe("backend-attempt-recovery")
+    expect(resumed.branches.find((branch: any) => branch.branch_id === "frontend-recovery").attempt_id).not.toBe("frontend-attempt-recovery")
+  })
+
+  it("refuses to settle a join whose branches are still active in the runtime", async () => {
+    const { createODFWorkflowOverride, createODFParallelDelegate } = await import("./odf-delegation.js")
+    const change = "parallel-settle-active"
+    const branches = parallelBranches("settle-active")
+    await prepareWorkflowState(change, "IMPLEMENT", "cross-domain")
+    await writeParallelEvidence(change, branches.map(branch => branch.branch_id))
+    let resolveFirst!: (value: unknown) => void
+    let resolveSecond!: (value: unknown) => void
+    const taskApi = vi.fn()
+      .mockReturnValueOnce(new Promise(resolve => { resolveFirst = resolve }))
+      .mockReturnValueOnce(new Promise(resolve => { resolveSecond = resolve }))
+    const run = createODFParallelDelegate(undefined, tempHome).execute({
+      work_type: "cross-domain",
+      phase: "IMPLEMENT",
+      change,
+      artifact_store: "openspec",
+      workflow_advance: parallelWorkflowAdvance(),
+      branches,
+    }, { sessionID: "settle-active-session", task: taskApi } as any)
+
+    await vi.waitFor(async () => {
+      const persisted = JSON.parse(await fs.readFile(path.join(tempHome, ".odf", `parallel-join-${change}.json`), "utf8"))
+      expect(persisted.join.status).toBe("running")
+    })
+    const blockedJoin = JSON.parse(await createODFWorkflowOverride().execute({
+      change_name: change,
+      artifact_store: "openspec",
+      action: "settle-join",
+      confirm_no_active_run: true,
+      reason: "El operador confirma que quiere recuperar el join en curso del scheduler.",
+      workspace_dir: tempHome,
+    }, {} as any) as string)
+    expect(blockedJoin).toMatchObject({ status: "blocked", reason: "join-still-running" })
+
+    resolveFirst({ status: "ok" })
+    resolveSecond({ status: "ok" })
+    expect(JSON.parse(await run as string).join.status).toBe("complete")
+  })
+
+  it("requires confirmation and a persisted join for join recovery", async () => {
+    const { createODFWorkflowOverride } = await import("./odf-delegation.js")
+    const override = createODFWorkflowOverride()
+    const base = {
+      change_name: "parallel-settle-missing",
+      artifact_store: "openspec",
+      action: "settle-join",
+      reason: "El operador confirma que no hay ramas activas para recuperar el join.",
+      workspace_dir: tempHome,
+    }
+    const noConfirm = JSON.parse(await override.execute({ ...base, confirm_no_active_run: false }, {} as any) as string)
+    expect(noConfirm).toMatchObject({ status: "blocked", reason: "join-recovery-confirmation-required" })
+
+    const missing = JSON.parse(await override.execute({ ...base, confirm_no_active_run: true }, {} as any) as string)
+    expect(missing).toMatchObject({ status: "blocked", reason: "parallel-join-not-found" })
+  })
+
   it("settles acquired attempts when running-join persistence fails before task()", async () => {
     const { createODFParallelDelegate } = await import("./odf-delegation.js")
     const change = "parallel-running-persist-failure"

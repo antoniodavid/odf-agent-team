@@ -753,10 +753,21 @@ await fs.writeFile(cli, "#!/bin/sh\nprintf '{\"observations\":%s}' \"$ODF_TEST_E
       expect(result.resumable).toBe(true)
       expect(result.phase).toBe("implement")
       expect(result.applyProgress).toEqual({ completed: 1, total: 2 })
-      expect(result.artifacts["implement-progress"]).toBe("done")
+      // Presence alone is not completion: partial progress renders as in-progress.
+      expect(result.artifacts["implement-progress"]).toBe("in-progress")
       expect(result.source.state).toBe("engram")
       expect(result.warnings).toContain("OpenSpec state was not read; status is derived from Engram artifacts.")
       expect(result.status).toBe("found")
+
+      process.env.ODF_TEST_ENGRAM_EXPORT = JSON.stringify([
+        ...observations.slice(0, 3),
+        { topic_key: "odf/tool-change/implement-progress", content: "- [x] one\n- [x] two", created_at: "2026-07-31T11:03:00Z" },
+      ])
+      const completeOutput = await createODFWorkflowStatus().execute({ change_name: "tool-change", workspace_dir: root }, {} as any)
+      const completeResult = JSON.parse(completeOutput as string)
+      expect(completeResult.applyProgress).toEqual({ completed: 2, total: 2 })
+      expect(completeResult.artifacts["implement-progress"]).toBe("done")
+
       expect(result.observability).toMatchObject({
         schema_version: 1,
         change: "tool-change",
