@@ -89,6 +89,8 @@ import {
   isCancellationMessage,
   isEmptyTaskResult,
   inspectODFHealth,
+  taskSessionIdOf,
+  emitTaskProgress,
   type HealthIo,
   type TaskApi,
   createODFHealth,
@@ -372,8 +374,11 @@ async function invokeTask(
   // validated relative paths, so they only resolve when the child works in the
   // same root; callers pass the resolved workspace root.
   directory?: string,
+  // Human-facing child session title; hosts that create a child session use it
+  // verbatim, the V1 task bridge ignores it.
+  title?: string,
 ): Promise<{ status: string; result: unknown }> {
-  const taskPromise = taskApi({ agent: agentName, prompt, context_files: contextFiles, directory })
+  const taskPromise = taskApi({ agent: agentName, prompt, context_files: contextFiles, directory, ...(title ? { title } : {}) })
   let timedOut = false
   let cancelled = false
   let timeoutHandle: ReturnType<typeof setTimeout> | undefined
@@ -2085,7 +2090,13 @@ Use this instead of generic task() for ODF workflow delegation.`,
           // validated relative context paths resolve against it. With no
           // workspace_dir this equals the host session's directory, so the
           // behaviour is unchanged.
-          const taskResult = await invokeTask(taskApiInfo.taskApi, agentName, delegationPrompt, contextValidation.relativePaths, timeoutMs, toolCtx.abort, workspaceRoot)
+          const delegationTitle = `ODF ${args.phase} → ${agentName}${changeName ? ` · ${changeName}` : ""}`
+          emitTaskProgress(toolCtx, {
+            title: delegationTitle,
+            metadata: { phase: args.phase, agent: agentName, ...(changeName ? { change: changeName } : {}) },
+          })
+          const taskResult = await invokeTask(taskApiInfo.taskApi, agentName, delegationPrompt, contextValidation.relativePaths, timeoutMs, toolCtx.abort, workspaceRoot, delegationTitle)
+          const taskSessionId = taskSessionIdOf(taskResult.result)
           let resultForOutput: unknown = taskResult.result
           // Stop-validation seal (slice 2): after an IMPLEMENT delegation, stamp
           // the envelope with the deterministic evidence verdict. The sub-agent
@@ -2154,6 +2165,7 @@ Use this instead of generic task() for ODF workflow delegation.`,
               receipt,
               task_api_source: taskApiInfo.source,
               result: resultForOutput,
+              ...(taskSessionId ? { task_session_id: taskSessionId } : {}),
                workflow_advance: workflowResult,
                 workflow_commit: workflowCommit,
                 ...(phaseWarnings.length ? { warnings: phaseWarnings } : {}),
@@ -2297,6 +2309,7 @@ Use this instead of generic task() for ODF workflow delegation.`,
              validation,
              task_api_source: taskApiInfo.source,
               result: resultForOutput,
+              ...(taskSessionId ? { task_session_id: taskSessionId } : {}),
                ...(workflowResult ? { workflow_advance: workflowResult } : {}),
                ...(workflowMaterialization ? { workflow_materialization: workflowMaterialization } : {}),
                ...(proofBacked ? {

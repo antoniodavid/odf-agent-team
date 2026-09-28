@@ -55,7 +55,7 @@ import {
   type ODFAgent,
 } from "./odf-delegation.js"
 import { recordAiProvenance } from "./odf-governance.js"
-import { ODF_V2_SESSION, sessionResultFromText } from "./odf-delegation-health.js"
+import { ODF_V2_SESSION, sessionResultFromText, taskSessionIdOf } from "./odf-delegation-health.js"
 import { getOdfConfigDir } from "./odf-delegation-shared.js"
 import { advanceWorkflow, resolveWorkflowRoute, type CanonicalStage } from "./odf-workflow.js"
 import { buildCandidateManifest, computeCandidateDigest } from "./candidate-manifest.js"
@@ -2158,6 +2158,37 @@ describe("findTaskApi", () => {
     expect(session.interrupt).not.toHaveBeenCalled()
   })
 
+  it("names the delegated child session, emits progress, and exposes its session id", async () => {
+    const metadata = vi.fn()
+    const session = {
+      create: vi.fn().mockResolvedValue({ id: "v2-child-session" }),
+      get: vi.fn(),
+      prompt: vi.fn().mockResolvedValue(undefined),
+      wait: vi.fn().mockResolvedValue(undefined),
+      context: vi.fn().mockResolvedValue([
+        { type: "assistant", content: [{ type: "text", text: "## ODF Result\n- **status**: ok" }] },
+      ]),
+      interrupt: vi.fn().mockResolvedValue(undefined),
+    }
+    const api = findTaskApi({ sessionID: "parent", directory: "/workspace", metadata } as any, { v2: { session } } as any)
+
+    const result = await api!.taskApi({
+      agent: "odoo_backend_engineer",
+      prompt: "Build it",
+      title: "ODF IMPLEMENT → odoo_backend_engineer · demo-change",
+    })
+
+    expect(session.create).toHaveBeenCalledWith(expect.objectContaining({
+      agent: "odoo_backend_engineer",
+      title: "ODF IMPLEMENT → odoo_backend_engineer · demo-change",
+    }))
+    expect(metadata).toHaveBeenCalledWith(expect.objectContaining({
+      title: "ODF IMPLEMENT → odoo_backend_engineer · demo-change",
+      metadata: expect.objectContaining({ child_session_id: "v2-child-session" }),
+    }))
+    expect(taskSessionIdOf(result)).toBe("v2-child-session")
+  })
+
   it("preserves V2 create errors", async () => {
     const session = {
       create: vi.fn().mockResolvedValue({}),
@@ -3806,6 +3837,37 @@ ${overrides}`
       result: { source_authority: { ok: true, verified: true, relation: "not_applicable" } },
     })
     expect(taskApi.mock.calls[0][0].prompt).toContain('relation: "not_applicable"')
+  })
+
+  it("names the delegation, reports progress, and returns the child session id", async () => {
+    const { createODFDelegate } = await import("./odf-delegation.js")
+    const session = {
+      create: vi.fn().mockResolvedValue({ id: "v2-child-delegate" }),
+      get: vi.fn(),
+      prompt: vi.fn().mockResolvedValue(undefined),
+      wait: vi.fn().mockResolvedValue(undefined),
+      context: vi.fn().mockResolvedValue([
+        { type: "assistant", content: [{ type: "text", text: "## ODF Result\n- **status**: ok\n- **design_closed**: true" }] },
+      ]),
+      interrupt: vi.fn().mockResolvedValue(undefined),
+    }
+    const bridge = findTaskApi({ sessionID: "parent", directory: tempHome } as any, { v2: { session } } as any)!.taskApi
+    const metadata = vi.fn()
+
+    const output = JSON.parse(await createODFDelegate(undefined, tempHome).execute({
+      phase: "DESIGN",
+      prompt: "Design the standalone list assets",
+      context_files: [],
+    }, { sessionID: "delegate-visibility", task: bridge, metadata } as any) as string)
+
+    expect(output).toMatchObject({
+      status: "delegated",
+      task_session_id: "v2-child-delegate",
+      result: { status: "ok", design_closed: true },
+    })
+    expect(metadata).toHaveBeenCalledWith(expect.objectContaining({
+      title: expect.stringContaining("ODF DESIGN →"),
+    }))
   })
 
   it("blocks a generic target that does not match the deterministic action relation", async () => {

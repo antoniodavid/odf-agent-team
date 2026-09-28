@@ -361,6 +361,12 @@ export type TaskApiInput = {
   prompt: string
   context_files?: string[]
   /**
+   * Optional human-facing title for the delegated child session
+   * (for example `ODF DESIGN → odoo_frontend_engineer · change-name`).
+   * Hosts that create a child session use it verbatim; the V1 bridge ignores it.
+   */
+  title?: string
+  /**
    * Directory the delegated session must run in. Defaults to the host session's
    * directory, which is what `context_files` (validated relative paths) assumes:
    * they only resolve correctly when the child works in the same root. Set it to
@@ -674,6 +680,34 @@ function v2ContextResult(response: unknown): unknown {
 
 type V2TaskInvocation = { childID?: string; abortRequested: boolean; aborting?: Promise<void> }
 
+/**
+ * Non-enumerable marker carrying the child session id on a parsed result.
+ * `Symbol.for` keeps it stable across module instances, and the delegation
+ * envelope lifts it to `task_session_id` without polluting the inner result
+ * that agents and tests compare by value.
+ */
+const TASK_SESSION_ID = Symbol.for("odf.taskSessionId")
+
+export function taskSessionIdOf(result: unknown): string | null {
+  if (!result || typeof result !== "object") return null
+  const value = (result as Record<PropertyKey, unknown>)[TASK_SESSION_ID]
+  return typeof value === "string" && value.length > 0 ? value : null
+}
+
+/** Best-effort progress (V2 maps `metadata` to `context.progress`). */
+export function emitTaskProgress(
+  toolCtx: ToolContext,
+  input: { title?: string; metadata?: Record<string, unknown> },
+): void {
+  const emit = (toolCtx as { metadata?: (value: { title?: string; metadata?: Record<string, unknown> }) => void }).metadata
+  if (typeof emit !== "function") return
+  try {
+    emit(input)
+  } catch {
+    // Progress is advisory; a host without progress support must not fail the task.
+  }
+}
+
 export function createV2SessionTaskApi(toolCtx: ToolContext, session: V2SessionApi): TaskApi {
   const pending = new WeakMap<Promise<unknown>, V2TaskInvocation>()
   // WeakMap cannot be enumerated, so keep the live invocations reachable to make
@@ -719,6 +753,7 @@ export function createV2SessionTaskApi(toolCtx: ToolContext, session: V2SessionA
       const created = await callV2(() => session.create({
         agent: input.agent,
         ...(model ? { model: { providerID: model.providerID, id: model.modelID } } : {}),
+        ...(input.title ? { title: input.title } : {}),
         location: { directory: targetDirectory(input) },
       }), "session-create-error", false)
       const createdValue = created && typeof created === "object" && !Array.isArray(created)
@@ -732,6 +767,12 @@ export function createV2SessionTaskApi(toolCtx: ToolContext, session: V2SessionA
       }
 
       const childID = invocation.childID
+      // Surface the delegation identity while it runs; the parsed result carries
+      // the child session id for the envelope.
+      emitTaskProgress(toolCtx, {
+        ...(input.title ? { title: input.title } : {}),
+        metadata: { child_session_id: childID, agent: input.agent },
+      })
       await callV2(() => session.prompt({
         sessionID: childID,
         text: appendValidatedContextFiles(input.prompt, input.context_files),
@@ -741,7 +782,15 @@ export function createV2SessionTaskApi(toolCtx: ToolContext, session: V2SessionA
       if (invocation.abortRequested) throw new Error("task-cancelled: child session was aborted")
       const response = await callV2(() => session.context({ sessionID: childID }), "session-prompt-error", true)
       if (invocation.abortRequested) throw new Error("task-cancelled: child session was aborted")
-      return v2ContextResult(response)
+      const result = v2ContextResult(response)
+      if (result && typeof result === "object") {
+        try {
+          Object.defineProperty(result, TASK_SESSION_ID, { value: childID, enumerable: false, configurable: true })
+        } catch {
+          // A non-extensible result cannot carry the marker; the envelope then omits task_session_id.
+        }
+      }
+      return result
     })()
     pending.set(promise, invocation)
     live.add(invocation)

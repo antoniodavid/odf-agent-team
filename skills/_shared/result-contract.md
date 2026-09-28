@@ -30,7 +30,13 @@ plugin does not invent or rewrite the inner result; the orchestrator reads both.
 | `validation` | Plugin seal for IMPLEMENT evidence: `verified`, `missing`, or `invalid`, or `null` |
 | `receipt` | Optional receipt or receipt reference; failure persistence may also be on disk |
 | `result` | Raw return value from `task()`; the plugin does not synthesize its inner fields |
+| `task_session_id` | Child session id when the plugin created one (OpenCode V2 bridge); absent with the host native task API |
 | Other fields | Existing phase, agent, skill, profile, and task-source metadata remain compatible |
+
+On OpenCode V2 the plugin creates the child session with a descriptive title
+(`ODF <phase> → <agent> · <change>`), emits it through tool progress, and
+reports its id as `task_session_id`, so the delegation stays identifiable even
+though plugin-created sessions are not host-rendered subtasks.
 
 When `task()` is unavailable, the plugin returns a structured `blocked` envelope
 with `reason: task-api-unavailable`; it never returns an executable fallback
