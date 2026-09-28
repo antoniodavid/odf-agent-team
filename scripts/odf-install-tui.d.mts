@@ -13,3 +13,9 @@ export const STALE_ODF_PLUGIN_FILES: string[]
 export function cleanupStalePackPaths(): void
 export function cleanupStalePluginFiles(): void
 export function installFiles(srcDir: string, components: string[]): number
+export function runtimeDepsReady(dir?: string): boolean
+export function installOutcome(mode: string, failures?: string[]): {
+  degraded: boolean
+  heading: string
+  failures: string[]
+}

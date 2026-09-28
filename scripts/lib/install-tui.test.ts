@@ -109,4 +109,32 @@ describe("odf-install-tui install parity", () => {
     }
     expect(fs.existsSync(keep)).toBe(true)
   })
+
+  it("reports missing runtime dependencies as unresolved and installed fakes as resolved", async () => {
+    const tui = await loadTui()
+    fs.writeFileSync(path.join(configDir, "package.json"), JSON.stringify({
+      name: "odf-test", type: "module", dependencies: { zod: "^4.1.8", yaml: "^2.7.0" },
+    }))
+    expect(tui.runtimeDepsReady()).toBe(false)
+
+    for (const dep of ["zod", "yaml"]) {
+      const depDir = path.join(configDir, "node_modules", dep)
+      fs.mkdirSync(depDir, { recursive: true })
+      fs.writeFileSync(path.join(depDir, "index.js"), "module.exports = {}\n")
+    }
+    expect(tui.runtimeDepsReady()).toBe(true)
+  })
+
+  it("marks a degraded install as incomplete instead of complete", async () => {
+    const tui = await loadTui()
+    expect(tui.installOutcome("install", [])).toMatchObject({
+      degraded: false,
+      heading: "Install Complete",
+      failures: [],
+    })
+
+    const degraded = tui.installOutcome("update", ["self-test failed: boom"])
+    expect(degraded).toMatchObject({ degraded: true, heading: "Update Incomplete" })
+    expect(degraded.failures).toEqual(["self-test failed: boom"])
+  })
 })
