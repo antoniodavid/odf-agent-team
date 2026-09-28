@@ -135,6 +135,7 @@ import {
 import {
   deriveWorkflowStatus,
   normalizeArtifactKey,
+  parseProgress,
   parseWorkflowState,
   type WorkflowReceipt,
   type WorkflowStage,
@@ -2952,7 +2953,7 @@ must not overlap. VERIFY remains sequential after the aggregate join is complete
           expected = loaded.artifact.join.expected
           return blocked(
             "parallel-join-running",
-            "The persisted parallel join is still running; active branches will not be relaunched.",
+            "The persisted parallel join is still running; active branches will not be relaunched. If no branch is active (for example after a host restart), settle the stale join with odf_workflow_override action=settle-join.",
             loaded.artifact.branches.map(savedParallelOutcome),
             null,
             "running",
@@ -3005,7 +3006,7 @@ must not overlap. VERIFY remains sequential after the aggregate join is complete
         if (savedJoin.join.status === "running") {
           return blocked(
             "parallel-join-running",
-            "The persisted parallel join is still running; active branches will not be relaunched.",
+            "The persisted parallel join is still running; active branches will not be relaunched. If no branch is active (for example after a host restart), settle the stale join with odf_workflow_override action=settle-join.",
             savedJoin.branches.map(savedParallelOutcome),
             null,
             "running",
@@ -5465,6 +5466,20 @@ function persistWorkflowFailureReceipt(
   })
 }
 
+// Legacy artifact availability map: presence alone is reported as `done`, but
+// progress-bearing artifacts derive their state from content so partial work
+// never renders as complete. Unknown progress formats keep the presence
+// semantics (`done`).
+const PROGRESS_ARTIFACT_TYPES = new Set(["implement-progress", "apply-progress", "tasks", "explore-progress", "fix-progress"])
+
+function legacyArtifactState(key: string, content: string | null | undefined): string {
+  const { type } = normalizeArtifactKey(key)
+  if (!PROGRESS_ARTIFACT_TYPES.has(type)) return "done"
+  const progress = parseProgress(content)
+  if (!progress.known || progress.total <= 0) return "done"
+  return progress.completed >= progress.total ? "done" : "in-progress"
+}
+
 function buildEngramStatus(
   workspaceRoot: string,
   snapshot: EngramSnapshot,
@@ -5483,7 +5498,7 @@ function buildEngramStatus(
   // Map artifact types to state
   const artifactStates: Record<string, string> = {}
   for (const [type, data] of artifacts) {
-    artifactStates[type] = "done"
+    artifactStates[type] = legacyArtifactState(type, data.content)
     if (data.created && Number.isFinite(Date.parse(data.created)) && (!status.lastUpdated || data.created > status.lastUpdated)) {
       status.lastUpdated = data.created
     }
@@ -5610,7 +5625,9 @@ function buildMergedStatus(
     warnings: Array.from(new Set([...warnings, ...expectationWarnings])),
   })
   const artifactStates: Record<string, string> = {}
-  for (const artifact of mergedArtifacts) artifactStates[normalizeArtifactKey(artifact.key).type] = "done"
+  for (const artifact of mergedArtifacts) {
+    artifactStates[normalizeArtifactKey(artifact.key).type] = legacyArtifactState(artifact.key, artifact.content)
+  }
   let lastUpdated: string | null = null
   for (const artifact of mergedArtifacts) {
     if (artifact.created && Number.isFinite(Date.parse(artifact.created)) && (!lastUpdated || artifact.created > lastUpdated)) {
@@ -6434,15 +6451,16 @@ Actions:
      - re-plan: like re-enter, plus persist a human-approved Expectations revision (revision > current, supersedes = digest of the previous artifact).
      - disable-fast-lane: disable an existing fast_lane_policy through a separate audited marker without rewriting workflow state or artifacts.
 - settle-attempt: append a terminal settlement for a stale running attempt (use the attempt_id from odf_workflow_status active_attempts) so a fresh attempt can be acquired. Requires confirm_no_active_run: true and refuses attempts that are still active in this runtime.
+- settle-join: settle a persisted parallel join that is still running after a host restart so resume_from_join can continue. Every running branch attempt must be settled first with action=settle-attempt; refuses joins whose branch attempts are still active in this runtime. The join becomes blocked with a failure receipt - commit a retry receipt before resuming.
 
      Requires a human-approved reason (>=20 chars). Fast-lane disable additionally requires approved_by and a live session.`,
     args: {
       change_name: tool.schema.string().describe("Change name (kebab-case)"),
       artifact_store: tool.schema.enum(["openspec", "engram", "hybrid"]).describe("Authoritative workflow store"),
-      action: tool.schema.enum(["skip", "re-enter", "re-plan", "disable-fast-lane", "settle-attempt"]).describe("Override action"),
+      action: tool.schema.enum(["skip", "re-enter", "re-plan", "disable-fast-lane", "settle-attempt", "settle-join"]).describe("Override action"),
       target_stage: tool.schema.enum(["DECIDE", "PLAN", "BUILD", "VERIFY"]).optional().describe("Canonical stage to skip/re-enter/re-plan from"),
       attempt_id: tool.schema.string().optional().describe("Stale attempt to settle (required for settle-attempt)"),
-      confirm_no_active_run: tool.schema.boolean().optional().describe("Required true for settle-attempt after verifying no task or run is active"),
+      confirm_no_active_run: tool.schema.boolean().optional().describe("Required true for settle-attempt and settle-join after verifying no task or run is active"),
       reason: tool.schema.string().describe("Human-approved reason (>=20 chars)"),
       approved_by: tool.schema.string().optional().describe("Human approver for disabling the fast lane"),
       expectations_revision: tool.schema.object({
@@ -6463,7 +6481,7 @@ Actions:
     async execute(args: {
       change_name: string
       artifact_store: "openspec" | "engram" | "hybrid"
-      action: "skip" | "re-enter" | "re-plan" | "disable-fast-lane" | "settle-attempt"
+      action: "skip" | "re-enter" | "re-plan" | "disable-fast-lane" | "settle-attempt" | "settle-join"
       target_stage?: "DECIDE" | "PLAN" | "BUILD" | "VERIFY"
       attempt_id?: string
       confirm_no_active_run?: boolean
@@ -6549,6 +6567,126 @@ Actions:
           phase: settledRecord.phase,
           settled_at: settledRecord.settled_at,
           next_step: "Acquire a fresh attempt_id for the next delegation.",
+        }, null, 2)
+      }
+
+      if (args.action === "settle-join") {
+        if (args.confirm_no_active_run !== true) {
+          return blocked(
+            "join-recovery-confirmation-required",
+            "settle-join requires confirm_no_active_run: true after verifying that no parallel branch is active for this join.",
+          )
+        }
+        const loaded = readParallelJoinArtifact(workspaceRoot, changeName)
+        if (loaded.warning) return blocked("parallel-join-invalid", loaded.warning)
+        if (!loaded.artifact) return blocked("parallel-join-not-found", "No persisted parallel join exists for this change.")
+        const joinArtifact = loaded.artifact
+        const parallelJoinRef = parallelJoinArtifactRef(changeName)
+        if (joinArtifact.join.status !== "running") {
+          return JSON.stringify({
+            status: "already-settled",
+            change_name: changeName,
+            action: args.action,
+            join_status: joinArtifact.join.status,
+            parallel_join_ref: parallelJoinRef,
+            next_step: joinArtifact.join.status === "blocked"
+              ? "Commit a retry receipt (action=retry) before resuming; resume_from_join relaunches only incomplete branches."
+              : "The persisted join is already terminal; no recovery is required.",
+          }, null, 2)
+        }
+
+        // Fail closed while any branch attempt is still active in this runtime.
+        // The in-process marker clears on restart, which is exactly the stale
+        // case this recovery exists for.
+        const activeBranches = joinArtifact.branches
+          .filter(branch => inFlightAttempts.has(attemptLivenessKey(changeName, branch.attempt_id)))
+          .map(branch => branch.branch_id)
+        if (activeBranches.length > 0) {
+          return blocked(
+            "join-still-running",
+            `Parallel branch attempts are still active in this runtime (${activeBranches.join(", ")}); wait for them to settle instead of recovering the join.`,
+          )
+        }
+
+        // The attempt ledger is the source of truth: a branch attempt that is
+        // still running there must be settled with settle-attempt first, so the
+        // recovery never silently rewrites ledger state.
+        const ledger = readAttemptLedger(workspaceRoot, attemptLedgerPath(workspaceRoot, changeName))
+        if (ledger.error) return blocked(ledger.error, "The attempt ledger could not be read safely.")
+        const unsettledAttempts = joinArtifact.branches
+          .filter(branch => branch.status === "running")
+          .filter((branch) => {
+            const record = [...ledger.records].reverse().find(candidate => candidate.attempt_id === branch.attempt_id)
+            return Boolean(record && record.status === "running")
+          })
+          .map(branch => branch.attempt_id)
+        if (unsettledAttempts.length > 0) {
+          return blocked(
+            "join-attempts-unsettled",
+            `Settle the running branch attempts first with action=settle-attempt: ${unsettledAttempts.join(", ")}.`,
+          )
+        }
+
+        const recoverySummary = boundedSummary(`branch settled by audited join recovery: ${reason}`) || "branch settled by audited join recovery"
+        const outcomes: ParallelBranchOutcome[] = joinArtifact.branches.map((branch) => {
+          if (branch.status !== "running") return savedParallelOutcome(branch)
+          return {
+            branch_id: branch.branch_id,
+            attempt_id: branch.attempt_id,
+            status: "failed",
+            result_status: "cancelled",
+            successful: false,
+            validation: null,
+            validation_verified: false,
+            validation_evidence_ref: branch.outcome.validation_evidence_ref,
+            summary: recoverySummary,
+            attempt_ledger_ref: branch.outcome.attempt_ledger_ref,
+            policy_gate: null,
+          }
+        })
+        const descriptors: ParallelBranchDescriptor[] = joinArtifact.branches.map(branch => ({
+          branch_id: branch.branch_id,
+          attempt_id: branch.attempt_id,
+          prompt: branch.descriptor.prompt,
+          context_files: [...branch.descriptor.context_files],
+          ...(branch.descriptor.timeout_ms === undefined ? {} : { timeout_ms: branch.descriptor.timeout_ms }),
+        }))
+        const completed = outcomes.filter(outcome => outcome.successful).length
+        const settledJoin: ParallelJoinArtifact["join"] = {
+          status: "blocked",
+          expected: joinArtifact.join.expected,
+          completed,
+          failed: outcomes.length - completed,
+          running: 0,
+          validation_verified: false,
+        }
+        const receiptRef = path.join(".odf", `receipt-${changeName}.json`)
+        mergeReceipt(workspaceRoot, parallelReceipt(workspaceRoot, changeName, outcomes))
+        const savedArtifact = saveParallelJoin(workspaceRoot, changeName, descriptors, outcomes, settledJoin, receiptRef)
+        if (savedArtifact.error) return blocked("parallel-join-persist-failed", savedArtifact.error)
+        const settledBranches = joinArtifact.branches
+          .filter(branch => branch.status === "running")
+          .map(branch => branch.branch_id)
+        const audit = {
+          at: new Date().toISOString(),
+          action: "settle-join",
+          reason,
+          join_before: joinArtifact.join,
+          join_after: settledJoin,
+          settled_branches: settledBranches,
+          receipt_ref: receiptRef,
+        }
+        try {
+          fsSync.appendFileSync(path.join(workspaceRoot, ".odf", `override-${changeName}.jsonl`), JSON.stringify(audit) + "\n")
+        } catch { /* audit is best-effort */ }
+        return JSON.stringify({
+          status: "settled",
+          change_name: changeName,
+          action: args.action,
+          join: { ...settledJoin, artifact_ref: savedArtifact.ref },
+          settled_branches: settledBranches,
+          receipt_ref: receiptRef,
+          next_step: "Commit a retry receipt (action=retry) before resuming; resume_from_join relaunches only incomplete branches with fresh attempt ids.",
         }, null, 2)
       }
 
