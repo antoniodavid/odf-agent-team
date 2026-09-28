@@ -283,6 +283,9 @@ function renderMetrics(summary) {
   lines.push(gate?.status === "available"
     ? `  entry to final gate: p50 ${Math.round(gate.p50_ms)}ms / p95 ${Math.round(gate.p95_ms)}ms (n=${gate.sample_count})`
     : `  entry to final gate: N/A`)
+  for (const stage of gate?.stage_durations_ms || []) {
+    lines.push(`  ${stage.from} -> ${stage.to}: p50 ${Math.round(stage.p50_ms)}ms / p95 ${Math.round(stage.p95_ms)}ms (n=${stage.sample_count})`)
+  }
   return lines.join("\n")
 }
 

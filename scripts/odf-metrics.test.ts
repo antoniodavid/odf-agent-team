@@ -256,6 +256,18 @@ describe("buildDashboard + render", () => {
     expect(gate.by_source_authority).toEqual({ with_source_authority: 1, without_source_authority: 1, unknown: 0 })
     expect(gate.by_odoo_version).toEqual({ "18": 1, "19": 1 })
     expect(gate.cohorts.workspace["repo-a"].p50_ms).toBe(3_600_000)
+    // Per-stage intervals from the same two complete sequences: the verify
+    // window dominates, which is exactly what the breakdown must surface.
+    expect(gate.stage_durations_ms).toEqual([
+      { from: "entry_started", to: "intent_approved", sample_count: 2, p50_ms: 100, p95_ms: 100 },
+      { from: "intent_approved", to: "policy_selected", sample_count: 2, p50_ms: 200, p95_ms: 200 },
+      { from: "policy_selected", to: "build_started", sample_count: 2, p50_ms: 100, p95_ms: 100 },
+      { from: "build_started", to: "verify_started", sample_count: 2, p50_ms: 200, p95_ms: 200 },
+      { from: "verify_started", to: "verified_completed", sample_count: 2, p50_ms: 3_599_400, p95_ms: 3_599_400 },
+    ])
+    const rendered = renderDashboard(d)
+    expect(rendered).toContain("Entry -> Final Gate Stages (p50/p95)")
+    expect(rendered).toContain("verify_started")
   })
 
   it("keeps old JSONL data parseable and unavailable without a complete sequence", () => {
@@ -264,6 +276,7 @@ describe("buildDashboard + render", () => {
       { event: "run", lifecycle: "started", run_id: "partial", change: "old", flow_stage: "entry_started", timestamp: "2026-01-01T00:00:00Z", status: "ok" },
     ], 1)
     expect(d.baseline.entry_to_final_gate).toMatchObject({ status: "unavailable", sample_count: 0, p50_ms: null, p95_ms: null })
+    expect(d.baseline.entry_to_final_gate.stage_durations_ms).toEqual([])
   })
 
   it("keeps only the latest complete retry sequence for a change", () => {
@@ -288,6 +301,9 @@ describe("buildDashboard + render", () => {
     ]) as any)
 
     expect(gate).toMatchObject({ status: "available", sample_count: 1, changes: 1, p50_ms: 500, p95_ms: 500, by_workspace: { latest: 1 } })
+    expect(gate.stage_durations_ms).toEqual(
+      stages.slice(0, -1).map((from, index) => ({ from, to: stages[index + 1], sample_count: 1, p50_ms: 100, p95_ms: 100 })),
+    )
   })
 
   it("discards a candidate when interleaved retries duplicate a bounded stage", () => {

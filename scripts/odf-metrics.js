@@ -380,7 +380,18 @@ function completeFlowSamples(records, sampleRecords = records) {
             .filter(({ timestamp }) => timestamp !== null && timestamp >= start && timestamp <= end)
             .sort((a, b) => a.timestamp - b.timestamp)
             .map(({ candidate }) => candidate)
-          const sample = { change, records: boundedRecords, duration_ms: end - start }
+          const sample = {
+            change,
+            records: boundedRecords,
+            // Ordered stage timestamps from the validated sequence, so the
+            // entry->final-gate reader can derive per-interval durations
+            // without re-parsing the window records.
+            stageTimestamps: sequence.map(record => ({
+              stage: flowStage(record.flow_stage),
+              timestamp: validTimestampMs(record.timestamp),
+            })),
+            duration_ms: end - start,
+          }
           const previous = latestByChange.get(change)
           const previousEnd = previous ? validTimestampMs(previous.records[previous.records.length - 1].timestamp) : null
           if (previousEnd === null || end >= previousEnd) latestByChange.set(change, sample)
@@ -446,6 +457,26 @@ export function entryToFinalGate(records, days = 1) {
     ...completeFlowSamples(flowRunRecords(records), records),
     ...completeFlowSamples(flowSpanCohortRecords(records), records),
   ])
+  // Per-interval p50/p95 from the same complete sequences that back the
+  // overall p50/p95, so the dominant stage is auditable without inference.
+  const stageDurations = FLOW_STAGES.slice(0, -1).map((from, index) => {
+    const to = FLOW_STAGES[index + 1]
+    const durations = []
+    for (const sample of samples) {
+      const fromTimestamp = sample.stageTimestamps.find(entry => entry.stage === from)?.timestamp
+      const toTimestamp = sample.stageTimestamps.find(entry => entry.stage === to)?.timestamp
+      if (typeof fromTimestamp === "number" && typeof toTimestamp === "number" && toTimestamp >= fromTimestamp) {
+        durations.push(toTimestamp - fromTimestamp)
+      }
+    }
+    return {
+      from,
+      to,
+      sample_count: durations.length,
+      p50_ms: percentile(durations, 0.5),
+      p95_ms: percentile(durations, 0.95),
+    }
+  }).filter(stage => stage.sample_count > 0)
   const completedChanges = new Set(samples.map(sample => sample.change))
   const aggregate = aggregationRecords(records)
   const sampleWindows = new Map(samples.map(sample => [sample.change, {
@@ -477,6 +508,7 @@ export function entryToFinalGate(records, days = 1) {
     sample_count: samples.length,
     p50_ms: percentile(samples.map(sample => sample.duration_ms), 0.5),
     p95_ms: percentile(samples.map(sample => sample.duration_ms), 0.95),
+    stage_durations_ms: stageDurations,
     changes: completedChanges.size,
     calls_per_change: completedChanges.size > 0 ? completedCalls.length / completedChanges.size : null,
     verified_completions: samples.length,
@@ -778,6 +810,9 @@ export function buildDashboard(records, days, library = null) {
 }
 
 export function renderDashboard(d) {
+  const stageDur = (ms) => `${Math.round((ms || 0) / 1000)}s`
+  const gateStageRows = (d.baseline.entry_to_final_gate.stage_durations_ms || []).map(stage =>
+    `  ${stage.from.padEnd(18)} -> ${stage.to.padEnd(18)} n=${String(stage.sample_count).padStart(4)}  p50 ${stageDur(stage.p50_ms).padStart(7)}  p95 ${stageDur(stage.p95_ms).padStart(7)}`)
   const lines = [
     `ODF: Agent Observatory (last ${d.days}d)`,
     "",
@@ -792,6 +827,9 @@ export function renderDashboard(d) {
     `  Validation ratio: ${d.validationRatio === null ? "n/a" : `${Math.round(d.validationRatio * 100)}%`}`,
     `  Errors: ${d.errorsCount} (${d.errorPctLabel})`,
     `  Unfinished runs: ${d.unfinishedCount || 0}`,
+    "",
+    "=== Entry -> Final Gate Stages (p50/p95) ===",
+    ...(gateStageRows.length > 0 ? gateStageRows : ["  (no complete entry-to-final sequences)"]),
     "",
     "=== By Agent ===",
     `  ${"Agent".padEnd(18)} ${"Delegations".padStart(11)} ${"Avg Dur".padStart(9)} ${"Avg Tokens".padStart(12)} ${"Resolution".padStart(11)}`,

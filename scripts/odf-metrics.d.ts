@@ -106,6 +106,7 @@ export interface EntryToFinalGate {
   sample_count: number
   p50_ms: number | null
   p95_ms: number | null
+  stage_durations_ms: EntryToFinalGateStageDuration[]
   changes: number
   calls_per_change: number | null
   verified_completions: number
@@ -133,6 +134,14 @@ export interface EntryToFinalGateCohort {
   p50_ms: number | null
   p95_ms: number | null
   verified_completions: number
+}
+
+export interface EntryToFinalGateStageDuration {
+  from: string
+  to: string
+  sample_count: number
+  p50_ms: number | null
+  p95_ms: number | null
 }
 
 export interface BaselineSummary {
