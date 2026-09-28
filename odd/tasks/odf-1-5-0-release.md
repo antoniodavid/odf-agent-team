@@ -35,8 +35,7 @@ Ship one coherent, reproducible release after the migration and keep the release
 
 ## Decision pending
 
-- **Release `v1.4.0` first** (recommended): tag the current `main` as 1.4.0 so the hotfix line since `v1.3.1` is published, and let the migration ship as `v1.5.0`.
-- **Single release**: fold everything since `v1.3.1` into `v1.5.0` and skip a 1.4.0 tag.
+- **Resolved (2026-09-28)**: release `v1.4.0` first from current `main` (tracked in #70, changelog notes prepared separately) and ship the native delegation migration as `v1.5.0` (tracked in #69). This document now covers the 1.5.0 release only.
 
 ## Checklist
 

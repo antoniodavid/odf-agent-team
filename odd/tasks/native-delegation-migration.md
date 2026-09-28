@@ -65,6 +65,7 @@ Usability is part of harness quality: a delegation the user cannot see is a dele
 - [x] CodeGraph index and dependencies in the worktree.
 - [x] Upstream evidence recorded (#49389 and #49801 comments; parentID ignored on 2.0.18).
 - [x] Visibility mitigations shipped (#54/#56).
+- [x] Entry point decided (2026-09-28): **Phase 2 (prepare/seal first)**; Phase 1 depends on the host and stays opportunistic.
 - [ ] Re-run the `parentID` probe against the latest installed OpenCode release when the service updates.
 
 ### M1 — Host capability / linked child sessions
