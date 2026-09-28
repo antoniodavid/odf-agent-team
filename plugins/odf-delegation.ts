@@ -362,6 +362,28 @@ function innerResultDisposition(result: unknown): InnerResultDisposition {
 }
 
 
+const DEFAULT_TASK_ABORT_GRACE_MS = 5_000
+
+/** Grace given to the child abort before the timeout/cancellation result is
+ * returned. The host interrupt keeps running in the background, but a pending
+ * one must never hang `odf_delegate` after the race already decided. */
+function taskAbortGraceMs(): number {
+  const raw = Number(process.env.ODF_TASK_ABORT_GRACE_MS)
+  return Number.isFinite(raw) && raw >= 0 ? raw : DEFAULT_TASK_ABORT_GRACE_MS
+}
+
+/** Resolve when `abort` settles or the grace elapses, whichever comes first.
+ * Rejections and missing abort support are swallowed: the caller already has
+ * the original timeout/cancellation error to report. */
+function settleTaskAbort(abort: Promise<unknown> | undefined, graceMs: number): Promise<void> {
+  if (!abort) return Promise.resolve()
+  return new Promise<void>((resolve) => {
+    const timer = setTimeout(resolve, graceMs)
+    const done = (): void => { clearTimeout(timer); resolve() }
+    void Promise.resolve(abort).then(done, done)
+  })
+}
+
 async function invokeTask(
   taskApi: TaskApi,
   agentName: string,
@@ -411,7 +433,7 @@ async function invokeTask(
     const message = error instanceof Error ? error.message : String(error)
     if (timedOut || cancelled || isCancellationMessage(message)) {
       try {
-        await taskApi.abort?.(taskPromise)
+        await settleTaskAbort(taskApi.abort?.(taskPromise), taskAbortGraceMs())
       } catch {
         // Preserve the original timeout/cancellation result if abort also fails.
       }
