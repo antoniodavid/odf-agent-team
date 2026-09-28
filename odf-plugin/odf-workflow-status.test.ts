@@ -505,6 +505,23 @@ describe("workflow status adapter", () => {
     }
   })
 
+  it("reopens a change whose state declares an active stage over an archive report", () => {
+    const status = deriveWorkflowStatus({
+      change: "reopened",
+      state: {
+        canonical_stage: "VERIFY",
+        completed_canonical_stages: ["DECIDE", "PLAN", "BUILD"],
+      },
+      artifacts: { "archive-report": "status: archived" },
+    })
+
+    expect(status.canonical_stage).toBe("VERIFY")
+    expect(status.legacy_phase).toBe("VERIFY")
+    expect(status.completed_canonical_stages).toEqual(["DECIDE", "PLAN", "BUILD"])
+    expect(status.pending_stage).toBe("VERIFY")
+    expect(status.resumable).toBe(true)
+  })
+
   it("handles missing checklists and invalid timestamps or sources safely", () => {
     expect(parseProgress()).toEqual({ completed: 0, total: 0, known: false, source: null })
     const status = deriveWorkflowStatus({
