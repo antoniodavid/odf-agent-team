@@ -61,9 +61,9 @@ recorded. Tracked in issue #69; the `v1.4.0` line stays immutable.
   20/20; final
   seal/evidence/policy/receipt consistent; canonical state ARCHIVED. Candidate
   files remain staged and uncommitted by design; archival did not commit them.
-- [ ] R5 — Local release commit and annotated tag `v1.5.0` after R4.
-- [ ] R6 — Push the tag, publish the GitHub release (notes from the changelog
-  section), verify the target and metadata, and close #69.
+- [x] R5 — Release commit `03130f9` with annotated tag `v1.5.0`.
+- [x] R6 — Pushed `v1.5.0`, published the GitHub release from the changelog,
+  verified the target/metadata and Latest status, and closed #69.
 
 ## Acceptance criteria
 
@@ -88,14 +88,22 @@ recorded. Tracked in issue #69; the `v1.4.0` line stays immutable.
 
 ## Progress
 
-- 2026-09-29: R1–R3 merged via PR #81 (`1185b69`). R4 complete: CI checks
-  succeeded; local matrix is 998 unit / 325 YAML / 18 harness; the native
+- 2026-09-29: R1–R3 merged via PR #81 (`1185b69`). R4 complete: PR #81/#82 CI
+  passed; local matrix is 998 unit / 325 YAML / 18 harness; the native
   `barcode-cycle-count-list-ux` VERIFY closed PASS WITH WARNINGS (7/7), with the
   real module suite 39/39 and HOOT 20/20. Candidate files remain staged and
   uncommitted. The change is archived; nonblocking warnings are documented in
-  its archive report.
+  its archive report. R5/R6 complete: annotated tag `v1.5.0` points to
+  `03130f9`; GitHub release is published at
+  https://github.com/antoniodavid/odf-agent-team/releases/tag/v1.5.0 and #69 is
+  closed.
+- Post-archive status-reader caveat: once the OpenSpec folder was moved under
+  `archive/`, `odf_workflow_status` fell back to an older Engram record and
+  displayed `DECIDE`; the authoritative archived `state.yaml` remains
+  `ARCHIVED` with DECIDE/PLAN/BUILD/VERIFY complete. No active attempts, pending
+  receipt, or parallel join were present.
 
 ## Next step
 
-- Create the annotated `v1.5.0` tag at the release commit, publish the GitHub
-  release from `CHANGELOG.md`, verify the published target, and close #69.
+- No further release action. Keep the barcode candidate staged and uncommitted;
+  review its documented nonblocking warnings separately if needed.
