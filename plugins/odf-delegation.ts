@@ -3273,6 +3273,11 @@ function createODFDelegationSeal(canonicalDirectory?: string): ReturnType<typeof
         status: "blocked",
         reason,
         token: args.token,
+        policy_gate: null,
+        validation: null,
+        receipt: null,
+        workflow_advance: null,
+        workflow_commit: null,
         task_api_source: "subagent",
         result: null,
         message,
@@ -3419,6 +3424,7 @@ function createODFDelegationSeal(canonicalDirectory?: string): ReturnType<typeof
 
       if (outcome.failure) {
         return blocked(outcome.failure.reason, outcome.failure.message, withRecord({
+          result: outcome.result,
           ...(outcome.failure.workflow_materialization ? { workflow_materialization: outcome.failure.workflow_materialization } : {}),
           ...(outcome.warnings.length ? { warnings: outcome.warnings } : {}),
         }))
@@ -3432,7 +3438,6 @@ function createODFDelegationSeal(canonicalDirectory?: string): ReturnType<typeof
         profile: record.profile,
         policy_gate: null,
         validation: null,
-        receipt: null,
         task_api_source: "subagent",
         result: outcome.result,
         task_session_id: args.session_id,

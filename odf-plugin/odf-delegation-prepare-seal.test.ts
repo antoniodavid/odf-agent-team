@@ -57,9 +57,9 @@ describe("native prepare/seal delegation", () => {
     vi.restoreAllMocks()
   })
 
-  const tools = async () => {
+  const tools = async (root: string = tempHome) => {
     const { createODFRegisteredTools } = await import("./odf-delegation.js")
-    return createODFRegisteredTools(undefined, tempHome)
+    return createODFRegisteredTools(undefined, root)
   }
 
   const prepareDesign = async (change = "native-design") => {
@@ -72,8 +72,8 @@ describe("native prepare/seal delegation", () => {
     }, { sessionID: "prepare-session" } as any) as string)
   }
 
-  const writeDesignBoundaryFixture = async (change: string) => {
-    const changeDir = path.join(tempHome, "openspec", "changes", change)
+  const writeDesignBoundaryFixture = async (root: string, change: string) => {
+    const changeDir = path.join(root, "openspec", "changes", change)
     await fs.mkdir(changeDir, { recursive: true })
     await fs.writeFile(path.join(changeDir, "state.yaml"), [
       "work_type: feature",
@@ -90,8 +90,8 @@ describe("native prepare/seal delegation", () => {
     return changeDir
   }
 
-  const writeImplementState = async (change: string) => {
-    const changeDir = path.join(tempHome, "openspec", "changes", change)
+  const writeImplementState = async (root: string, change: string) => {
+    const changeDir = path.join(root, "openspec", "changes", change)
     await fs.mkdir(changeDir, { recursive: true })
     await fs.writeFile(path.join(changeDir, "state.yaml"), YAML.stringify({
       work_type: "feature",
@@ -102,9 +102,9 @@ describe("native prepare/seal delegation", () => {
     await fs.writeFile(path.join(changeDir, "implement-progress.md"), "- [x] implementation\n", "utf8")
   }
 
-  const writeValidationEvidence = async (change: string) => {
-    await fs.mkdir(path.join(tempHome, ".odf"), { recursive: true })
-    await fs.writeFile(path.join(tempHome, ".odf", `validation-evidence-${change}.json`), JSON.stringify({
+  const writeValidationEvidence = async (root: string, change: string) => {
+    await fs.mkdir(path.join(root, ".odf"), { recursive: true })
+    await fs.writeFile(path.join(root, ".odf", `validation-evidence-${change}.json`), JSON.stringify({
       change,
       phase: "IMPLEMENT",
       batch: 1,
@@ -170,7 +170,7 @@ describe("native prepare/seal delegation", () => {
   it("prepares and seals a proof-backed IMPLEMENT delegation end to end", async () => {
     const { odf_delegation_prepare, odf_delegation_seal } = await tools()
     const change = "native-implement"
-    await writeImplementState(change)
+    await writeImplementState(tempHome, change)
 
     const prepared = JSON.parse(await odf_delegation_prepare.execute({
       phase: "IMPLEMENT",
@@ -185,7 +185,7 @@ describe("native prepare/seal delegation", () => {
     expect(prepared).toMatchObject({ status: "prepared", change, phase: "IMPLEMENT", attempt_id: "native-impl-1" })
     expect(prepared.policy_gate).toMatchObject({ gate: "allow" })
 
-    await writeValidationEvidence(change)
+    await writeValidationEvidence(tempHome, change)
     const session = fakeChildSession({
       agent: prepared.agent,
       prompt: prepared.delegation.prompt,
@@ -218,7 +218,7 @@ describe("native prepare/seal delegation", () => {
   it("fails the proof-backed seal when IMPLEMENT validation evidence is missing", async () => {
     const { odf_delegation_prepare, odf_delegation_seal } = await tools()
     const change = "native-implement-missing-evidence"
-    await writeImplementState(change)
+    await writeImplementState(tempHome, change)
 
     const prepared = JSON.parse(await odf_delegation_prepare.execute({
       phase: "IMPLEMENT",
@@ -249,7 +249,7 @@ describe("native prepare/seal delegation", () => {
   })
 
   it("seals a DESIGN delegation, materializes PLAN and consumes the token", async () => {
-    const changeDir = await writeDesignBoundaryFixture("native-design")
+    const changeDir = await writeDesignBoundaryFixture(tempHome, "native-design")
     const prepared = await prepareDesign()
     const session = fakeChildSession({
       agent: prepared.agent,
@@ -346,5 +346,178 @@ describe("native prepare/seal delegation", () => {
       session_id: "ses_child",
     }, { sessionID: "parent-session", [ODF_V2_SESSION]: fakeChildSession({ agent: prepared.agent, prompt: prepared.delegation.prompt, resultText: "## ODF Result\n- **status**: ok" }) } as any) as string)
     expect(expiredOutput).toMatchObject({ status: "blocked", reason: "delegation-token-expired" })
+  })
+
+  // ------------------------------------------------------------------
+  // Parity matrix: the native path must produce the same envelope as the
+  // legacy delegate for identical inputs and child results.
+  // ------------------------------------------------------------------
+
+  const odfResultText = (fields: Record<string, unknown>): string =>
+    ["## ODF Result", ...Object.entries(fields).map(([key, value]) => `- **${key}**: ${String(value)}`)].join("\n")
+
+  const stripPathFields = (envelope: Record<string, any>): Record<string, any> => {
+    const copy = { ...envelope }
+    delete copy.task_api_source
+    delete copy.task_session_id
+    delete copy.token
+    delete copy.change
+    return copy
+  }
+
+  const parityRoots = async (setup: (root: string, change: string) => Promise<unknown>) => {
+    const delegateRoot = path.join(tempHome, "parity-delegate")
+    const sealRoot = path.join(tempHome, "parity-seal")
+    await fs.mkdir(delegateRoot, { recursive: true })
+    await fs.mkdir(sealRoot, { recursive: true })
+    await setup(delegateRoot, "parity-change")
+    await setup(sealRoot, "parity-change")
+    return { delegateRoot, sealRoot }
+  }
+
+  const runDelegate = async (root: string, args: Record<string, unknown>, childResult: unknown) => {
+    const { odf_delegate } = await tools(root)
+    const taskApi = vi.fn().mockResolvedValue(childResult)
+    return JSON.parse(await odf_delegate.execute(
+      { ...args, workspace_dir: root } as any,
+      { sessionID: "delegate-session", task: taskApi } as any,
+    ) as string)
+  }
+
+  const runSeal = async (root: string, args: Record<string, unknown>, childResult: Record<string, unknown>) => {
+    const { odf_delegation_prepare, odf_delegation_seal } = await tools(root)
+    const prepared = JSON.parse(await odf_delegation_prepare.execute(
+      { ...args, workspace_dir: root } as any,
+      { sessionID: "prepare-session" } as any,
+    ) as string)
+    if (prepared.status !== "prepared") return prepared
+    const session = fakeChildSession({
+      agent: prepared.agent,
+      prompt: prepared.delegation.prompt,
+      resultText: odfResultText(childResult),
+    })
+    return JSON.parse(await odf_delegation_seal.execute({
+      token: prepared.token,
+      change: prepared.change,
+      session_id: "ses_child",
+    }, { sessionID: "parent-session", [ODF_V2_SESSION]: session } as any) as string)
+  }
+
+  it("keeps full envelope parity with odf_delegate for a DESIGN success", async () => {
+    const { delegateRoot, sealRoot } = await parityRoots(writeDesignBoundaryFixture)
+    const args = { phase: "DESIGN", change: "parity-change", prompt: "Design the requested feature", context_files: [] }
+    const childResult = { status: "ok", design_closed: true, executive_summary: "closed" }
+
+    const delegateEnv = await runDelegate(delegateRoot, args, childResult)
+    const sealEnv = await runSeal(sealRoot, args, childResult)
+
+    expect(sealEnv.status).toBe("delegated")
+    expect(stripPathFields(sealEnv)).toEqual(stripPathFields(delegateEnv))
+  })
+
+  it("keeps reason and result parity when DESIGN is not closed", async () => {
+    const { delegateRoot, sealRoot } = await parityRoots(writeDesignBoundaryFixture)
+    const args = { phase: "DESIGN", change: "parity-change", prompt: "Design the requested feature", context_files: [] }
+    const childResult = { status: "ok", design_closed: false }
+
+    const delegateEnv = await runDelegate(delegateRoot, args, childResult)
+    const sealEnv = await runSeal(sealRoot, args, childResult)
+
+    expect(delegateEnv).toMatchObject({ status: "blocked", reason: "design-not-closed" })
+    expect(sealEnv).toMatchObject({ status: "blocked", reason: "design-not-closed" })
+    expect(stripPathFields(sealEnv)).toEqual(stripPathFields(delegateEnv))
+  })
+
+  it("keeps reason parity when source-authority evidence is missing", async () => {
+    const { delegateRoot, sealRoot } = await parityRoots(writeDesignBoundaryFixture)
+    const args = {
+      phase: "DESIGN",
+      change: "parity-change",
+      prompt: "Design view inheritance with inherit_id for the target view",
+      context_files: [],
+      odoo_source_root: path.resolve("scripts/fixtures/source-precision/odoo-19.0"),
+    }
+    const childResult = { status: "ok", design_closed: true }
+
+    const delegateEnv = await runDelegate(delegateRoot, args, childResult)
+    const sealEnv = await runSeal(sealRoot, args, childResult)
+
+    expect(delegateEnv).toMatchObject({ status: "blocked", reason: "source-authority-invalid" })
+    expect(sealEnv).toMatchObject({ status: "blocked", reason: "source-authority-invalid" })
+    expect(sealEnv.result?.source_authority).toEqual(delegateEnv.result?.source_authority)
+  })
+
+  it("keeps envelope parity with odf_delegate for a proof-backed IMPLEMENT success", async () => {
+    const { delegateRoot, sealRoot } = await parityRoots(async (root, change) => {
+      await writeImplementState(root, change)
+      await writeValidationEvidence(root, change)
+    })
+    const args = {
+      phase: "IMPLEMENT",
+      change: "parity-change",
+      prompt: "Implement the planned change",
+      context_files: [],
+      artifact_store: "openspec",
+      attempt_id: "parity-attempt-1",
+      workflow_advance: implementProof(),
+    }
+    const childResult = { status: "ok", executive_summary: "implemented" }
+
+    const delegateEnv = await runDelegate(delegateRoot, args, childResult)
+    const sealEnv = await runSeal(sealRoot, args, childResult)
+
+    expect(delegateEnv).toMatchObject({
+      status: "delegated",
+      validation: { status: "verified" },
+      workflow_commit: { status: "committed" },
+    })
+    expect(sealEnv).toMatchObject({
+      status: "delegated",
+      agent: delegateEnv.agent,
+      validation: { status: delegateEnv.validation.status },
+      workflow_commit: { status: delegateEnv.workflow_commit.status },
+      result: delegateEnv.result,
+    })
+    const delegateState = YAML.parse(await fs.readFile(path.join(delegateRoot, "openspec", "changes", "parity-change", "state.yaml"), "utf8"))
+    const sealState = YAML.parse(await fs.readFile(path.join(sealRoot, "openspec", "changes", "parity-change", "state.yaml"), "utf8"))
+    expect(sealState).toEqual(delegateState)
+  })
+
+  it("keeps reason parity when the IMPLEMENT validation evidence is missing", async () => {
+    const { delegateRoot, sealRoot } = await parityRoots(writeImplementState)
+    const args = {
+      phase: "IMPLEMENT",
+      change: "parity-change",
+      prompt: "Implement the planned change",
+      context_files: [],
+      artifact_store: "openspec",
+      attempt_id: "parity-attempt-2",
+      workflow_advance: implementProof(),
+    }
+    const childResult = { status: "ok", executive_summary: "implemented without evidence" }
+
+    const delegateEnv = await runDelegate(delegateRoot, args, childResult)
+    const sealEnv = await runSeal(sealRoot, args, childResult)
+
+    expect(delegateEnv).toMatchObject({ status: "blocked", validation: { status: "missing" }, workflow_commit: null })
+    expect(sealEnv).toMatchObject({
+      status: "blocked",
+      reason: delegateEnv.reason,
+      validation: { status: "missing" },
+      workflow_commit: null,
+    })
+  })
+
+  it("keeps envelope parity when the inner phase result failed", async () => {
+    const { delegateRoot, sealRoot } = await parityRoots(writeDesignBoundaryFixture)
+    const args = { phase: "DESIGN", change: "parity-change", prompt: "Design the requested feature", context_files: [] }
+    const childResult = { status: "failed", executive_summary: "could not close" }
+
+    const delegateEnv = await runDelegate(delegateRoot, args, childResult)
+    const sealEnv = await runSeal(sealRoot, args, childResult)
+
+    expect(delegateEnv).toMatchObject({ status: "delegated", result: { status: "failed" } })
+    expect(sealEnv).toMatchObject({ status: "delegated", result: { status: "failed" } })
+    expect(sealEnv.workflow_materialization).toBeUndefined()
   })
 })
