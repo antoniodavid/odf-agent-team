@@ -250,13 +250,34 @@ describe("workflow status adapter", () => {
         plan: { content: "canonical plan", status: "pending" },
         "apply-progress": "- [x] legacy\n- [x] complete",
         "implement-progress": "- [x] first\n- [ ] second",
+        tasks: "- [x] legacy task\n- [x] legacy task complete",
       },
     })
     expect(status.completed_canonical_stages).toEqual(["DECIDE"])
     expect(status.pending_stage).toBe("PLAN")
     expect(status.progress).toEqual({ completed: 1, total: 2, known: true, source: "implement-progress" })
     expect(status.artifact_refs.PLAN).toContain("plan")
-    expect(status.artifact_refs.BUILD).toEqual(["apply-progress", "implement-progress"])
+    expect(status.artifact_refs.BUILD).toEqual(["apply-progress", "implement-progress", "tasks"])
+  })
+
+  it("keeps persisted BUILD pending until a prospective transition is committed", () => {
+    const status = deriveWorkflowStatus({
+      change: "build-candidate",
+      state: "work_type: feature\ncanonical_stage: PLAN\ncompleted_canonical_stages: [DECIDE, PLAN]\n",
+      artifacts: {
+        propose: "proposal",
+        assess: "assessment",
+        plan: "plan",
+        "implement-progress": "- [x] implementation\n",
+      },
+    })
+
+    expect(status).toMatchObject({
+      canonical_stage: "PLAN",
+      completed_canonical_stages: ["DECIDE", "PLAN"],
+      pending_stage: "BUILD",
+      progress: { completed: 1, total: 1, known: true, source: "implement-progress" },
+    })
   })
 
   it("keeps QA-PLAN optional and outside canonical completion", () => {

@@ -5705,14 +5705,14 @@ ${overrides}`
     expect(output.status).toBe("delegated")
   })
 
-  it("commits an atomic OpenSpec BUILD, preserves unrelated YAML, and is idempotent", async () => {
+  it("commits a prospective BUILD from persisted PLAN, preserves YAML, and is idempotent", async () => {
     const change = "direct-build-commit"
     const changeDir = path.join(tempHome, "openspec", "changes", change)
     await fs.mkdir(changeDir, { recursive: true })
     const before = [
       "# keep this comment",
       "work_type: feature",
-      "canonical_stage: BUILD",
+      "canonical_stage: PLAN",
       "completed_canonical_stages: [DECIDE, PLAN]",
       "resumable: true",
       "preflight:",
@@ -5723,6 +5723,11 @@ ${overrides}`
     const statePath = path.join(changeDir, "state.yaml")
     await fs.writeFile(statePath, before, "utf8")
     await fs.writeFile(path.join(changeDir, "implement-progress.md"), "- [x] implementation\n", "utf8")
+    const persistedStatus = JSON.parse(await createODFWorkflowStatus().execute(
+      { change_name: change, workspace_dir: tempHome }, {} as any,
+    ) as string)
+    expect(persistedStatus).toMatchObject({ canonical_stage: "PLAN", pending_stage: "BUILD", completed_canonical_stages: ["DECIDE", "PLAN"] })
+
     const proof = workflowAdvance("IMPLEMENT")
     const recomputed = advanceWorkflow({ route: resolveWorkflowRoute(proof.work_type), ...proof })
     const input = {
@@ -5755,6 +5760,10 @@ ${overrides}`
     })
     expect(committed).toContain("# keep this comment")
     expect((await fs.readdir(changeDir)).filter(name => name.includes(".tmp"))).toEqual([])
+    const committedStatus = JSON.parse(await createODFWorkflowStatus().execute(
+      { change_name: change, workspace_dir: tempHome }, {} as any,
+    ) as string)
+    expect(committedStatus).toMatchObject({ canonical_stage: "BUILD", pending_stage: "VERIFY", completed_canonical_stages: ["DECIDE", "PLAN", "BUILD"] })
 
     const second = await commitWorkflowTransition(input)
     expect(second).toMatchObject({
