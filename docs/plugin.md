@@ -132,6 +132,14 @@ receipt on failure. The aggregate envelope matches `odf_parallel_delegate` plus
 per-branch `task_session_id`. Branch context files must not overlap and branches
 range from two to three.
 
+**Visibility and interruptions:** with the native pair the parent transcript
+shows the `subagent` row (agent, description, live status). With legacy
+`odf_delegate` the delegation runs inside the tool call, so the child session —
+titled `ODF <phase> → <agent> · <change>` — is visible under `/sessions` while
+it runs. Interrupting a delegation aborts the child and settles the attempt as
+failed; the single transport relaunch applies and a second interruption stops
+the run.
+
 ## Transport
 
 1. **Native** — host exposes `toolCtx.task`; permissions derive from the host.

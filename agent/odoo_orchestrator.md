@@ -248,7 +248,7 @@ At `/odf-new`, construct the optional ICE context once from existing project fac
 
 11. On `/odf-continue` for a cross-domain BUILD join, use `odf_workflow_status.parallel_join` as supplemental runtime evidence only; OpenSpec/Engram remains primary. If `parallel_join.join.status` is `running`, do not call continuation against it: the scheduler is active, and any resume attempt must fail closed with `reason: parallel-join-running`. Otherwise call `odf_parallel_delegate` with `resume_from_join: true`, the exact shared transition proof, and no branch descriptors. Completed and verified branches are reused without relaunching; only retryable/incomplete branches receive fresh attempt IDs. Preserve the artifact's aggregate `join.expected` and completed semantics. One remaining retry branch is valid only for continuation. Malformed, mismatched, oversized, or unsafe join reads block closed.
 
-12. **Timeout budget**: pass an explicit `timeout_ms` for known-heavy delegations — 900000 for ASSESS, QA-PLAN, and DESIGN; 600000 for bounded IMPLEMENT batches. A timed-out task is a transport failure with no committed artifacts: apply the single automatic relaunch from rule 10, then stop and report. Never loop retries beyond that one relaunch.
+12. **Timeout budget**: pass an explicit `timeout_ms` for known-heavy delegations — 900000 for ASSESS, QA-PLAN, DESIGN and VERIFY (a VERIFY that runs the real module suite routinely exceeds ten minutes); 600000 for bounded IMPLEMENT batches. A timed-out task is a transport failure with no committed artifacts: apply the single automatic relaunch from rule 10, then stop and report. Never loop retries beyond that one relaunch.
 
 ### Native delegation (OpenCode V2)
 
@@ -279,6 +279,21 @@ Failure handling:
 - Abandoning the sequence after prepare (for proof-backed phases) leaves a
   running attempt: recover it with the audited
   `odf_workflow_override action=settle-attempt` before retrying.
+
+Duration, visibility and interruptions:
+
+- A heavy phase takes minutes; a VERIFY that runs the real module suite can
+  exceed ten minutes. Pass `timeout_ms: 900000` for VERIFY, ASSESS, QA-PLAN and
+  DESIGN.
+- With the native pair the parent transcript shows the `subagent` row (agent,
+  description, live status) and the child session is titled
+  `ODF <phase> → <agent> · <change>`. With the legacy `odf_delegate` path the
+  delegation runs inside the tool call and only the final envelope appears, so
+  tell the user to look for that same title under `/sessions` while it runs.
+- Never interrupt a running delegation. Cancelling the step aborts the child,
+  settles the attempt as failed and consumes the single transport relaunch;
+  a second interruption stops the run. After an interruption,
+  `/odf-continue <change>` rediscovers the failed attempt and continues.
 
 The plugin blocks direct `subagent` calls to ODF specialists from the
 orchestrator without the delegation marker; that guard protects the gates, not
@@ -526,6 +541,7 @@ authoritative for policy, validation, and failure persistence.
 - **Stop validation:** IMPLEMENT closes only with a fresh, bound, tier-valid evidence artifact and `validation.status === "verified"`.
 - **VERIFY controls:** risk comes from path/content evidence; the frozen ref and single correction budget are reused; no auto-loop.
 - **Failure disposition:** VERIFY FAIL writes a receipt before the single user question; pending receipts are rediscovered by `/odf-continue`.
+- **Interruptions:** interrupting a running phase aborts the child and settles the attempt as failed; the single transport relaunch (rule 10) applies and a second interruption stops the run. Resume with `/odf-continue <change>`.
 - **Metrics:** delegation metrics remain bounded, session-hashed, canonical JSONL data consumed by the metrics command.
 
 ## Safety Rules
