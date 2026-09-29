@@ -77,10 +77,10 @@ Usability is part of harness quality: a delegation the user cannot see is a dele
 
 - [x] ADR-lite design: `odd/tasks/native-delegation-prepare-seal-design.md` (token shape, binding fields, `.odf/` storage, TTL, supersede/replay behavior).
 - [x] Token module: `odf-plugin/odf-delegation-tokens.ts` (mint, atomic write, read, expiry, seal-once, delete; bounded and workspace-contained) with its test file.
-- [x] `odf_delegation_prepare` (composite phases): agent/skills/profile/source-authority prompt plus a bounded token; blocks IMPLEMENT/VERIFY until parity; writes no workflow state.
-- [x] `odf_delegation_seal` (composite phases): token and child-session binding (agent, prompt digest, workspace, `parentID` when present), ODF Result parsing, composite gates, PLAN materialization, token consumption, metrics with `task_api_source: "subagent"`.
+- [x] `odf_delegation_prepare`: agent/skills/profile/source-authority prompt plus the policy gate and attempt acquisition for proof-backed phases; bounded token; writes no workflow state.
+- [x] `odf_delegation_seal`: token and child-session binding (agent, prompt digest, workspace, `parentID` when present), ODF Result parsing, composite gates and PLAN materialization, and proof-backed replay (proof revalidation, prepared policy gate, validation-evidence seal, workflow commit, attempt settlement, failure receipts); metrics with `task_api_source: "subagent"`.
 - [x] Register both tools (map, `ODF_REGISTERED_TOOLS`, V2 adapter tool-list test), extend `task_api_source` with `"subagent"`, and update the operator docs.
-- [ ] Proof-backed BUILD/VERIFY parity: attempt ledger acquisition/settlement, prepared policy-gate reuse, validation evidence, workflow commit, failure receipts.
+- [x] Proof-backed BUILD/VERIFY parity: the attempt is acquired in prepare (liveness tracking off so `settle-attempt` can recover orphans) and settled by the seal; the prepared policy gate is reused (no post-build recompute); validation evidence, workflow commit and failure receipts verified end to end in tests. Fast-lane and parallel BUILD stay excluded with explicit blocks.
 - [ ] Orchestrator and command instructions: prepare → `subagent` → seal; hook warnings/blocks for missing tokens.
 - [ ] Parallel BUILD (stretch): background subagents + aggregate seal.
 

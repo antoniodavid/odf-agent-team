@@ -19,10 +19,12 @@ export const DELEGATION_TOKEN_SCHEMA_VERSION = 1 as const
 export const DELEGATION_TOKEN_TTL_MS = 2 * 60 * 60 * 1000
 export const DELEGATION_TOKEN_PATTERN = /^odf-tok-[a-f0-9]{32}$/
 
-const MAX_TOKEN_FILE_BYTES = 16 * 1024
+const MAX_TOKEN_FILE_BYTES = 32 * 1024
 const MAX_CONTEXT_FILES = 64
 const MAX_TASK_CHARS = 8192
 const MAX_ROOT_CHARS = 2048
+const MAX_JSON_FIELD_CHARS = 4096
+const MAX_ACK_CHARS = 1024
 const SAFE_LABEL_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/
 const PROMPT_DIGEST_PATTERN = /^[a-f0-9]{64}$/
 
@@ -53,6 +55,14 @@ export interface DelegationTokenInput {
   /** Deterministic Odoo source roots resolved at prepare time, when required. */
   source_root?: string
   source_repos?: string
+  /** Exact workflow_advance proof for proof-backed BUILD/VERIFY phases. */
+  workflow_advance?: Record<string, unknown>
+  /** Policy gate resolved and persisted at prepare time (proof-backed phases). */
+  policy_gate?: Record<string, unknown> | null
+  /** Persisted governance target for the proof-backed commit. */
+  target?: string
+  /** Explicit final OCA acknowledgment for the proof-backed commit. */
+  governance_acknowledgment?: Record<string, unknown> | null
   artifact_store?: DelegationArtifactStore
   context_files?: string[]
   attempt_id?: string
@@ -76,6 +86,10 @@ export interface DelegationTokenRecord {
   task: string
   source_root?: string
   source_repos?: string
+  workflow_advance?: Record<string, unknown>
+  policy_gate?: Record<string, unknown> | null
+  target?: string
+  governance_acknowledgment?: Record<string, unknown> | null
   skills_injected: string[]
   profile: Record<string, unknown> | null
   context_files: string[]
@@ -124,6 +138,19 @@ function safeProfile(value: unknown): { ok: boolean; profile: Record<string, unk
   return { ok: true, profile: value as Record<string, unknown> }
 }
 
+function safeJsonObject(value: unknown, maxChars: number): { ok: boolean; value: Record<string, unknown> | null } {
+  if (value === undefined || value === null) return { ok: true, value: null }
+  if (typeof value !== "object" || Array.isArray(value)) return { ok: false, value: null }
+  let serialized: string
+  try {
+    serialized = JSON.stringify(value)
+  } catch {
+    return { ok: false, value: null }
+  }
+  if (typeof serialized !== "string" || serialized.length > maxChars || serialized.includes("\0")) return { ok: false, value: null }
+  return { ok: true, value: value as Record<string, unknown> }
+}
+
 function canonicalWorkspace(workspace: string): string | null {
   try {
     return canonicalWorkspaceRoot(workspace)
@@ -158,6 +185,13 @@ export function createDelegationTokenRecord(input: DelegationTokenInput): Delega
   if (!profile.ok) return null
   if (input.source_root !== undefined && !safeRoot(input.source_root)) return null
   if (input.source_repos !== undefined && !safeRoot(input.source_repos)) return null
+  if (input.target !== undefined && input.target !== "oca") return null
+  const workflowAdvance = safeJsonObject(input.workflow_advance, MAX_JSON_FIELD_CHARS)
+  if (!workflowAdvance.ok) return null
+  const policyGate = safeJsonObject(input.policy_gate, MAX_JSON_FIELD_CHARS)
+  if (!policyGate.ok) return null
+  const acknowledgment = safeJsonObject(input.governance_acknowledgment, MAX_ACK_CHARS)
+  if (!acknowledgment.ok) return null
   if (input.artifact_store !== undefined && !["openspec", "engram", "hybrid"].includes(input.artifact_store)) return null
   if (input.attempt_id !== undefined && !safeLabel(input.attempt_id)) return null
   if (input.branch_id !== undefined && !safeLabel(input.branch_id)) return null
@@ -181,6 +215,10 @@ export function createDelegationTokenRecord(input: DelegationTokenInput): Delega
     task,
     ...(input.source_root ? { source_root: input.source_root } : {}),
     ...(input.source_repos ? { source_repos: input.source_repos } : {}),
+    ...(workflowAdvance.value ? { workflow_advance: workflowAdvance.value } : {}),
+    ...(policyGate.value ? { policy_gate: policyGate.value } : {}),
+    ...(input.target ? { target: input.target } : {}),
+    ...(acknowledgment.value ? { governance_acknowledgment: acknowledgment.value } : {}),
     skills_injected: skills,
     profile: profile.profile,
     context_files: contextFiles,
@@ -206,6 +244,10 @@ function isDelegationTokenRecord(value: unknown): value is DelegationTokenRecord
     safeTask(record.task) !== null &&
     (record.source_root === undefined || safeRoot(record.source_root) !== null) &&
     (record.source_repos === undefined || safeRoot(record.source_repos) !== null) &&
+    (record.workflow_advance === undefined || (typeof record.workflow_advance === "object" && !Array.isArray(record.workflow_advance))) &&
+    (record.policy_gate === undefined || record.policy_gate === null || (typeof record.policy_gate === "object" && !Array.isArray(record.policy_gate))) &&
+    (record.target === undefined || record.target === "oca") &&
+    (record.governance_acknowledgment === undefined || (typeof record.governance_acknowledgment === "object" && !Array.isArray(record.governance_acknowledgment))) &&
     Array.isArray(record.skills_injected) && record.skills_injected.every(name => safeLabel(name) !== null) &&
     (record.profile === null || (typeof record.profile === "object" && !Array.isArray(record.profile))) &&
     Array.isArray(record.context_files) && record.context_files.every(file => typeof file === "string") &&

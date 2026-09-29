@@ -159,10 +159,15 @@ and tests can consume either path.
 ## Compatibility
 
 - `odf_delegate`, `odf_parallel_delegate` and the V2 bridge stay unchanged.
-- Proof-backed IMPLEMENT/VERIFY stay on `odf_delegate` until the next slice
-  (attempt ledger, prepared policy gate reuse, validation evidence and workflow
-  commit parity): prepare blocks them with
-  `native-delegation-proof-parity-pending`.
+- Proof-backed IMPLEMENT/VERIFY are supported: seal replays the authoritative
+  delegate with the child result as the task outcome (internal options
+  `suppress_metrics`, `pre_resolved_policy_gate`, `pre_acquired_attempt`), so the
+  proof, candidate binding, validation-evidence seal and workflow commit stay
+  identical to the sequential path. The attempt is acquired by prepare; the seal
+  settles the same ledger record.
+- Fast-lane BUILD/VERIFY and parallel BUILD stay on `odf_delegate`; prepare
+  blocks the former with `native-delegation-fast-lane-unsupported` and parallel
+  descriptors are not part of the token yet.
 - New registered tools `odf_delegation_prepare` / `odf_delegation_seal` are in
   `ODF_REGISTERED_TOOLS`, covered by the V2 adapter tool-list test, and listed in
   `AGENTS.md`, `docs/plugin.md` and `docs/architecture.md`.

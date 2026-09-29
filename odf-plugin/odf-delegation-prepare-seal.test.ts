@@ -90,6 +90,45 @@ describe("native prepare/seal delegation", () => {
     return changeDir
   }
 
+  const writeImplementState = async (change: string) => {
+    const changeDir = path.join(tempHome, "openspec", "changes", change)
+    await fs.mkdir(changeDir, { recursive: true })
+    await fs.writeFile(path.join(changeDir, "state.yaml"), YAML.stringify({
+      work_type: "feature",
+      canonical_stage: "BUILD",
+      completed_canonical_stages: ["DECIDE", "PLAN"],
+      resumable: true,
+    }), "utf8")
+    await fs.writeFile(path.join(changeDir, "implement-progress.md"), "- [x] implementation\n", "utf8")
+  }
+
+  const writeValidationEvidence = async (change: string) => {
+    await fs.mkdir(path.join(tempHome, ".odf"), { recursive: true })
+    await fs.writeFile(path.join(tempHome, ".odf", `validation-evidence-${change}.json`), JSON.stringify({
+      change,
+      phase: "IMPLEMENT",
+      batch: 1,
+      risk_tier: "MEDIUM",
+      frozen_diff_ref: null,
+      resolved_at: new Date().toISOString(),
+      commands: [
+        { name: "git-diff-check", command: "git diff --check", exit_code: 0, output_tail: "" },
+        { name: "odoo-tests", command: "odoo-bin -d odf_test_db -i test_module --test-enable --stop-after-init", database: "odf_test_db", exit_code: 0, output_tail: "2 passed, 0 failed" },
+      ],
+    }), "utf8")
+  }
+
+  const implementProof = () => ({
+    work_type: "feature",
+    completed_stages: ["DECIDE"],
+    candidate_stage: "PLAN",
+    phase_result_status: "ok",
+    validation_status: "not-required",
+    receipt_state: "none",
+    resumable_state: true,
+    archived_state: false,
+  })
+
   it("prepares a composite delegation with a bounded token and no session launch", async () => {
     const output = await prepareDesign()
 
@@ -108,16 +147,105 @@ describe("native prepare/seal delegation", () => {
     expect(read.record?.prompt_digest).toBe(delegationPromptDigest(output.delegation.prompt))
   })
 
-  it("blocks proof-backed phases until BUILD/VERIFY parity lands", async () => {
+  it("blocks a proof-backed prepare without store, proof or attempt", async () => {
     const { odf_delegation_prepare } = await tools()
-    const output = JSON.parse(await odf_delegation_prepare.execute({
+    const base = {
       phase: "IMPLEMENT",
       change: "native-implement",
       prompt: "Implement the requested feature",
       context_files: [],
-    }, { sessionID: "prepare-implement" } as any) as string)
+    }
+    const noStore = JSON.parse(await odf_delegation_prepare.execute({ ...base }, { sessionID: "prepare-implement" } as any) as string)
+    expect(noStore).toMatchObject({ status: "blocked", reason: "artifact-store-required" })
 
-    expect(output).toMatchObject({ status: "blocked", reason: "native-delegation-proof-parity-pending" })
+    const noProof = JSON.parse(await odf_delegation_prepare.execute({ ...base, artifact_store: "openspec" }, { sessionID: "prepare-implement" } as any) as string)
+    expect(noProof).toMatchObject({ status: "blocked", reason: "proof-required" })
+
+    const noAttempt = JSON.parse(await odf_delegation_prepare.execute({
+      ...base, artifact_store: "openspec", workflow_advance: implementProof(),
+    }, { sessionID: "prepare-implement" } as any) as string)
+    expect(noAttempt).toMatchObject({ status: "blocked", reason: "attempt-id-required" })
+  })
+
+  it("prepares and seals a proof-backed IMPLEMENT delegation end to end", async () => {
+    const { odf_delegation_prepare, odf_delegation_seal } = await tools()
+    const change = "native-implement"
+    await writeImplementState(change)
+
+    const prepared = JSON.parse(await odf_delegation_prepare.execute({
+      phase: "IMPLEMENT",
+      change,
+      prompt: "Implement the planned change",
+      context_files: [],
+      artifact_store: "openspec",
+      attempt_id: "native-impl-1",
+      workflow_advance: implementProof(),
+    }, { sessionID: "prepare-session" } as any) as string)
+
+    expect(prepared).toMatchObject({ status: "prepared", change, phase: "IMPLEMENT", attempt_id: "native-impl-1" })
+    expect(prepared.policy_gate).toMatchObject({ gate: "allow" })
+
+    await writeValidationEvidence(change)
+    const session = fakeChildSession({
+      agent: prepared.agent,
+      prompt: prepared.delegation.prompt,
+      resultText: "## ODF Result\n- **status**: ok\n- **executive_summary**: implemented",
+    })
+
+    const output = JSON.parse(await odf_delegation_seal.execute({
+      token: prepared.token,
+      change,
+      session_id: "ses_child",
+    }, { sessionID: "parent-session", [ODF_V2_SESSION]: session } as any) as string)
+
+    expect(output).toMatchObject({
+      status: "delegated",
+      validation: { status: "verified" },
+      workflow_commit: { status: "committed" },
+      task_api_source: "subagent",
+      task_session_id: "ses_child",
+    })
+    expect(YAML.parse(await fs.readFile(path.join(tempHome, "openspec", "changes", change, "state.yaml"), "utf8"))).toMatchObject({
+      canonical_stage: "BUILD",
+      completed_canonical_stages: ["DECIDE", "PLAN", "BUILD"],
+    })
+    const ledger = await fs.readFile(path.join(tempHome, ".odf", `attempt-ledger-${change}.jsonl`), "utf8")
+    const records = ledger.trim().split("\n").map(line => JSON.parse(line))
+    const latest = records.filter((record: { attempt_id: string }) => record.attempt_id === "native-impl-1").at(-1)
+    expect(latest).toMatchObject({ status: "completed", next_stage: "BUILD" })
+  })
+
+  it("fails the proof-backed seal when IMPLEMENT validation evidence is missing", async () => {
+    const { odf_delegation_prepare, odf_delegation_seal } = await tools()
+    const change = "native-implement-missing-evidence"
+    await writeImplementState(change)
+
+    const prepared = JSON.parse(await odf_delegation_prepare.execute({
+      phase: "IMPLEMENT",
+      change,
+      prompt: "Implement the planned change",
+      context_files: [],
+      artifact_store: "openspec",
+      attempt_id: "native-impl-2",
+      workflow_advance: implementProof(),
+    }, { sessionID: "prepare-session" } as any) as string)
+
+    const session = fakeChildSession({
+      agent: prepared.agent,
+      prompt: prepared.delegation.prompt,
+      resultText: "## ODF Result\n- **status**: ok\n- **executive_summary**: implemented without evidence",
+    })
+    const output = JSON.parse(await odf_delegation_seal.execute({
+      token: prepared.token,
+      change,
+      session_id: "ses_child",
+    }, { sessionID: "parent-session", [ODF_V2_SESSION]: session } as any) as string)
+
+    expect(output).toMatchObject({ status: "blocked", validation: { status: "missing" }, workflow_commit: null })
+    const ledger = await fs.readFile(path.join(tempHome, ".odf", `attempt-ledger-${change}.jsonl`), "utf8")
+    const records = ledger.trim().split("\n").map(line => JSON.parse(line))
+    const latest = records.filter((record: { attempt_id: string }) => record.attempt_id === "native-impl-2").at(-1)
+    expect(latest).toMatchObject({ status: "failed" })
   })
 
   it("seals a DESIGN delegation, materializes PLAN and consumes the token", async () => {
