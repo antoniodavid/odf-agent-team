@@ -111,6 +111,16 @@ describe("OpenCode V1/V2 contract fixtures", () => {
     }
   })
 
+  it("teaches models to use ODF's control plane without probing pack source", () => {
+    const tools = createODFRegisteredTools()
+
+    expect(ODF_SYSTEM_RULES).toContain("ODF is a control-plane API")
+    expect(ODF_SYSTEM_RULES).toContain("Do not inspect or search the installed ODF runtime source")
+    expect(ODF_SYSTEM_RULES).toContain("one `odf_workflow_status` call")
+    expect(tools.odf_workflow_status.description).toContain("Use this first for a current-state or continuation question")
+    expect(tools.odf_status.description).toContain("use odf_workflow_status instead")
+  })
+
   it("keeps JSON Schema fields and validation aligned with the V1 schemas", async () => {
     const v1Tools = createODFRegisteredTools()
     const fixture = createContractFixture()
