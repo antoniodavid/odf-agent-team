@@ -348,15 +348,6 @@ describe("OpenCode V2 ODF adapter", () => {
   })
 })
 
-const HEALTH_OK = JSON.stringify({
-  schema_version: 1,
-  status: "ok",
-  registry: { status: "valid", skills: { missing: [] }, agents: { missing: [] } },
-  plugin: { loaded: true, file_status: "readable" },
-  command: { status: "readable" },
-  task_api: { function_present: true },
-})
-
 function entryHooks(fixture: ReturnType<typeof testContext>) {
   return {
     prompt: fixture.hooks.find(hook => hook.domain === "session" && hook.name === "prompt")!,
@@ -371,12 +362,23 @@ async function runHealthFlow(
   messageID: string,
   promptText: string,
 ) {
-  const hooks = entryHooks(fixture)
-  await hooks.prompt.callback({ sessionID, messageID, prompt: { text: promptText } })
-  await hooks.before.callback({ tool: "odf_health", sessionID, agent: "odoo_orchestrator", messageID, id: "call-health", input: {} })
-  await hooks.after.callback({
-    tool: "odf_health", sessionID, agent: "odoo_orchestrator", messageID, id: "call-health", input: {},
-    status: "completed", result: { content: HEALTH_OK },
+  const prompt = fixture.hooks.find(hook => hook.domain === "session" && hook.name === "prompt")!
+  await prompt.callback({ sessionID, messageID, prompt: { text: promptText } })
+  const health = fixture.tools.find(tool => tool.name === "odf_health")!
+  const result = await health.execute({}, {
+    sessionID,
+    messageID,
+    agent: "odoo_orchestrator",
+    signal: new AbortController().signal,
+    progress: vi.fn(async () => undefined),
+  })
+  expect(JSON.parse(result.content)).toMatchObject({
+    schema_version: 1,
+    status: expect.stringMatching(/^(ok|warning)$/),
+    registry: { status: "valid", skills: { missing: [] }, agents: { missing: [] } },
+    plugin: { loaded: true, file_status: "readable" },
+    command: { status: "readable" },
+    task_api: { function_present: true },
   })
 }
 
@@ -396,16 +398,21 @@ describe("OpenCode V2 /odf-new entry authorization", () => {
     expect(detectOdfNewEntry("odf-newer change", body)).toBeNull()
   })
 
-  it("blocks gated tools before health when the command was expanded", async () => {
+  it("blocks registered ODF tools before health when the command was expanded", async () => {
     const fixture = testContext()
     const cleanup = await setupODFV2(fixture.context as any)
     const body = loadOdfNewCommandBody()!
-    const hooks = entryHooks(fixture)
+    const prompt = fixture.hooks.find(hook => hook.domain === "session" && hook.name === "prompt")!
 
-    await hooks.prompt.callback({ sessionID: "session-gated", messageID: "msg-gated", prompt: { text: `${body}\n\nsample-change` } })
+    await prompt.callback({ sessionID: "session-gated", messageID: "msg-gated", prompt: { text: `${body}\n\nsample-change` } })
+    const route = fixture.tools.find(tool => tool.name === "odf_workflow_route")!
 
-    await expect(hooks.before.callback({
-      tool: "odf_delegate", sessionID: "session-gated", agent: "odoo_orchestrator", messageID: "msg-gated", id: "call-1", input: {},
+    await expect(route.execute({ work_type: "feature" }, {
+      sessionID: "session-gated",
+      messageID: "msg-gated",
+      agent: "odoo_orchestrator",
+      signal: new AbortController().signal,
+      progress: vi.fn(async () => undefined),
     })).rejects.toThrow(ODF_ENTRY_HEALTH_REASON)
 
     await cleanup()
