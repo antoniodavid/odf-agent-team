@@ -1,5 +1,28 @@
 # Changelog — ODF Agent Team
 
+## 1.5.0 (2026-09-29)
+
+### Added
+- **Native delegation (OpenCode V2)**: `odf_delegation_prepare` + `odf_delegation_seal` run a phase as a host `subagent` child session — visible agent, description and live status — while every ODF gate stays plugin-side: bounded `odf-tok-…` tokens under `.odf/` (prompt digest, two-hour TTL, workspace containment), child-session binding checks, composite gates and a proof-backed replay of the authoritative delegate (policy gate, validation evidence, workflow commit, attempt settlement, failure receipts). The sealed envelope matches `odf_delegate` for identical inputs (delegate/seal parity matrix).
+- **Native parallel BUILD**: `odf_parallel_prepare` + `odf_parallel_seal` launch one `subagent` per branch (background allowed) and run the authoritative aggregate scheduler: per-branch validation evidence, the parallel-join artifact, one BUILD commit and one aggregate receipt on failure, with per-branch `task_session_id`.
+- **Chokepoint guard**: the V2 `execute.before` hook blocks direct `subagent`/`task` calls from the orchestrator to registered ODF specialists without the prepared delegation marker; manual agent use from other sessions is untouched.
+- The plugin exposes 26 runtime tools.
+
+### Changed
+- Orchestrator and phase commands document the native single and parallel delegation flows, their recovery reasons, and the fast-lane / cross-domain boundaries.
+- Native seals record one aggregate `subagent` metric (the replayed delegate metrics are suppressed), including join counts for parallel BUILD.
+
+### Fixed
+- Heavy phases: VERIFY gets the same 900000 ms timeout budget as ASSESS/QA-PLAN/DESIGN, and the orchestrator documents expected duration, child-session visibility (`ODF <phase> → <agent> · <change>`, `/sessions` on the legacy path) and interruption semantics — interrupting aborts the child, settles the attempt as failed, applies the single transport relaunch, and `/odf-continue` resumes (#80).
+- Parallel BUILD recovery: a persisted join left `running` after a host restart is recovered instead of dead-ending BUILD (#74, #75).
+- Legacy status: progress-bearing artifacts (`implement-progress`, `apply-progress`, `tasks`, `explore-progress`, `fix-progress`) derive their state from content, so partial work renders as `in-progress` instead of `done` (#73, #75).
+- Metrics: the entry-to-final-gate funnel breaks down per stage so the dominant bottleneck is localizable (#76, #77).
+- Parallel scheduler tests use `waitFor` timeouts above the vitest 1 s default and no longer flake under load (#78, #79).
+
+### Verification boundary
+- Local repository checks cover 998 unit tests (37 files), 325 YAML scenarios, and 18 harness checks; CI runs the same suite on Node 22.
+- Native delegation is covered by the prepare/seal flow tests, the delegate-vs-seal parity matrix (composite, proof-backed, inner-failed) and the parallel BUILD end-to-end tests; the real Odoo VERIFY run is recorded as release evidence.
+
 ## 1.4.0 (2026-09-28)
 
 > **BREAKING — OpenCode V2 only.** The plugin entrypoint no longer exports the
