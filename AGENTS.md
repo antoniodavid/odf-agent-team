@@ -71,12 +71,16 @@ Each phase is a sub-agent with a defined input/output contract. The orchestrator
 
 ### Plugin tools (`odf-delegation.ts`)
 
-22 tools injected at runtime into the orchestrator's tool list:
+26 tools injected at runtime into the orchestrator's tool list:
 
 | Tool | Purpose |
 |------|---------|
 | `odf_delegate` | Route phase + prompt to the right sub-agent with skill injection |
+| `odf_delegation_prepare` | Prepare a native delegation (agent/skills/profile/prompt + token) for the host `subagent` tool |
+| `odf_delegation_seal` | Seal a native delegation: verify the child session, run the phase gates, return the standard envelope |
 | `odf_parallel_delegate` | Run a cross-domain BUILD as 2-3 parallel branches with one aggregate join |
+| `odf_parallel_prepare` | Prepare a native parallel BUILD (branch prompts + one token) for host `subagent` launches |
+| `odf_parallel_seal` | Seal a native parallel BUILD: verify the branch sessions, run the aggregate scheduler and commit once |
 | `odf_workflow_route` | Resolve the canonical stage route for a work type |
 | `odf_workflow_advance` | Preview/verify a canonical workflow transition (read-only) |
 | `odf_workflow_override` | Audited skip/re-enter/re-plan/settle-stale-attempt for an existing change |

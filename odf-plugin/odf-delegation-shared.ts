@@ -213,7 +213,11 @@ export interface ODFRegistry {
 
 export const ODF_REGISTERED_TOOLS = [
   "odf_delegate",
+  "odf_delegation_prepare",
+  "odf_delegation_seal",
   "odf_parallel_delegate",
+  "odf_parallel_prepare",
+  "odf_parallel_seal",
   "odf_workflow_route",
   "odf_workflow_advance",
   "odf_workflow_override",

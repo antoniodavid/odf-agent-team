@@ -367,6 +367,12 @@ export type TaskApiInput = {
    */
   title?: string
   /**
+   * Optional branch identifier for parallel BUILD delegation. Hosts ignore it;
+   * the native parallel seal routes each branch result back to its descriptor
+   * with it.
+   */
+  branch_id?: string
+  /**
    * Directory the delegated session must run in. Defaults to the host session's
    * directory, which is what `context_files` (validated relative paths) assumes:
    * they only resolve correctly when the child works in the same root. Set it to
@@ -678,6 +684,46 @@ function v2ContextResult(response: unknown): unknown {
   return sessionResultFromText(text)
 }
 
+export interface V2ContextConversation {
+  /** Text parts of every user message, oldest first. */
+  userTexts: string[]
+  /** Text parts of the latest assistant message. */
+  assistantText: string
+}
+
+/**
+ * Bounded conversation view for the native seal path: the first user text is
+ * the delegated prompt and the latest assistant text is the phase result.
+ * Returns null when the response has no usable structure (caller decides the
+ * failure reason); never throws.
+ */
+export function readV2ContextConversation(response: unknown): V2ContextConversation | null {
+  if (!Array.isArray(response) || response.length === 0) return null
+  const userTexts: string[] = []
+  let assistantText: string | null = null
+  for (const message of response) {
+    if (!message || typeof message !== "object" || Array.isArray(message)) continue
+    const value = message as Record<string, any>
+    const info = value.info && typeof value.info === "object" ? value.info : value
+    const role = typeof info.type === "string" ? info.type : typeof info.role === "string" ? info.role : null
+    const parts = Array.isArray(value.content)
+      ? value.content
+      : Array.isArray(value.parts)
+        ? value.parts
+        : Array.isArray(info.content) ? info.content : []
+    const text = parts
+      .filter((part: any) => part?.type === "text" && typeof part.text === "string")
+      .map((part: any) => part.text)
+      .join("\n")
+      .trim()
+    if (!text) continue
+    if (role === "user") userTexts.push(text)
+    if (role === "assistant") assistantText = text
+  }
+  if (!assistantText) return null
+  return { userTexts, assistantText }
+}
+
 type V2TaskInvocation = { childID?: string; abortRequested: boolean; aborting?: Promise<void> }
 
 /**
@@ -692,6 +738,26 @@ export function taskSessionIdOf(result: unknown): string | null {
   if (!result || typeof result !== "object") return null
   const value = (result as Record<PropertyKey, unknown>)[TASK_SESSION_ID]
   return typeof value === "string" && value.length > 0 ? value : null
+}
+
+/** Attach the child session id marker to a parsed result (native seal paths). */
+export function markTaskSessionId(result: unknown, sessionId: string): void {
+  if (!result || typeof result !== "object") return
+  try {
+    Object.defineProperty(result, TASK_SESSION_ID, { value: sessionId, enumerable: false, configurable: true })
+  } catch {
+    // A non-extensible result cannot carry the marker.
+  }
+}
+
+/**
+ * Mark a task API as an ODF-owned bridge so findTaskApi hands it back as-is.
+ * Native seal paths use this for routing stubs that must receive the full
+ * TaskApiInput (including branch_id) instead of the V1 wrapper shape.
+ */
+export function markTaskBridge<T extends TaskApi>(taskApi: T): T {
+  ;(taskApi as unknown as Record<symbol, unknown>)[ODF_TASK_BRIDGE] = true
+  return taskApi
 }
 
 /** Best-effort progress (V2 maps `metadata` to `context.progress`). */

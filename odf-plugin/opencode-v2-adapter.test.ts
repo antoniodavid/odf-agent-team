@@ -145,6 +145,34 @@ describe("OpenCode V2 ODF adapter", () => {
     await cleanup()
   })
 
+  it("blocks direct subagent calls to ODF agents from the orchestrator", async () => {
+    const fixture = testContext()
+    const cleanup = await setupODFV2(fixture.context as any)
+    const hooks = entryHooks(fixture)
+
+    await expect(hooks.before.callback({
+      tool: "subagent", sessionID: "session", agent: "odoo_orchestrator", messageID: "message", id: "call-blocked",
+      input: { agent: "odoo_backend_engineer", description: "delegate", prompt: "Implement it" },
+    })).rejects.toThrow(/ODF specialist/)
+
+    await expect(hooks.before.callback({
+      tool: "subagent", sessionID: "session", agent: "odoo_orchestrator", messageID: "message", id: "call-marker",
+      input: { agent: "odoo_backend_engineer", description: "delegate", prompt: "<!-- ODF-DELEGATION {\"token\":\"x\"} -->\nImplement it" },
+    })).resolves.toBeUndefined()
+
+    await expect(hooks.before.callback({
+      tool: "subagent", sessionID: "session", agent: "build", messageID: "message", id: "call-other-session",
+      input: { agent: "odoo_backend_engineer", description: "delegate", prompt: "Implement it" },
+    })).resolves.toBeUndefined()
+
+    await expect(hooks.before.callback({
+      tool: "subagent", sessionID: "session", agent: "odoo_orchestrator", messageID: "message", id: "call-non-odf",
+      input: { agent: "explore", description: "delegate", prompt: "Look around" },
+    })).resolves.toBeUndefined()
+
+    await cleanup()
+  })
+
   it("injects the one-shot context pressure notice through the V2 context hook", async () => {
     const previous = process.env.ODF_CONTEXT_WARN_TOKENS
     process.env.ODF_CONTEXT_WARN_TOKENS = "1000"

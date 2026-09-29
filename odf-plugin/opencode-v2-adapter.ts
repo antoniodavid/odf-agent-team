@@ -22,6 +22,44 @@ import {
   type V2SessionApi,
 } from "./odf-delegation-health.js"
 import { ODF_PLUGIN_ID } from "./runtime-boundary.js"
+import { loadRegistry } from "./odf-registry-io.js"
+
+const ODF_ORCHESTRATOR_AGENT = "odoo_orchestrator"
+const ODF_NATIVE_DELEGATION_TOOLS = new Set(["subagent", "task"])
+const ODF_DELEGATION_MARKER = "<!-- ODF-DELEGATION "
+
+/**
+ * Chokepoint guard for the V2 native delegation path: the ODF orchestrator must
+ * launch registered ODF specialists through `odf_delegation_prepare`/`odf_delegate`
+ * so the delegation gates stay in control. A direct `subagent`/`task` call from
+ * the orchestrator without the prepared prompt marker is blocked with an
+ * actionable error; manual agent use from other sessions is untouched.
+ */
+async function odfSubagentChokepointError(input: { tool: string; agent: string; input: unknown }): Promise<string | null> {
+  if (input.agent !== ODF_ORCHESTRATOR_AGENT) return null
+  if (!ODF_NATIVE_DELEGATION_TOOLS.has(input.tool)) return null
+  const args = input.input && typeof input.input === "object" && !Array.isArray(input.input)
+    ? input.input as Record<string, unknown>
+    : null
+  const target = typeof args?.agent === "string"
+    ? args.agent
+    : typeof args?.subagent_type === "string"
+      ? args.subagent_type
+      : null
+  if (!target) return null
+  let isOdfAgent = false
+  try {
+    const registry = await loadRegistry()
+    isOdfAgent = Boolean(registry?.agents?.some(agent => agent.name === target && agent.installed === true))
+  } catch {
+    // The registry is advisory here: if it cannot be read, do not block.
+    return null
+  }
+  if (!isOdfAgent) return null
+  const prompt = typeof args?.prompt === "string" ? args.prompt : ""
+  if (prompt.includes(ODF_DELEGATION_MARKER)) return null
+  return `Blocked: ${target} is an ODF specialist. Delegate through odf_delegation_prepare → subagent → odf_delegation_seal (or odf_delegate for fast-lane/parallel) so the ODF gates run; direct ${input.tool} calls to ODF agents from the orchestrator are not allowed.`
+}
 
 type JsonSchema = Record<string, unknown>
 type ODFRegisteredToolMap = import("../plugins/odf-delegation.js").ODFRegisteredToolMap
@@ -167,6 +205,12 @@ async function registerV2Hooks(
       callID: input.id,
     }, output)
     input.input = output.args
+    const chokepoint = await odfSubagentChokepointError({
+      tool: input.tool,
+      agent: input.agent,
+      input: input.input,
+    })
+    if (chokepoint) throw new Error(chokepoint)
   }))
 
   registrations.push(await context.tool.hook("execute.after", async (input) => {

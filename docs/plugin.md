@@ -1,13 +1,17 @@
 # Plugin Reference — `odf-delegation`
 
-The ODF plugin injects **22 tools** into the orchestrator's tool list at runtime. They are **not MCP tools** — they are registered by the OpenCode plugin host from `plugins/odf-delegation.ts`.
+The ODF plugin injects **26 tools** into the orchestrator's tool list at runtime. They are **not MCP tools** — they are registered by the OpenCode plugin host from `plugins/odf-delegation.ts`.
 
 ## Tool inventory
 
 | Tool | Kind | Purpose |
 |------|------|---------|
 | `odf_delegate` | write | Route a phase + prompt to the right sub-agent with skill injection |
+| `odf_delegation_prepare` | write | Resolve agent/skills/profile/prompt and mint a bounded delegation token for the host `subagent` tool |
+| `odf_delegation_seal` | write | Bind the child session to the token, run the phase gates and return the standard envelope |
 | `odf_parallel_delegate` | write | Cross-domain BUILD as 2–3 parallel branches, one aggregate join |
+| `odf_parallel_prepare` | write | Prepare a native parallel BUILD: branch prompts + one token for host `subagent` launches |
+| `odf_parallel_seal` | write | Seal a native parallel BUILD: verify branch sessions, run the aggregate scheduler, commit once |
 | `odf_workflow_route` | read | Canonical thin-spine route for a work type |
 | `odf_workflow_advance` | read | Preview/verify a transition (never mutates) |
 | `odf_workflow_override` | write | Audited skip / re-enter / re-plan / settle-stale-attempt (BUILD & VERIFY can never be skipped) |
@@ -84,6 +88,57 @@ specialist agent  ──►  Odoo worktree (edits, tests)
 **Why one call is efficient:** the orchestrator issues a single `odf_delegate` round-trip. The plugin does registry lookup, agent resolution, skill matching, profile selection, and gate enforcement *inside that call* — the specialist arrives pre-loaded with rules instead of spending its own turns grepping the repo.
 
 **Blocked envelope:** if no task API is available, the tool returns `{status:"blocked", reason:"task-api-unavailable"}` and **never** hands back an executable fallback prompt.
+
+## Native prepare/seal flow (OpenCode V2)
+
+When the host exposes the `subagent` tool, the orchestrator can delegate through
+the native pair so the phase runs as a visible child session:
+
+```
+orchestrator
+   │ 1. odf_delegation_prepare(phase, change, prompt, …)
+   │      → { token, delegation: { agent, description, prompt } }
+   │ 2. subagent({ agent, description, prompt })   ← host child session
+   │      → child sessionID
+   │ 3. odf_delegation_seal({ token, change, session_id })
+   ▼
+plugin
+   • verifies the child session (agent, prompt digest, workspace, parentID when present)
+   • reads the ODF Result through the V2 session API
+   • runs the composite gates or replays the authoritative delegate for BUILD/VERIFY
+     (proof revalidation, prepared policy gate, validation-evidence seal, workflow commit,
+      attempt settlement, failure receipts)
+   • consumes the token and returns the standard envelope (+ task_session_id)
+```
+
+- The prompt must be passed **verbatim**; the seal compares its SHA-256 digest
+  with the prepared one and fails closed on any edit.
+- The token is a bounded opaque `odf-tok-…` file under `.odf/` (two-hour TTL);
+  binding failures keep it for a retry, processed delegations consume it.
+- IMPLEMENT/VERIFY also require `artifact_store`, the exact `workflow_advance`
+  proof and a fresh `attempt_id`; the attempt is acquired at prepare time and
+  settled by the seal. Fast-lane and cross-domain parallel BUILD stay on
+  `odf_delegate`/`odf_parallel_delegate`.
+- V2 blocks direct `subagent` calls to ODF specialists from the orchestrator
+  without the prepared marker, so the gates cannot be bypassed silently.
+
+### Native parallel BUILD (cross-domain)
+
+`odf_parallel_prepare` → one `subagent` per branch (background allowed) →
+`odf_parallel_seal` runs the same aggregate scheduler as `odf_parallel_delegate`
+with visible branch sessions: per-branch validation evidence, the
+`.odf/parallel-join-{change}.json` artifact, one BUILD commit and one aggregate
+receipt on failure. The aggregate envelope matches `odf_parallel_delegate` plus
+per-branch `task_session_id`. Branch context files must not overlap and branches
+range from two to three.
+
+**Visibility and interruptions:** with the native pair the parent transcript
+shows the `subagent` row (agent, description, live status). With legacy
+`odf_delegate` the delegation runs inside the tool call, so the child session —
+titled `ODF <phase> → <agent> · <change>` — is visible under `/sessions` while
+it runs. Interrupting a delegation aborts the child and settles the attempt as
+failed; the single transport relaunch applies and a second interruption stops
+the run.
 
 ## Transport
 
