@@ -1,6 +1,6 @@
 # Plugin Reference — `odf-delegation`
 
-The ODF plugin injects **24 tools** into the orchestrator's tool list at runtime. They are **not MCP tools** — they are registered by the OpenCode plugin host from `plugins/odf-delegation.ts`.
+The ODF plugin injects **26 tools** into the orchestrator's tool list at runtime. They are **not MCP tools** — they are registered by the OpenCode plugin host from `plugins/odf-delegation.ts`.
 
 ## Tool inventory
 
@@ -10,6 +10,8 @@ The ODF plugin injects **24 tools** into the orchestrator's tool list at runtime
 | `odf_delegation_prepare` | write | Resolve agent/skills/profile/prompt and mint a bounded delegation token for the host `subagent` tool |
 | `odf_delegation_seal` | write | Bind the child session to the token, run the phase gates and return the standard envelope |
 | `odf_parallel_delegate` | write | Cross-domain BUILD as 2–3 parallel branches, one aggregate join |
+| `odf_parallel_prepare` | write | Prepare a native parallel BUILD: branch prompts + one token for host `subagent` launches |
+| `odf_parallel_seal` | write | Seal a native parallel BUILD: verify branch sessions, run the aggregate scheduler, commit once |
 | `odf_workflow_route` | read | Canonical thin-spine route for a work type |
 | `odf_workflow_advance` | read | Preview/verify a transition (never mutates) |
 | `odf_workflow_override` | write | Audited skip / re-enter / re-plan / settle-stale-attempt (BUILD & VERIFY can never be skipped) |
@@ -119,6 +121,16 @@ plugin
   `odf_delegate`/`odf_parallel_delegate`.
 - V2 blocks direct `subagent` calls to ODF specialists from the orchestrator
   without the prepared marker, so the gates cannot be bypassed silently.
+
+### Native parallel BUILD (cross-domain)
+
+`odf_parallel_prepare` → one `subagent` per branch (background allowed) →
+`odf_parallel_seal` runs the same aggregate scheduler as `odf_parallel_delegate`
+with visible branch sessions: per-branch validation evidence, the
+`.odf/parallel-join-{change}.json` artifact, one BUILD commit and one aggregate
+receipt on failure. The aggregate envelope matches `odf_parallel_delegate` plus
+per-branch `task_session_id`. Branch context files must not overlap and branches
+range from two to three.
 
 ## Transport
 

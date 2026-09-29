@@ -227,6 +227,7 @@ not a mandatory step before every VERIFY. VERIFY remains an independent stage.
 - `odf_delegation_prepare(phase, change, prompt, ...)` + `odf_delegation_seal(token, change, session_id)` are the **native delegation** pair: prepare resolves the agent, skills, profile, policy gate and source-authority contract and returns an enriched prompt plus a bounded token; the orchestrator launches the host `subagent` tool with `delegation.agent`/`delegation.description`/`delegation.prompt` **verbatim** and then seals with the returned child `session_id`. The seal verifies the child session, runs the phase gates and returns the **same envelope** as `odf_delegate` (plus `task_session_id`).
 - `odf_health` returns a schema-versioned, read-only installed/runtime health result. It checks static files and task API presence but never probes `task()`, Odoo, PostgreSQL, or `engram export`.
 - `odf_parallel_delegate` is the only cross-domain BUILD scheduler: fresh calls accept one shared `change`, explicit `artifact_store`, the exact `workflow_advance` proof, and 2-3 independent branches with unique safe `branch_id` and `attempt_id` values plus non-overlapping `context_files`; branches never commit workflow state individually. The aggregate join commits once after all branches validate; continuation calls use `resume_from_join: true` to reconstruct retryable branches from the bounded `.odf/parallel-join-{change}.json` artifact.
+- `odf_parallel_prepare(...)` + `odf_parallel_seal(...)` are the **native parallel BUILD** pair: prepare validates the shared proof, resolves each branch agent/skills/prompt, acquires the branch attempts and returns one token plus per-branch subagent payloads; the orchestrator launches one `subagent` per branch (background allowed) and seals with the branch sessions, running the same aggregate scheduler and a single BUILD commit.
 
 ## Delegation Rules
 
@@ -242,7 +243,7 @@ At `/odf-new`, construct the optional ICE context once from existing project fac
 6. Inject compact rules under `## Project Standards (auto-resolved)`, with at most five skills; prioritize code context, then task context.
 7. If an agent reports `self-discovered`, `none`, or a skill cache miss, reload the registry, inject standards in later calls, and warn the user.
 8. Pass the forwarding fields defined below and require the inner `## ODF Result` as the last section.
-9. Use `odf_parallel_delegate` for cross-domain BUILD only. It requires `phase: IMPLEMENT`, `work_type: cross-domain`, one shared `change`, explicit `artifact_store`, the exact `workflow_advance` proof advancing to `BUILD`, and 2-3 independent branches with unique safe branch IDs/attempt IDs and non-overlapping context paths. Branches do not commit workflow state individually. A persisted `parallel_join` with `join.status: running` is live runtime evidence: inspect its running/completed/failed counts and branch statuses, do not close BUILD, and do not relaunch active branches. Require `join.status: complete`, every branch delegated successfully, and every branch `validation.status: verified`; then commit the selected store once. VERIFY is always sequential after the aggregate join. All other routes remain sequential through `odf_delegate`.
+9. Use `odf_parallel_delegate` for cross-domain BUILD only. It requires `phase: IMPLEMENT`, `work_type: cross-domain`, one shared `change`, explicit `artifact_store`, the exact `workflow_advance` proof advancing to `BUILD`, and 2-3 independent branches with unique safe branch IDs/attempt IDs and non-overlapping context paths. On hosts with the `subagent` tool, the native pair (`odf_parallel_prepare` → one `subagent` per branch → `odf_parallel_seal`) runs the same scheduler with visible branch sessions. Branches do not commit workflow state individually. A persisted `parallel_join` with `join.status: running` is live runtime evidence: inspect its running/completed/failed counts and branch statuses, do not close BUILD, and do not relaunch active branches. Require `join.status: complete`, every branch delegated successfully, and every branch `validation.status: verified`; then commit the selected store once. VERIFY is always sequential after the aggregate join. All other routes remain sequential through `odf_delegate`.
 10. Keep a session launch log keyed by `(phase, task fingerprint)`. A transport-class failure (timeout, empty/malformed task result, no committed artifacts) allows AT MOST ONE automatic relaunch of that pair with a fresh `attempt_id`; a second transport failure stops the run for the user. Never relaunch a phase that already committed artifacts or duplicate a successful launch.
 
 11. On `/odf-continue` for a cross-domain BUILD join, use `odf_workflow_status.parallel_join` as supplemental runtime evidence only; OpenSpec/Engram remains primary. If `parallel_join.join.status` is `running`, do not call continuation against it: the scheduler is active, and any resume attempt must fail closed with `reason: parallel-join-running`. Otherwise call `odf_parallel_delegate` with `resume_from_join: true`, the exact shared transition proof, and no branch descriptors. Completed and verified branches are reused without relaunching; only retryable/incomplete branches receive fresh attempt IDs. Preserve the artifact's aggregate `join.expected` and completed semantics. One remaining retry branch is valid only for continuation. Malformed, mismatched, oversized, or unsafe join reads block closed.
@@ -282,6 +283,29 @@ Failure handling:
 The plugin blocks direct `subagent` calls to ODF specialists from the
 orchestrator without the delegation marker; that guard protects the gates, not
 manual agent use from other sessions.
+
+#### Native parallel BUILD (cross-domain)
+
+Use `odf_parallel_prepare` whenever the cross-domain BUILD can use the native
+path:
+
+1. `odf_parallel_prepare(work_type: "cross-domain", phase: "IMPLEMENT", change,
+   artifact_store, workflow_advance, branches: [{ branch_id, attempt_id, prompt,
+   context_files }])` returns `{ token, branches: [{ branch_id, agent,
+   description, prompt }] }`. Branch context files must not overlap; 2-3
+   branches.
+2. Launch one `subagent` per branch with `delegation.prompt` verbatim
+   (`background: true` is allowed; keep every returned child `sessionID`).
+3. `odf_parallel_seal({ token, change, branches: [{ branch_id, session_id }] })`
+   verifies each child, routes each result to its branch and runs the same
+   aggregate scheduler as `odf_parallel_delegate` (per-branch validation
+   evidence, join artifact, one BUILD commit, one aggregate receipt on
+   failure). The aggregate envelope matches `odf_parallel_delegate` plus
+   per-branch `task_session_id`.
+
+If a branch notification is missed, read the child session state or fall back to
+`odf_parallel_delegate` with `resume_from_join: true`; never relaunch a branch
+that already produced a verified result.
 
 The plugin resolves profiles only for SDD phases. If `task()` is unavailable,
 the plugin returns a structured `blocked` envelope with

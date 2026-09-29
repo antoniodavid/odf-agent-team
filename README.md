@@ -83,7 +83,7 @@ Routing is deterministic: standard config can stop after DECIDE, a bugfix runs d
 
 - [Intended usage](docs/intended-usage.md) — mental model, entry points, when to use what
 - [Architecture](docs/architecture.md) — thin-spine vocabulary, components, data flow
-- [Plugin reference](docs/plugin.md) — the 24 tools, modules, `odf_delegate` path
+- [Plugin reference](docs/plugin.md) — the 26 tools, modules, `odf_delegate` path
 - [Archive](docs/archive/README.md) — completed roadmaps and plans
 
 ## Honest status
@@ -127,7 +127,7 @@ agent/            11 agent instructions (orchestrator + 10 specialists)
 command/          22 slash commands
 skills/           87 skills (OCA + ODF + shared)
 odf-plugin/       deterministic modules (workflow, triage, policy, …)
-plugins/          odf-delegation.ts — plugin entrypoint, 24 tools
+plugins/          odf-delegation.ts — plugin entrypoint, 26 tools
 scripts/          CLIs + test runner + registry validator
 docs/             architecture, usage, plugin reference, diagrams
 install.sh        idempotent installer (backup, TUI, --force, --with-codegraph)

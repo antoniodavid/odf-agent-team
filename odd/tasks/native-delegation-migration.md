@@ -83,8 +83,8 @@ Usability is part of harness quality: a delegation the user cannot see is a dele
 - [x] Proof-backed BUILD/VERIFY parity: the attempt is acquired in prepare (liveness tracking off so `settle-attempt` can recover orphans) and settled by the seal; the prepared policy gate is reused (no post-build recompute); validation evidence, workflow commit and failure receipts verified end to end in tests. Fast-lane and parallel BUILD stay excluded with explicit blocks.
 - [x] Orchestrator and command instructions: native flow (`prepare → subagent → seal`) documented in `agent/odoo_orchestrator.md` and the phase commands, with recovery reasons; the V2 `execute.before` hook blocks direct `subagent` calls to ODF specialists from the orchestrator without the prepared marker.
 - [x] Parity test matrix: delegate vs seal envelopes for DESIGN success, design-not-closed, source-authority-invalid, proof-backed IMPLEMENT success/failure and inner-failed results (full shape parity, with the state file compared for the BUILD commit).
+- [x] Parallel BUILD (stretch): `odf_parallel_prepare` → one `subagent` per branch (background allowed) → `odf_parallel_seal` runs the authoritative aggregate scheduler (per-branch validation evidence, join artifact, one BUILD commit, aggregate receipt) with the branch attempts acquired at prepare and reused at seal; end-to-end tests cover the happy path, a branch binding mismatch and prepare-time validation.
 - [ ] Real end-to-end run in an Odoo worktree as release evidence.
-- [ ] Parallel BUILD (stretch): background subagents + aggregate seal.
 
 ### M3 — Verification
 
