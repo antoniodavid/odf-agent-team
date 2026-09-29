@@ -6,7 +6,7 @@
 [![Registry](https://img.shields.io/badge/registry-87%20skills%20%C2%B7%2011%20agents-blue)](odf-registry.json)
 [![Odoo](https://img.shields.io/badge/Odoo-16%20%E2%80%93%2019-EE7048)](docs/intended-usage.md)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
-[![Version](https://img.shields.io/badge/version-1.4.0-informational)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-1.5.0-informational)](CHANGELOG.md)
 
 **ODF** — spec-driven Odoo delivery on OpenCode. Turns a generic AI assistant into a structured Odoo delivery team. An orchestrator routes every phase through a plugin that resolves the right agent, injects at most five skill rules, enforces Policy Gates, and seals evidence — so nothing ships on a guess.
 
@@ -20,7 +20,7 @@ odf-delegation plugin ──► task() ──► specialist agent ──► Odoo
 
 ```bash
 # 1. Install into ~/.config/opencode (release-pinned)
-curl -fsSL https://raw.githubusercontent.com/antoniodavid/odf-agent-team/v1.4.0/install.sh | BRANCH=v1.4.0 bash
+curl -fsSL https://raw.githubusercontent.com/antoniodavid/odf-agent-team/v1.5.0/install.sh | BRANCH=v1.5.0 bash
 
 # 2. Inside OpenCode, from any Odoo worktree:
 /odf-init           # detect version, modules, test runner
@@ -88,7 +88,7 @@ Routing is deterministic: standard config can stop after DECIDE, a bugfix runs d
 
 ## Honest status
 
-- **Mature and tested locally**: 970 unit tests + 325 YAML scenarios + 18 harness checks. Representative Odoo validation and end-to-end telemetry remain ODF 2.0 gates.
+- **Mature and tested locally**: 998 unit tests + 325 YAML scenarios + 18 harness checks. Representative Odoo validation and end-to-end telemetry remain ODF 2.0 gates.
 - **Portable**: Linux/macOS/Windows (Git Bash/WSL), `XDG_CONFIG_HOME` resolution, author-path rewriting at install time.
 - **Known limitations**:
   - `plugins/odf-delegation.ts` (~6k lines) is still a monolith for the delegation/workflow core; cohesive sections already live in `odf-plugin/`.
@@ -111,7 +111,7 @@ Full matrix: `node <pack>/scripts/odf-toolkit.js deps`
 
 ```bash
 npm test              # full suite: unit + YAML + plugin
-npm run test:unit     # 970 Vitest
+npm run test:unit     # 998 Vitest
 npm run test:yaml     # 325 YAML scenarios
 npm run test:harness  # 18 harness checks
 npm run typecheck     # tsc --noEmit

@@ -1,6 +1,6 @@
 {
   "name": "odf-agent-team",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "description": "OpenCode skill/agent pack for structured Odoo development workflows",
   "license": "MIT",
   "repository": {

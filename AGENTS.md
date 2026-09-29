@@ -172,7 +172,7 @@ Missing fields are collected via `question` tool.
 agent/              — 11 agent instructions (orchestrator + 10 sub-agents)
 command/            — 22 slash command definitions (Markdown)
 plugins/            — odf-delegation.ts (OpenCode plugin)
-scripts/            — test runner (970 Vitest tests + 325 YAML scenarios), CLI wrapper, registry validator
+scripts/            — test runner (998 Vitest tests + 325 YAML scenarios), CLI wrapper, registry validator
 skills/              — 87 skills (OCA governance, ODF phases, patterns)
   _shared/          — conventions (engram persistence, skill-resolver, Odoo sources)
   oca/              — OCA governance, style, patterns
@@ -213,7 +213,7 @@ ODF is a superset of the generic SDD workflow:
 ## Tests
 
 ```bash
-npm test              # 970 Vitest tests + 325 YAML scenarios
+npm test              # 998 Vitest tests + 325 YAML scenarios
 npm run test:yaml     # YAML scenario runner only
 npm run test:unit     # Vitest only
 npm run typecheck     # tsc --noEmit
