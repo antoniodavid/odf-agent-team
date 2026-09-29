@@ -65,6 +65,7 @@ type JsonSchema = Record<string, unknown>
 type ODFRegisteredToolMap = import("../plugins/odf-delegation.js").ODFRegisteredToolMap
 type V1Tool = ODFRegisteredToolMap[keyof ODFRegisteredToolMap]
 type V2Registration = { dispose: () => Promise<void> }
+const ODF_REGISTERED_TOOL_NAMES = new Set<string>(ODF_REGISTERED_TOOLS)
 
 function schemaFor(name: string, definition: V1Tool): { parse: (input: unknown) => unknown; input: JsonSchema } {
   const schema = tool.schema.object(definition.args)
@@ -198,13 +199,18 @@ async function registerV2Hooks(
   odfNewCommandBody: string | null,
 ): Promise<void> {
   registrations.push(await context.tool.hook("execute.before", async (input) => {
-    const output = { args: input.input }
-    await guard["tool.execute.before"]?.({
-      tool: input.tool,
-      sessionID: input.sessionID,
-      callID: input.id,
-    }, output)
-    input.input = output.args
+    // ODF custom-tool executors apply the same guard internally. Code Mode can
+    // invoke those executors without emitting these host hooks, so keep the
+    // executor as the single guard boundary and avoid processing twice here.
+    if (!ODF_REGISTERED_TOOL_NAMES.has(input.tool)) {
+      const output = { args: input.input }
+      await guard["tool.execute.before"]?.({
+        tool: input.tool,
+        sessionID: input.sessionID,
+        callID: input.id,
+      }, output)
+      input.input = output.args
+    }
     const chokepoint = await odfSubagentChokepointError({
       tool: input.tool,
       agent: input.agent,
@@ -219,12 +225,14 @@ async function registerV2Hooks(
       output: input.status === "completed" ? resultText(input.result) : String(input.error),
       metadata: input.status === "completed" && input.result?.metadata ? input.result.metadata : {},
     }
-    await guard["tool.execute.after"]?.({
-      tool: input.tool,
-      sessionID: input.sessionID,
-      callID: input.id,
-      args: input.input,
-    }, output)
+    if (!ODF_REGISTERED_TOOL_NAMES.has(input.tool)) {
+      await guard["tool.execute.after"]?.({
+        tool: input.tool,
+        sessionID: input.sessionID,
+        callID: input.id,
+        args: input.input,
+      }, output)
+    }
     if (output.metadata?.odf_loop_guard?.status === "stopped") throw new Error(output.output)
   }))
 
@@ -299,6 +307,9 @@ export async function setupODFV2(context: V2Context): Promise<V2Cleanup> {
     // learning loop used to run inside the V1 `server` entrypoint. Running them
     // here keeps those side effects alive under the V2 host.
     await startOdfRuntime()
+    // Tool execution is guarded here rather than only in host hooks: Code Mode
+    // can call these registered executors directly without execute.before/after.
+    let toolCallSequence = 0
     registrations.push(await context.tool.transform((editor) => {
       const tools = createODFRegisteredTools(undefined, directory, entryAuthorizations, entryGenerations)
       for (const name of ODF_REGISTERED_TOOLS) {
@@ -310,8 +321,35 @@ export async function setupODFV2(context: V2Context): Promise<V2Cleanup> {
           input: schema.input,
           execute: async (input, toolContext) => {
             const validated = schema.parse(input)
-            const result = await definition.execute(validated as never, createV2ToolContext(toolContext, directory, context.session))
-            return toV2Result(result)
+            const call = {
+              tool: name,
+              sessionID: toolContext.sessionID,
+              callID: `odf-v2-${++toolCallSequence}`,
+            }
+            const guardedInput = { args: validated }
+            await guard["tool.execute.before"]?.(call, guardedInput)
+            const v1Context = createV2ToolContext(toolContext, directory, context.session)
+            let result: Awaited<ReturnType<typeof definition.execute>>
+            try {
+              result = await definition.execute(guardedInput.args as never, v1Context)
+            } catch (error) {
+              await guard["tool.execute.after"]?.({ ...call, args: guardedInput.args }, {
+                title: "",
+                output: String(error),
+                metadata: {},
+              })
+              throw error
+            }
+            const v2Result = toV2Result(result)
+            const guardedResult = {
+              title: "",
+              output: v2Result.content,
+              metadata: v2Result.metadata || {},
+            }
+            await guard["tool.execute.after"]?.({ ...call, args: guardedInput.args }, guardedResult)
+            const loopGuard = guardedResult.metadata.odf_loop_guard as { status?: unknown } | undefined
+            if (loopGuard?.status === "stopped") throw new Error(guardedResult.output)
+            return v2Result
           },
         })
       }
