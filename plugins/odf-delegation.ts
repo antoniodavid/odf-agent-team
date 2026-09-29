@@ -5894,6 +5894,10 @@ function workflowArtifactGate(snapshot: SelectedWorkflowSnapshot, expectedStage:
     }
   }
 
+  // This gate evaluates prospective artifact evidence, not the persisted stage.
+  // inspectPersistedTransition has already checked the persisted prefix and
+  // intentionally allows the previous stage (e.g. PLAN) while committing BUILD.
+  // The stateful workflow status remains pending until that transition is written.
   const artifactStatus = deriveWorkflowStatus({
     change: snapshot.status.change,
     artifacts: snapshot.artifacts,
