@@ -94,6 +94,8 @@ import {
   readV2ContextConversation,
   sessionResultFromText,
   taskSessionIdOf,
+  markTaskSessionId,
+  markTaskBridge,
   emitTaskProgress,
   type HealthIo,
   type TaskApi,
@@ -109,6 +111,7 @@ import {
   readDelegationToken,
   writeDelegationToken,
   type DelegationPhase,
+  type DelegationTokenBranch,
   type DelegationTokenRecord,
 } from "../odf-plugin/odf-delegation-tokens.js"
 import {
@@ -415,8 +418,11 @@ async function invokeTask(
   // Human-facing child session title; hosts that create a child session use it
   // verbatim, the V1 task bridge ignores it.
   title?: string,
+  // Parallel BUILD branch identifier; hosts ignore it, the native parallel seal
+  // uses it to route branch results back to their descriptors.
+  branchId?: string,
 ): Promise<{ status: string; result: unknown }> {
-  const taskPromise = taskApi({ agent: agentName, prompt, context_files: contextFiles, directory, ...(title ? { title } : {}) })
+  const taskPromise = taskApi({ agent: agentName, prompt, context_files: contextFiles, directory, ...(title ? { title } : {}), ...(branchId ? { branch_id: branchId } : {}) })
   let timedOut = false
   let cancelled = false
   let timeoutHandle: ReturnType<typeof setTimeout> | undefined
@@ -2264,7 +2270,7 @@ Use this instead of generic task() for ODF workflow delegation.`,
             title: delegationTitle,
             metadata: { phase: args.phase, agent: agentName, ...(changeName ? { change: changeName } : {}) },
           })
-          const taskResult = await invokeTask(taskApiInfo.taskApi, agentName, delegationPrompt, contextValidation.relativePaths, timeoutMs, toolCtx.abort, workspaceRoot, delegationTitle)
+          const taskResult = await invokeTask(taskApiInfo.taskApi, agentName, delegationPrompt, contextValidation.relativePaths, timeoutMs, toolCtx.abort, workspaceRoot, delegationTitle, executionOptions.branch_id)
           const taskSessionId = taskSessionIdOf(taskResult.result)
           let resultForOutput: unknown = taskResult.result
           // Stop-validation seal (slice 2): after an IMPLEMENT delegation, stamp
@@ -3448,7 +3454,565 @@ function createODFDelegationSeal(canonicalDirectory?: string): ReturnType<typeof
   })
 }
 
-function createODFParallelDelegate(client?: OpencodeClient, canonicalDirectory?: string): ReturnType<typeof tool> {
+const parallelBranchDescriptorSchema = tool.schema.object({
+  branch_id: tool.schema.string().describe("Unique safe branch identifier"),
+  attempt_id: tool.schema.string().describe("Fresh safe attempt identifier"),
+  prompt: tool.schema.string().describe("Full branch prompt"),
+  context_files: tool.schema.array(tool.schema.string()).optional().describe("Non-overlapping branch context files"),
+  timeout_ms: tool.schema.number().optional().describe("Optional branch task timeout in milliseconds"),
+})
+
+const parallelSessionSchema = tool.schema.object({
+  branch_id: tool.schema.string().describe("Branch identifier from the prepared token"),
+  session_id: tool.schema.string().describe("Child session id returned by the host subagent tool"),
+})
+
+/** Reconstruct the attempt handles acquired at parallel prepare time. */
+function resolveParallelAttemptHandles(
+  workspaceRoot: string,
+  changeName: string,
+  branches: DelegationTokenBranch[],
+): { handles: Map<string, AcquiredAttempt>; missing: string[] } {
+  const ledgerPath = attemptLedgerPath(workspaceRoot, changeName)
+  const ledger = readAttemptLedger(workspaceRoot, ledgerPath)
+  const handles = new Map<string, AcquiredAttempt>()
+  const missing: string[] = []
+  for (const branch of branches) {
+    const record = [...ledger.records].reverse().find(entry =>
+      entry.attempt_id === branch.attempt_id && attemptBranchId(entry) === branch.branch_id)
+    if (record) handles.set(branch.branch_id, { workspaceRoot, ledgerPath, record })
+    else missing.push(branch.branch_id)
+  }
+  return { handles, missing }
+}
+
+/**
+ * Native parallel BUILD step 1 (roadmap issue #55): validate the shared proof,
+ * resolve each branch, acquire the branch attempts and mint one token. The
+ * orchestrator then launches one subagent per branch and calls
+ * odf_parallel_seal with the child sessions.
+ */
+function createODFParallelPrepare(canonicalDirectory?: string): ReturnType<typeof tool> {
+  return tool({
+    description: `Prepare a native parallel BUILD (cross-domain IMPLEMENT): validate the shared proof, resolve each branch agent/skills/prompt, acquire the branch attempts and return one delegation token plus the per-branch subagent payloads. Launch one subagent per branch (background allowed), then finish with odf_parallel_seal({ token, change, branches }).`,
+    args: {
+      work_type: tool.schema.enum(["cross-domain"]).describe("Only cross-domain work can use the parallel BUILD scheduler"),
+      phase: tool.schema.enum(["IMPLEMENT"]).describe("Only IMPLEMENT is parallelized; VERIFY remains sequential"),
+      change: tool.schema.string().describe("Shared change name (kebab-case)"),
+      artifact_store: tool.schema.enum(["openspec", "engram", "hybrid"]).describe("Authoritative workflow store for the aggregate transition"),
+      workflow_advance: workflowAdvanceSchema.describe("Exact shared transition proof; it must advance cross-domain to BUILD"),
+      branches: tool.schema.array(parallelBranchDescriptorSchema).describe("Two or three independent branch descriptors"),
+      target: tool.schema.enum(["oca"]).optional().describe("Explicit governance target"),
+      governance_acknowledgment: governanceAcknowledgmentSchema.optional().describe("Explicit final human OCA acknowledgment"),
+      odoo_source_root: tool.schema.string().optional().describe("Explicit Odoo source root required for view-authority branches"),
+      odoo_source_repos: tool.schema.string().optional().describe("Optional explicit active Odoo repos root for view-authority branches"),
+      workspace_dir: tool.schema.string().optional().describe("Absolute project root; omit it to use the current session's project directory."),
+    },
+    async execute(args: {
+      work_type: "cross-domain"
+      phase: "IMPLEMENT"
+      change: string
+      artifact_store: ArtifactStore
+      workflow_advance: Record<string, unknown>
+      branches: Array<{ branch_id: string; attempt_id: string; prompt: string; context_files?: string[]; timeout_ms?: number }>
+      target?: "oca"
+      governance_acknowledgment?: Record<string, unknown>
+      odoo_source_root?: string
+      odoo_source_repos?: string
+      workspace_dir?: string
+    }, toolCtx: ToolContext): Promise<string> {
+      if (!toolCtx?.sessionID) return "❌ odf_parallel_prepare requires sessionID"
+      const blocked = (reason: string, message: string, extra: Record<string, unknown> = {}): string => JSON.stringify({
+        status: "blocked",
+        reason,
+        work_type: "cross-domain",
+        phase: "IMPLEMENT",
+        agent: "scheduler",
+        token: null,
+        task_api_source: "subagent",
+        result: null,
+        message,
+        ...extra,
+      }, null, 2)
+
+      if (!Array.isArray(args.branches) || args.branches.length < 2 || args.branches.length > 3) {
+        return blocked("parallel-branch-count", "Parallel BUILD requires 2 or 3 branch descriptors.")
+      }
+      const workspaceRoot = resolveSelectedWorkspaceRoot(args.workspace_dir, canonicalDirectory)
+      if (!workspaceRoot) {
+        return blocked("unsafe-workspace-path", "The workspace directory does not resolve to a safe existing root.")
+      }
+      const packRoot = canonicalPackRoot()
+      if (packRoot && hasPackRegistry(packRoot) && isWithinRoot(workspaceRoot, packRoot)) {
+        return blocked("unsafe-workspace-path", `The workspace root is inside the installed ODF pack (${workspaceRoot}); pass the project root instead, or omit workspace_dir.`)
+      }
+      const changeName = args.change?.trim()
+      if (!changeName) {
+        return blocked("change-required-for-native-delegation", "odf_parallel_prepare requires the shared change name.")
+      }
+
+      const seenBranches = new Set<string>()
+      const seenAttempts = new Set<string>()
+      const seenPaths = new Map<string, string>()
+      const branchContexts = new Map<string, string[]>()
+      for (const branch of args.branches) {
+        if (!SAFE_TOKEN_PATTERN.test(branch.branch_id)) {
+          return blocked("unsafe-branch-id", `Branch id "${branch.branch_id}" is not a safe token.`)
+        }
+        if (seenBranches.has(branch.branch_id)) {
+          return blocked("duplicate-branch-id", `The branch_id "${branch.branch_id}" is duplicated.`)
+        }
+        seenBranches.add(branch.branch_id)
+        if (!SAFE_TOKEN_PATTERN.test(branch.attempt_id)) {
+          return blocked("unsafe-attempt-id", `Branch "${branch.branch_id}" requires a fresh safe attempt_id.`)
+        }
+        if (seenAttempts.has(branch.attempt_id)) {
+          return blocked("duplicate-attempt-id", `The attempt_id "${branch.attempt_id}" is duplicated.`)
+        }
+        seenAttempts.add(branch.attempt_id)
+        const contextValidation = validateContextFiles(workspaceRoot, branch.context_files || [])
+        if (contextValidation.error) return blocked("invalid-context-files", contextValidation.error)
+        branchContexts.set(branch.branch_id, contextValidation.relativePaths)
+        for (const contextPath of contextValidation.paths) {
+          const owner = seenPaths.get(contextPath)
+          if (owner && owner !== branch.branch_id) {
+            return blocked("overlapping-context-paths", `Branches "${owner}" and "${branch.branch_id}" share context path "${contextPath}".`)
+          }
+          seenPaths.set(contextPath, branch.branch_id)
+        }
+      }
+
+      const registry = await loadRegistry()
+      if (!registry) {
+        return `❌ ODF registry not found. Run /odf-init or check ${REGISTRY_PATH}`
+      }
+
+      const policyGate = computePolicyGate({
+        change: changeName,
+        phase: "IMPLEMENT",
+        workspaceDir: workspaceRoot,
+        registry,
+      })
+      if (policyGate && policyGate.gate === "block") {
+        return blocked(policyGate.reason, `Policy gate blocked IMPLEMENT before delegation: ${policyGate.reason}`)
+      }
+
+      const sourceAuthorityRequired = args.branches.some(branch =>
+        isViewAuthorityWork("IMPLEMENT", branch.prompt, branch.context_files || []))
+      let sourceAuthorityRoots: SourceAuthorityRoots | null = null
+      if (sourceAuthorityRequired) {
+        const roots = establishSourceAuthorityRoots({
+          workspaceRoot,
+          sourceRoot: args.odoo_source_root,
+          reposRoot: args.odoo_source_repos,
+        })
+        if (!roots.ok) {
+          return blocked("source-authority-unavailable", `${roots.reason}. Provide the exact odoo_source_root and retry with /odf-continue ${changeName}.`, {
+            safe_continuation: `/odf-continue ${changeName}`,
+          })
+        }
+        sourceAuthorityRoots = roots.roots
+      }
+
+      const acquired: AcquiredAttempt[] = []
+      const failAcquired = (reason: string, message: string, extra: Record<string, unknown> = {}): string => {
+        for (const handle of acquired) settleAttempt(handle, "failed", "validation-failed", "validation-failed")
+        acquired.length = 0
+        return blocked(reason, message, extra)
+      }
+
+      const odooVersion = await detectOdooVersion(workspaceRoot)
+      const profile = await getProfileByPhase(registry, "IMPLEMENT")
+      const profileBlock = profile ? formatProfileBlock(profile, "IMPLEMENT") : ""
+      const profilePayload = profile
+        ? { name: profile.name, model: profile.model, temperature: profile.temperature, reasoning: profile.reasoning }
+        : null
+      const token = newDelegationToken()
+      const prepared: Array<{
+        branch_id: string
+        agent: string
+        attempt_id: string
+        description: string
+        prompt: string
+        task: string
+        context_files: string[]
+      }> = []
+
+      for (const branch of args.branches) {
+        const acquisition = acquireAttempt({
+          workspaceDir: workspaceRoot,
+          change: changeName,
+          phase: "IMPLEMENT",
+          nextStage: "BUILD",
+          attemptId: branch.attempt_id,
+          branchId: branch.branch_id,
+          trackLiveness: false,
+        })
+        if (!acquisition.acquired) return failAcquired(acquisition.reason, acquisition.message)
+        acquired.push(acquisition.handle)
+
+        const skills = matchSkills(registry, "IMPLEMENT", { files: branch.context_files, task: branch.prompt, odooVersion })
+        const agentName = resolveAgent(registry, "IMPLEMENT", branch.prompt.split(/\s+/))
+        if (!agentName) {
+          return failAcquired("agent-routing-unavailable", `No registered, installed, phase-eligible agent is available for branch "${branch.branch_id}".`)
+        }
+        const rules = formatCompactRules(skills)
+        const enrichedPrompt = buildEnrichedPrompt({ prompt: branch.prompt, rules, profileBlock })
+        const sourceAuthorityPrompt = sourceAuthorityRequired && sourceAuthorityRoots
+          ? buildSourceAuthorityPrompt(sourceAuthorityRoots)
+          : ""
+        const evidenceRef = validationEvidenceRelativePath(changeName, branch.branch_id)
+        const marker = `<!-- ODF-DELEGATION ${JSON.stringify({ change: changeName, phase: "IMPLEMENT", agent: agentName, token, branch_id: branch.branch_id })} -->`
+        const finalPrompt = `${marker}\n\n${buildDelegationPrompt({ enrichedPrompt, sourceAuthorityPrompt, policyGate })}\n\nStop-validation evidence: write \`${evidenceRef}\`.`
+        prepared.push({
+          branch_id: branch.branch_id,
+          agent: agentName,
+          attempt_id: branch.attempt_id,
+          description: `ODF IMPLEMENT → ${agentName} · ${changeName} · ${branch.branch_id}`,
+          prompt: finalPrompt,
+          task: branch.prompt,
+          context_files: branchContexts.get(branch.branch_id) || [],
+        })
+      }
+
+      const record = createDelegationTokenRecord({
+        change: changeName,
+        phase: "IMPLEMENT",
+        agent: "scheduler",
+        token,
+        skills_injected: [],
+        profile: profilePayload,
+        workspace: workspaceRoot,
+        prompt: `parallel:${changeName}:${prepared.map(branch => branch.branch_id).join(",")}`,
+        task: `parallel ${changeName}`,
+        ...(sourceAuthorityRoots
+          ? { source_root: sourceAuthorityRoots.source, ...(sourceAuthorityRoots.repos ? { source_repos: sourceAuthorityRoots.repos } : {}) }
+          : {}),
+        artifact_store: args.artifact_store,
+        workflow_advance: args.workflow_advance,
+        policy_gate: policyGate as unknown as Record<string, unknown>,
+        ...(args.target ? { target: args.target } : {}),
+        ...(args.governance_acknowledgment ? { governance_acknowledgment: args.governance_acknowledgment } : {}),
+        branches: prepared.map(branch => ({
+          branch_id: branch.branch_id,
+          agent: branch.agent,
+          attempt_id: branch.attempt_id,
+          prompt: branch.prompt,
+          task: branch.task,
+          context_files: branch.context_files,
+        })),
+      })
+      if (!record) {
+        return failAcquired("delegation-token-invalid", "The parallel delegation token could not be created from the provided inputs.")
+      }
+      const writeError = writeDelegationToken(workspaceRoot, record)
+      if (writeError) {
+        return failAcquired(writeError, "The parallel delegation token could not be persisted safely.")
+      }
+
+      recordMetrics({
+        timestamp: new Date().toISOString(),
+        session_id: toolCtx.sessionID,
+        phase: "IMPLEMENT",
+        agent: "scheduler",
+        skills_injected: [],
+        skill_resolution: "none",
+        duration_ms: 0,
+        token_estimate: estimateTokens(prepared.map(branch => branch.prompt).join("\n")),
+        status: "ok",
+        task_api_source: "subagent",
+        change: changeName,
+        work_type: "cross-domain",
+        ...(odooVersion ? { odoo_version: odooVersion } : {}),
+        join_status: "running",
+        join_expected: prepared.length,
+        join_completed: 0,
+        join_failed: 0,
+        workspace: workspaceProjectName(workspaceRoot),
+      })
+      flushMetricsSync()
+
+      return JSON.stringify({
+        status: "prepared",
+        work_type: "cross-domain",
+        phase: "IMPLEMENT",
+        change: changeName,
+        token,
+        branches: prepared.map(branch => ({
+          branch_id: branch.branch_id,
+          agent: branch.agent,
+          description: branch.description,
+          prompt: branch.prompt,
+        })),
+        policy_gate: policyGate,
+        join: { expected: prepared.length },
+        next: "Launch one subagent per branch (delegation fields verbatim; background is allowed), then call odf_parallel_seal({ token, change, branches: [{ branch_id, session_id }] }).",
+      }, null, 2)
+    },
+  })
+}
+
+/**
+ * Native parallel BUILD step 2: verify every child session against the token,
+ * route each result back to its branch and run the authoritative parallel
+ * scheduler (per-branch validation, aggregate join, workflow commit, receipts).
+ */
+function createODFParallelSeal(canonicalDirectory?: string): ReturnType<typeof tool> {
+  return tool({
+    description: `Seal a native parallel BUILD started with odf_parallel_prepare: verify each child session against the token, collect the branch results and run the authoritative parallel scheduler (per-branch validation evidence, aggregate join and one workflow commit for BUILD).`,
+    args: {
+      token: tool.schema.string().describe("Parallel delegation token returned by odf_parallel_prepare."),
+      change: tool.schema.string().describe("Shared change name the token belongs to."),
+      branches: tool.schema.array(parallelSessionSchema).describe("Child sessions per branch id."),
+      workspace_dir: tool.schema.string().optional().describe("Absolute project root; omit it to use the current session's project directory."),
+    },
+    async execute(args: {
+      token: string
+      change: string
+      branches: Array<{ branch_id: string; session_id: string }>
+      workspace_dir?: string
+    }, toolCtx: ToolContext): Promise<string> {
+      if (!toolCtx?.sessionID) return "❌ odf_parallel_seal requires sessionID"
+      const blocked = (reason: string, message: string, extra: Record<string, unknown> = {}): string => JSON.stringify({
+        status: "blocked",
+        reason,
+        token: args.token,
+        policy_gate: null,
+        validation: null,
+        receipt: null,
+        workflow_advance: null,
+        workflow_commit: null,
+        task_api_source: "subagent",
+        result: null,
+        message,
+        ...extra,
+      }, null, 2)
+
+      const workspaceRoot = resolveSelectedWorkspaceRoot(args.workspace_dir, canonicalDirectory)
+      if (!workspaceRoot) {
+        return blocked("unsafe-workspace-path", "The workspace directory does not resolve to a safe existing root.")
+      }
+      const changeName = args.change?.trim()
+      if (!changeName) {
+        return blocked("delegation-token-invalid", "odf_parallel_seal requires the change name the token belongs to.")
+      }
+      const read = readDelegationToken(workspaceRoot, changeName, args.token)
+      if (read.error || !read.record) {
+        return blocked(read.error || "delegation-token-unknown", `The parallel delegation token could not be read: ${read.error}.`)
+      }
+      const record = read.record
+      const tokenBranches = record.branches
+      const withRecord = (extra: Record<string, unknown> = {}): Record<string, unknown> => ({
+        phase: record.phase,
+        agent: record.agent,
+        change: record.change,
+        ...extra,
+      })
+      if (!tokenBranches || tokenBranches.length < 2) {
+        return blocked("delegation-token-malformed", "The token does not describe a parallel delegation.", withRecord())
+      }
+      if (record.status !== "prepared") {
+        return blocked("delegation-token-already-sealed", "The parallel delegation token was already sealed; a delegation seals exactly once.", withRecord())
+      }
+      if (isDelegationTokenExpired(record)) {
+        return blocked("delegation-token-expired", "The parallel delegation token expired before seal; prepare a fresh delegation.", withRecord())
+      }
+
+      const sessions = new Map<string, string>()
+      for (const branch of args.branches || []) {
+        if (!tokenBranches.some(entry => entry.branch_id === branch.branch_id)) {
+          return blocked("delegation-branch-unknown", `Unknown branch "${branch.branch_id}" for this token.`, withRecord())
+        }
+        if (sessions.has(branch.branch_id)) {
+          return blocked("delegation-branch-duplicate", `Duplicate session for branch "${branch.branch_id}".`, withRecord())
+        }
+        sessions.set(branch.branch_id, branch.session_id)
+      }
+      const missingSessions = tokenBranches.filter(branch => !sessions.has(branch.branch_id)).map(branch => branch.branch_id)
+      if (missingSessions.length > 0) {
+        return blocked("delegation-branch-session-missing", `Missing child session for branch(es): ${missingSessions.join(", ")}.`, withRecord())
+      }
+
+      const session = (toolCtx as unknown as Record<PropertyKey, unknown>)[ODF_V2_SESSION] as V2SessionApi | undefined
+      if (!session || typeof session.get !== "function" || typeof session.context !== "function") {
+        return blocked("delegation-session-api-unavailable", "odf_parallel_seal requires the OpenCode V2 session API to read the child sessions.", withRecord())
+      }
+
+      const resultsByBranch = new Map<string, unknown>()
+      const sessionByBranch = new Map<string, string>()
+      for (const branch of tokenBranches) {
+        const sessionId = sessions.get(branch.branch_id)!
+        let child: Record<string, unknown>
+        try {
+          const info = await session.get({ sessionID: sessionId })
+          child = info && typeof info === "object" && !Array.isArray(info) ? info as unknown as Record<string, unknown> : {}
+        } catch {
+          return blocked("delegation-child-unknown", `The child session ${sessionId} for branch "${branch.branch_id}" could not be read.`, withRecord())
+        }
+        if (typeof child.agent !== "string" || child.agent !== branch.agent) {
+          return blocked("delegation-child-mismatch", `Branch "${branch.branch_id}" child agent ${typeof child.agent === "string" ? child.agent : "(unknown)"} does not match the prepared agent ${branch.agent}.`, withRecord())
+        }
+        if (typeof child.parentID === "string" && child.parentID !== toolCtx.sessionID) {
+          return blocked("delegation-child-mismatch", `Branch "${branch.branch_id}" child session does not belong to the orchestrating session.`, withRecord())
+        }
+        const location = child.location && typeof child.location === "object" && !Array.isArray(child.location)
+          ? child.location as Record<string, unknown>
+          : null
+        const childDirectory = typeof location?.directory === "string" ? location.directory : null
+        if (childDirectory) {
+          let canonicalChild: string | null = null
+          try {
+            canonicalChild = canonicalWorkspaceRoot(childDirectory)
+          } catch {
+            canonicalChild = null
+          }
+          if (canonicalChild && canonicalChild !== record.workspace) {
+            return blocked("delegation-child-mismatch", `Branch "${branch.branch_id}" runs in a different workspace than the prepared delegation.`, withRecord())
+          }
+        }
+        let conversation: { userTexts: string[]; assistantText: string } | null = null
+        try {
+          const response = await session.context({ sessionID: sessionId })
+          conversation = readV2ContextConversation(response)
+        } catch {
+          conversation = null
+        }
+        if (!conversation || conversation.userTexts.length === 0) {
+          return blocked("delegation-child-unreadable", `Branch "${branch.branch_id}" returned no readable conversation.`, withRecord())
+        }
+        if (delegationPromptDigest(conversation.userTexts[0]) !== branch.prompt_digest) {
+          return blocked(
+            "delegation-prompt-mismatch",
+            `Branch "${branch.branch_id}" did not receive the prepared prompt verbatim; the delegation gates cannot be trusted.`,
+            withRecord(),
+          )
+        }
+        let branchResult: unknown
+        try {
+          branchResult = sessionResultFromText(conversation.assistantText)
+        } catch (error) {
+          return blocked("invalid-task-result", `Branch "${branch.branch_id}" did not return an ODF Result: ${error instanceof Error ? error.message : String(error)}.`, withRecord())
+        }
+        markTaskSessionId(branchResult, sessionId)
+        resultsByBranch.set(branch.branch_id, branchResult)
+        sessionByBranch.set(branch.branch_id, sessionId)
+      }
+
+      const { handles, missing } = resolveParallelAttemptHandles(workspaceRoot, changeName, tokenBranches)
+      if (missing.length > 0) {
+        return blocked(
+          "delegation-attempt-missing",
+          `The running attempt for branch(es) ${missing.join(", ")} was not found; recover stale attempts with odf_workflow_override action=settle-attempt before retrying.`,
+          withRecord(),
+        )
+      }
+
+      const stubTask = markTaskBridge(async (input: { branch_id?: string }): Promise<unknown> => {
+        const branchId = typeof input?.branch_id === "string" ? input.branch_id : ""
+        const result = resultsByBranch.get(branchId)
+        if (result === undefined) throw new Error(`no child result for branch ${branchId || "(unknown)"}`)
+        return result
+      })
+      const descriptors = tokenBranches.map(branch => ({
+        branch_id: branch.branch_id,
+        attempt_id: branch.attempt_id,
+        prompt: branch.task,
+        context_files: branch.context_files,
+      }))
+
+      let envelopeRaw: string
+      try {
+        envelopeRaw = await createODFParallelDelegate(undefined, canonicalDirectory, {
+          pre_acquired_attempts: handles,
+          suppress_metrics: true,
+        }).execute({
+          work_type: "cross-domain",
+          phase: "IMPLEMENT",
+          change: changeName,
+          artifact_store: record.artifact_store,
+          workflow_advance: record.workflow_advance,
+          branches: descriptors,
+          ...(record.target ? { target: record.target } : {}),
+          ...(record.governance_acknowledgment ? { governance_acknowledgment: record.governance_acknowledgment } : {}),
+          ...(record.source_root ? { odoo_source_root: record.source_root } : {}),
+          ...(record.source_repos ? { odoo_source_repos: record.source_repos } : {}),
+          workspace_dir: workspaceRoot,
+        } as never, { ...(toolCtx as unknown as Record<string, unknown>), task: stubTask } as never) as string
+      } catch (error) {
+        for (const handle of handles.values()) settleIfStillRunning(handle)
+        return blocked("delegation-seal-error", `The parallel seal could not complete: ${error instanceof Error ? error.message : String(error)}.`)
+      }
+
+      // The delegation is processed either way: the token seals exactly once.
+      deleteDelegationToken(workspaceRoot, record.change, record.token)
+
+      let envelope: Record<string, unknown>
+      try {
+        envelope = JSON.parse(envelopeRaw) as Record<string, unknown>
+      } catch {
+        return blocked("invalid-task-result", "The parallel seal returned an unreadable envelope.")
+      }
+      if (envelope.status === "blocked") {
+        for (const handle of handles.values()) settleIfStillRunning(handle)
+      }
+      envelope.task_api_source = "subagent"
+      const join = envelope.join && typeof envelope.join === "object" && !Array.isArray(envelope.join)
+        ? envelope.join as Record<string, unknown>
+        : null
+      const envelopeBranches = Array.isArray(envelope.branches) ? envelope.branches as Array<Record<string, unknown>> : []
+      for (const entry of envelopeBranches) {
+        const branchId = typeof entry.branch_id === "string" ? entry.branch_id : null
+        if (branchId && sessionByBranch.has(branchId)) entry.task_session_id = sessionByBranch.get(branchId)
+      }
+
+      recordMetrics({
+        timestamp: new Date().toISOString(),
+        session_id: toolCtx.sessionID,
+        phase: "IMPLEMENT",
+        agent: "scheduler",
+        skills_injected: [],
+        skill_resolution: "none",
+        duration_ms: Math.max(0, Date.now() - Date.parse(record.created_at)),
+        token_estimate: estimateTokens(tokenBranches.map(branch => branch.task).join("\n")),
+        status: envelope.status === "parallel-delegated" ? "ok" : envelope.status === "error" ? "error" : envelope.status === "timeout" ? "timeout" : "blocked",
+        task_api_source: "subagent",
+        change: record.change,
+        work_type: "cross-domain",
+        join_status: envelope.status === "parallel-delegated" ? "complete" : "blocked",
+        join_expected: tokenBranches.length,
+        join_completed: typeof join?.completed === "number" ? join.completed : 0,
+        join_failed: typeof join?.failed === "number" ? join.failed : tokenBranches.length,
+        workspace: workspaceProjectName(workspaceRoot),
+      })
+      flushMetricsSync()
+
+      return JSON.stringify(envelope, null, 2)
+    },
+  })
+}
+
+/** Settle a branch attempt only when its latest ledger record is still running. */
+function settleIfStillRunning(handle: AcquiredAttempt): void {
+  const ledger = readAttemptLedger(handle.workspaceRoot, handle.ledgerPath)
+  const latest = [...ledger.records].reverse().find(entry =>
+    entry.attempt_id === handle.record.attempt_id && attemptBranchId(entry) === attemptBranchId(handle.record))
+  if (latest && latest.status === "running") {
+    settleAttempt(handle, "failed", "validation-failed", "validation-failed")
+  }
+}
+
+interface ParallelExecutionOptions {
+  /** Native parallel seal: reuse the attempts acquired at prepare time. */
+  pre_acquired_attempts?: Map<string, AcquiredAttempt>
+  /** Native parallel seal: skip metrics (the seal records one aggregate metric). */
+  suppress_metrics?: boolean
+}
+
+function createODFParallelDelegate(
+  client?: OpencodeClient,
+  canonicalDirectory?: string,
+  executionOptions: ParallelExecutionOptions = {},
+): ReturnType<typeof tool> {
   return tool({
     description: `Run a bounded cross-domain IMPLEMENT BUILD with 2-3 independent branches.
 
@@ -3524,6 +4088,10 @@ must not overlap. VERIFY remains sequential after the aggregate join is complete
       resume_from_join?: boolean
     }, toolCtx: ToolContext): Promise<string> {
       const startTime = Date.now()
+      const suppressMetrics = executionOptions.suppress_metrics === true
+      const emitSchedulerLifecycle: typeof recordSchedulerLifecycle = suppressMetrics ? () => {} : recordSchedulerLifecycle
+      const emitParallelJoinMetrics: typeof recordParallelJoinMetrics = suppressMetrics ? () => {} : recordParallelJoinMetrics
+      const emitBranchLifecycle: typeof recordBranchLifecycle = suppressMetrics ? () => {} : recordBranchLifecycle
       let expected = Array.isArray(args.branches) ? args.branches.length : 0
       let persistedJoinRef: string | null = null
       const workspaceRoot = resolveSelectedWorkspaceRoot(args.workspace_dir, canonicalDirectory)
@@ -3551,9 +4119,9 @@ must not overlap. VERIFY remains sequential after the aggregate join is complete
       const finishScheduler = (status: DelegationMetrics["status"], error?: string): void => {
         if (schedulerLifecycleFinished) return
         schedulerLifecycleFinished = true
-        recordSchedulerLifecycle(toolCtx?.sessionID, schedulerTelemetryContext, "finished", startTime, status, error, args.change, schedulerTelemetryCohort)
+        emitSchedulerLifecycle(toolCtx?.sessionID, schedulerTelemetryContext, "finished", startTime, status, error, args.change, schedulerTelemetryCohort)
       }
-      recordSchedulerLifecycle(toolCtx?.sessionID, schedulerTelemetryContext, "started", startTime, "ok", undefined, args.change, schedulerTelemetryCohort)
+      emitSchedulerLifecycle(toolCtx?.sessionID, schedulerTelemetryContext, "started", startTime, "ok", undefined, args.change, schedulerTelemetryCohort)
       flushMetricsSync()
       const blocked = (
         reason: string,
@@ -3562,7 +4130,7 @@ must not overlap. VERIFY remains sequential after the aggregate join is complete
         receipt: ODFReceipt | null = null,
         joinStatus: "blocked" | "running" = "blocked",
       ): string => {
-        recordParallelJoinMetrics(toolCtx?.sessionID, startTime, joinStatus, expected, outcomes, schedulerTelemetryContext, schedulerTelemetryCohort)
+        emitParallelJoinMetrics(toolCtx?.sessionID, startTime, joinStatus, expected, outcomes, schedulerTelemetryContext, schedulerTelemetryCohort)
         finishScheduler("blocked", message)
         const completed = outcomes.filter(outcome => outcome.successful).length
         const running = outcomes.filter(outcome => outcome.status === "running").length
@@ -3755,7 +4323,7 @@ must not overlap. VERIFY remains sequential after the aggregate join is complete
           const mergedReceipt = mergeReceipt(workspaceRoot, receipt)
           return blocked(workflowCommit.reason, workflowCommit.message, savedJoin.branches.map(savedParallelOutcome), mergedReceipt)
         }
-        recordParallelJoinMetrics(toolCtx.sessionID, startTime, savedJoin.join.status, expected, savedJoin.branches.map(savedParallelOutcome), schedulerTelemetryContext, schedulerTelemetryCohort)
+        emitParallelJoinMetrics(toolCtx.sessionID, startTime, savedJoin.join.status, expected, savedJoin.branches.map(savedParallelOutcome), schedulerTelemetryContext, schedulerTelemetryCohort)
         finishScheduler("ok")
         return JSON.stringify({
           status: "parallel-delegated",
@@ -3815,6 +4383,11 @@ must not overlap. VERIFY remains sequential after the aggregate join is complete
 
       const acquired = new Map<string, AcquiredAttempt>()
       for (const branch of runnableDescriptors) {
+        const preAcquired = executionOptions.pre_acquired_attempts?.get(branch.branch_id)
+        if (preAcquired) {
+          acquired.set(branch.branch_id, preAcquired)
+          continue
+        }
         const acquisition = acquireAttempt({
           workspaceDir: workspaceRoot,
           change: args.change,
@@ -3904,7 +4477,7 @@ must not overlap. VERIFY remains sequential after the aggregate join is complete
         return blocked("parallel-join-persist-failed", runningArtifact.error, settledOutcomes)
       }
       persistedJoinRef = runningArtifact.ref
-      recordParallelJoinMetrics(toolCtx.sessionID, startTime, "running", expected, outcomes, schedulerTelemetryContext, schedulerTelemetryCohort)
+      emitParallelJoinMetrics(toolCtx.sessionID, startTime, "running", expected, outcomes, schedulerTelemetryContext, schedulerTelemetryCohort)
 
       const persistRunningProgress = (): void => {
         const running = outcomes.filter(outcome => outcome.status === "running").length
@@ -3933,7 +4506,7 @@ must not overlap. VERIFY remains sequential after the aggregate join is complete
             ...schedulerTelemetryCohort,
             source_authority: Boolean(sourceAuthorityRoots && isViewAuthorityWork("IMPLEMENT", branch.prompt, branch.context_files || [])),
           }
-          recordBranchLifecycle(
+          emitBranchLifecycle(
             toolCtx.sessionID,
             schedulerTelemetryContext,
             branch,
@@ -3948,6 +4521,7 @@ must not overlap. VERIFY remains sequential after the aggregate join is complete
           try {
             const output = await createODFDelegate(client, canonicalDirectory, {
               branch_id: branch.branch_id,
+              suppress_metrics: suppressMetrics,
               suppress_failure_receipt: true,
               suppress_workflow_commit: true,
               suppress_attempt_settlement: true,
@@ -3978,7 +4552,7 @@ must not overlap. VERIFY remains sequential after the aggregate join is complete
             }, toolCtx)
             const outcome = makeParallelOutcome(args.change, branch, output as string, acquired.get(branch.branch_id)!, workspaceRoot)
             outcomes[outcomeIndex] = outcome
-            recordBranchLifecycle(
+            emitBranchLifecycle(
               toolCtx.sessionID,
               schedulerTelemetryContext,
               branch,
@@ -4000,7 +4574,7 @@ must not overlap. VERIFY remains sequential after the aggregate join is complete
               workspaceRoot,
             )
             outcomes[outcomeIndex] = outcome
-            recordBranchLifecycle(
+            emitBranchLifecycle(
               toolCtx.sessionID,
               schedulerTelemetryContext,
               branch,
@@ -4061,7 +4635,7 @@ must not overlap. VERIFY remains sequential after the aggregate join is complete
           return blocked(workflowCommit.reason, workflowCommit.message, outcomes, mergedReceipt)
         }
         for (const handle of acquired.values()) settleAttempt(handle, "completed", "delegated", "task-completed")
-        recordParallelJoinMetrics(toolCtx.sessionID, startTime, "complete", expected, outcomes, schedulerTelemetryContext, schedulerTelemetryCohort)
+        emitParallelJoinMetrics(toolCtx.sessionID, startTime, "complete", expected, outcomes, schedulerTelemetryContext, schedulerTelemetryCohort)
         finishScheduler("ok")
         return JSON.stringify({
           status: "parallel-delegated",
@@ -7588,6 +8162,8 @@ export function createODFRegisteredTools(
     odf_delegation_prepare: createODFDelegationPrepare(canonicalDirectory),
     odf_delegation_seal: createODFDelegationSeal(canonicalDirectory),
     odf_parallel_delegate: createODFParallelDelegate(client, canonicalDirectory),
+    odf_parallel_prepare: createODFParallelPrepare(canonicalDirectory),
+    odf_parallel_seal: createODFParallelSeal(canonicalDirectory),
     odf_workflow_route: createODFWorkflowRoute(),
     odf_workflow_advance: createODFWorkflowAdvance(),
     odf_workflow_override: createODFWorkflowOverride(),

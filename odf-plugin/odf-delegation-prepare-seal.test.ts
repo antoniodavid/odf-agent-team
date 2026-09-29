@@ -520,4 +520,186 @@ describe("native prepare/seal delegation", () => {
     expect(sealEnv).toMatchObject({ status: "delegated", result: { status: "failed" } })
     expect(sealEnv.workflow_materialization).toBeUndefined()
   })
+
+  // ------------------------------------------------------------------
+  // Native parallel BUILD (cross-domain): prepare → N subagents → seal.
+  // ------------------------------------------------------------------
+
+  const parallelWorkflowAdvance = () => ({
+    work_type: "cross-domain" as const,
+    completed_stages: ["DECIDE"] as const,
+    candidate_stage: "PLAN" as const,
+    phase_result_status: "ok" as const,
+    validation_status: "not-required" as const,
+    receipt_state: "none" as const,
+    resumable_state: true,
+    archived_state: false,
+  })
+
+  const writeParallelState = async (root: string, change: string) => {
+    const changeDir = path.join(root, "openspec", "changes", change)
+    await fs.mkdir(changeDir, { recursive: true })
+    await fs.writeFile(path.join(changeDir, "state.yaml"), YAML.stringify({
+      work_type: "cross-domain",
+      canonical_stage: "BUILD",
+      completed_canonical_stages: ["DECIDE", "PLAN"],
+      resumable: true,
+    }), "utf8")
+    await fs.writeFile(path.join(changeDir, "implement-progress.md"), "- [x] parallel implementation\n", "utf8")
+  }
+
+  const writeParallelEvidence = async (root: string, change: string, branchIds: string[]) => {
+    await fs.mkdir(path.join(root, ".odf"), { recursive: true })
+    for (const branchId of branchIds) {
+      await fs.writeFile(path.join(root, ".odf", `validation-evidence-${change}-${branchId}.json`), JSON.stringify({
+        change,
+        phase: "IMPLEMENT",
+        batch: 1,
+        risk_tier: "MEDIUM",
+        frozen_diff_ref: null,
+        resolved_at: new Date().toISOString(),
+        commands: [
+          { name: "git-diff-check", command: "git diff --check", exit_code: 0, output_tail: "" },
+          { name: "odoo-tests", command: "odoo-bin -d odf_test_db -i test_module --test-enable --stop-after-init", database: "odf_test_db", exit_code: 0, output_tail: "2 passed, 0 failed" },
+        ],
+      }), "utf8")
+    }
+  }
+
+  const parallelSessionApi = (
+    branches: Array<{ branch_id: string; agent: string; prompt: string }>,
+    resultTextFor: (branchId: string) => string,
+  ) => {
+    const byId = new Map(branches.map(branch => [`ses_${branch.branch_id}`, branch]))
+    return {
+      create: vi.fn(),
+      get: vi.fn().mockImplementation(({ sessionID }: { sessionID: string }) => {
+        const entry = byId.get(sessionID)
+        if (!entry) return Promise.reject(new Error("unknown session"))
+        return Promise.resolve({ id: sessionID, agent: entry.agent })
+      }),
+      prompt: vi.fn(),
+      wait: vi.fn(),
+      context: vi.fn().mockImplementation(({ sessionID }: { sessionID: string }) => {
+        const entry = byId.get(sessionID)
+        if (!entry) return Promise.reject(new Error("unknown session"))
+        return Promise.resolve([
+          { info: { type: "user" }, content: [{ type: "text", text: entry.prompt }] },
+          { info: { type: "assistant" }, content: [{ type: "text", text: resultTextFor(entry.branch_id) }] },
+        ])
+      }),
+      interrupt: vi.fn(),
+    }
+  }
+
+  it("prepares and seals a native parallel BUILD end to end", async () => {
+    const change = "native-parallel"
+    const root = path.join(tempHome, "parallel-root")
+    await fs.mkdir(root, { recursive: true })
+    await writeParallelState(root, change)
+    const branches = [
+      { branch_id: "backend-native", attempt_id: "backend-native-attempt", prompt: "Implement the backend branch", context_files: ["backend-native.py"] },
+      { branch_id: "frontend-native", attempt_id: "frontend-native-attempt", prompt: "Implement the frontend branch", context_files: ["frontend-native.py"] },
+    ]
+    const { odf_parallel_prepare, odf_parallel_seal } = await tools(root)
+
+    const prepared = JSON.parse(await odf_parallel_prepare.execute({
+      work_type: "cross-domain",
+      phase: "IMPLEMENT",
+      change,
+      artifact_store: "openspec",
+      workflow_advance: parallelWorkflowAdvance(),
+      branches,
+    }, { sessionID: "prepare-session" } as any) as string)
+
+    expect(prepared).toMatchObject({ status: "prepared", change, token: expect.stringMatching(/^odf-tok-/) })
+    expect(prepared.branches.map((branch: any) => branch.branch_id)).toEqual(["backend-native", "frontend-native"])
+    expect(prepared.branches.every((branch: any) => branch.prompt.includes("<!-- ODF-DELEGATION "))).toBe(true)
+    expect(prepared.branches.every((branch: any) => branch.prompt.includes(`validation-evidence-${change}-`))).toBe(true)
+
+    await writeParallelEvidence(root, change, branches.map(branch => branch.branch_id))
+    const session = parallelSessionApi(
+      prepared.branches.map((branch: any) => ({ branch_id: branch.branch_id, agent: branch.agent, prompt: branch.prompt })),
+      () => "## ODF Result\n- **status**: ok\n- **executive_summary**: branch implemented",
+    )
+
+    const output = JSON.parse(await odf_parallel_seal.execute({
+      token: prepared.token,
+      change,
+      branches: prepared.branches.map((branch: any) => ({ branch_id: branch.branch_id, session_id: `ses_${branch.branch_id}` })),
+    }, { sessionID: "parent-session", [ODF_V2_SESSION]: session } as any) as string)
+
+    expect(output).toMatchObject({
+      status: "parallel-delegated",
+      task_api_source: "subagent",
+      join: { status: "complete", expected: 2, completed: 2, failed: 0, validation_verified: true },
+    })
+    expect(output.branches.every((branch: any) => branch.task_session_id?.startsWith("ses_"))).toBe(true)
+
+    const state = YAML.parse(await fs.readFile(path.join(root, "openspec", "changes", change, "state.yaml"), "utf8"))
+    expect(state).toMatchObject({ canonical_stage: "BUILD", completed_canonical_stages: ["DECIDE", "PLAN", "BUILD"] })
+    const ledger = (await fs.readFile(path.join(root, ".odf", `attempt-ledger-${change}.jsonl`), "utf8"))
+      .trim().split("\n").map(line => JSON.parse(line))
+    expect(ledger.filter((entry: { status: string }) => entry.status === "completed")).toHaveLength(2)
+    expect(readDelegationToken(root, change, prepared.token)).toMatchObject({ error: "delegation-token-unknown" })
+  })
+
+  it("fails closed when a parallel child agent does not match its branch", async () => {
+    const change = "native-parallel-mismatch"
+    const root = path.join(tempHome, "parallel-mismatch-root")
+    await fs.mkdir(root, { recursive: true })
+    await writeParallelState(root, change)
+    const branches = [
+      { branch_id: "backend-a", attempt_id: "backend-a-attempt", prompt: "Implement the backend branch", context_files: ["backend-a.py"] },
+      { branch_id: "frontend-a", attempt_id: "frontend-a-attempt", prompt: "Implement the frontend branch", context_files: ["frontend-a.py"] },
+    ]
+    const { odf_parallel_prepare, odf_parallel_seal } = await tools(root)
+    const prepared = JSON.parse(await odf_parallel_prepare.execute({
+      work_type: "cross-domain",
+      phase: "IMPLEMENT",
+      change,
+      artifact_store: "openspec",
+      workflow_advance: parallelWorkflowAdvance(),
+      branches,
+    }, { sessionID: "prepare-session" } as any) as string)
+
+    const session = parallelSessionApi(
+      prepared.branches.map((branch: any) => ({ branch_id: branch.branch_id, agent: branch.branch_id === "frontend-a" ? "odoo_qa_engineer" : branch.agent, prompt: branch.prompt })),
+      () => "## ODF Result\n- **status**: ok",
+    )
+    const output = JSON.parse(await odf_parallel_seal.execute({
+      token: prepared.token,
+      change,
+      branches: prepared.branches.map((branch: any) => ({ branch_id: branch.branch_id, session_id: `ses_${branch.branch_id}` })),
+    }, { sessionID: "parent-session", [ODF_V2_SESSION]: session } as any) as string)
+
+    expect(output).toMatchObject({ status: "blocked", reason: "delegation-child-mismatch" })
+    // A binding failure keeps the token for a retry.
+    expect(readDelegationToken(root, change, prepared.token).error).toBeNull()
+  })
+
+  it("validates parallel prepare inputs before acquiring attempts", async () => {
+    const { odf_parallel_prepare } = await tools()
+    const base = {
+      work_type: "cross-domain",
+      phase: "IMPLEMENT",
+      change: "native-parallel-validation",
+      artifact_store: "openspec",
+      workflow_advance: parallelWorkflowAdvance(),
+    }
+    const oneBranch = JSON.parse(await odf_parallel_prepare.execute({
+      ...base,
+      branches: [{ branch_id: "solo", attempt_id: "solo-attempt", prompt: "Implement the branch" }],
+    }, { sessionID: "prepare-session" } as any) as string)
+    expect(oneBranch).toMatchObject({ status: "blocked", reason: "parallel-branch-count" })
+
+    const duplicated = JSON.parse(await odf_parallel_prepare.execute({
+      ...base,
+      branches: [
+        { branch_id: "dup", attempt_id: "dup-a", prompt: "Implement one branch" },
+        { branch_id: "dup", attempt_id: "dup-b", prompt: "Implement another branch" },
+      ],
+    }, { sessionID: "prepare-session" } as any) as string)
+    expect(duplicated).toMatchObject({ status: "blocked", reason: "duplicate-branch-id" })
+  })
 })

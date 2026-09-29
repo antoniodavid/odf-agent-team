@@ -33,6 +33,26 @@ export type DelegationPhase = (typeof DELEGATION_PHASES)[number]
 export type DelegationTokenStatus = "prepared" | "sealed"
 export type DelegationArtifactStore = "openspec" | "engram" | "hybrid"
 
+export interface DelegationTokenBranchInput {
+  branch_id: string
+  agent: string
+  attempt_id: string
+  /** Final prepared prompt the child must receive verbatim (digested). */
+  prompt: string
+  /** Raw branch task used by the proof-backed replay. */
+  task: string
+  context_files?: string[]
+}
+
+export interface DelegationTokenBranch {
+  branch_id: string
+  agent: string
+  attempt_id: string
+  prompt_digest: string
+  task: string
+  context_files: string[]
+}
+
 export interface DelegationTokenInput {
   change: string
   phase: DelegationPhase
@@ -63,6 +83,8 @@ export interface DelegationTokenInput {
   target?: string
   /** Explicit final OCA acknowledgment for the proof-backed commit. */
   governance_acknowledgment?: Record<string, unknown> | null
+  /** Parallel BUILD branches (2-3) for a cross-domain delegation. */
+  branches?: DelegationTokenBranchInput[]
   artifact_store?: DelegationArtifactStore
   context_files?: string[]
   attempt_id?: string
@@ -90,6 +112,7 @@ export interface DelegationTokenRecord {
   policy_gate?: Record<string, unknown> | null
   target?: string
   governance_acknowledgment?: Record<string, unknown> | null
+  branches?: DelegationTokenBranch[]
   skills_injected: string[]
   profile: Record<string, unknown> | null
   context_files: string[]
@@ -183,6 +206,8 @@ export function createDelegationTokenRecord(input: DelegationTokenInput): Delega
     : []
   const profile = safeProfile(input.profile)
   if (!profile.ok) return null
+  const branches = input.branches === undefined ? null : buildBranches(input.branches)
+  if (input.branches !== undefined && !branches) return null
   if (input.source_root !== undefined && !safeRoot(input.source_root)) return null
   if (input.source_repos !== undefined && !safeRoot(input.source_repos)) return null
   if (input.target !== undefined && input.target !== "oca") return null
@@ -219,6 +244,7 @@ export function createDelegationTokenRecord(input: DelegationTokenInput): Delega
     ...(policyGate.value ? { policy_gate: policyGate.value } : {}),
     ...(input.target ? { target: input.target } : {}),
     ...(acknowledgment.value ? { governance_acknowledgment: acknowledgment.value } : {}),
+    ...(branches ? { branches } : {}),
     skills_injected: skills,
     profile: profile.profile,
     context_files: contextFiles,
@@ -228,6 +254,46 @@ export function createDelegationTokenRecord(input: DelegationTokenInput): Delega
     expires_at: expires.toISOString(),
     status: "prepared",
   }
+}
+
+function isTokenBranch(value: unknown): value is DelegationTokenBranch {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false
+  const branch = value as Record<string, unknown>
+  return safeLabel(branch.branch_id) !== null &&
+    safeLabel(branch.agent) !== null &&
+    safeLabel(branch.attempt_id) !== null &&
+    typeof branch.prompt_digest === "string" && PROMPT_DIGEST_PATTERN.test(branch.prompt_digest) &&
+    safeTask(branch.task) !== null &&
+    Array.isArray(branch.context_files) && branch.context_files.every(file => typeof file === "string")
+}
+
+function buildBranches(inputs: DelegationTokenBranchInput[]): DelegationTokenBranch[] | null {
+  if (inputs.length < 2 || inputs.length > 3) return null
+  const seenBranches = new Set<string>()
+  const seenAttempts = new Set<string>()
+  const branches: DelegationTokenBranch[] = []
+  for (const input of inputs) {
+    const branchId = safeLabel(input?.branch_id)
+    const agent = safeLabel(input?.agent)
+    const attemptId = safeLabel(input?.attempt_id)
+    const task = safeTask(input?.task)
+    if (!branchId || !agent || !attemptId || !task) return null
+    if (seenBranches.has(branchId) || seenAttempts.has(attemptId)) return null
+    seenBranches.add(branchId)
+    seenAttempts.add(attemptId)
+    const contextFiles = Array.isArray(input.context_files)
+      ? input.context_files.filter((file): file is string => typeof file === "string" && file.length > 0 && file.length <= 512 && !/[\0\r\n]/.test(file)).slice(0, MAX_CONTEXT_FILES)
+      : []
+    branches.push({
+      branch_id: branchId,
+      agent,
+      attempt_id: attemptId,
+      prompt_digest: delegationPromptDigest(input.prompt),
+      task,
+      context_files: contextFiles,
+    })
+  }
+  return branches
 }
 
 function isDelegationTokenRecord(value: unknown): value is DelegationTokenRecord {
@@ -248,6 +314,7 @@ function isDelegationTokenRecord(value: unknown): value is DelegationTokenRecord
     (record.policy_gate === undefined || record.policy_gate === null || (typeof record.policy_gate === "object" && !Array.isArray(record.policy_gate))) &&
     (record.target === undefined || record.target === "oca") &&
     (record.governance_acknowledgment === undefined || (typeof record.governance_acknowledgment === "object" && !Array.isArray(record.governance_acknowledgment))) &&
+    (record.branches === undefined || (Array.isArray(record.branches) && record.branches.length >= 2 && record.branches.length <= 3 && record.branches.every(isTokenBranch))) &&
     Array.isArray(record.skills_injected) && record.skills_injected.every(name => safeLabel(name) !== null) &&
     (record.profile === null || (typeof record.profile === "object" && !Array.isArray(record.profile))) &&
     Array.isArray(record.context_files) && record.context_files.every(file => typeof file === "string") &&

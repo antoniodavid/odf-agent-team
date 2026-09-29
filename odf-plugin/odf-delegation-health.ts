@@ -367,6 +367,12 @@ export type TaskApiInput = {
    */
   title?: string
   /**
+   * Optional branch identifier for parallel BUILD delegation. Hosts ignore it;
+   * the native parallel seal routes each branch result back to its descriptor
+   * with it.
+   */
+  branch_id?: string
+  /**
    * Directory the delegated session must run in. Defaults to the host session's
    * directory, which is what `context_files` (validated relative paths) assumes:
    * they only resolve correctly when the child works in the same root. Set it to
@@ -732,6 +738,26 @@ export function taskSessionIdOf(result: unknown): string | null {
   if (!result || typeof result !== "object") return null
   const value = (result as Record<PropertyKey, unknown>)[TASK_SESSION_ID]
   return typeof value === "string" && value.length > 0 ? value : null
+}
+
+/** Attach the child session id marker to a parsed result (native seal paths). */
+export function markTaskSessionId(result: unknown, sessionId: string): void {
+  if (!result || typeof result !== "object") return
+  try {
+    Object.defineProperty(result, TASK_SESSION_ID, { value: sessionId, enumerable: false, configurable: true })
+  } catch {
+    // A non-extensible result cannot carry the marker.
+  }
+}
+
+/**
+ * Mark a task API as an ODF-owned bridge so findTaskApi hands it back as-is.
+ * Native seal paths use this for routing stubs that must receive the full
+ * TaskApiInput (including branch_id) instead of the V1 wrapper shape.
+ */
+export function markTaskBridge<T extends TaskApi>(taskApi: T): T {
+  ;(taskApi as unknown as Record<symbol, unknown>)[ODF_TASK_BRIDGE] = true
+  return taskApi
 }
 
 /** Best-effort progress (V2 maps `metadata` to `context.progress`). */
