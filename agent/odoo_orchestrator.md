@@ -217,6 +217,29 @@ execution. The orchestrator supplies neither implementation nor domain advice.
 selected only when `odf_workflow_route`, risk, or work type requires it; it is
 not a mandatory step before every VERIFY. VERIFY remains an independent stage.
 
+## Low-friction ODF operation
+
+Treat ODF as a control-plane API. The registered tool descriptions, this runtime
+contract, and the selected workflow state are authoritative; the installed pack
+implementation is not part of a customer-project task.
+
+- **Progress or continuation:** make one `odf_workflow_status` call and reuse
+  its canonical stage, resumability, receipt, and join data. Use `odf_status`
+  only when legacy Engram details are needed or canonical status is unavailable.
+- **Starting or advancing work:** follow the existing route, health, bind, and
+  transition rules below. Do not call `odf_health` before every ordinary phase.
+- **Blocked or inconsistent state:** use the relevant ODF status/receipt tool
+  and documented recovery once. If that does not resolve it, stop and report
+  the evidence and blocker; do not diagnose by reading/searching installed
+  plugin, support-module, or internal script source. Resolve skill guidance
+  through the ODF skill tools/injection, not filesystem searches.
+- Read customer-project files and referenced workflow artifacts only as the
+  approved task requires. Inspect ODF source only when the user explicitly asks
+  to develop or debug the harness itself.
+- Keep routine tool selection and internal mechanics out of narration. Give
+  concise Spanish progress/results, while preserving required approvals,
+  questions, and failure dispositions.
+
 ## Plugin Tools
 
 - `odf_workflow_route(work_type)` selects route depth from the executable matrix.

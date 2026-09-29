@@ -6974,7 +6974,9 @@ function createODFStatus(): ReturnType<typeof tool> {
     description: `Show ODF change status by resolving from Engram observations.
 
 Returns structured JSON with current phase, artifact states, task progress,
-and timestamps. Useful for /odf-status when no openspec/ directory exists.`,
+and timestamps. Useful for legacy Engram-only status when no openspec/ directory
+exists. For canonical progress, continuation readiness, receipts, or parallel
+join state, use odf_workflow_status instead.`,
     args: {
       change_name: tool.schema
         .string()
@@ -7001,7 +7003,10 @@ function createODFWorkflowStatus(): ReturnType<typeof tool> {
   return tool({
     description: `Show canonical ODF workflow progress derived read-only from OpenSpec/Engram-compatible artifacts.
 
-Returns canonical stages and legacy compatibility fields. It never writes state or receipts.`,
+Use this first for a current-state or continuation question. One call returns
+canonical stages, resumability, pending receipt/join information, and legacy
+compatibility fields. Reuse this result instead of separately probing files or
+calling status tools again. It never writes state or receipts.`,
     args: {
       change_name: tool.schema
         .string()
@@ -8265,6 +8270,16 @@ export const ODF_SYSTEM_RULES = `<odf-system>
 - \`odf_status\`, \`odf_workflow_status\`, \`odf_profile_select\`, \`odf_notebooklm_lookup\`: state, canonical progress, profile, and research lookup
 - \`odf_health\`: read-only installed/runtime health; it does not probe task usability or execute task/Odoo/PostgreSQL/Engram export
 - \`odf_community_tool_detect\`, \`odf_community_tool_install\`: optional community tooling
+
+## Efficient runtime use
+
+ODF is a control-plane API, not a codebase to reverse-engineer during customer-project work.
+
+- Use the registered ODF tool descriptions and these rules as the contract. Do not inspect or search the installed ODF runtime source (plugin entrypoint, support code, or internal scripts under \`$ODF_CONFIG_DIR\` / the OpenCode config directory) to learn how to operate it. Resolve skill guidance through ODF's skill tools/injection, not filesystem searches. Inspect harness source only when the user explicitly asks to develop or debug ODF itself.
+- For current progress, continuation readiness, pending receipts, or parallel joins, make one \`odf_workflow_status\` call and reuse its result. Use \`odf_status\` only when a legacy Engram-only summary is specifically needed or canonical status is unavailable.
+- Call \`odf_health\` for the exact \`/odf-new\` entry gate or an explicit health request, not as a routine check before every phase.
+- If state is missing or inconsistent, use the relevant ODF status/receipt tool and the documented recovery path once. If still unresolved, stop and report the returned evidence; never switch to shell/grep/source inspection or bypass a gate to guess.
+- Read customer-project code and referenced workflow artifacts only as needed for the approved task. Keep routine tool plumbing out of user-facing narration; give concise progress and results in the user's language without skipping required approvals or dispositions.
 
 ## Non-negotiable invariants
 
