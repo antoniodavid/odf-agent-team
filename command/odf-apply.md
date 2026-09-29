@@ -24,7 +24,7 @@ route resolution, or the required `PLAN`/`DESIGN`.
 3. **Verify the required PLAN**: read the canonical design/tasks or the legacy artifact `odf/{change}/design`. If it is incomplete, stop and suggest `/odf-continue`; do not bypass directly.
 4. **Determine pending tasks** from the task breakdown, merging existing progress without overwriting it.
 5. **Before each batch**, run `odf_policy_gate(change, phase="IMPLEMENT")`; its decision is authoritative.
-6. **Delegate the batch** through `odf_delegate` using the legacy `IMPLEMENT` adapter for `BUILD`, passing the transition to `BUILD` under `workflow_advance`, an explicit `artifact_store: openspec|engram`, and a fresh opaque `attempt_id`; strict workflow is active by default and omitting those fields is blocked. Do not call `task()` directly.
+6. **Delegate the batch** through the ODF delegation path: when the host exposes the `subagent` tool, use `odf_delegation_prepare` → `subagent` (pass `delegation.prompt` verbatim) → `odf_delegation_seal`; otherwise use `odf_delegate` with the legacy `IMPLEMENT` adapter. Either way pass the transition to `BUILD` under `workflow_advance`, an explicit `artifact_store: openspec|engram`, and a fresh opaque `attempt_id`; strict workflow is active by default and omitting those fields is blocked. Do not call `task()` directly. `odf_delegate` remains mandatory for fast-lane BUILD/VERIFY.
 7. **Select the agent** by task domain:
    - Python models, views, and security — `odoo_backend_engineer`
    - JS/OWL/QWeb components — `odoo_frontend_engineer`

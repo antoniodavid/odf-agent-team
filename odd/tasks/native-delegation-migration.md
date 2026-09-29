@@ -81,7 +81,8 @@ Usability is part of harness quality: a delegation the user cannot see is a dele
 - [x] `odf_delegation_seal`: token and child-session binding (agent, prompt digest, workspace, `parentID` when present), ODF Result parsing, composite gates and PLAN materialization, and proof-backed replay (proof revalidation, prepared policy gate, validation-evidence seal, workflow commit, attempt settlement, failure receipts); metrics with `task_api_source: "subagent"`.
 - [x] Register both tools (map, `ODF_REGISTERED_TOOLS`, V2 adapter tool-list test), extend `task_api_source` with `"subagent"`, and update the operator docs.
 - [x] Proof-backed BUILD/VERIFY parity: the attempt is acquired in prepare (liveness tracking off so `settle-attempt` can recover orphans) and settled by the seal; the prepared policy gate is reused (no post-build recompute); validation evidence, workflow commit and failure receipts verified end to end in tests. Fast-lane and parallel BUILD stay excluded with explicit blocks.
-- [ ] Orchestrator and command instructions: prepare → `subagent` → seal; hook warnings/blocks for missing tokens.
+- [x] Orchestrator and command instructions: native flow (`prepare → subagent → seal`) documented in `agent/odoo_orchestrator.md` and the phase commands, with recovery reasons; the V2 `execute.before` hook blocks direct `subagent` calls to ODF specialists from the orchestrator without the prepared marker.
+- [ ] Parity test matrix (delegate vs seal envelopes) and a real end-to-end run in an Odoo worktree.
 - [ ] Parallel BUILD (stretch): background subagents + aggregate seal.
 
 ### M3 — Verification

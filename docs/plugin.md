@@ -87,6 +87,39 @@ specialist agent  ──►  Odoo worktree (edits, tests)
 
 **Blocked envelope:** if no task API is available, the tool returns `{status:"blocked", reason:"task-api-unavailable"}` and **never** hands back an executable fallback prompt.
 
+## Native prepare/seal flow (OpenCode V2)
+
+When the host exposes the `subagent` tool, the orchestrator can delegate through
+the native pair so the phase runs as a visible child session:
+
+```
+orchestrator
+   │ 1. odf_delegation_prepare(phase, change, prompt, …)
+   │      → { token, delegation: { agent, description, prompt } }
+   │ 2. subagent({ agent, description, prompt })   ← host child session
+   │      → child sessionID
+   │ 3. odf_delegation_seal({ token, change, session_id })
+   ▼
+plugin
+   • verifies the child session (agent, prompt digest, workspace, parentID when present)
+   • reads the ODF Result through the V2 session API
+   • runs the composite gates or replays the authoritative delegate for BUILD/VERIFY
+     (proof revalidation, prepared policy gate, validation-evidence seal, workflow commit,
+      attempt settlement, failure receipts)
+   • consumes the token and returns the standard envelope (+ task_session_id)
+```
+
+- The prompt must be passed **verbatim**; the seal compares its SHA-256 digest
+  with the prepared one and fails closed on any edit.
+- The token is a bounded opaque `odf-tok-…` file under `.odf/` (two-hour TTL);
+  binding failures keep it for a retry, processed delegations consume it.
+- IMPLEMENT/VERIFY also require `artifact_store`, the exact `workflow_advance`
+  proof and a fresh `attempt_id`; the attempt is acquired at prepare time and
+  settled by the seal. Fast-lane and cross-domain parallel BUILD stay on
+  `odf_delegate`/`odf_parallel_delegate`.
+- V2 blocks direct `subagent` calls to ODF specialists from the orchestrator
+  without the prepared marker, so the gates cannot be bypassed silently.
+
 ## Transport
 
 1. **Native** — host exposes `toolCtx.task`; permissions derive from the host.

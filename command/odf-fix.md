@@ -43,7 +43,7 @@ the bounded automatic retry.
 1. **Check configuration**: `mem_search("odf-init/{project-name}")` for test/lint commands.
 2. **Parse the fix name and description** from the arguments.
 3. **Detect the Odoo version** from the configuration or `__manifest__.py`.
-4. **Resolve** `odf_workflow_route("bugfix")`, bind the `bugfix` state, and delegate the diagnosis through `odf_delegate` to the right agent:
+4. **Resolve** `odf_workflow_route("bugfix")`, bind the `bugfix` state, and delegate the diagnosis through the ODF delegation path to the right agent (on hosts with the `subagent` tool: `odf_delegation_prepare` → `subagent` with `delegation.prompt` verbatim → `odf_delegation_seal`; otherwise `odf_delegate`):
    - Backend bug → `odoo_backend_engineer`
    - Frontend bug → `odoo_frontend_engineer`
    - Integration bug → `odoo_api_integrator`
