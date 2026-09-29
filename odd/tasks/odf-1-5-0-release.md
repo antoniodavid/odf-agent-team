@@ -54,10 +54,13 @@ recorded. Tracked in issue #69; the `v1.4.0` line stays immutable.
 - [x] R3 — Documentation: native single/parallel flows in
   `agent/odoo_orchestrator.md`, `docs/plugin.md` and the phase commands; tool
   inventory at 26.
-- [ ] R4 — Verification evidence: full matrix green on `main` (998 unit / 325
-  YAML / 18 harness, CI on the release commit) **plus the real native VERIFY run
-  on `barcode-cycle-count-list-ux`** (visible `subagent` row, sealed envelope,
-  committed state).
+- [x] R4 — Verification evidence: full matrix green (998 unit / 325 YAML / 18
+  harness; PR #81 CI passed, and merge commit `1185b69` checks succeeded) plus
+  the real native VERIFY run on `barcode-cycle-count-list-ux`: PASS WITH
+  WARNINGS, 7/7 expectations; authorized `devel` module suite 39/39 and HOOT
+  20/20; final
+  seal/evidence/policy/receipt consistent; canonical state ARCHIVED. Candidate
+  files remain staged and uncommitted by design; archival did not commit them.
 - [ ] R5 — Local release commit and annotated tag `v1.5.0` after R4.
 - [ ] R6 — Push the tag, publish the GitHub release (notes from the changelog
   section), verify the target and metadata, and close #69.
@@ -85,12 +88,14 @@ recorded. Tracked in issue #69; the `v1.4.0` line stays immutable.
 
 ## Progress
 
-- 2026-09-29: R1–R3 applied on `chore/release-1-5-0` (metadata, changelog,
-  checklist). R4 partially evidenced by the local matrix; the native end-to-end
-  run is pending. Tag and GitHub release remain pending until R4 completes.
+- 2026-09-29: R1–R3 merged via PR #81 (`1185b69`). R4 complete: CI checks
+  succeeded; local matrix is 998 unit / 325 YAML / 18 harness; the native
+  `barcode-cycle-count-list-ux` VERIFY closed PASS WITH WARNINGS (7/7), with the
+  real module suite 39/39 and HOOT 20/20. Candidate files remain staged and
+  uncommitted. The change is archived; nonblocking warnings are documented in
+  its archive report.
 
 ## Next step
 
-- Run `/odf-continue barcode-cycle-count-list-ux` in the Odoo worktree with the
-  installed pack (native pair), capture the sealed-envelope evidence, then
-  execute R5/R6.
+- Create the annotated `v1.5.0` tag at the release commit, publish the GitHub
+  release from `CHANGELOG.md`, verify the published target, and close #69.
