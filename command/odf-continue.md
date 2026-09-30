@@ -32,25 +32,21 @@ When the user intentionally changes scope (skipping PLAN, repeating a stage, or 
 
 ## Orchestrator Instructions
 
-1. **Load active changes** from `openspec/changes/*/state.yaml` (and/or Engram `odf/*/state`).
-2. **Sort** by `last_updated` descending.
-3. **Select change**:
-   - If a name is provided: load that change; error if it is not active.
-   - If there is no name: choose the most recent one.
-   - If several are active and no name is given: list them and ask the user.
-4. **Verify preflight**: if it is incomplete, run the preflight gate first.
-5. **Query `odf_workflow_status`** and read its `work_type`. If a valid value exists, use it as the authority; never infer it from `legacy_phase`, artifacts, or `solution_strategy`.
-6. Apply `state_kind` without losing legacy recovery: `expectations-only` blocks and refers to `/odf-new {change}`; `none` blocks due to total absence; `legacy-artifacts` preserves `resumable: true` and requires `--work-type <type>` when `recovery_work_type_required` is `true`, then resolves that explicit route without creating or binding state; `canonical` uses the normal state. `/odf-continue` never creates workflows, never passes `preflight`/`expectations` to `odf_workflow_bind`, and never infers `work_type`. If a canonical state exists but the binding is missing, require `--work-type` and bind only that existing state with its explicit store.
-7. **Resolve the route** with the persisted or explicitly selected work type through `odf_workflow_route(work_type)` and use its canonical stages: `DECIDE -> optional PLAN -> BUILD -> VERIFY`.
-8. **Query `odf_workflow_status`** and use `canonical_stage`, `pending_stage`, `resumable`, and `receipt` as the canonical state; then dispatch the next stage through the legacy adapter, without reinterpreting historical phases as new stages:
+1. **Query `odf_workflow_status` once**, passing `change_name` when provided. It uses the current session workspace by default; do not shell-scan the project or call a second status tool to reconstruct the same state.
+2. **Select the returned change**: with a name, require an exact match; without one, use the most recently updated active change returned by the tool. An explicitly named `canonical_stage: ARCHIVED` change is already complete, not continuable; report that and do not use Engram to reinterpret it as active.
+3. **Verify preflight**: if it is incomplete, run the preflight gate first.
+4. Read the returned `work_type`. If a valid value exists, use it as the authority; never infer it from `legacy_phase`, artifacts, or `solution_strategy`.
+5. Apply `state_kind` without losing legacy recovery: `expectations-only` blocks and refers to `/odf-new {change}`; `none` blocks due to total absence; `legacy-artifacts` preserves `resumable: true` and requires `--work-type <type>` when `recovery_work_type_required` is `true`, then resolves that explicit route without creating or binding state; `canonical` uses the normal state. `/odf-continue` never creates workflows, never passes `preflight`/`expectations` to `odf_workflow_bind`, and never infers `work_type`. If a canonical state exists but the binding is missing, require `--work-type` and bind only that existing state with its explicit store.
+6. **Resolve the route** with the persisted or explicitly selected work type through `odf_workflow_route(work_type)` and use its canonical stages: `DECIDE -> optional PLAN -> BUILD -> VERIFY`.
+7. Reuse the same status result while state is unchanged. Use `canonical_stage`, `pending_stage`, `resumable`, and `receipt` as canonical state, then dispatch the next stage through the legacy adapter without reinterpreting historical phases as new stages:
    - `PROPOSE` + `ASSESS` → `DECIDE`
    - `QA-PLAN` + `DESIGN` → `PLAN`
    - `IMPLEMENT` → `BUILD`
    - `VERIFY` → `VERIFY`
-9. **Rediscover the pending receipt** in `<worktree>/.odf/receipt-{change}.json` or through the adapted state. Prefer the read-only bundle: `PACK="${ODF_CONFIG_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/opencode}"; node "$PACK/scripts/odf-toolkit.js" state --root <root> --change <change>` (state + receipts + gates in one compact JSON; never search the filesystem for the script). If `receipt.state` is `pending`, stop and re-present its disposition with the evidence; never resume even if the OpenSpec/Engram artifact suggests a pending stage.
-10. **Select the first pending canonical stage**. Do not invent a phase, do not repeat already completed work, and do not relaunch an adapter whose artifact is already confirmed.
-11. **Delegate** the next stage through the ODF delegation path: when the host exposes the `subagent` tool, use `odf_delegation_prepare` → `subagent` (pass `delegation.prompt` verbatim) → `odf_delegation_seal`; otherwise use `odf_delegate`. The seal returns the same envelope (plus `task_session_id`). `odf_delegate` remains mandatory for fast-lane BUILD/VERIFY. For fresh cross-domain BUILD use `odf_parallel_prepare` → one host `subagent` per branch → `odf_parallel_seal` when available; use `odf_parallel_delegate` as fallback and for `resume_from_join` continuation, which is not supported by native prepare. Use the legacy adapter only to run or read historical contracts.
-12. **Show the approval gate** after the stage when the interaction mode requires it. With `execution_mode: auto`, the continuation auto-runs the pending phase and then auto-launches the following phases under the same stop conditions (internal result `ok`/`warning`, no pending receipt, no pending correction/disposition, verified validation evidence, and no product/scope decision required).
+8. **Use the returned receipt and runtime data**. If `receipt.state` is `pending`, stop and re-present its disposition with evidence; never resume even if the OpenSpec/Engram artifact suggests a pending stage. If `active_attempts` shows a `running` attempt but no child task is active, ask/confirm no active run, then settle that exact attempt with `odf_workflow_override action=settle-attempt` before retrying. Never recover a delegation prompt from `.odf/` files or OpenCode's session database.
+9. **Select the first pending canonical stage**. Do not invent a phase, repeat completed work, or relaunch an adapter whose artifact is already confirmed.
+10. **Delegate** the next stage through the ODF delegation path: when the host exposes the `subagent` tool, use `odf_delegation_prepare` → `subagent` (pass the returned `delegation.prompt` verbatim) → `odf_delegation_seal`; otherwise use `odf_delegate`. The seal returns the same envelope (plus `task_session_id`). `odf_delegate` remains mandatory for fast-lane BUILD/VERIFY. For fresh cross-domain BUILD use `odf_parallel_prepare` → one host `subagent` per branch → `odf_parallel_seal` when available; use `odf_parallel_delegate` as fallback and for `resume_from_join` continuation, which is not supported by native prepare. Use the legacy adapter only to run or read historical contracts.
+11. **Show the approval gate** after the stage when the interaction mode requires it. With `execution_mode: auto`, the continuation auto-runs the pending phase and then auto-launches the following phases under the same stop conditions (internal result `ok`/`warning`, no pending receipt, no pending correction/disposition, verified validation evidence, and no product/scope decision required).
 
 For BUILD (`IMPLEMENT`) and VERIFY starts, include the persisted or explicitly selected `work_type`, the `odf_workflow_advance` transition input under `workflow_advance`, an explicit `artifact_store: openspec|engram`, and a fresh opaque `attempt_id`. Reusing an ID or relaunching a completed stage is blocked; an already committed desired state returns `already-committed` without relaunching. The standalone tool is advisory and store-independent; the delegate re-reads, validates, and commits only the selected store before closing the attempt. An evidence or persistence failure does not advance the canonical state. Never substitute a default value or infer it from legacy state. The binding must explicitly receive `artifact_store: openspec` or `artifact_store: engram`; Engram-only callers must use the persisted state recovered by status. Never claim OpenSpec persistence for Engram-only. Legacy omissions of `workflow_advance` are only compatible when `flags.strict_workflow` is `false` (explicit opt-out; the registry default is `true` since strict workflow activation), remain without auto-commit; with `true`, they are blocked before delegating.
 
@@ -68,7 +64,8 @@ For a cross-domain BUILD continuation, read the supplemental `.odf/parallel-join
 
 ## Error Handling
 
-- **Named change not active**: list active ones and suggest `/odf-new`.
+- **Named change archived**: report that it is complete and do not reinterpret Engram or legacy artifacts as active state.
+- **Named change not found**: report that it is unavailable and suggest `/odf-new <name>` only if the user intends to start a new change.
 - **No active changes**: report and suggest `/odf-new <name>`.
 - **Native prepare/subagent/seal or `odf_delegate` error**: show the message, keep state, offer to retry.
 

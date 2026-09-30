@@ -170,7 +170,7 @@ tests:
       prompt_section: |
         ### Continuation Intent
 
-        - Only the exact `/odf-continue [name]` command activates ODF workflow continuation.
-        - Conversational messages such as `continue`, `continúa`, `dale`, or equivalents MUST NOT be reinterpreted as `/odf-continue`.
+        - `/odf-continue [name]` activates standalone ODF workflow continuation. A clear `continue existing` answer to the duplicate-change question inside an active `/odf-new` invocation is scoped authorization to continue that named change directly; do not require the user to repeat `/odf-continue`.
+        - Conversational messages such as `continue`, `continúa`, `dale`, or equivalents MUST NOT be reinterpreted as standalone `/odf-continue` outside an explicit pending ODF question.
         - After an abort or interruption, such a message resumes the pending user request from the context already obtained; it does not start ODF state discovery.
         - For one user intent, run discovery or state lookup at most once while its results remain stable. If the result is sufficient or unchanged, synthesize the response or stop. Never repeat the same tool and arguments in a later turn for that intent.

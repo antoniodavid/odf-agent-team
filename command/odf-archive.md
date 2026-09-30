@@ -25,22 +25,31 @@ Formalizes the closure of a completed ODF change:
 
 ## Store-Aware Workflow Transition
 
-ARCHIVE is a terminal workflow transition. Call the existing workflow transition
-helper with `expectedStage: ARCHIVE` and the selected `artifact_store`:
+ARCHIVE is a terminal workflow transition. After persisting the retrospective,
+learned index, and learning proposals, call
+`odf_workflow_archive({ change_name, artifact_store, target?, governance_acknowledgment? })`:
 
 - `openspec`: OpenSpec state and `archive-report.yaml` are authoritative.
 - `engram`: Engram state and `odf/{change-name}/archive-report` are authoritative.
 - `hybrid`: OpenSpec is authoritative; Engram receives an idempotent mirror.
 
-Do not invent a public ARCHIVE transition API or write workflow state outside the
-existing helper. The helper preserves `work_type` and completed canonical route
-stages, writes `canonical_stage: ARCHIVED`, and returns `already-committed` for a
-safe retry. Hybrid must finish with both stores representing ARCHIVED; it must
-never leave the authoritative OpenSpec state at VERIFY.
+Do not write workflow state or call a lower-level commit helper yourself. The
+tool re-reads and locks the selected store, preserves `work_type` and completed
+canonical route stages, writes `canonical_stage: ARCHIVED`, and returns
+`already-committed` for a safe repeated or concurrent request. Hybrid must finish
+with both stores representing ARCHIVED; it must never leave the authoritative
+OpenSpec state at VERIFY. A sustained lock or mirror failure is returned as a
+visible `blocked` result; do not work around it with manual file writes.
 
-Before calling the helper, require persisted state with terminal `VERIFY` and a
-successful terminal `verify-report`. If VERIFY is missing, incomplete, failed,
-or non-terminal, return `workflow-verify-not-terminal` and do not modify state.
+The tool requires persisted state with terminal `VERIFY` and a successful,
+terminal `verify-report`. It also blocks a pending failure receipt, a running
+attempt, or a running parallel join. If VERIFY is missing, incomplete, failed,
+or non-terminal, it returns an actionable block and does not modify state.
+The tool does not move or rename the change directory. If a project separately
+stores archived changes under `openspec/changes/archive/<date>-<change>`, keep
+the canonical ARCHIVED state and all artifacts intact; `odf_workflow_status`
+resolves that dated directory when the exact change name is requested, while
+latest-active discovery continues to exclude archived entries.
 
 ## Orchestrator Instructions
 
@@ -179,9 +188,11 @@ or non-terminal, return `workflow-verify-not-terminal` and do not modify state.
    - Return the canonical `artifact_ref: { store, ref }`.
    Saved for human review later; nothing is activated at archive time.
 
-10. **Mark as archived:** use the store-aware transition above. Do not manually
-    replace it with a generic `mem_save`; the selected store and ARCHIVED state
-    are part of the runtime gate.
+10. **Mark as archived:** call `odf_workflow_archive` with the exact `change_name`
+    and persisted `artifact_store`; pass `target: "oca"` and the explicit final
+    human acknowledgment only for an OCA-governed change. Do not manually replace
+    this with `mem_save` or filesystem edits; the selected store and ARCHIVED
+    state are part of the runtime gate.
 
 ## Archive Report
 

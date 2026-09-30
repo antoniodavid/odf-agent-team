@@ -85,8 +85,8 @@ user disposition.
 
 ### Continuation Intent
 
-- Only the exact `/odf-continue [name]` command activates ODF workflow continuation.
-- Conversational messages such as `continue`, `continúa`, `dale`, or equivalents MUST NOT be reinterpreted as `/odf-continue`.
+- `/odf-continue [name]` activates standalone ODF workflow continuation. A clear `continue existing` answer to the duplicate-change question inside an active `/odf-new` invocation is scoped authorization to continue that named change directly; do not require the user to repeat `/odf-continue`.
+- Conversational messages such as `continue`, `continúa`, `dale`, or equivalents MUST NOT be reinterpreted as standalone `/odf-continue` outside an explicit pending ODF question.
 - After an abort or interruption, such a message resumes the pending user request from the context already obtained; it does not start ODF state discovery.
 - For one user intent, run discovery or state lookup at most once while its results remain stable. If the result is sufficient or unchanged, synthesize the response or stop. Never repeat the same tool and arguments in a later turn for that intent.
 
@@ -272,6 +272,7 @@ implementation is not part of a customer-project task.
 - `odf_entry_triage(description, ...)` classifies a `/odf-new` entry as micro/standard/full and selects an existing canonical work type deterministically; pure and read-only, it may ask one grouped question via `needs_question`. It accepts an optional one-time `ice_context` envelope containing only bounded provenance, safe references, and metadata. The envelope is forwarded to this tool only, never persisted or sent to phase delegation.
 - `odf_workflow_bind(change_name, work_type, artifact_store, preflight?, expectations?)` is the only `/odf-new` start boundary. Missing-state initialization additionally requires the plugin's same-session authorization produced by the exact command metadata plus successful health; ordinary binds only update existing state. State is written first; identical existing Expectations are reused and divergent/tampered content blocks closed.
 - `odf_workflow_advance(...)` is a read-only, store-independent advisory transition check; for BUILD/VERIFY starts, embed its exact input under `workflow_advance` in `odf_delegate` and pass an explicit `artifact_store: openspec|engram`. Delegate-side validation is authoritative and commits only that selected store; it never dual-writes.
+- `odf_workflow_archive(change_name, artifact_store, ...)` is the first-class terminal ARCHIVE action. It re-reads and locks the selected state, requires terminal VERIFY evidence, blocks pending receipts/running attempts/joins, preserves OCA governance gates, and returns `already-committed` for a completed retry. It does not move the change directory.
 - `odf_delegate` runs legacy phase adapters and preserves their contracts.
 - `odf_delegation_prepare(phase, change, prompt, ...)` + `odf_delegation_seal(token, change, session_id)` are the **native delegation** pair: prepare resolves the agent, skills, profile, policy gate and source-authority contract and returns an enriched prompt plus a bounded token; the orchestrator launches the host `subagent` tool with `delegation.agent`/`delegation.description`/`delegation.prompt` **verbatim** and then seals with the returned child `session_id`. The seal verifies the child session, runs the phase gates and returns the **same envelope** as `odf_delegate` (plus `task_session_id`).
 - `odf_health` returns a schema-versioned, read-only installed/runtime health result. It checks static files and task API presence but never probes `task()`, Odoo, PostgreSQL, or `engram export`.
@@ -309,9 +310,12 @@ phase launches as a visible child session:
    `artifact_store`, the exact `workflow_advance` proof,
    and a fresh `attempt_id`. It returns `{ token, delegation: { agent,
    description, prompt } }` and persists the token under `.odf/`.
-2. `subagent({ agent: delegation.agent, description: delegation.description,
-   prompt: delegation.prompt })` — pass the prompt **verbatim**; never edit,
-   summarize, or translate it. Keep the returned child `sessionID`.
+2. Use the `delegation` object returned by that immediately preceding prepare
+   call: `subagent({ agent: delegation.agent, description: delegation.description,
+   prompt: delegation.prompt })` — pass the prompt **verbatim** and keep the
+   returned child `sessionID`. Never edit, summarize, or translate the prompt.
+   It is already present in the prepare result; never recover it from `.odf/`
+   token files, the OpenCode SQLite database, or by recomputing its digest.
 3. `odf_delegation_seal({ token, change, session_id })`. The returned envelope
    is the standard one (`delegated|blocked`, `policy_gate`, `validation`,
    `receipt`, `result`, plus `task_session_id`); consume it exactly like an
@@ -326,9 +330,14 @@ Failure handling:
   consumed).
 - `delegation-child-mismatch` / `delegation-session-api-unavailable`: verify the
   child `session_id` and the agent; do not seal a session you did not launch.
-- Abandoning the sequence after prepare (for proof-backed phases) leaves a
-  running attempt: recover it with the audited
-  `odf_workflow_override action=settle-attempt` before retrying.
+- If the prepare result is unavailable or was lost, do not reconstruct it from
+  storage: inspect `odf_workflow_status` once. For ungated work, prepare again
+  with the same approved prompt. For a proof-backed attempt still marked
+  `running`, first establish that no child is active; ask for confirmation if
+  needed, settle that exact stale attempt with the audited
+  `odf_workflow_override action=settle-attempt`, then prepare with a fresh
+  `attempt_id`. Never start another BUILD/VERIFY while a running attempt has no
+  explicit disposition.
 
 Duration, visibility and interruptions:
 

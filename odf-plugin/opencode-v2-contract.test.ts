@@ -117,7 +117,9 @@ describe("OpenCode V1/V2 contract fixtures", () => {
     expect(ODF_SYSTEM_RULES).toContain("ODF is a control-plane API")
     expect(ODF_SYSTEM_RULES).toContain("Do not inspect or search the installed ODF runtime source")
     expect(ODF_SYSTEM_RULES).toContain("one `odf_workflow_status` call")
+    expect(ODF_SYSTEM_RULES).toContain("`odf_workflow_archive`")
     expect(tools.odf_workflow_status.description).toContain("Use this first for a current-state or continuation question")
+    expect(tools.odf_workflow_archive.description).toContain("idempotent")
     expect(tools.odf_status.description).toContain("use odf_workflow_status instead")
   })
 

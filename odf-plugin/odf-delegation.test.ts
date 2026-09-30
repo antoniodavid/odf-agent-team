@@ -34,6 +34,7 @@ import {
   loadEngramStatus,
   createODFStatus,
   createODFWorkflowStatus,
+  createODFWorkflowArchive,
   createODFHealth,
   commitWorkflowTransition,
   resolveProofBackedLifecycle,
@@ -1713,6 +1714,67 @@ describe("createODFWorkflowBind", () => {
     }
   })
 
+  it("uses the session directory when workflow status has no explicit workspace", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "odf-session-workspace-status-"))
+    const change = "session-workspace-status"
+    const changeDir = path.join(root, "openspec", "changes", change)
+    await fs.mkdir(changeDir, { recursive: true })
+    await fs.writeFile(path.join(changeDir, "state.yaml"), [
+      "work_type: feature",
+      "artifact_store: openspec",
+      "canonical_stage: BUILD",
+      "completed_canonical_stages: [DECIDE, PLAN]",
+      "",
+    ].join("\n"), "utf8")
+
+    try {
+      const status = JSON.parse(await createODFWorkflowStatus().execute(
+        { change_name: change },
+        { directory: root } as any,
+      ) as string)
+      expect(status).toMatchObject({ status: "found", change, source: { state: "openspec" }, resumable: true })
+    } finally {
+      await fs.rm(root, { recursive: true, force: true })
+    }
+  })
+
+  it("resolves explicitly named archived OpenSpec changes from dated archive folders", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "odf-archived-status-"))
+    const change = "archived-status-change"
+    const archivedDir = path.join(root, "openspec", "changes", "archive", `2026-09-29-${change}`)
+    await fs.mkdir(archivedDir, { recursive: true })
+    await fs.writeFile(path.join(archivedDir, "state.yaml"), [
+      "work_type: feature",
+      "artifact_store: openspec",
+      "status: archived",
+      "archived: true",
+      "canonical_stage: ARCHIVED",
+      "completed_canonical_stages: [DECIDE, PLAN, BUILD, VERIFY]",
+      "",
+    ].join("\n"), "utf8")
+    await fs.writeFile(path.join(archivedDir, "verify-report.md"), "status: passed\n", "utf8")
+    await fs.writeFile(path.join(archivedDir, "archive-report.yaml"), "status: archived\n", "utf8")
+
+    try {
+      const status = JSON.parse(await createODFWorkflowStatus().execute(
+        { change_name: change, workspace_dir: root },
+        {} as any,
+      ) as string)
+      expect(status).toMatchObject({
+        status: "found",
+        change,
+        canonical_stage: "ARCHIVED",
+        pending_stage: null,
+        resumable: false,
+        source: { state: "openspec" },
+      })
+      expect(status.artifact_refs.VERIFY).toContain(`openspec/changes/archive/2026-09-29-${change}/verify-report.md`)
+      expect(status.artifacts["verify-report"]).toBe("done")
+    } finally {
+      await fs.rm(root, { recursive: true, force: true })
+    }
+  })
+
   it("merges Engram artifacts for a hybrid store", async () => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), "odf-hybrid-status-"))
     const fake = await configureFakeEngram()
@@ -2938,6 +3000,36 @@ describe("loadEngramStatus", () => {
       expect(status?.change).toBe("newer")
       expect(status?.phase).toBe("propose")
       expect(status?.lastUpdated).toBe("2026-07-31T11:00:00Z")
+    } finally {
+      await cleanup()
+    }
+  })
+
+  it("excludes archived Engram-only changes from latest-active discovery", async () => {
+    const workspace = path.join(tmp, "repo")
+    initGitRepo(workspace)
+    commitFile(workspace, "README.md", 1)
+    const cleanup = await configureEngramExport([
+      {
+        topic_key: "odf/active-change/state",
+        content: JSON.stringify({ work_type: "feature", artifact_store: "engram", canonical_stage: "BUILD", completed_canonical_stages: ["DECIDE", "PLAN"] }),
+        created_at: "2026-09-29T10:00:00Z",
+      },
+      {
+        topic_key: "odf/archived-change/state",
+        content: JSON.stringify({ work_type: "feature", artifact_store: "engram", canonical_stage: "ARCHIVED", archived: true, completed_canonical_stages: ["DECIDE", "PLAN", "BUILD", "VERIFY"] }),
+        created_at: "2026-09-30T10:00:00Z",
+      },
+      {
+        topic_key: "odf/archived-change/archive-report",
+        content: "status: archived",
+        created_at: "2026-09-30T10:01:00Z",
+      },
+    ])
+
+    try {
+      const status = JSON.parse(await createODFWorkflowStatus().execute({}, { directory: workspace } as any) as string)
+      expect(status).toMatchObject({ status: "found", change: "active-change", canonical_stage: "BUILD", resumable: true })
     } finally {
       await cleanup()
     }
@@ -6733,6 +6825,86 @@ ${overrides}`
     expect(YAML.parse(await fs.readFile(path.join(changeDir, "archive-report.yaml"), "utf8"))).toMatchObject({ status: "archived", work_type: "feature" })
     const second = await commitWorkflowTransition(input)
     expect(second).toMatchObject({ status: "already-committed", canonical_stage: "ARCHIVED" })
+  })
+
+  it("exposes a first-class archive tool that serializes concurrent requests idempotently", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "odf-archive-tool-"))
+    const change = "archive-tool-concurrent"
+    const changeDir = path.join(root, "openspec", "changes", change)
+    await fs.mkdir(changeDir, { recursive: true })
+    await fs.writeFile(path.join(changeDir, "state.yaml"), [
+      "work_type: feature",
+      "artifact_store: openspec",
+      "canonical_stage: VERIFY",
+      "completed_canonical_stages: [DECIDE, PLAN, BUILD, VERIFY]",
+      "",
+    ].join("\n"), "utf8")
+    await fs.writeFile(path.join(changeDir, "verify-report.md"), "status: passed\n", "utf8")
+
+    try {
+      const archive = createODFWorkflowArchive()
+      const args = { change_name: change, artifact_store: "openspec" as const, workspace_dir: root }
+      const results = await Promise.all([
+        archive.execute(args, {} as any),
+        archive.execute(args, {} as any),
+      ])
+      const parsed = results.map(result => JSON.parse(result as string))
+      expect(parsed.map(result => result.status).sort(), JSON.stringify(parsed)).toEqual(["already-committed", "committed"])
+      expect(parsed.every(result => result.canonical_stage === "ARCHIVED")).toBe(true)
+      expect(YAML.parse(await fs.readFile(path.join(changeDir, "state.yaml"), "utf8"))).toMatchObject({
+        canonical_stage: "ARCHIVED",
+        archived: true,
+      })
+      expect(YAML.parse(await fs.readFile(path.join(changeDir, "archive-report.yaml"), "utf8"))).toMatchObject({
+        change,
+        status: "archived",
+      })
+    } finally {
+      await fs.rm(root, { recursive: true, force: true })
+    }
+  })
+
+  it("blocks ARCHIVE while a persisted implementation attempt is still running", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "odf-archive-running-attempt-"))
+    const change = "archive-with-running-attempt"
+    const changeDir = path.join(root, "openspec", "changes", change)
+    const odfDir = path.join(root, ".odf")
+    await fs.mkdir(changeDir, { recursive: true })
+    await fs.mkdir(odfDir, { recursive: true })
+    await fs.writeFile(path.join(changeDir, "state.yaml"), [
+      "work_type: feature",
+      "artifact_store: openspec",
+      "canonical_stage: VERIFY",
+      "completed_canonical_stages: [DECIDE, PLAN, BUILD, VERIFY]",
+      "",
+    ].join("\n"), "utf8")
+    await fs.writeFile(path.join(changeDir, "verify-report.md"), "status: passed\n", "utf8")
+    await fs.writeFile(path.join(odfDir, `attempt-ledger-${change}.jsonl`), JSON.stringify({
+      attempt_id: "attempt-still-running",
+      branch_id: "default",
+      change,
+      phase: "IMPLEMENT",
+      next_stage: "BUILD",
+      status: "running",
+      started_at: "2026-09-30T00:00:00.000Z",
+      updated_at: "2026-09-30T00:00:00.000Z",
+      settled_at: null,
+      reason: "acquired",
+      result_status: "running",
+    }) + "\n", "utf8")
+
+    try {
+      const output = JSON.parse(await createODFWorkflowArchive().execute({
+        change_name: change,
+        artifact_store: "openspec",
+        workspace_dir: root,
+      }, {} as any) as string)
+      expect(output).toMatchObject({ status: "blocked", reason: "workflow-attempt-running" })
+      expect(output.message).toContain("attempt-still-running")
+      expect(fsSync.existsSync(path.join(changeDir, "archive-report.yaml"))).toBe(false)
+    } finally {
+      await fs.rm(root, { recursive: true, force: true })
+    }
   })
 
   it("preserves the Engram binding while archiving", async () => {

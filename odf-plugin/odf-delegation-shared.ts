@@ -221,6 +221,7 @@ export const ODF_REGISTERED_TOOLS = [
   "odf_parallel_seal",
   "odf_workflow_route",
   "odf_workflow_advance",
+  "odf_workflow_archive",
   "odf_workflow_override",
   "odf_workflow_bind",
   "odf_entry_triage",
