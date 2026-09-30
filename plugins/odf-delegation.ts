@@ -4951,17 +4951,27 @@ function isOpenSpecArtifact(fileName: string): boolean {
   return OPEN_SPEC_ARTIFACT_STEMS.has(stem) || /^verify-report(?:-.+)?$/.test(stem)
 }
 
-function openSpecRef(changeName: string, fileName: string): string {
-  return ["openspec", "changes", changeName, fileName].join("/")
+function openSpecRef(changePath: string, fileName: string): string {
+  return [
+    "openspec",
+    "changes",
+    ...changePath.split(/[\\/]/).filter(Boolean),
+    ...fileName.split(/[\\/]/).filter(Boolean),
+  ].join("/")
 }
 
-async function readOpenSpecFile(changeName: string, changeDir: string, fileName: string): Promise<StatusArtifact | null> {
+async function readOpenSpecFile(
+  changeName: string,
+  changeDir: string,
+  fileName: string,
+  changePath = changeName,
+): Promise<StatusArtifact | null> {
   try {
     const filePath = path.join(changeDir, fileName)
     const stat = await fs.stat(filePath)
     if (!stat.isFile()) return null
     return {
-      key: openSpecRef(changeName, fileName),
+      key: openSpecRef(changePath, fileName),
       content: await fs.readFile(filePath, "utf8"),
       created: stat.mtime.toISOString(),
       source: "openspec",
@@ -4971,18 +4981,63 @@ async function readOpenSpecFile(changeName: string, changeDir: string, fileName:
   }
 }
 
-/** Read one explicit OpenSpec change without discovering or mutating state. */
-export async function loadOpenSpecStatus(workspaceRoot: string, changeName: string): Promise<OpenSpecSnapshot | null> {
-  if (!CHANGE_NAME_PATTERN.test(changeName)) return null
-  const changeDir = path.join(workspaceRoot, "openspec", "changes", changeName)
+interface OpenSpecChangeLocation {
+  directory: string
+  referencePath: string
+}
+
+async function findArchivedOpenSpecChange(workspaceRoot: string, changeName: string): Promise<OpenSpecChangeLocation | null> {
+  const changesRoot = path.join(workspaceRoot, "openspec", "changes")
+  const archiveRoot = path.join(changesRoot, "archive")
+  let entries: Dirent[]
   try {
-    const stat = await fs.stat(changeDir)
-    if (!stat.isDirectory()) return null
+    const realRoot = await fs.realpath(workspaceRoot)
+    if (!await safeDirectoryPath(realRoot, archiveRoot, false)) return null
+    entries = await fs.readdir(archiveRoot, { withFileTypes: true })
   } catch {
     return null
   }
 
-  const stateFile = await readOpenSpecFile(changeName, changeDir, "state.yaml")
+  const candidates = entries
+    .filter(entry => entry.isDirectory() && (entry.name === changeName || /^\d{4}-\d{2}-\d{2}-.+$/.test(entry.name) && entry.name.endsWith(`-${changeName}`)))
+    .sort((left, right) => right.name.localeCompare(left.name))
+  for (const entry of candidates) {
+    const directory = path.join(archiveRoot, entry.name)
+    try {
+      const statePath = path.join(directory, "state.yaml")
+      const stateStat = await fs.lstat(statePath)
+      if (!stateStat.isFile() || stateStat.isSymbolicLink()) continue
+      const content = await fs.readFile(statePath, "utf8")
+      const parsed = parseWorkflowState(content).state
+      const archived = parsed?.canonical_stage === "ARCHIVED" || parsed?.archived === true ||
+        String(parsed?.phase || "").toLowerCase() === "archived" || String(parsed?.status || "").toLowerCase() === "archived"
+      if (!archived) continue
+      return { directory, referencePath: path.posix.join("archive", entry.name) }
+    } catch {
+      // Ignore unreadable or incomplete archived directories and keep searching.
+    }
+  }
+  return null
+}
+
+/** Read one explicit OpenSpec change without discovering or mutating state. */
+export async function loadOpenSpecStatus(workspaceRoot: string, changeName: string): Promise<OpenSpecSnapshot | null> {
+  if (!CHANGE_NAME_PATTERN.test(changeName)) return null
+  const activeDir = path.join(workspaceRoot, "openspec", "changes", changeName)
+  let changeDir: string
+  let referencePath = changeName
+  try {
+    const stat = await fs.lstat(activeDir)
+    if (!stat.isDirectory() || stat.isSymbolicLink()) return null
+    changeDir = activeDir
+  } catch {
+    const archived = await findArchivedOpenSpecChange(workspaceRoot, changeName)
+    if (!archived) return null
+    changeDir = archived.directory
+    referencePath = archived.referencePath
+  }
+
+  const stateFile = await readOpenSpecFile(changeName, changeDir, "state.yaml", referencePath)
   let state: StatusArtifact | null = null
   const warnings: string[] = []
   if (stateFile) {
@@ -5012,7 +5067,7 @@ export async function loadOpenSpecStatus(workspaceRoot: string, changeName: stri
         artifacts.push(...await scanChangeDir(entry.name))
       } else if (entry.isFile() && isOpenSpecArtifact(entry.name)) {
         const relPath = rel ? path.join(rel, entry.name) : entry.name
-        const artifact = await readOpenSpecFile(changeName, changeDir, relPath)
+        const artifact = await readOpenSpecFile(changeName, changeDir, relPath, referencePath)
         if (artifact) artifacts.push(artifact)
       }
     }
@@ -5116,7 +5171,11 @@ async function readEngramObservations(workspaceRoot: string): Promise<EngramObse
   return (await readEngramObservationsWithError(workspaceRoot)).observations
 }
 
-function selectEngramSnapshot(observations: EngramObservation[], changeName?: string): EngramSnapshot | null {
+function selectEngramSnapshot(
+  observations: EngramObservation[],
+  changeName?: string,
+  activeOnly = false,
+): EngramSnapshot | null {
   const changeMap = new Map<string, Map<string, { content: string; created: string | null }>>()
   for (const obs of observations) {
     const key = obs.topic_key || ""
@@ -5137,6 +5196,14 @@ function selectEngramSnapshot(observations: EngramObservation[], changeName?: st
     let newestTimestamp: string | null = null
     let fallbackArtifactCount = 0
     for (const [name, artifacts] of targetKeys) {
+      if (activeOnly) {
+        const workflowArtifacts = Array.from(artifacts.entries()).map(([type, data]) => ({
+          key: `odf/${name}/${type}`,
+          content: data.content,
+          created_at: data.created,
+        }))
+        if (deriveWorkflowStatus({ change: name, artifacts: workflowArtifacts }).canonical_stage === "ARCHIVED") continue
+      }
       let latestTimestamp: string | null = null
       for (const { created } of artifacts.values()) {
         if (created && (!latestTimestamp || created > latestTimestamp)) latestTimestamp = created
@@ -6484,6 +6551,27 @@ export async function commitWorkflowTransition(opts: {
       if (alreadyArchived) {
         return makeResult("already-committed", "already-committed", "Workflow is already archived.", read.snapshot, completed, opts.validation, null, "ARCHIVED")
       }
+      if (read.snapshot.status.receipt.state === "pending") {
+        return makeResult("blocked", "workflow-receipt-pending", "Resolve the pending failure receipt before archiving.", read.snapshot, completed, opts.validation, null)
+      }
+      const ledger = readAttemptLedger(opts.workspaceRoot, attemptLedgerPath(opts.workspaceRoot, opts.changeName))
+      if (ledger.error) {
+        return makeResult("blocked", ledger.error, "The attempt ledger could not be read safely before archiving.", read.snapshot, completed, opts.validation, null)
+      }
+      const latestAttempts = new Map<string, AttemptLedgerRecord>()
+      for (const record of ledger.records) latestAttempts.set(`${attemptBranchId(record)}\u0000${record.attempt_id}`, record)
+      const activeAttempts = [...latestAttempts.values()].filter(record => record.status === "running")
+      if (activeAttempts.length) {
+        const ids = activeAttempts.map(record => record.attempt_id).join(", ")
+        return makeResult("blocked", "workflow-attempt-running", `Cannot archive while attempt(s) are running: ${ids}. Confirm no child is active, then settle each stale attempt before retrying.`, read.snapshot, completed, opts.validation, null)
+      }
+      const parallelJoin = readParallelJoinArtifact(opts.workspaceRoot, opts.changeName)
+      if (parallelJoin.warning) {
+        return makeResult("blocked", "parallel-join-unavailable", "The parallel BUILD join could not be read safely before archiving.", read.snapshot, completed, opts.validation, null)
+      }
+      if (parallelJoin.artifact?.join.status === "running") {
+        return makeResult("blocked", "parallel-join-running", "Cannot archive while a parallel BUILD join is running.", read.snapshot, completed, opts.validation, null)
+      }
       const governance = evaluateOcaGovernanceGate(
         opts.workspaceRoot,
         read.snapshot,
@@ -7080,7 +7168,7 @@ async function loadCombinedWorkflowStatus(workspaceRoot: string, changeName?: st
 
   const observations = await readEngramObservations(workspaceRoot)
   const engram = observations
-    ? selectEngramSnapshot(observations, requestedChange || openSpec?.change)
+    ? selectEngramSnapshot(observations, requestedChange || openSpec?.change, !requestedChange && !openSpec)
     : null
   if (openSpec?.state) {
     return attachRuntimeStatus(buildMergedStatus(workspaceRoot, openSpec, engram), workspaceRoot)
@@ -7091,7 +7179,7 @@ async function loadCombinedWorkflowStatus(workspaceRoot: string, changeName?: st
     : null
 }
 
-function createODFStatus(): ReturnType<typeof tool> {
+function createODFStatus(canonicalDirectory?: string): ReturnType<typeof tool> {
   return tool({
     description: `Show ODF change status by resolving from Engram observations.
 
@@ -7107,10 +7195,13 @@ join state, use odf_workflow_status instead.`,
       workspace_dir: tool.schema
         .string()
         .optional()
-        .describe("Project directory (defaults to cwd)"),
+        .describe("Project directory (defaults to current session workspace)"),
     },
-    async execute(args: { change_name?: string; workspace_dir?: string }): Promise<string> {
-      const workspace = args.workspace_dir || process.cwd()
+    async execute(args: { change_name?: string; workspace_dir?: string }, toolCtx: ToolContext): Promise<string> {
+      const workspace = resolveSelectedWorkspaceRoot(args.workspace_dir, toolCtx?.directory || canonicalDirectory)
+      if (!workspace) {
+        return JSON.stringify({ status: "blocked", reason: "unsafe-workspace-path", message: "The session workspace does not resolve to a safe existing project root." }, null, 2)
+      }
       const status = await loadEngramStatus(workspace, args.change_name)
       if (!status) {
         return JSON.stringify({ status: "not-found", message: "No ODF changes found in Engram" }, null, 2)
@@ -7121,14 +7212,16 @@ join state, use odf_workflow_status instead.`,
   })
 }
 
-function createODFWorkflowStatus(): ReturnType<typeof tool> {
+function createODFWorkflowStatus(canonicalDirectory?: string): ReturnType<typeof tool> {
   return tool({
     description: `Show canonical ODF workflow progress derived read-only from OpenSpec/Engram-compatible artifacts.
 
 Use this first for a current-state or continuation question. One call returns
 canonical stages, resumability, pending receipt/join information, and legacy
 compatibility fields. Reuse this result instead of separately probing files or
-calling status tools again. It never writes state or receipts.`,
+calling status tools again. Explicitly named archived changes are resolved from
+their dated OpenSpec archive directory; latest-change discovery remains active-only.
+The workspace defaults to the current session directory. This tool never writes state or receipts.`,
     args: {
       change_name: tool.schema
         .string()
@@ -7137,10 +7230,13 @@ calling status tools again. It never writes state or receipts.`,
       workspace_dir: tool.schema
         .string()
         .optional()
-        .describe("Project directory (defaults to cwd)"),
+        .describe("Project directory (defaults to current session workspace)"),
     },
-    async execute(args: { change_name?: string; workspace_dir?: string }): Promise<string> {
-      const workspace = args.workspace_dir || process.cwd()
+    async execute(args: { change_name?: string; workspace_dir?: string }, toolCtx: ToolContext): Promise<string> {
+      const workspace = resolveSelectedWorkspaceRoot(args.workspace_dir, toolCtx?.directory || canonicalDirectory)
+      if (!workspace) {
+        return JSON.stringify({ status: "blocked", reason: "unsafe-workspace-path", message: "The session workspace does not resolve to a safe existing project root." }, null, 2)
+      }
       const status = await loadCombinedWorkflowStatus(workspace, args.change_name)
       if (!status) {
         return JSON.stringify({ status: "not-found", message: "No ODF changes found in Engram" }, null, 2)
@@ -7154,6 +7250,85 @@ calling status tools again. It never writes state or receipts.`,
         lastUpdated: status.lastUpdated,
         observability: status.observability,
       }, null, 2)
+    },
+  })
+}
+
+function createODFWorkflowArchive(canonicalDirectory?: string): ReturnType<typeof tool> {
+  return tool({
+    description: `Commit the terminal ARCHIVE transition through the selected workflow store. This action is locked and idempotent: it requires terminal VERIFY evidence, blocks pending receipts and running attempts, and safely returns already-committed on a concurrent/repeated request. It does not move or rewrite the change directory.`,
+    args: {
+      change_name: tool.schema.string().describe("Exact name of the verified ODF change to archive"),
+      artifact_store: tool.schema.enum(["openspec", "engram", "hybrid"]).describe("Authoritative workflow store persisted for this change"),
+      workspace_dir: tool.schema.string().optional().describe("Absolute project root; defaults to the current session workspace"),
+      target: tool.schema.enum(["oca"]).optional().describe("Persisted governance target, when enabled"),
+      governance_acknowledgment: governanceAcknowledgmentSchema.optional().describe("Explicit final human OCA acknowledgment bound to the current candidate digest"),
+    },
+    async execute(args: {
+      change_name: string
+      artifact_store: ArtifactStore
+      workspace_dir?: string
+      target?: WorkflowTarget
+      governance_acknowledgment?: GovernanceAcknowledgment
+    }, toolCtx: ToolContext): Promise<string> {
+      const blocked = (reason: string, message: string): string => JSON.stringify({ status: "blocked", reason, message }, null, 2)
+      const changeName = args.change_name?.trim()
+      if (!changeName || changeName !== args.change_name || !CHANGE_NAME_PATTERN.test(changeName)) {
+        return blocked("unsafe-change-name", "The archive tool requires an exact kebab-case change name.")
+      }
+      const workspaceRoot = resolveSelectedWorkspaceRoot(args.workspace_dir, toolCtx?.directory || canonicalDirectory)
+      if (!workspaceRoot) return blocked("unsafe-workspace-path", "The session workspace does not resolve to a safe existing project root.")
+
+      const read = await readSelectedWorkflowState(workspaceRoot, changeName, args.artifact_store)
+      if (!read.snapshot) return blocked(read.error || "workflow-state-unavailable", "The selected workflow state could not be read safely.")
+      const snapshot = read.snapshot
+      const workType = snapshot.status.work_type || snapshot.state.work_type
+      if (!isCanonicalWorkType(workType)) return blocked("workflow-work-type-missing", "The selected workflow state has no valid persisted work_type.")
+      const route = resolveWorkflowRoute(workType)
+      const archivedWithReport = snapshot.status.canonical_stage === "ARCHIVED" &&
+        snapshot.artifacts.some(artifact => normalizeArtifactKey(artifact.key).type === "archive-report")
+      if (!archivedWithReport) {
+        const artifactFailure = workflowArtifactGate(snapshot, "VERIFY")
+        if (artifactFailure) return blocked(artifactFailure.reason, artifactFailure.message)
+      }
+
+      const proof: ODFDelegateWorkflowAdvance = {
+        work_type: workType,
+        completed_stages: persistedCompletedStages(snapshot, route),
+        candidate_stage: null,
+        phase_result_status: "ok",
+        validation_status: "not-required",
+        receipt_state: snapshot.status.receipt.state,
+        resumable_state: snapshot.status.resumable,
+        archived_state: snapshot.status.canonical_stage === "ARCHIVED",
+        ...(args.target ? { target: args.target } : {}),
+        ...(args.governance_acknowledgment ? { governance_acknowledgment: args.governance_acknowledgment } : {}),
+      }
+      const input = {
+        workspaceRoot,
+        changeName,
+        artifactStore: args.artifact_store,
+        proof,
+        expectedStage: "ARCHIVE" as const,
+        callerResult: advanceWorkflow({ route, ...proof }),
+        phaseResultStatus: "ok" as const,
+        validationStatus: "not-required" as const,
+        validation: null,
+        target: args.target,
+        governance_acknowledgment: args.governance_acknowledgment,
+      }
+
+      // The low-level workflow lock fails closed on contention. For this
+      // idempotent terminal action, briefly retry so a concurrent caller can
+      // observe the first caller's ARCHIVED commit instead of surfacing a race.
+      let result: WorkflowCommitResult | null = null
+      for (let attempt = 0; attempt < 40; attempt++) {
+        result = await commitWorkflowTransition(input)
+        if (result.reason !== "workflow-state-locked") break
+        await new Promise(resolve => setTimeout(resolve, 50))
+      }
+      if (!result) return blocked("workflow-archive-failed", "The archive transition did not return a result.")
+      return JSON.stringify(result, null, 2)
     },
   })
 }
@@ -7349,6 +7524,12 @@ async function safeDirectoryPath(workspaceRoot: string, directory: string, creat
       if (!create) return true
       try {
         await fs.mkdir(current)
+      } catch (createError) {
+        // Another operation may create this directory after the lstat above.
+        // Accept only EEXIST, then re-validate the actual entry below.
+        if ((createError as NodeJS.ErrnoException).code !== "EEXIST") return false
+      }
+      try {
         const created = await fs.lstat(current)
         if (created.isSymbolicLink() || !created.isDirectory() || !isWithinRoot(await fs.realpath(current), realRoot)) return false
       } catch {
@@ -8383,6 +8564,7 @@ export const ODF_SYSTEM_RULES = `<odf-system>
 - \`odf_parallel_delegate\`: bounded cross-domain IMPLEMENT BUILD with branch-aware join
 - \`odf_workflow_route\`: read-only canonical route selection by work type
 - \`odf_workflow_advance\`: read-only canonical transition validation and next-stage calculation
+- \`odf_workflow_archive\`: locked, idempotent ARCHIVE transition through the selected store
 - \`odf_workflow_bind\`: store-aware start/bind; complete preflight initializes canonical state before approved Expectations
 - \`odf_entry_triage\`: read-only deterministic micro/standard/full entry classification and work-type selection for \`/odf-new\`
 - Proof-backed BUILD/VERIFY delegation requires an explicit \`artifact_store\`; the selected store is the single workflow-state authority.
@@ -8442,6 +8624,7 @@ export function createODFRegisteredTools(
     odf_parallel_seal: createODFParallelSeal(canonicalDirectory),
     odf_workflow_route: createODFWorkflowRoute(),
     odf_workflow_advance: createODFWorkflowAdvance(),
+    odf_workflow_archive: createODFWorkflowArchive(canonicalDirectory),
     odf_workflow_override: createODFWorkflowOverride(),
     odf_workflow_bind: createODFWorkflowBind(entryAuthorizations, entryGenerations),
     odf_entry_triage: createODFEntryTriage(),
@@ -8453,8 +8636,8 @@ export function createODFRegisteredTools(
     odf_profile_select: createODFProfileSelect(),
     odf_community_tool_detect: createODFCommunityToolDetect(),
     odf_community_tool_install: createODFCommunityToolInstall(),
-    odf_status: createODFStatus(),
-    odf_workflow_status: createODFWorkflowStatus(),
+    odf_status: createODFStatus(canonicalDirectory),
+    odf_workflow_status: createODFWorkflowStatus(canonicalDirectory),
     odf_policy_gate: createODFPolicyGate(),
     odf_receipt: createODFReceipt(),
     odf_health: createODFHealth(client),
@@ -8581,6 +8764,7 @@ export {
   createODFParallelDelegate,
   createODFWorkflowRoute,
   createODFWorkflowAdvance,
+  createODFWorkflowArchive,
   createODFWorkflowOverride,
   createODFWorkflowBind,
   createODFStatus,

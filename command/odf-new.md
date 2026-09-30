@@ -36,7 +36,7 @@ and `BUILD = IMPLEMENT`.
 1. **Run `odf_health` first**: this MUST be the first ODF operation, before `question`, status/triage/route tools, Engram writes, artifact/state creation, or delegation. Continue only for `warning` with required checks present (or future `ok`). If the tool is missing, throws, returns malformed output, `failed`, or `blocked`, stop immediately with no later side effects.
 2. **Parse arguments**: extract `change-name`, optional `description`, and the `--fast` flag.
 3. **Sanitize** the name to kebab-case.
-4. **Check for an existing change** with `odf_workflow_status`: if `state_present: true` and the selected state is active, offer `/odf-continue {change}` or ask to rename. Expectations without state are not an active workflow and are not resumable.
+4. **Check for an existing change** with `odf_workflow_status`: if `state_present: true` and the selected state is active, ask once: continue this existing change, rename, or cancel. On explicit continue, reuse this status result and the approved state/Expectations, then follow `/odf-continue` from its next-stage selection; do not require a repeated slash command, rerun preflight/triage/redundancy, rebind, or reconfirm unchanged Expectations. Expectations without state are not an active workflow and are not resumable. An archived change is never offered as active continuation.
 5. **Load project configuration** from `odf-init/{project}` if it exists.
 6. **Run the preflight gate**: if it is incomplete, ask for the missing fields in English and validate them, but keep it in memory; do not persist it yet.
 7. **Construct ICE context once** from already available project facts, then invoke `odf_entry_triage`. The optional `ice_context` envelope is reference-only: it contains bounded provenance, safe references, and classifier metadata, never raw intent or Expectations content. Forward it only to entry triage; do not persist it, send it to phase delegation, or build a second context artifact. Explicit/current user fields and approved Expectations remain authoritative; valid context only fills omitted facts, while risk signals may add a monotonic escalation. Invalid, unsafe, or incomplete context is ignored with a warning and cannot make the request more eligible. Do not invent project facts or automatically query CodeGraph in this slice.
@@ -100,7 +100,7 @@ explicit and disabled by default; no canary, rollout, or performance claim is im
 ## Error Handling
 
 - **Missing `change-name`**: show usage and abort.
-- **Duplicate name**: warn and offer to continue or rename.
+- **Duplicate name**: ask once to continue the active change, rename, or cancel; explicit continue dispatches the pending stage directly from the already-read status.
 - **Invalid preflight**: re-ask for fields with allowed values.
 - **Native prepare/subagent/seal, parallel prepare/seal, or `odf_delegate` error**: show the message, keep state, offer to retry.
 

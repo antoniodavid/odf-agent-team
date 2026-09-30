@@ -71,7 +71,7 @@ Each phase is a sub-agent with a defined input/output contract. The orchestrator
 
 ### Plugin tools (`odf-delegation.ts`)
 
-27 tools injected at runtime into the orchestrator's tool list:
+28 tools injected at runtime into the orchestrator's tool list:
 
 | Tool | Purpose |
 |------|---------|
@@ -84,6 +84,7 @@ Each phase is a sub-agent with a defined input/output contract. The orchestrator
 | `odf_parallel_seal` | Seal a native parallel BUILD: verify the branch sessions, run the aggregate scheduler and commit once |
 | `odf_workflow_route` | Resolve the canonical stage route for a work type |
 | `odf_workflow_advance` | Preview/verify a canonical workflow transition (read-only) |
+| `odf_workflow_archive` | Locked, idempotent terminal ARCHIVE transition through the selected store |
 | `odf_workflow_override` | Audited skip/re-enter/re-plan/settle-stale-attempt for an existing change |
 | `odf_workflow_bind` | Start or bind canonical workflow state in the selected store |
 | `odf_entry_triage` | Classify a change entry (micro/standard/full) and pick the work type |
@@ -173,7 +174,7 @@ Missing fields are collected via `question` tool.
 agent/              — 11 agent instructions (orchestrator + 10 sub-agents)
 command/            — 22 slash command definitions (Markdown)
 plugins/            — odf-delegation.ts (OpenCode plugin)
-scripts/            — test runner (1008 Vitest tests + 325 YAML scenarios), CLI wrapper, registry validator
+scripts/            — test runner (1015 Vitest tests + 325 YAML scenarios), CLI wrapper, registry validator
 skills/              — 87 skills (OCA governance, ODF phases, patterns)
   _shared/          — conventions (engram persistence, skill-resolver, Odoo sources)
   oca/              — OCA governance, style, patterns
@@ -214,7 +215,7 @@ ODF is a superset of the generic SDD workflow:
 ## Tests
 
 ```bash
-npm test              # 1008 Vitest tests + 325 YAML scenarios
+npm test              # 1015 Vitest tests + 325 YAML scenarios
 npm run test:yaml     # YAML scenario runner only
 npm run test:unit     # Vitest only
 npm run typecheck     # tsc --noEmit

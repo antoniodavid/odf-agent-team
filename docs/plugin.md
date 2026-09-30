@@ -1,6 +1,6 @@
 # Plugin Reference — `odf-delegation`
 
-The ODF plugin injects **27 tools** into the orchestrator's tool list at runtime. They are **not MCP tools** — they are registered by the OpenCode plugin host from `plugins/odf-delegation.ts`.
+The ODF plugin injects **28 tools** into the orchestrator's tool list at runtime. They are **not MCP tools** — they are registered by the OpenCode plugin host from `plugins/odf-delegation.ts`.
 
 ## Tool inventory
 
@@ -15,6 +15,7 @@ The ODF plugin injects **27 tools** into the orchestrator's tool list at runtime
 | `odf_parallel_seal` | write | Seal a native parallel BUILD: verify branch sessions, run the aggregate scheduler, commit once |
 | `odf_workflow_route` | read | Canonical thin-spine route for a work type |
 | `odf_workflow_advance` | read | Preview/verify a transition (never mutates) |
+| `odf_workflow_archive` | write | Locked, idempotent terminal ARCHIVE transition through the selected store |
 | `odf_workflow_override` | write | Audited skip / re-enter / re-plan / settle-stale-attempt (BUILD & VERIFY can never be skipped) |
 | `odf_workflow_bind` | write | Start or bind workflow state in the selected store |
 | `odf_workflow_status` | read | Canonical status from OpenSpec / Engram / `.odf` |
