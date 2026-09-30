@@ -9,15 +9,15 @@ This document maps the components of ODF and explains how they interact.
 ODF runs the thin-spine workflow:
 
 ```
-preflight → DECIDE → optional PLAN → BUILD → VERIFY → archived
+health/preflight → one resolved route → only its required stages → archive when applicable
 ```
 
 Legacy phases remain as compatible adapters. This is the single vocabulary table:
 
 | Canonical stage | Legacy phases | Applies when | Phase artifacts |
 |-----------------|---------------|--------------|-----------------|
-| `DECIDE` | `PROPOSE` + `ASSESS` | always (non-micro) | `proposal`, `assess`, `expectations` |
-| `PLAN` | `QA-PLAN` + `DESIGN` | optional per routing | `qa-plan`, `design` |
+| `DECIDE` | `PROPOSE` + `ASSESS` | routes that include DECIDE; terminal for standard config | `proposal`, `assess`, `expectations` when delegated |
+| `PLAN` | `QA-PLAN` + `DESIGN` | only when the resolved route or risk requires formal planning | `qa-plan`, `design` when routed |
 | `BUILD` | `IMPLEMENT` | the plan is closed | `implement-progress` |
 | `VERIFY` | `VERIFY` | verification is required | `verify-report` |
 | `FIX` | `FIX` | bugfix route (terminal FIX, then BUILD/VERIFY) | `fix` |
@@ -28,12 +28,20 @@ names are adapter-facing (commands, prompts, agent names) and are normalized by
 `odf_workflow_status`. A legacy name in a result or prompt is an alias, never a
 separate stage — when both appear, the canonical stage wins.
 
-`QA-PLAN`/`QA-REVIEW`/`QA-AGGREGATE`/`QA-REPORT` are QA lenses nested inside
-`PLAN`, `BUILD`, and `VERIFY` — not mandatory top-level stages. The concrete
-route is resolved per work type (standard config can stop after DECIDE; a
-small change can use an inline PLAN before BUILD; normal/cross-domain/
-migration/security work uses PLAN; a bugfix is diagnose → BUILD → VERIFY;
-investigation uses EXPLORE).
+The user sees one route selected by `work_type`; triage level (`micro`,
+`standard`, `full`), canonical stages, and legacy phases are internal mappings,
+not extra user-facing stages. The optional shadow prediction is advisory and
+does not change execution.
+
+Every code-changing route carries focused QA tied to approved Expectations.
+Small changes and bugfixes keep a compact test/check plan inline and do not
+require a separate `qa-plan` artifact. Routes requiring PLAN, or an explicit
+risk/complexity escalation, use formal QA-PLAN. QA-REVIEW/QA-AGGREGATE/QA-REPORT
+run only when routed. The concrete route is resolved per work type (standard
+config can stop after DECIDE; small change is DECIDE → BUILD → VERIFY; a bugfix
+is FIX → BUILD → VERIFY; feature/cross-domain/migration/security use DECIDE →
+PLAN → BUILD → VERIFY; investigation uses EXPLORE). Required VERIFY and evidence
+gates are never removed by inline QA.
 
 ## Component Overview
 

@@ -32,17 +32,17 @@ Need CodeGraph structural queries? Add `-- --with-codegraph`. Non-interactive CI
 ## How it works
 
 ```
-init → preflight → DECIDE → optional PLAN → BUILD → VERIFY → archived
+init → health/preflight → one resolved route → only its required stages → archive when applicable
 ```
 
 | Stage | Legacy phases | When |
 |-------|---------------|------|
-| `DECIDE` | `PROPOSE` + `ASSESS` | always (non-micro) |
-| `PLAN` | `QA-PLAN` + `DESIGN` | optional per routing |
+| `DECIDE` | `PROPOSE` + `ASSESS` | routes that include DECIDE; can be terminal for standard config |
+| `PLAN` | `QA-PLAN` + `DESIGN` | only when the resolved route or risk requires formal planning |
 | `BUILD` | `IMPLEMENT` | plan is closed |
 | `VERIFY` | `VERIFY` | verification required |
 
-Routing is deterministic: standard config can stop after DECIDE, a bugfix runs diagnose → BUILD → VERIFY, investigations use `/odf-explore` with no formal change. Full vocabulary: [docs/architecture.md](docs/architecture.md).
+The user sees one route selected by `work_type`; `micro/standard/full` is entry triage, not another workflow. Small changes use DECIDE → BUILD → VERIFY with inline QA; bugfixes use FIX → BUILD → VERIFY with inline regression QA; complex/high-risk routes use formal PLAN/QA-PLAN. The shadow prediction is advisory and does not alter execution. Full vocabulary: [docs/architecture.md](docs/architecture.md).
 
 **Interactive diagram →** [Phase flow & agent routing](docs/odf-agent-phase-flow.html) · [Harness architecture](docs/harness-architecture.html)
 
@@ -50,7 +50,7 @@ Routing is deterministic: standard config can stop after DECIDE, a bugfix runs d
 
 | Command | Purpose |
 |---------|---------|
-| `/odf-new <name>` | Start a formal change (preflight → full pipeline) |
+| `/odf-new <name>` | Start a change on its resolved route; planning scales with risk/scope |
 | `/odf-continue [name]` | Resume from last completed stage |
 | `/odf-status [name]` | Canonical thin-spine status |
 | `/odf-explore <topic>` | Research without creating a change |

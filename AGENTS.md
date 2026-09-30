@@ -7,19 +7,19 @@ structured Odoo development. It is **not** an Odoo project itself. It installs i
 
 ## ODF Overview — What It Does
 
-ODF is a spec-driven pipeline for building Odoo modules:
+ODF is a route-driven harness for delivering Odoo changes:
 
 ```
-init → preflight → assess → qa-plan → design → implement → verify → archived
+init → health/preflight → one resolved route → required QA/VERIFY → archived when applicable
 ```
 
-Each phase is a sub-agent with a defined input/output contract. The orchestrator never writes code — it delegates everything, tracks state, and gates progression.
+The route determines which stages and phase adapters apply; not every request runs every phase. The orchestrator never writes code — it delegates, tracks state, and enforces required evidence and human gates.
 
 ### What you can do
 
 | Command | Purpose |
 |---------|---------|
-| `/odf-new <name>` | Start a new change: preflight → propose → full pipeline |
+| `/odf-new <name>` | Start a new change on its resolved route; planning is proportional to risk/scope |
 | `/odf-continue [name]` | Resume a change from its last completed phase |
 | `/odf-status [name]` | Show change state, artifacts, task progress |
 | `/odf-explore <topic>` | Investigate Odoo patterns before committing to a change |
@@ -34,13 +34,19 @@ Each phase is a sub-agent with a defined input/output contract. The orchestrator
 
 | Phase | Agent | Output | Gate |
 |-------|-------|--------|------|
-| **PROPOSE** | `odoo_proposer` | Business intent, scope, capabilities, risks | `question` tool — approve/adjust/cancel |
-| **ASSESS** | `odoo_functional_consultant` | Strategy (standard vs custom) + functional spec | `question` tool — proceed/adjust/cancel |
-| **QA-PLAN** | `odoo_qa_engineer` | Test plan, scenarios, coverage targets | `question` tool — approve/adjust |
-| **DESIGN** | `odoo_backend_engineer` / `odoo_frontend_engineer` | Technical design + tasks | `question` tool — approve & implement |
-| **IMPLEMENT** | Agent by task domain | Code + tests, in batches | `question` tool — continue/adjust |
-| **VERIFY** | `odoo_qa_engineer` | Test run, lint, spec compliance | PASS or FAIL |
+| **PROPOSE** | `odoo_proposer` | Business intent, scope, capabilities, risks for routes that need formal DECIDE | Ask only for an unresolved human decision |
+| **ASSESS** | `odoo_functional_consultant` | Strategy (standard vs custom) + functional spec when formal DECIDE is routed | Continue/adjust only at a required decision |
+| **QA-PLAN (conditional)** | `odoo_qa_engineer` | Formal test plan, scenarios, coverage targets for routes requiring PLAN or explicit risk escalation | Approve/adjust only when this formal plan is required; small changes keep focused QA inline |
+| **DESIGN** | `odoo_backend_engineer` / `odoo_frontend_engineer` | Technical design + tasks when formal PLAN is routed | Approve/adjust only when the plan is required |
+| **IMPLEMENT** | Agent by task domain | Code + focused tests/checks, in batches, when the route includes BUILD | Pause only at a required gate or real decision |
+| **VERIFY** | `odoo_qa_engineer` | Test run, lint, spec compliance when required by the route | PASS or FAIL; evidence gate remains mandatory |
 | **ARCHIVED** | (auto) | Retrospective saved to Engram | — |
+
+These are available adapters, not a promise that every request runs every row.
+The user sees one route selected by `work_type`; triage labels and legacy phases
+are internal mappings. Every code-changing route carries focused QA, while a
+formal QA-PLAN is conditional on the resolved route or an explicit risk
+escalation.
 
 ---
 
