@@ -59,6 +59,15 @@ describe("delegation tokens", () => {
     expect(record!.source_repos).toBe("/odoo/custom/src")
   })
 
+  it("preserves multiline phase task text in a validated token", async () => {
+    const task = "Implement the demo change\n\nAcceptance criteria:\n- Preserve existing behavior.\n- Add focused tests."
+    const record = createDelegationTokenRecord(validInput({ task }))
+
+    expect(record?.task).toBe(task)
+    expect(writeDelegationToken(workspace, record!)).toBeNull()
+    expect(readDelegationToken(workspace, record!.change, record!.token).record?.task).toBe(task)
+  })
+
   it("rejects unsafe or malformed token input", () => {
     expect(createDelegationTokenRecord(validInput({ change: "../escape" }))).toBeNull()
     expect(createDelegationTokenRecord(validInput({ agent: "bad agent" }))).toBeNull()
@@ -67,6 +76,7 @@ describe("delegation tokens", () => {
     expect(createDelegationTokenRecord(validInput({ workspace: path.join(workspace, "missing") }))).toBeNull()
     expect(createDelegationTokenRecord(validInput({ task: "" }))).toBeNull()
     expect(createDelegationTokenRecord(validInput({ task: "x".repeat(9000) }))).toBeNull()
+    expect(createDelegationTokenRecord(validInput({ task: "unsafe\u0000task" }))).toBeNull()
     expect(createDelegationTokenRecord(validInput({ source_root: "/bad\nroot" }))).toBeNull()
   })
 

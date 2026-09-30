@@ -140,7 +140,10 @@ function safeTimestamp(value: unknown): string | null {
 }
 
 function safeTask(value: unknown): string | null {
-  return typeof value === "string" && value.trim().length > 0 && value.length <= MAX_TASK_CHARS && !/[\0\r\n]/.test(value)
+  // Phase tasks are natural-language prompts and may contain line breaks;
+  // reject non-printing controls without rejecting ordinary prompt formatting.
+  return typeof value === "string" && value.trim().length > 0 && value.length <= MAX_TASK_CHARS &&
+    !/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F\u2028\u2029]/.test(value)
     ? value.trim()
     : null
 }

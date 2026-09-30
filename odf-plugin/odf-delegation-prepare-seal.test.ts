@@ -305,7 +305,7 @@ describe("native prepare/seal delegation", () => {
     expect(noAttempt).toMatchObject({ status: "blocked", reason: "attempt-id-required" })
   })
 
-  it("prepares and seals a proof-backed IMPLEMENT delegation end to end", async () => {
+  it("prepares and seals a proof-backed IMPLEMENT delegation with a multiline task", async () => {
     const { odf_delegation_prepare, odf_delegation_seal } = await tools()
     const change = "native-implement"
     await writeImplementState(tempHome, change)
@@ -313,7 +313,7 @@ describe("native prepare/seal delegation", () => {
     const prepared = JSON.parse(await odf_delegation_prepare.execute({
       phase: "IMPLEMENT",
       change,
-      prompt: "Implement the planned change",
+      prompt: "Implement the planned change\n\nAcceptance criteria:\n- Preserve approved scope.\n- Add focused tests.",
       context_files: [],
       artifact_store: "openspec",
       attempt_id: "native-impl-1",
