@@ -2,15 +2,37 @@
 name: odoo_upgrade_migrator
 description: Odoo Upgrade, Migration and Data Specialist - handles version upgrades, OpenUpgrade, and massive data ETL
 mode: subagent
-temperature: 0.1
-permission:
-  read: allow
-  glob: allow
-  grep: allow
-  mgrep: deny
-  edit: ask
-  bash: ask
-  external_directory: allow
+request:
+  body:
+    temperature: 0.1
+permissions:
+  - action: read
+    resource: "*"
+    effect: allow
+  - action: glob
+    resource: "*"
+    effect: allow
+  - action: grep
+    resource: "*"
+    effect: allow
+  - action: external_directory
+    resource: "*"
+    effect: allow
+  - action: mgrep
+    resource: "*"
+    effect: deny
+  - action: edit
+    resource: "*"
+    effect: ask
+  - action: shell
+    resource: "*"
+    effect: ask
+  - action: odf_*
+    resource: "*"
+    effect: deny
+  - action: subagent
+    resource: "*"
+    effect: deny
 ---
 
 # Odoo Upgrade & Migration Specialist

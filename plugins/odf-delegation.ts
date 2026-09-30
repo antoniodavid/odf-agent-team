@@ -115,6 +115,11 @@ import {
   type DelegationTokenRecord,
 } from "../odf-plugin/odf-delegation-tokens.js"
 import {
+  proposalContentDigest,
+  verifyOpenSpecProposal,
+  writeOpenSpecProposal,
+} from "../odf-plugin/odf-proposal-artifact.js"
+import {
   classifyRiskTier,
   classifyRiskTierWithContent,
   computePolicyGate,
@@ -2996,7 +3001,7 @@ function createODFDelegationPrepare(canonicalDirectory?: string): ReturnType<typ
       prompt: tool.schema.string().describe("The full detailed phase prompt for the agent."),
       agent: tool.schema.string().optional().describe("Optional explicit registered agent override; must be installed and eligible for the phase."),
       context_files: tool.schema.array(tool.schema.string()).optional().describe("Files the agent will work with (for skill matching)"),
-      artifact_store: tool.schema.enum(["openspec", "engram", "hybrid"]).optional().describe("Authoritative workflow store; required for proof-backed IMPLEMENT/VERIFY"),
+      artifact_store: tool.schema.enum(["openspec", "engram", "hybrid"]).optional().describe("Authoritative workflow store; required for PROPOSE and proof-backed IMPLEMENT/VERIFY"),
       odoo_source_root: tool.schema.string().optional().describe("Explicit Odoo source root required for view-authority DESIGN/IMPLEMENT tasks"),
       odoo_source_repos: tool.schema.string().optional().describe("Optional explicit active Odoo repos root for view-authority lookup"),
       profile: tool.schema.string().optional().describe("Optional SDD profile name override"),
@@ -3037,6 +3042,9 @@ function createODFDelegationPrepare(canonicalDirectory?: string): ReturnType<typ
 
       if (!ALLOWED_PHASES.includes(args.phase)) {
         return `❌ Invalid phase "${args.phase}". Allowed: ${ALLOWED_PHASES.join(", ")}`
+      }
+      if (args.phase === "PROPOSE" && !args.artifact_store) {
+        return blocked("artifact-store-required", "Native PROPOSE delegation requires the selected artifact_store so proposal persistence is bound to the workflow.")
       }
       const gatedPhase = args.phase === "IMPLEMENT" || args.phase === "VERIFY"
 
@@ -3114,7 +3122,7 @@ function createODFDelegationPrepare(canonicalDirectory?: string): ReturnType<typ
           settleAttempt(acquiredAttempt, "failed", "validation-failed", "validation-failed")
           acquiredAttempt = null
         }
-        return fail(reason, message, extra)
+        return blocked(reason, message, extra)
       }
 
       const sourceAuthorityRequired = isViewAuthorityWork(args.phase, args.prompt, args.context_files || [])
@@ -3260,6 +3268,109 @@ function createODFDelegationPrepare(canonicalDirectory?: string): ReturnType<typ
  * prepared token, read its ODF Result, run the composite phase gates and return
  * the standard delegation envelope. Fail-closed on any binding mismatch.
  */
+function resultDeclaresCanonicalArtifact(result: unknown, store: ArtifactStore, ref: string): boolean {
+  if (!result || typeof result !== "object" || Array.isArray(result)) return false
+  const value = result as Record<string, unknown>
+  const entries = Array.isArray(value.artifacts_saved) ? value.artifacts_saved
+    : Array.isArray(value.artifact_refs) ? value.artifact_refs
+      : []
+  return entries.some((entry: unknown) => {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) return false
+    const record = entry as Record<string, unknown>
+    const artifact = record.artifact_ref && typeof record.artifact_ref === "object" && !Array.isArray(record.artifact_ref)
+      ? record.artifact_ref as Record<string, unknown>
+      : null
+    return artifact?.store === store && artifact.ref === ref
+  })
+}
+
+function proposalArtifactFailure(
+  record: DelegationTokenRecord,
+  sessionId: string,
+  childResult: unknown,
+  workspaceRoot: string,
+): { reason: string; message: string } | null {
+  if (record.artifact_store !== "openspec" && record.artifact_store !== "hybrid") {
+    return { reason: "artifact-store-required", message: "OpenSpec proposal verification requires the explicitly selected openspec or hybrid store." }
+  }
+  const expectedRef = `openspec/changes/${record.change}/proposal.md`
+  if (!record.proposal_artifact_ref || !record.proposal_digest || !record.proposal_session_id) {
+    return { reason: "proposal-artifact-not-written", message: "The proposal was not persisted through odf_proposal_write for this delegation." }
+  }
+  if (record.proposal_session_id !== sessionId) {
+    return { reason: "proposal-artifact-session-mismatch", message: "The persisted proposal is not bound to this child session." }
+  }
+  if (record.proposal_artifact_ref !== expectedRef || record.workspace !== workspaceRoot ||
+      !verifyOpenSpecProposal(workspaceRoot, record.change, record.proposal_artifact_ref, record.proposal_digest)) {
+    return { reason: "proposal-artifact-unverified", message: "The canonical OpenSpec proposal is missing, unsafe, or differs from the bytes persisted by this delegation." }
+  }
+  if (!resultDeclaresCanonicalArtifact(childResult, record.artifact_store, expectedRef)) {
+    return { reason: "proposal-artifact-unreported", message: "The ODF Result must include the canonical proposal artifact_ref returned by odf_proposal_write." }
+  }
+  return null
+}
+
+function createODFProposalWrite(canonicalDirectory?: string): ReturnType<typeof tool> {
+  return tool({
+    description: `Persist the one canonical PROPOSE artifact through its prepared native-delegation token. The writer validates the active agent, phase, selected store, workspace, child session and fixed OpenSpec destination; it cannot write any other path.`,
+    args: {
+      token: tool.schema.string().describe("Delegation token from the ODF-DELEGATION marker in the prepared prompt."),
+      change: tool.schema.string().describe("Change name bound to the prepared PROPOSE delegation."),
+      artifact_store: tool.schema.enum(["openspec", "hybrid"]).describe("Selected workflow store from the prepared delegation."),
+      content: tool.schema.string().describe("Complete proposal.md content (under 300 words)."),
+    },
+    async execute(args: { token: string; change: string; artifact_store: "openspec" | "hybrid"; content: string }, toolCtx: ToolContext): Promise<string> {
+      const blocked = (reason: string, message: string): string => JSON.stringify({ status: "blocked", reason, message }, null, 2)
+      if (!toolCtx?.sessionID || !toolCtx.agent) {
+        return blocked("proposal-writer-session-required", "odf_proposal_write requires the active child session and agent identity.")
+      }
+      const workspaceRoot = resolveSelectedWorkspaceRoot(toolCtx.directory, canonicalDirectory)
+      if (!workspaceRoot) return blocked("unsafe-workspace-path", "The child workspace does not resolve to a safe existing project root.")
+      const changeName = args.change?.trim()
+      if (!changeName || changeName !== args.change) return blocked("unsafe-change-name", "The change name must exactly match the prepared delegation.")
+
+      const read = readDelegationToken(workspaceRoot, changeName, args.token)
+      if (read.error || !read.record) return blocked(read.error || "delegation-token-unknown", "The prepared proposal token could not be read.")
+      const record = read.record
+      if (record.status !== "prepared") return blocked("delegation-token-already-sealed", "The proposal token is no longer writable.")
+      if (isDelegationTokenExpired(record)) return blocked("delegation-token-expired", "The proposal token expired; prepare a fresh delegation.")
+      if (record.phase !== "PROPOSE") return blocked("proposal-writer-phase-mismatch", "odf_proposal_write is available only for PROPOSE delegations.")
+      if (record.agent !== toolCtx.agent) return blocked("proposal-writer-agent-mismatch", "The active child agent does not match the prepared proposal agent.")
+      if (record.workspace !== workspaceRoot) return blocked("proposal-writer-workspace-mismatch", "The active child workspace does not match the prepared proposal workspace.")
+      if (record.artifact_store !== args.artifact_store) return blocked("proposal-writer-store-mismatch", "The requested store does not match the selected store bound to the delegation token.")
+      const openSpec = await loadOpenSpecStatus(workspaceRoot, changeName)
+      if (!openSpec?.state) return blocked("proposal-workflow-state-missing", "The selected OpenSpec workflow state is not available in the prepared workspace.")
+      const persistedStore = stateArtifactStoreValue(openSpec.state.content) || "openspec"
+      if (persistedStore !== record.artifact_store) return blocked("proposal-writer-store-mismatch", "The prepared store does not match the artifact_store persisted in OpenSpec workflow state.")
+
+      const digest = proposalContentDigest(args.content)
+      const expectedRef = `openspec/changes/${changeName}/proposal.md`
+      if (record.proposal_digest || record.proposal_artifact_ref || record.proposal_session_id) {
+        if (record.proposal_session_id !== toolCtx.sessionID || record.proposal_artifact_ref !== expectedRef || record.proposal_digest !== digest) {
+          return blocked("proposal-already-written", "This delegation token already persisted a different proposal; prepare a new delegation to revise it.")
+        }
+        if (!verifyOpenSpecProposal(workspaceRoot, changeName, expectedRef, digest)) {
+          return blocked("proposal-artifact-unverified", "The proposal bytes changed after the token-bound write.")
+        }
+        return JSON.stringify({ status: "ok", artifact_ref: { store: args.artifact_store, ref: expectedRef } }, null, 2)
+      }
+
+      const written = writeOpenSpecProposal(workspaceRoot, changeName, args.content)
+      if (written.error || !written.artifact_ref || !written.digest) {
+        return blocked(written.error || "proposal-write-failed", "The canonical OpenSpec proposal could not be persisted safely.")
+      }
+      const tokenWriteError = writeDelegationToken(workspaceRoot, {
+        ...record,
+        proposal_artifact_ref: written.artifact_ref,
+        proposal_digest: written.digest,
+        proposal_session_id: toolCtx.sessionID,
+      })
+      if (tokenWriteError) return blocked(tokenWriteError, "The proposal was written, but its token-bound persistence evidence could not be recorded.")
+      return JSON.stringify({ status: "ok", artifact_ref: { store: args.artifact_store, ref: written.artifact_ref } }, null, 2)
+    },
+  })
+}
+
 function createODFDelegationSeal(canonicalDirectory?: string): ReturnType<typeof tool> {
   return tool({
     description: `Seal a native ODF delegation started with odf_delegation_prepare: verify the child session against the token, read its ODF Result, run the phase gates (source authority, design closure, artifact refs and PLAN materialization; proof revalidation, validation-evidence seal, workflow commit and attempt settlement for IMPLEMENT/VERIFY) and return the standard delegation envelope.`,
@@ -3396,20 +3507,27 @@ function createODFDelegationSeal(canonicalDirectory?: string): ReturnType<typeof
         })
       }
 
-      const outcome = await applyCompositeResultGates({
-        phase: record.phase,
-        task: record.task,
-        rawResult: childResult,
-        contextFiles: record.context_files,
-        sourceAuthorityRequired: Boolean(record.source_root),
-        sourceAuthorityRoots: record.source_root
-          ? { source: record.source_root, ...(record.source_repos ? { repos: record.source_repos } : {}) }
-          : null,
-        innerAccepted: innerDisposition.accepted,
-        changeName: record.change,
-        workspaceRoot,
-        artifactStore: record.artifact_store,
-      })
+      const requiresOpenSpecProposal = record.phase === "PROPOSE" &&
+        (record.artifact_store === undefined || record.artifact_store === "openspec" || record.artifact_store === "hybrid")
+      const proposalFailure = innerDisposition.accepted && requiresOpenSpecProposal
+        ? proposalArtifactFailure(record, args.session_id, childResult, workspaceRoot)
+        : null
+      const outcome: CompositeGateOutcome = proposalFailure
+        ? { result: childResult, warnings: [], materialization: null, failure: proposalFailure }
+        : await applyCompositeResultGates({
+          phase: record.phase,
+          task: record.task,
+          rawResult: childResult,
+          contextFiles: record.context_files,
+          sourceAuthorityRequired: Boolean(record.source_root),
+          sourceAuthorityRoots: record.source_root
+            ? { source: record.source_root, ...(record.source_repos ? { repos: record.source_repos } : {}) }
+            : null,
+          innerAccepted: innerDisposition.accepted,
+          changeName: record.change,
+          workspaceRoot,
+          artifactStore: record.artifact_store,
+        })
       // The delegation is processed either way: the token seals exactly once.
       deleteDelegationToken(workspaceRoot, record.change, record.token)
 
@@ -8317,6 +8435,7 @@ export function createODFRegisteredTools(
   return {
     odf_delegate: createODFDelegate(client, canonicalDirectory),
     odf_delegation_prepare: createODFDelegationPrepare(canonicalDirectory),
+    odf_proposal_write: createODFProposalWrite(canonicalDirectory),
     odf_delegation_seal: createODFDelegationSeal(canonicalDirectory),
     odf_parallel_delegate: createODFParallelDelegate(client, canonicalDirectory),
     odf_parallel_prepare: createODFParallelPrepare(canonicalDirectory),

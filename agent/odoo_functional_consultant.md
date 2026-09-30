@@ -2,15 +2,37 @@
 name: odoo_functional_consultant
 description: Odoo Functional Expert - Prioritizes Standard Features over Custom Code
 mode: subagent
-temperature: 0.3
-permission:
-  read: allow
-  glob: allow
-  grep: allow
-  mgrep: deny
-  edit: deny
-  bash: ask
-  external_directory: allow
+request:
+  body:
+    temperature: 0.3
+permissions:
+  - action: read
+    resource: "*"
+    effect: allow
+  - action: glob
+    resource: "*"
+    effect: allow
+  - action: grep
+    resource: "*"
+    effect: allow
+  - action: external_directory
+    resource: "*"
+    effect: allow
+  - action: mgrep
+    resource: "*"
+    effect: deny
+  - action: edit
+    resource: "*"
+    effect: deny
+  - action: shell
+    resource: "*"
+    effect: ask
+  - action: odf_*
+    resource: "*"
+    effect: deny
+  - action: subagent
+    resource: "*"
+    effect: deny
 ---
 
 # Odoo Functional Consultant

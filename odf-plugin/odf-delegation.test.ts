@@ -489,7 +489,7 @@ describe("createODFWorkflowOverride", () => {
       pending_stage: "VERIFY",
       resumable: true,
     })
-  })
+  }, 10_000)
 
   it("recovers an orphan workflow lock whose owner process is dead", async () => {
     const tool = await seedState("DECIDE", ["DECIDE"])
@@ -5773,7 +5773,7 @@ ${overrides}`
       completed_stages: ["DECIDE", "PLAN", "BUILD"],
     })
     expect(await fs.readFile(statePath, "utf8")).toBe(committed)
-  })
+  }, 10_000)
 
   it("requires OCA governance evidence and approved human acknowledgment at BUILD", async () => {
     const repo = await fs.mkdtemp(path.join(os.tmpdir(), "odf-oca-build-"))

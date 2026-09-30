@@ -2,7 +2,7 @@
 
 > **Spec-driven Odoo delivery on OpenCode** — a phase pipeline, 11 specialized agents, 87 skills, and deterministic CLIs so your AI team *finds* the codebase instead of inventing it.
 
-[![Tests](https://img.shields.io/badge/tests-900%20unit%20%2B%20325%20YAML%20%2B%2018%20harness-brightgreen)](#development)
+[![Tests](https://img.shields.io/badge/tests-1008%20unit%20%2B%20325%20YAML%20%2B%2018%20harness-brightgreen)](#development)
 [![Registry](https://img.shields.io/badge/registry-87%20skills%20%C2%B7%2011%20agents-blue)](odf-registry.json)
 [![Odoo](https://img.shields.io/badge/Odoo-16%20%E2%80%93%2019-EE7048)](docs/intended-usage.md)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
@@ -74,7 +74,7 @@ Routing is deterministic: standard config can stop after DECIDE, a bugfix runs d
 | Skills | 87 (`skills/` — OCA governance/style, Odoo patterns, ODF phases) |
 | Agents | 11 (`agent/` — orchestrator + 10 specialists) |
 | Commands | 22 (`command/`) |
-| Plugin tools | 22 injected at runtime (`plugins/odf-delegation.ts` + `odf-plugin/`) |
+| Plugin tools | 27 injected at runtime (`plugins/odf-delegation.ts` + `odf-plugin/`) |
 | Deterministic CLIs | `odf-project-scan`, `odf-toolkit` (`scripts/`) |
 
 ## Documentation
@@ -83,12 +83,12 @@ Routing is deterministic: standard config can stop after DECIDE, a bugfix runs d
 
 - [Intended usage](docs/intended-usage.md) — mental model, entry points, when to use what
 - [Architecture](docs/architecture.md) — thin-spine vocabulary, components, data flow
-- [Plugin reference](docs/plugin.md) — the 26 tools, modules, `odf_delegate` path
+- [Plugin reference](docs/plugin.md) — the 27 tools, modules, `odf_delegate` path
 - [Archive](docs/archive/README.md) — completed roadmaps and plans
 
 ## Honest status
 
-- **Mature and tested locally**: 998 unit tests + 325 YAML scenarios + 18 harness checks. Representative Odoo validation and end-to-end telemetry remain ODF 2.0 gates.
+- **Mature and tested locally**: 1008 unit tests + 325 YAML scenarios + 18 harness checks. Representative Odoo validation and end-to-end telemetry remain ODF 2.0 gates.
 - **Portable**: Linux/macOS/Windows (Git Bash/WSL), `XDG_CONFIG_HOME` resolution, author-path rewriting at install time.
 - **Known limitations**:
   - `plugins/odf-delegation.ts` (~6k lines) is still a monolith for the delegation/workflow core; cohesive sections already live in `odf-plugin/`.
@@ -111,7 +111,7 @@ Full matrix: `node <pack>/scripts/odf-toolkit.js deps`
 
 ```bash
 npm test              # full suite: unit + YAML + plugin
-npm run test:unit     # 998 Vitest
+npm run test:unit     # 1008 Vitest
 npm run test:yaml     # 325 YAML scenarios
 npm run test:harness  # 18 harness checks
 npm run typecheck     # tsc --noEmit
@@ -127,7 +127,7 @@ agent/            11 agent instructions (orchestrator + 10 specialists)
 command/          22 slash commands
 skills/           87 skills (OCA + ODF + shared)
 odf-plugin/       deterministic modules (workflow, triage, policy, …)
-plugins/          odf-delegation.ts — plugin entrypoint, 26 tools
+plugins/          odf-delegation.ts — plugin entrypoint, 27 tools
 scripts/          CLIs + test runner + registry validator
 docs/             architecture, usage, plugin reference, diagrams
 install.sh        idempotent installer (backup, TUI, --force, --with-codegraph)

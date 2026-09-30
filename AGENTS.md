@@ -71,12 +71,13 @@ Each phase is a sub-agent with a defined input/output contract. The orchestrator
 
 ### Plugin tools (`odf-delegation.ts`)
 
-26 tools injected at runtime into the orchestrator's tool list:
+27 tools injected at runtime into the orchestrator's tool list:
 
 | Tool | Purpose |
 |------|---------|
 | `odf_delegate` | Route phase + prompt to the right sub-agent with skill injection |
 | `odf_delegation_prepare` | Prepare a native delegation (agent/skills/profile/prompt + token) for the host `subagent` tool |
+| `odf_proposal_write` | Persist the token-bound PROPOSE artifact to its canonical OpenSpec path |
 | `odf_delegation_seal` | Seal a native delegation: verify the child session, run the phase gates, return the standard envelope |
 | `odf_parallel_delegate` | Run a cross-domain BUILD as 2-3 parallel branches with one aggregate join |
 | `odf_parallel_prepare` | Prepare a native parallel BUILD (branch prompts + one token) for host `subagent` launches |
@@ -172,7 +173,7 @@ Missing fields are collected via `question` tool.
 agent/              — 11 agent instructions (orchestrator + 10 sub-agents)
 command/            — 22 slash command definitions (Markdown)
 plugins/            — odf-delegation.ts (OpenCode plugin)
-scripts/            — test runner (998 Vitest tests + 325 YAML scenarios), CLI wrapper, registry validator
+scripts/            — test runner (1008 Vitest tests + 325 YAML scenarios), CLI wrapper, registry validator
 skills/              — 87 skills (OCA governance, ODF phases, patterns)
   _shared/          — conventions (engram persistence, skill-resolver, Odoo sources)
   oca/              — OCA governance, style, patterns
@@ -213,7 +214,7 @@ ODF is a superset of the generic SDD workflow:
 ## Tests
 
 ```bash
-npm test              # 998 Vitest tests + 325 YAML scenarios
+npm test              # 1008 Vitest tests + 325 YAML scenarios
 npm run test:yaml     # YAML scenario runner only
 npm run test:unit     # Vitest only
 npm run typecheck     # tsc --noEmit

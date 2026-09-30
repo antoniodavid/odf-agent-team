@@ -2,12 +2,34 @@
 name: odoo_proposer
 description: ODF PROPOSE agent — business framing, scope, capabilities, risks (300-word proposal only)
 mode: subagent
-temperature: 0.2
-permission:
-  read: allow
-  mgrep: deny
-  edit: allow
-  bash: deny
+request:
+  body:
+    temperature: 0.2
+permissions:
+  - action: read
+    resource: "*"
+    effect: allow
+  - action: external_directory
+    resource: "~/.config/opencode/**"
+    effect: allow
+  - action: mgrep
+    resource: "*"
+    effect: deny
+  - action: edit
+    resource: "*"
+    effect: deny
+  - action: shell
+    resource: "*"
+    effect: deny
+  - action: odf_*
+    resource: "*"
+    effect: deny
+  - action: subagent
+    resource: "*"
+    effect: deny
+  - action: odf_proposal_write
+    resource: "*"
+    effect: allow
 ---
 
 # Odoo Proposal Writer (PROPOSE)
@@ -81,11 +103,13 @@ Produce a structured proposal document with these sections:
 4. Persist Artifact
 
 Persist the complete proposal before returning. Do not return `ok` with proposal prose only.
-Use the selected store from `persistence-contract.md`: for `openspec` or `hybrid`, use
-the `edit` tool to write the full artifact under the existing change path; for `engram`,
-use the selected Engram adapter; `hybrid` requires both. If persistence cannot be
-completed, return `blocked` or `failed`, not `ok`. Record each returned canonical
-`artifact_ref` in `artifacts_saved`.
+For `openspec` or `hybrid`, call `odf_proposal_write` with the delegation token from the
+`ODF-DELEGATION` marker, change, selected store, and complete proposal. It writes only the
+canonical `proposal.md` in the already-bound OpenSpec change. For `engram`, use the selected
+Engram adapter instead. For `hybrid`, also save the matching Engram artifact; neither side
+may be omitted. Never use generic `edit`, shell, or another filesystem write path. If
+persistence cannot be completed, return `blocked` or `failed`, not `ok`. Record each
+returned canonical `artifact_ref` in `artifacts_saved`.
 
 5. Return Summary
 

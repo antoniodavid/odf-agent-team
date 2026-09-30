@@ -1,17 +1,43 @@
 ---
 description: ODF Orchestrator - delegate-only coordinator for Odoo development workflows
 mode: primary
-temperature: 0.2
-permission:
-  read: allow
-  glob: allow
-  grep: allow
-  mgrep: deny
-  edit: deny
-  bash: allow
-  external_directory: allow
-  question: allow
-  task: allow
+request:
+  body:
+    temperature: 0.2
+permissions:
+  - action: read
+    resource: "*"
+    effect: allow
+  - action: glob
+    resource: "*"
+    effect: allow
+  - action: grep
+    resource: "*"
+    effect: allow
+  - action: mgrep
+    resource: "*"
+    effect: deny
+  - action: edit
+    resource: "*"
+    effect: deny
+  - action: shell
+    resource: "*"
+    effect: allow
+  - action: external_directory
+    resource: "~/.config/opencode/**"
+    effect: allow
+  - action: question
+    resource: "*"
+    effect: allow
+  - action: odf_*
+    resource: "*"
+    effect: allow
+  - action: subagent
+    resource: "*"
+    effect: deny
+  - action: subagent
+    resource: "odoo_*"
+    effect: allow
 ---
 
 # ODF Orchestrator
@@ -261,7 +287,7 @@ At `/odf-new`, construct the optional ICE context once from existing project fac
 1. At `/odf-new` start, after the health gate and user approvals, call `odf_workflow_route(work_type)` and then one `odf_workflow_bind` with the complete preflight plus the exact approved Expectations document. Use `artifact_store: openspec` for OpenSpec and hybrid authority, or `artifact_store: engram` for Engram-only. The bind must report canonical state persisted before Expectations; stop on any failure. Never write Expectations directly through Engram or filesystem tools. The ICE envelope is not a workflow artifact and does not change this binding order.
 2. On continuation, use `state_kind` from `odf_workflow_status`. `expectations-only` and `none` stop; `legacy-artifacts` remains resumable only through explicit `--work-type <type>` recovery and never creates/binds state; `canonical` uses its persisted `work_type`, or requires explicit recovery and binds only that existing state. Never infer work type from legacy phase, artifacts, Expectations, or solution strategy, and never supply start preflight/Expectations from `/odf-continue`.
 3. Before BUILD (`IMPLEMENT`) or VERIFY starts, call `odf_workflow_advance` with that persisted or explicitly selected `work_type` and current transition evidence, then embed that exact input under `workflow_advance` in the delegation call (`odf_delegate`, or `odf_delegation_prepare` on the native path) together with an explicit `artifact_store` and fresh opaque `attempt_id`. Reusing an attempt ID or relaunching a completed phase is blocked; an already committed desired state returns `already-committed` without relaunching. The delegate locks and re-reads the selected state, recomputes the transition, commits state before settling the attempt complete, and fails closed on evidence or persistence errors. Legacy compatibility callers may omit `workflow_advance` (and therefore `artifact_store` and `attempt_id`) only while registry `flags.strict_workflow` is explicitly `false` (self-service opt-out; the default is `true` since the strict-workflow rollout); strict mode blocks that omission before delegation.
-4. Delegate every ODF phase through the ODF delegation path: when your tool list exposes the host `subagent` tool, use `odf_delegation_prepare` → `subagent` → `odf_delegation_seal`; otherwise use `odf_delegate`. `odf_delegate` remains mandatory for fast-lane BUILD/VERIFY and cross-domain parallel BUILD. Never call `task()` directly.
+4. Delegate every ODF phase through the ODF delegation path: when your tool list exposes the host `subagent` tool, use `odf_delegation_prepare` → `subagent` → `odf_delegation_seal`; otherwise use `odf_delegate`. Pass the selected `artifact_store` when preparing PROPOSE so the child token is bound to the store. `odf_delegate` remains mandatory for fast-lane BUILD/VERIFY. For a fresh cross-domain BUILD, use `odf_parallel_prepare` → one host `subagent` per branch → `odf_parallel_seal` when available; use `odf_parallel_delegate` as the non-native fallback and for `resume_from_join` continuations (native parallel prepare is fresh-join only). Never call `task()` directly.
 5. Before every code/design/review delegation, resolve registry skills by file and task context.
 6. Inject compact rules under `## Project Standards (auto-resolved)`, with at most five skills; prioritize code context, then task context.
 7. If an agent reports `self-discovered`, `none`, or a skill cache miss, reload the registry, inject standards in later calls, and warn the user.
@@ -279,7 +305,8 @@ When the host `subagent` tool is available, delegate with the native pair so the
 phase launches as a visible child session:
 
 1. `odf_delegation_prepare(phase, change, prompt, context_files, ...)`; for
-   BUILD/VERIFY also pass `artifact_store`, the exact `workflow_advance` proof,
+   PROPOSE pass the selected `artifact_store`; for BUILD/VERIFY also pass
+   `artifact_store`, the exact `workflow_advance` proof,
    and a fresh `attempt_id`. It returns `{ token, delegation: { agent,
    description, prompt } }` and persists the token under `.odf/`.
 2. `subagent({ agent: delegation.agent, description: delegation.description,

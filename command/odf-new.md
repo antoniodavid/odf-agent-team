@@ -58,7 +58,7 @@ For BUILD (`IMPLEMENT`) and VERIFY starts, pass the persisted `work_type`, exact
 
 When the host exposes the `subagent` tool, delegate these stages through the native pair instead: `odf_delegation_prepare` → `subagent` (pass `delegation.prompt` verbatim) → `odf_delegation_seal`; the seal returns the same envelope (plus `task_session_id`). `odf_delegate` remains mandatory for fast-lane BUILD/VERIFY.
 
-For cross-domain BUILD, use `odf_parallel_delegate` instead of `odf_delegate`: pass one shared `change`, explicit `artifact_store`, `work_type: cross-domain`, `phase: IMPLEMENT`, and the exact shared `workflow_advance` proof that advances to `BUILD`. Provide 2-3 independent branches, each with a unique safe `branch_id`, fresh safe `attempt_id`, prompt, and non-overlapping `context_files`; the scheduler has a fixed concurrency cap of 3. Branches do not commit workflow state individually. BUILD closes only after the aggregate `join.status: complete`, every branch returns a successful delegated envelope, and every branch has `validation.status: verified`; then the selected store is committed once. Any blocked/failed branch or unverified validation blocks BUILD and produces one aggregate receipt. VERIFY always runs sequentially after a complete join.
+For a fresh cross-domain BUILD, use `odf_parallel_prepare` → one host `subagent` per branch → `odf_parallel_seal` when the host exposes `subagent`; otherwise use `odf_parallel_delegate`. Pass one shared `change`, explicit `artifact_store`, `work_type: cross-domain`, `phase: IMPLEMENT`, and the exact shared `workflow_advance` proof that advances to `BUILD`. Provide 2-3 independent branches, each with a unique safe `branch_id`, fresh safe `attempt_id`, prompt, and non-overlapping `context_files`; the scheduler has a fixed concurrency cap of 3. Branches do not commit workflow state individually. BUILD closes only after the aggregate `join.status: complete`, every branch returns a successful delegated envelope, and every branch has `validation.status: verified`; then the selected store is committed once. Any blocked/failed branch or unverified validation blocks BUILD and produces one aggregate receipt. VERIFY always runs sequentially after a complete join.
 
 Standard configuration terminates after DECIDE and has no BUILD or VERIFY stage. Small changes
 may use an inline plan before BUILD. Existing public phase commands and legacy phase IDs remain
@@ -102,7 +102,7 @@ explicit and disabled by default; no canary, rollout, or performance claim is im
 - **Missing `change-name`**: show usage and abort.
 - **Duplicate name**: warn and offer to continue or rename.
 - **Invalid preflight**: re-ask for fields with allowed values.
-- **`odf_delegate` error**: show the message, keep state, offer to retry.
+- **Native prepare/subagent/seal, parallel prepare/seal, or `odf_delegate` error**: show the message, keep state, offer to retry.
 
 ## Output Format
 

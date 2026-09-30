@@ -2,15 +2,37 @@
 name: odoo_code_reviewer
 description: Odoo code reviewer that returns findings on quality, security, performance, and version compliance
 mode: subagent
-temperature: 0.2
-permission:
-  read: allow
-  glob: allow
-  grep: allow
-  mgrep: deny
-  edit: deny
-  bash: ask
-  external_directory: allow
+request:
+  body:
+    temperature: 0.2
+permissions:
+  - action: read
+    resource: "*"
+    effect: allow
+  - action: glob
+    resource: "*"
+    effect: allow
+  - action: grep
+    resource: "*"
+    effect: allow
+  - action: external_directory
+    resource: "*"
+    effect: allow
+  - action: mgrep
+    resource: "*"
+    effect: deny
+  - action: edit
+    resource: "*"
+    effect: deny
+  - action: shell
+    resource: "*"
+    effect: ask
+  - action: odf_*
+    resource: "*"
+    effect: deny
+  - action: subagent
+    resource: "*"
+    effect: deny
 ---
 
 # Odoo Code Reviewer Agent
