@@ -97,7 +97,12 @@ Produce a structured proposal document in the response:
 ### Step 3: Persist Artifact
 
 Use the selected store from `persistence-contract.md` and record the returned
-canonical `artifact_ref`. Do not require `mem_*`; preserve the full proposal.
+canonical `artifact_ref`. For `openspec` or `hybrid`, call `odf_proposal_write`
+with the delegation token, change, selected store, and full proposal; the bounded
+writer targets only `openspec/changes/{change}/proposal.md`. For `engram`, use the
+selected Engram adapter. `hybrid` requires both the OpenSpec writer and matching
+Engram artifact. Never use generic filesystem editing for this phase. Preserve
+the full proposal and do not require `mem_*` for OpenSpec-only work.
 
 ### Step 4: Return Summary
 

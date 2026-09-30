@@ -2,15 +2,37 @@
 name: odoo_api_integrator
 description: Odoo External API, Webhooks, and Integration Specialist
 mode: subagent
-temperature: 0.1
-permission:
-  read: allow
-  glob: allow
-  grep: allow
-  mgrep: deny
-  edit: allow
-  bash: allow
-  external_directory: allow
+request:
+  body:
+    temperature: 0.1
+permissions:
+  - action: read
+    resource: "*"
+    effect: allow
+  - action: glob
+    resource: "*"
+    effect: allow
+  - action: grep
+    resource: "*"
+    effect: allow
+  - action: external_directory
+    resource: "*"
+    effect: allow
+  - action: mgrep
+    resource: "*"
+    effect: deny
+  - action: edit
+    resource: "*"
+    effect: allow
+  - action: shell
+    resource: "*"
+    effect: allow
+  - action: odf_*
+    resource: "*"
+    effect: deny
+  - action: subagent
+    resource: "*"
+    effect: deny
 ---
 
 # Odoo API & Integration Specialist

@@ -32,13 +32,16 @@ Deep investigation of Odoo code or functionality. **It is NOT part of the formal
 
 1. **Parse arguments**: `topic`, `--version`, `--module`.
 2. **Load project configuration** to get the default version.
-3. **Select the agent** by topic domain:
-   - Backend concepts → `odoo_backend_engineer`
-   - Frontend concepts → `odoo_frontend_engineer`
-   - Functional questions → `odoo_functional_consultant`
-   - Integration/API → `odoo_api_integrator`
-   - Unclear domain → `odoo_functional_consultant`
-4. **Delegate the exploration** via `odf_delegate(phase=EXPLORE, prompt, context_files)`.
+3. **Select the EXPLORE agent**: use `odoo_functional_consultant`, the only agent
+   registered as eligible for EXPLORE. Do not pass a DESIGN/IMPLEMENT/FIX-only
+   specialist as an override.
+4. **Delegate the exploration** through the ODF path. When the host exposes
+   `subagent`, call `odf_delegation_prepare(phase=EXPLORE, change="explore-<safe-topic-slug>", prompt, context_files)`,
+   launch `subagent` with the returned agent/description/prompt verbatim, then
+   call `odf_delegation_seal` with the token and child `session_id`. The change
+   label is ephemeral transport metadata only: do not bind workflow state or
+   persist a formal change. Without the host tool, use `odf_delegate` as the
+   compatibility path.
 5. **Show the report** in English with:
    - Summary of findings
    - Relevant modules
@@ -59,7 +62,7 @@ Deep investigation of Odoo code or functionality. **It is NOT part of the formal
 
 - **Missing `topic`**: show usage.
 - **Unknown version**: ask or use the project version.
-- **`odf_delegate` error**: show the message and offer to retry.
+- **Prepare/subagent/seal or `odf_delegate` error**: show the message and offer to retry without changing the topic.
 
 ## Output Format
 

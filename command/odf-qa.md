@@ -57,9 +57,13 @@ Use for:
 
 ### 3. Run the QA activity
 
-When the activity delegates ODF work, use `odf_delegate` and its skill
-resolution; do not call `task()` directly. Legacy artifact names are kept as
-compatibility adapters. With strict workflow active by default, every
+For a canonical phase such as QA-PLAN, use the native
+`odf_delegation_prepare` → host `subagent` → `odf_delegation_seal` sequence when
+available; otherwise use `odf_delegate` and its skill resolution. Pass the
+prepared prompt verbatim and never call `task()` directly. Legacy artifact names
+are kept as compatibility adapters. QA-REVIEW/AGGREGATE/REPORT are supplemental
+lenses inside an already-open BUILD/VERIFY attempt, not new canonical phases.
+With strict workflow active by default, every
 delegation with an `IMPLEMENT`/`VERIFY` phase must pass the transition under
 `workflow_advance`, `artifact_store: openspec|engram`, and a fresh opaque
 `attempt_id`; QA-REVIEW/AGGREGATE/REPORT are sub-steps within an already open
@@ -68,7 +72,7 @@ BUILD/VERIFY attempt, not fresh gated starts.
 **QA-PLAN** (lens of `PLAN`; legacy name):
 ```
 Read: ~/.config/opencode/skills/odf-qa/SKILL.md
-Run: odoo_qa_engineer through odf_delegate
+Run: odoo_qa_engineer through the native prepare/subagent/seal path when available; otherwise odf_delegate
 Input: assess artifact + user requirement
 Output: qa-plan.md artifact
 Role: test intent inside PLAN; approval follows the active mode

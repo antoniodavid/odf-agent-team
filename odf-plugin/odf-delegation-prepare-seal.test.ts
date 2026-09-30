@@ -90,6 +90,21 @@ describe("native prepare/seal delegation", () => {
     return changeDir
   }
 
+  const writeProposalState = async (root: string, change: string) => {
+    const changeDir = path.join(root, "openspec", "changes", change)
+    await fs.mkdir(changeDir, { recursive: true })
+    await fs.writeFile(path.join(changeDir, "state.yaml"), [
+      "work_type: feature",
+      "artifact_store: openspec",
+      "phase: preflight",
+      "canonical_stage: DECIDE",
+      "completed_canonical_stages: []",
+      "resumable: true",
+      "",
+    ].join("\n"), "utf8")
+    return changeDir
+  }
+
   const writeImplementState = async (root: string, change: string) => {
     const changeDir = path.join(root, "openspec", "changes", change)
     await fs.mkdir(changeDir, { recursive: true })
@@ -145,6 +160,129 @@ describe("native prepare/seal delegation", () => {
     expect(read.error).toBeNull()
     expect(read.record).toMatchObject({ status: "prepared", agent: output.agent, change: "native-design" })
     expect(read.record?.prompt_digest).toBe(delegationPromptDigest(output.delegation.prompt))
+  }, 10_000)
+
+  it("requires the selected store for native PROPOSE", async () => {
+    const { odf_delegation_prepare } = await tools()
+    const result = JSON.parse(await odf_delegation_prepare.execute({
+      phase: "PROPOSE",
+      change: "native-propose-no-store",
+      prompt: "Draft the proposal",
+    }, { sessionID: "prepare-propose" } as any) as string)
+
+    expect(result).toMatchObject({ status: "blocked", reason: "artifact-store-required" })
+  })
+
+  it("returns a bounded blocked envelope when an explicit agent is ineligible", async () => {
+    const { odf_delegation_prepare } = await tools()
+    const result = JSON.parse(await odf_delegation_prepare.execute({
+      phase: "PROPOSE",
+      change: "native-propose-ineligible-agent",
+      prompt: "Draft the proposal",
+      agent: "odoo_backend_engineer",
+      artifact_store: "openspec",
+    }, { sessionID: "prepare-propose" } as any) as string)
+
+    expect(result).toMatchObject({
+      status: "blocked",
+      reason: "agent-phase-ineligible",
+      phase: "PROPOSE",
+      agent: null,
+      task_api_source: "subagent",
+    })
+  })
+
+  it("writes a token-bound OpenSpec proposal and requires the seal to verify its persisted bytes", async () => {
+    const change = "native-propose"
+    const changeDir = await writeProposalState(tempHome, change)
+    const { odf_delegation_prepare, odf_proposal_write, odf_delegation_seal } = await tools()
+    const prepared = JSON.parse(await odf_delegation_prepare.execute({
+      phase: "PROPOSE",
+      change,
+      prompt: "Draft the approved proposal",
+      artifact_store: "openspec",
+    }, { sessionID: "parent-session" } as any) as string)
+    expect(prepared.status).toBe("prepared")
+
+    const content = "## Proposal: native-propose\n\n### Intent\nPersist the approved scope before ASSESS.\n"
+    const toolContext = { sessionID: "ses_child", agent: prepared.agent, directory: tempHome } as any
+    const invalidToken = JSON.parse(await odf_proposal_write.execute({
+      token: "not-a-valid-token", change, artifact_store: "openspec", content,
+    }, toolContext) as string)
+    expect(invalidToken).toMatchObject({ status: "blocked", reason: "delegation-token-invalid" })
+
+    const wrongAgent = JSON.parse(await odf_proposal_write.execute({
+      token: prepared.token, change, artifact_store: "openspec", content,
+    }, { ...toolContext, agent: "odoo_backend_engineer" }) as string)
+    expect(wrongAgent).toMatchObject({ status: "blocked", reason: "proposal-writer-agent-mismatch" })
+
+    const otherWorkspace = path.join(tempHome, "other-workspace")
+    await fs.mkdir(otherWorkspace)
+    const wrongWorkspace = JSON.parse(await odf_proposal_write.execute({
+      token: prepared.token, change, artifact_store: "openspec", content,
+    }, { ...toolContext, directory: otherWorkspace }) as string)
+    expect(wrongWorkspace).toMatchObject({ status: "blocked", reason: "delegation-token-unknown" })
+
+    const wrongStore = JSON.parse(await odf_proposal_write.execute({
+      token: prepared.token, change, artifact_store: "hybrid", content,
+    }, toolContext) as string)
+    expect(wrongStore).toMatchObject({ status: "blocked", reason: "proposal-writer-store-mismatch" })
+
+    const written = JSON.parse(await odf_proposal_write.execute({
+      token: prepared.token, change, artifact_store: "openspec", content,
+    }, toolContext) as string)
+    expect(written).toMatchObject({
+      status: "ok",
+      artifact_ref: { store: "openspec", ref: `openspec/changes/${change}/proposal.md` },
+    })
+    expect(await fs.readFile(path.join(changeDir, "proposal.md"), "utf8")).toBe(content)
+    expect(readDelegationToken(tempHome, change, prepared.token).record).toMatchObject({
+      proposal_artifact_ref: `openspec/changes/${change}/proposal.md`,
+      proposal_session_id: "ses_child",
+    })
+
+    const rewrite = JSON.parse(await odf_proposal_write.execute({
+      token: prepared.token, change, artifact_store: "openspec", content: `${content}\nChanged`,
+    }, toolContext) as string)
+    expect(rewrite).toMatchObject({ status: "blocked", reason: "proposal-already-written" })
+
+    const resultText = `## ODF Result\n- **status**: ok\n- **artifacts_saved**: ${JSON.stringify([{ name: "proposal", artifact_ref: written.artifact_ref }])}`
+    const session = fakeChildSession({ agent: prepared.agent, prompt: prepared.delegation.prompt, resultText })
+    const output = JSON.parse(await odf_delegation_seal.execute({
+      token: prepared.token,
+      change,
+      session_id: "ses_child",
+    }, { sessionID: "parent-session", [ODF_V2_SESSION]: session } as any) as string)
+
+    expect(output).toMatchObject({ status: "delegated", phase: "PROPOSE" })
+    expect(readDelegationToken(tempHome, change, prepared.token)).toMatchObject({ error: "delegation-token-unknown" })
+  })
+
+  it("blocks a successful PROPOSE result that claims an OpenSpec ref without using the writer", async () => {
+    const change = "native-propose-unwritten"
+    await writeProposalState(tempHome, change)
+    const { odf_delegation_prepare, odf_delegation_seal } = await tools()
+    const prepared = JSON.parse(await odf_delegation_prepare.execute({
+      phase: "PROPOSE",
+      change,
+      prompt: "Draft the approved proposal",
+      artifact_store: "openspec",
+    }, { sessionID: "parent-session" } as any) as string)
+    const artifactRef = { store: "openspec", ref: `openspec/changes/${change}/proposal.md` }
+    const session = fakeChildSession({
+      agent: prepared.agent,
+      prompt: prepared.delegation.prompt,
+      resultText: `## ODF Result\n- **status**: ok\n- **artifacts_saved**: ${JSON.stringify([{ name: "proposal", artifact_ref: artifactRef }])}`,
+    })
+
+    const output = JSON.parse(await odf_delegation_seal.execute({
+      token: prepared.token,
+      change,
+      session_id: "ses_child",
+    }, { sessionID: "parent-session", [ODF_V2_SESSION]: session } as any) as string)
+
+    expect(output).toMatchObject({ status: "blocked", reason: "proposal-artifact-not-written" })
+    expect(readDelegationToken(tempHome, change, prepared.token)).toMatchObject({ error: "delegation-token-unknown" })
   })
 
   it("blocks a proof-backed prepare without store, proof or attempt", async () => {

@@ -118,6 +118,9 @@ export interface DelegationTokenRecord {
   context_files: string[]
   attempt_id?: string
   branch_id?: string
+  proposal_artifact_ref?: string
+  proposal_digest?: string
+  proposal_session_id?: string
   created_at: string
   expires_at: string
   status: DelegationTokenStatus
@@ -299,6 +302,14 @@ function buildBranches(inputs: DelegationTokenBranchInput[]): DelegationTokenBra
 function isDelegationTokenRecord(value: unknown): value is DelegationTokenRecord {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false
   const record = value as Record<string, unknown>
+  const hasProposalEvidence = record.proposal_artifact_ref !== undefined || record.proposal_digest !== undefined || record.proposal_session_id !== undefined
+  const proposalEvidenceValid = !hasProposalEvidence || (
+    record.phase === "PROPOSE" &&
+    record.proposal_artifact_ref === `openspec/changes/${String(record.change)}/proposal.md` &&
+    typeof record.proposal_digest === "string" && PROMPT_DIGEST_PATTERN.test(record.proposal_digest) &&
+    typeof record.proposal_session_id === "string" && record.proposal_session_id.length > 0 &&
+    record.proposal_session_id.length <= 256 && !/[\0\r\n]/.test(record.proposal_session_id)
+  )
   return record.schema_version === DELEGATION_TOKEN_SCHEMA_VERSION &&
     typeof record.token === "string" && DELEGATION_TOKEN_PATTERN.test(record.token) &&
     typeof record.change === "string" && CHANGE_NAME_PATTERN.test(record.change) &&
@@ -321,7 +332,8 @@ function isDelegationTokenRecord(value: unknown): value is DelegationTokenRecord
     safeTimestamp(record.created_at) !== null &&
     safeTimestamp(record.expires_at) !== null &&
     (record.status === "prepared" || record.status === "sealed") &&
-    (record.sealed_at === undefined || safeTimestamp(record.sealed_at) !== null)
+    (record.sealed_at === undefined || safeTimestamp(record.sealed_at) !== null) &&
+    proposalEvidenceValid
 }
 
 export function isDelegationTokenExpired(record: DelegationTokenRecord, now: Date = new Date()): boolean {

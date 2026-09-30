@@ -19,14 +19,14 @@ Run the quality gate: pre-commit, tests, OCA compliance, spec compliance matrix,
 2. **Verify IMPLEMENT has progress** — if no tasks completed, warn
 3. **Load all artifacts**: assess (for requirements), design (for decisions), implement-progress
 4. **Freeze the candidate diff**: record the base tree/reference and `original_changed_lines`; compute the correction budget (`min(200, ceil(original_changed_lines / 2))` lines)
-5. **Classify risk tier** from the frozen diff (Risk Tier Classification in the skill) and delegate by tier:
+5. **Classify risk tier** from the frozen diff (Risk Tier Classification in the skill), then delegate the VERIFY phase through `odf_delegation_prepare` → host `subagent` → `odf_delegation_seal` whenever the host exposes `subagent`; otherwise use `odf_delegate`. Pass the frozen ref, risk tier, changed lines, correction budget, effective TDD, exact `workflow_advance`, selected `artifact_store`, and fresh `attempt_id` unchanged. Delegate by tier:
    - **HIGH** → 4 lenses: risk, resilience, readability, reliability (Judgment Day 3-pass; attacker perspective covered by the risk lens)
    - **MEDIUM** → 1 lens, single focus (default readability)
    - **LOW** → 0 lenses: silent structural readback + native tool verification (pre-commit/lint if applicable). Launch NO reviewers
    - All tiers still run: pre-commit, pylint-odoo, odoo tests, spec compliance matrix
 6. **Show verdict**: PASS / PASS WITH WARNINGS / BLOCKED (`verification-deferred`) / FAIL. Skipped, deferred, unavailable, or unrecorded tests cannot be PASS or PASS WITH WARNINGS.
 7. **If FAIL**: list issues by severity. Enter the correction budget — max `min(200, ceil(original_changed_lines / 2))` lines, ONE attempt:
-   a. Delegate ONE correction attempt to IMPLEMENT, bounded by the frozen budget
+   a. Delegate ONE correction attempt to IMPLEMENT through the native prepare/subagent/seal path when available (otherwise `odf_delegate`), bounded by the frozen budget and carrying a fresh attempt ID plus the exact BUILD transition proof
    b. Re-verify ONCE against the SAME frozen diff (`frozen_diff_ref`)
    c. Re-verification passed → proceed to step 8
    d. Re-verification inconclusive (validator could not inspect the frozen diff: tooling failure, corrupted context, network) → does NOT consume the attempt; retry without penalty
