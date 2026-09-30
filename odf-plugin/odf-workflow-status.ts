@@ -210,12 +210,18 @@ function parseStateContent(content: string): ParsedWorkflowState {
 
   try {
     const document = parseDocument(content)
-    if (isMap(document.contents) && document.contents.flow === true) {
-      if (document.errors.length > 0) return { state: null, warnings: ["Malformed YAML flow state ignored."] }
-      const parsed = asRecord(document.toJSON())
-      return parsed
-        ? { state: parsed as WorkflowState, warnings }
-        : { state: null, warnings: ["YAML flow state is not an object."] }
+    if (isMap(document.contents)) {
+      if (document.errors.length > 0) {
+        if (document.contents.flow === true) return { state: null, warnings: ["Malformed YAML flow state ignored."] }
+      } else {
+        const parsed = asRecord(document.toJSON())
+        return parsed
+          ? { state: parsed as WorkflowState, warnings }
+          : {
+            state: null,
+            warnings: [document.contents.flow === true ? "YAML flow state is not an object." : "YAML state is not an object."],
+          }
+      }
     }
   } catch {
     // Fall through to the scalar-only block parser.

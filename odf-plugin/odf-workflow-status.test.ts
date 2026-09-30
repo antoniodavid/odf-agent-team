@@ -367,6 +367,45 @@ describe("workflow status adapter", () => {
     expect(status.pending_stage).toBe("BUILD")
   })
 
+  it("does not warn about valid nested block lists in route state", () => {
+    const state = [
+      "work_type: small-change",
+      "route:",
+      "  stages:",
+      "    - DECIDE",
+      "    - BUILD",
+      "    - VERIFY",
+      "  legacy_phases:",
+      "    - PROPOSE",
+      "    - ASSESS",
+      "    - IMPLEMENT",
+      "    - VERIFY",
+      "canonical_stage: DECIDE",
+      "completed_canonical_stages:",
+      "  - DECIDE",
+    ].join("\n")
+
+    const parsed = parseWorkflowState(state)
+    expect(parsed.warnings).toEqual([])
+    expect(parsed.state).toMatchObject({
+      work_type: "small-change",
+      route: {
+        stages: ["DECIDE", "BUILD", "VERIFY"],
+        legacy_phases: ["PROPOSE", "ASSESS", "IMPLEMENT", "VERIFY"],
+      },
+      canonical_stage: "DECIDE",
+      completed_canonical_stages: ["DECIDE"],
+    })
+
+    expect(deriveWorkflowStatus({ change: "nested-route-lists", state })).toMatchObject({
+      work_type: "small-change",
+      canonical_stage: "DECIDE",
+      completed_canonical_stages: ["DECIDE"],
+      pending_stage: "BUILD",
+      warnings: [],
+    })
+  })
+
   it("warns about orphan block list items without a list key", () => {
     const parsed = parseWorkflowState("canonical_stage: DECIDE\n- orphan\n")
 
