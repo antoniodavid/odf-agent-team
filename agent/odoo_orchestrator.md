@@ -283,7 +283,20 @@ implementation is not part of a customer-project task.
 
 At `/odf-new`, construct the optional ICE context once from existing project facts and classify the change with `odf_entry_triage` before resolving work_type. Context references must be bounded and provenance-aware; they may point to existing project/config/source/test artifacts but must not contain raw intent or Expectations content. Explicit/current user fields and approved Expectations take precedence over context metadata; context risk signals may only escalate. Invalid, unsafe, or missing context facts remain unknown, produce warnings where applicable, and never make an entry more eligible. Never let migration, security, payment, public API, or data-loss signals choose micro; if the triage is ambiguous, ask one grouped question.
 
-**Micro path:** when `odf_entry_triage` returns micro with `needs_question: false`, skip PROPOSE/ASSESS approval rounds; use an inline plan before BUILD; ask at most one grouped question when a fact is missing; escalate on any high-risk signal before editing.
+**One user-visible route:** `micro/standard/full` describes the entry's scope; it is not a workflow route. The resolved `work_type` selects one executable route, canonical stages describe that route, and legacy phase names are adapters. Show the user only the resolved route and its next action; do not present those internal layers as separate stages or approvals. The optional shadow prediction is advisory and `execution_unchanged`; never claim it changed or automatically shortened execution.
+
+| Resolved route | Show this path |
+|---|---|
+| `question` / `investigation` | `EXPLORE` |
+| `standard-config` | `DECIDE` (configuration guidance; no custom BUILD/VERIFY) |
+| `small-change` | `DECIDE → BUILD → VERIFY` (inline plan and focused QA) |
+| `bugfix` | `FIX → BUILD → VERIFY` (diagnosis, root cause, regression) |
+| `feature` / `cross-domain` / `migration` / `security` | `DECIDE → PLAN → BUILD → VERIFY` (formal plan; explicit QA-PLAN) |
+| `verify-only` | `VERIFY` |
+
+**Micro path:** when triage returns micro with `needs_question: false`, avoid PROPOSE/ASSESS approval rounds only where the resolved route allows it; use the selected route above. `small-change` and `bugfix` still require BUILD and VERIFY. `standard-config` remains DECIDE-only. Use an inline plan for inline-plan routes; ask at most one grouped question for missing facts; escalate on any high-risk signal before editing.
+
+**Minimum QA for every code-changing route:** carry a concise QA plan with the work: map each approved human Expectation to at least one focused test/check, include the relevant regression or edge path, and use the project's configured test command. For inline-plan routes, this stays in the existing DECIDE/FIX and BUILD context; it is not a new QA-PLAN phase or artifact. The required VERIFY suite and evidence gates still apply.
 
 1. At `/odf-new` start, after the health gate and user approvals, call `odf_workflow_route(work_type)` and then one `odf_workflow_bind` with the complete preflight plus the exact approved Expectations document. Use `artifact_store: openspec` for OpenSpec and hybrid authority, or `artifact_store: engram` for Engram-only. The bind must report canonical state persisted before Expectations; stop on any failure. Never write Expectations directly through Engram or filesystem tools. The ICE envelope is not a workflow artifact and does not change this binding order.
 2. On continuation, use `state_kind` from `odf_workflow_status`. `expectations-only` and `none` stop; `legacy-artifacts` remains resumable only through explicit `--work-type <type>` recovery and never creates/binds state; `canonical` uses its persisted `work_type`, or requires explicit recovery and binds only that existing state. Never infer work type from legacy phase, artifacts, Expectations, or solution strategy, and never supply start preflight/Expectations from `/odf-continue`.
@@ -496,14 +509,14 @@ comes from `odf_workflow_route`; adapters must not create extra business stages.
 
 ### QA-PLAN
 
-- Delegate the test plan from ASSESS; persist `odf/{change}/qa-plan`.
-- Treat this as PLAN's optional QA lens, not a mandatory precondition for every BUILD or VERIFY. In `interactive`, ask for approval before DESIGN; in `batch` and `auto`, continue only for inner `ok`/`warning`. `blocked`/`failed`, correction, or disposition stops.
+- Run this formal phase only when the resolved route requires PLAN or an explicit risk/complexity escalation selects it; it is not a universal precondition for BUILD or VERIFY. Inline-plan routes keep their minimum QA plan with DECIDE/FIX and BUILD and do not create a separate `qa-plan` artifact.
+- When routed, delegate the detailed test plan from ASSESS, persist `odf/{change}/qa-plan`, and include scenarios, coverage targets, and fixture design. In `interactive`, ask for approval before DESIGN only when this formal PLAN is required; in `batch` and `auto`, continue only for inner `ok`/`warning`. `blocked`/`failed`, correction, or disposition stops.
 
 ### DESIGN
 
 - Select the domain agent(s), using the ASSESS and QA artifacts plus codebase context.
 - Persist `odf/{change}/design`.
-- **Cross-artifact consistency audit (before any BUILD)**: read the persisted proposal, `assess` (REQ-XX), `expectations` (EXP-XX), `qa-plan`, and `design` artifacts and check by ID: (a) every EXP-XX is resolved in the design and covered by at least one REQ-XX; (b) every REQ-XX maps to at least one design task and one test/check; (c) every design task traces to a REQ-XX and nothing exceeds the proposal's in-scope capabilities (scope creep); (d) no dangling IDs. Report the audit as a compact table; any gap stops progression and is presented with the exact missing/extra IDs — adjust the design, re-plan, or cancel. Never delegate BUILD with an unresolved gap.
+- **Cross-artifact consistency audit (before any planned BUILD)**: read the persisted proposal, `assess` (REQ-XX), `expectations` (EXP-XX), `design`, and `qa-plan` when formal QA-PLAN ran. Check by ID: (a) every EXP-XX is resolved in the design and covered by at least one REQ-XX; (b) every REQ-XX maps to at least one design task and one test/check, using the inline QA plan when no `qa-plan` artifact exists; (c) every design task traces to a REQ-XX and nothing exceeds the proposal's in-scope capabilities (scope creep); (d) no dangling IDs. Report the audit as a compact table; any gap stops progression and is presented with the exact missing/extra IDs — adjust the design, re-plan, or cancel. Never delegate BUILD with an unresolved gap.
 - In `interactive`, show the task list and ask to approve, adjust, or cancel; in `batch` and `auto`, continue only for inner `ok`/`warning` AND a clean audit. `blocked`/`failed`, correction, or disposition stops.
 
 ### IMPLEMENT
@@ -513,7 +526,7 @@ comes from `odf_workflow_route`; adapters must not create extra business stages.
 3. For non-cross-domain BUILD, delegate one bounded task batch at a time. On continuation, apply the prior-progress merge instruction; read existing `odf/{change}/implement-progress`, merge new progress, and never overwrite it.
 4. After a sequential batch, read the plugin's `validation` seal. After cross-domain BUILD, read every branch outcome and the aggregate `join`; close BUILD only when `join.status === "complete"`, all branches returned successful delegated envelopes, and every branch `validation.status === "verified"`.
 5. If any validation is `missing` or `invalid`, or any branch fails, do not close BUILD. Use the single aggregate blocked result and receipt for disposition; never start VERIFY.
-6. In `interactive`, show progress and ask whether to continue. In `batch`, auto-continue only when the inner result is `ok`/`warning`, validation is verified, and no correction or disposition is pending. In `auto`, IMPLEMENT starts automatically (the user approved the run at entry) and auto-continues under the same conditions, but the Policy Gate, candidate binding, attempt ledger, and validation evidence remain mandatory. `--fast` still requires IMPLEMENT approval. If route, risk, or work type selects QA review or aggregation, produce that evidence inside BUILD or VERIFY; do not make it a universal pre-VERIFY step.
+6. Carry the minimum QA plan into every code-changing BUILD. In `interactive`, show progress and ask whether to continue only at a required human gate; do not add an approval turn for an adapter transition. In `batch`, auto-continue only when the inner result is `ok`/`warning`, validation is verified, and no correction or disposition is pending. In `auto`, IMPLEMENT starts automatically (the user approved the run at entry) and auto-continues under the same conditions, but the Policy Gate, candidate binding, attempt ledger, and validation evidence remain mandatory. `--fast` still requires IMPLEMENT approval. If route, risk, or work type selects formal QA review or aggregation, produce that evidence inside BUILD or VERIFY; do not make it a universal pre-VERIFY step.
 7. Persist `odf/{change}/implement-progress`.
 
 ### VERIFY

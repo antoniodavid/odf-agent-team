@@ -17,6 +17,14 @@ Composes the `diagnose -> FIX -> BUILD -> VERIFY` flow. The diagnosis must bind
 or create the `bugfix` state and call `odf_workflow_bind` with `terminal_stage: FIX`,
 `root_cause`, and `regression` before BUILD. BUILD uses the legacy `IMPLEMENT`
 adapter; there is no valid bypass through a direct task outside the workflow.
+Present this as one route, not as separate phase handoffs. Carry a focused QA
+plan (approved expectation → regression test/check) inline with diagnosis/BUILD;
+do not add a formal QA-PLAN for a localized bugfix. If diagnosis reveals
+architectural change or elevated risk, stop before BUILD, persist a blocked
+receipt with the cause/evidence, and request one disposition. Do not submit the
+bugfix BUILD proof after escalation. If the user chooses broader work, start a
+separate `/odf-new <new-change-name>` so triage can bind the appropriate route;
+never silently rebind or resume this bugfix as another work type.
 
 "No pauses" refers to human phase approvals: the mechanical gates
 (`odf_policy_gate`, validation evidence, VERIFY, and risk escalation) remain
@@ -49,7 +57,7 @@ the bounded automatic retry.
    - Integration bug → `odoo_api_integrator`
    - Database/performance bug → `odoo_dba_devops`
    - No clear domain → `odoo_backend_engineer` (default)
-5. **Persist the terminal FIX**: require the root-cause analysis and a minimal regression; do not allow BUILD until `fix.yaml` and `completed_canonical_stages: [FIX]` are persisted. A missing state is only created by this bind; a BUILD without state is blocked and offers `/odf-continue <fix-name>`. If the diagnosis reveals an architectural change or elevated risk, escalate to `DECIDE -> PLAN` BEFORE editing; a bounded multi-file change (single root cause, ≤8 files, no schema/security/data-loss signals) continues in the same flow with an inline plan and records it in the result.
+ 5. **Persist the terminal FIX**: require the root-cause analysis and a minimal regression; do not allow BUILD until `fix.yaml` and `completed_canonical_stages: [FIX]` are persisted. A missing state is only created by this bind; a BUILD without state is blocked and offers `/odf-continue <fix-name>`. If diagnosis reveals architectural change or elevated risk, persist a blocked receipt and stop before BUILD; do not use the bugfix transition proof. Present one disposition and, only if broader work is chosen, start a distinct `/odf-new <new-change-name>` with a newly resolved route. A bounded multi-file change (single root cause, ≤8 files, no schema/security/data-loss signals) continues in the same flow with an inline plan and records it in the result.
 6. **Run BUILD** through `odf_delegation_prepare` → host `subagent` → `odf_delegation_seal` when the host tool is available; otherwise use the `odf_delegate` compatibility adapter. Pass the `odf_workflow_route("bugfix")` transition under `workflow_advance`, an explicit `artifact_store: openspec|engram`, and a fresh opaque `attempt_id` per launch. Strict workflow is active by default; omitting those fields blocks before delegating. Before each batch, apply `odf_policy_gate`; close only with verified validation evidence and update `implement-progress`.
 7. **Run VERIFY** through the same native prepare/subagent/seal sequence when available, otherwise `odf_delegate`. Pass the transition to `VERIFY` under `workflow_advance`, an explicit `artifact_store: openspec|engram`, and a fresh opaque `attempt_id`, preserving the frozen ref, the correction budget, and the risk/lens selection. Fast-lane BUILD/VERIFY uses its required `odf_delegate` path; fresh cross-domain BUILD uses the native parallel pair when available, otherwise `odf_parallel_delegate`.
 8. **Show results** to the user, preserving the receipt and verification guarantees:
@@ -71,8 +79,8 @@ ODF: Fix completed — "{fix-name}"
 ```
 ODF: Fix blocked — "{fix-name}"
 
-  This bug requires architectural changes beyond a localized fix.
-  Recommendation: continue with DECIDE/PLAN or run /odf-new {fix-name}.
+   This bug requires a different route than the bound bugfix workflow.
+   Recommendation: resolve the pending receipt, then start /odf-new {new-change-name} for the broader scope.
 ```
 
 ## Implicit detection

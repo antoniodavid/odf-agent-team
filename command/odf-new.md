@@ -10,6 +10,29 @@ Starts a new ODF change using the canonical flow `DECIDE -> optional PLAN -> BUI
 Legacy mapping remains compatible: `DECIDE = PROPOSE + ASSESS`, `PLAN = QA-PLAN + DESIGN`,
 and `BUILD = IMPLEMENT`.
 
+## One route shown to the user
+
+The triage level (`micro/standard/full`) describes entry scope; the resolved
+`work_type` selects the route. Canonical stages and legacy phase names are
+internal mappings, not additional user-facing stages or approvals. Show one
+resolved route and its next action. The optional shadow prediction is advisory
+and has `execution_unchanged: true`; it must not be presented as automatic
+routing or as evidence that execution was shortened.
+
+| Resolved work type | User-facing route |
+|---|---|
+| `question` / `investigation` | `EXPLORE` |
+| `standard-config` | `DECIDE` (configuration guidance; no custom BUILD/VERIFY) |
+| `small-change` | `DECIDE → BUILD → VERIFY` (inline plan and focused QA) |
+| `bugfix` | `FIX → BUILD → VERIFY` (diagnosis, root cause, regression) |
+| `feature` / `cross-domain` / `migration` / `security` | `DECIDE → PLAN → BUILD → VERIFY` (formal plan/QA) |
+| `verify-only` | `VERIFY` |
+
+Every code-changing route carries a focused QA plan tied to approved
+Expectations. Small changes and bugfixes keep it inline; routes requiring PLAN
+or an explicit risk/complexity escalation use a formal QA-PLAN. VERIFY and its
+evidence gates remain required by the resolved route.
+
 ## Usage
 
 ```
@@ -50,8 +73,8 @@ and `BUILD = IMPLEMENT`.
 10. **Resolve Expectations**: first read the existing artifact from the same store. If it is approved, valid, and matches the human contract exactly, reuse its IDs and complete protected content without asking, renumbering, or saving again. Protected content includes `change`, `intent`, `expectations`, and any present top-level `constraints`, `success_scenarios`, `failure_scenarios`, or `connections`. If it differs or is invalid/tampered, block. If it does not exist, distill intent and Expectations from the USER (description + ONE clarification), restate `EXP-01…EXP-N` with `owned_by: "human"`, ask for explicit confirmation, and keep the approved document in memory.
 11. **Resolve the route** with `odf_workflow_route(work_type)`.
 12. **Start atomically through `odf_workflow_bind`**: pass `change_name`, `work_type`, the complete preflight, and the exact approved `expectations` document. Missing-state creation is accepted only under the runtime authorization issued for this exact `/odf-new` command/change after health; an ordinary bind cannot create state. Use `artifact_store: openspec` for OpenSpec or hybrid authority and `artifact_store: engram` for Engram-only. For `small-change`/`standard-config`, also pass `terminal_stage: DECIDE`; for all others bind before the first phase. The tool persists canonical state before Expectations. Never persist either artifact directly. Stop on any blocked/failure result.
-13. **Run DECIDE** through `PROPOSE` and `ASSESS` only for non-micro routes. Micro routes use the terminal DECIDE materialized by the bind; `standard-config` ends there.
-14. **Run optional PLAN**, then BUILD and VERIFY according to the resolved route. Do not reintroduce skipped legacy adapters.
+13. **Run the route's entry stage**: use `PROPOSE`/`ASSESS` only when the resolved route requires formal DECIDE; `small-change` uses the terminal DECIDE materialized by bind, `standard-config` ends there, and `bugfix` begins at FIX. Never infer the route from the triage level alone.
+14. **Run only the resolved route**: keep the inline QA plan with small-change/bugfix work; run formal PLAN/QA-PLAN only when required by the route or an explicit risk/complexity escalation; then BUILD and VERIFY when that route requires them. Do not reintroduce skipped legacy adapters or ask for approval at an adapter-only transition.
 15. If `--fast`, skip voluntary approval gates only where existing compatibility permits; never skip health, preflight, Expectations approval/reuse validation, Policy Gate, validation evidence, route-required VERIFY, or failure disposition. If `execution_mode` is `auto`, the voluntary approval gates are skipped automatically under the same rules as `--fast`, and the mandatory gates listed here still apply: health, preflight, Expectations approval/reuse validation, Policy Gate, validation evidence, route-required VERIFY, and failure disposition.
 
 For BUILD (`IMPLEMENT`) and VERIFY starts, pass the persisted `work_type`, exact transition input as `workflow_advance`, explicit authoritative `artifact_store`, and a fresh opaque `attempt_id` for each launch. Reusing an ID or relaunching a completed phase is blocked; an already committed desired state returns `already-committed` without relaunching. `odf_workflow_advance` is read-only and store-independent; the delegate re-reads, validates, and commits only the selected store before settling the attempt. Evidence or persistence failure leaves canonical state unchanged and blocks. A `/odf-new` run without a persisted binding must stop; never forward an unbound caller default. Legacy calls that omit `workflow_advance` are blocked unless `flags.strict_workflow` is explicitly `false` (opt-out); they never auto-commit.
@@ -109,13 +132,9 @@ explicit and disabled by default; no canary, rollout, or performance claim is im
 ```
 ODF: Starting change "{change-name}"
 
-Phase: PROPOSE
-Agent: odoo_proposer
-...
+Route: {one resolved user-facing route}
+Next: {single next action}
+QA: {inline focused checks | formal QA-PLAN, as selected by the route}
 
-Assessment completed:
-  Strategy: {standard | custom}
-  Summary: {executive_summary}
-
-Do you want to adjust anything, or shall we continue?
+Continue only when a required human decision is actually pending.
 ```

@@ -44,6 +44,13 @@ Own the QA plan, test evidence, traceability, and QA verdict. Do not implement
 code, edit fixes, or replace the domain agents. A code review is evidence/input
 only; the VERIFY verdict is owned here and must be based on recorded evidence.
 
+Every code-changing route needs focused QA tied to approved Expectations. Keep
+the test/check plan inline for `small-change` and `bugfix`; do not require a
+separate `qa-plan` artifact or QA-PLAN handoff unless the resolved route or an
+explicit risk/complexity escalation selects formal PLAN. When invoked for VERIFY
+on an inline-plan route, verify the required test/evidence gates without
+inventing a missing formal QA artifact.
+
 ## Shared Conventions (MUST READ before any work)
 
 - `~/.config/opencode/skills/_shared/odoo-sources.md` — Local Odoo/OCA source paths and search priority
@@ -110,7 +117,7 @@ compact rules); index at `~/.config/opencode/skills/oca/SKILL.md`. Families:
 
 ## Test Quality Checklist
 
-### Before Tests Are Written (QA-PLAN phase)
+### For a Formal QA-PLAN
 
 ```
 1. Load the approved human Expectations (EXP-XX) from the `expectations` artifact — these are the PRIMARY evaluation contract

@@ -18,55 +18,52 @@ ODF is an OpenCode skill/agent pack that turns a generic AI assistant into a str
 | Entry point | Use when |
 |-------------|----------|
 | `/odf-init` | You opened a new Odoo project and want ODF to detect version, modules, test runner, etc. |
-| `/odf-new <name>` | You want to start a formal change (feature, refactor, migration). Runs preflight first. |
+| `/odf-new <name>` | You want to start a change on its resolved route. Runs health/preflight first and shows one route. |
 | `/odf-continue [name]` | You want to resume an active change from the last completed stage. |
 | `/odf-status [name]` | You want to see active changes or inspect one in detail (canonical thin-spine status). |
 | `/odf-explore <topic>` | You want to research a topic without creating a formal change. |
 | `/odf-fix <topic>` | You have a focused bug: diagnose → BUILD → VERIFY, escalating to full ODF when architecture changes are needed. |
 | `/odf-apply` | BUILD alias for an existing planned change (legacy IMPLEMENT adapter). |
 | `/odf-verify` | You finished implementation and want the quality gate. |
-| `/odf-qa` | QA lens inside PLAN/BUILD/VERIFY, not a mandatory standalone stage. |
+| `/odf-qa` | Formal QA lens when routed; small changes keep focused QA inline. |
 
 ## The Workflow
 
-A normal ODF change follows the thin-spine flow:
+A change follows one resolved route; the orchestrator does not show every
+adapter phase as a separate handoff:
 
 ```
 /odf-new my-feature
    │
    ▼
-Preflight gate ──► asks for Odoo version, artifact store, delivery strategy, TDD mode, etc.
-   │
-   ▼
-DECIDE (PROPOSE + ASSESS) ──► business framing, scope approval, standard vs custom
-   │
-   ▼
-optional PLAN (QA lens + DESIGN) ──► architecture + task breakdown, when routing requires it
-   │
-   ▼
-BUILD (IMPLEMENT) ──► code changes, tests, docs
-   │
-   ▼
-VERIFY ──► tests, lint, compliance, Judgment Day review
-   │
-   ▼
-ARCHIVED
+Health + one intake ──► show the resolved route and next action
+   ├── EXPLORE                         question / investigation
+   ├── DECIDE                          standard configuration
+   ├── DECIDE → BUILD → VERIFY         small change (inline QA)
+   ├── FIX → BUILD → VERIFY            bugfix (inline regression QA)
+   ├── DECIDE → PLAN → BUILD → VERIFY  feature / cross-domain / elevated risk
+   └── VERIFY                          verify-only
 ```
 
 Routing decides how much of the spine a change needs:
 
-- **Standard config** (custom module on a known pattern): can stop after DECIDE with optional verification.
-- **Small change**: inline PLAN before BUILD, no separate design stage.
-- **Normal / cross-domain / migration / security**: full DECIDE → PLAN → BUILD → VERIFY.
+- **Standard config** (known standard feature): ends after DECIDE; no custom BUILD.
+- **Small change**: inline plan and focused QA before BUILD; no separate QA-PLAN/design handoffs.
+- **Feature / cross-domain / migration / security**: formal DECIDE → PLAN → BUILD → VERIFY, with QA-PLAN when the route or escalation requires it.
 - **Bugfix** (`/odf-fix`): diagnose → BUILD → VERIFY, escalating only when architecture changes appear.
 - **Investigation**: `/odf-explore`, no formal change created.
 
-`QA-PLAN`/`QA-REVIEW`/`QA-AGGREGATE`/`QA-REPORT` are QA lenses embedded in
-PLAN, BUILD, and VERIFY — they are not mandatory top-level stages. Legacy
-phase names still work as adapters (`DECIDE = PROPOSE + ASSESS`,
-`PLAN = QA-PLAN + DESIGN`, `BUILD = IMPLEMENT`).
+Show one user-facing route selected by `work_type`; triage level
+(`micro/standard/full`) and legacy phase names are internal mappings. Every
+code-changing route carries focused QA tied to approved Expectations. Small
+changes and bugfixes keep the test/check plan inline and need no separate
+`qa-plan` artifact; formal QA-PLAN is used when the resolved route requires PLAN
+or risk/complexity explicitly escalates it. QA-REVIEW/QA-AGGREGATE/QA-REPORT are
+conditional lenses, not universal handoffs. Legacy phase names remain adapters
+(`DECIDE = PROPOSE + ASSESS`, `PLAN = QA-PLAN + DESIGN`, `BUILD = IMPLEMENT`).
 
-Approval gates pause after each stage unless `--fast` was used. The selected
+Ask for a human decision only at a required approval or when scope/Expectations
+are unresolved; adapter transitions do not add approval pauses. The selected
 artifact store is `openspec`, `engram`, or `hybrid`; the current
 state-machine helpers persist runtime state to
 `openspec/changes/{change}/state.yaml`, while Engram stores phase artifacts
