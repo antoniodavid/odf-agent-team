@@ -3661,6 +3661,18 @@ describe("createODFDelegate", () => {
     archived_state: false,
   }
 
+  const archiveTransitionInput = (workspaceRoot: string, changeName: string, artifactStore: "openspec" | "engram" | "hybrid") => ({
+    workspaceRoot,
+    changeName,
+    artifactStore,
+    proof: archiveProof,
+    expectedStage: "ARCHIVE" as const,
+    callerResult: advanceWorkflow({ route: resolveWorkflowRoute("feature"), ...archiveProof }),
+    phaseResultStatus: "ok" as const,
+    validationStatus: "verified" as const,
+    validation: null,
+  })
+
   const parallelWorkflowAdvance = () => ({
     work_type: "cross-domain" as const,
     completed_stages: ["DECIDE" as const],
@@ -6998,10 +7010,10 @@ ${overrides}`
       expect(result).toMatchObject({ status: "committed", store: "engram", canonical_stage: "ARCHIVED", state_ref: `odf/${change}/state` })
       const calls = JSON.parse(await fs.readFile(fake.logPath, "utf8"))
       expect(calls.filter((call: string[]) => call[0] === "save").map((call: string[]) => call[1])).toEqual([
-        `odf/${change}/state`, `odf/${change}/archive-report`,
+        `odf/${change}/archive-report`, `odf/${change}/state`,
       ])
       const saves = calls.filter((call: string[]) => call[0] === "save")
-      expect(saves[0][2]).toContain('"work_type":"feature"')
+      expect(saves[1][2]).toContain('"work_type":"feature"')
     } finally {
       await fake.cleanup()
     }
@@ -7027,8 +7039,122 @@ ${overrides}`
       expect(second.status).toBe("already-committed")
       const calls = JSON.parse(await fs.readFile(fake.logPath, "utf8"))
       expect(calls.filter((call: string[]) => call[0] === "save").map((call: string[]) => call[1])).toEqual([
-        `odf/${change}/state`, `odf/${change}/archive-report`,
+        `odf/${change}/archive-report`, `odf/${change}/state`,
       ])
+    } finally {
+      await fake.cleanup()
+    }
+  })
+
+  it.each(["report", "state"] as const)("recovers OpenSpec archive after a %s write failure", async failurePoint => {
+    const change = `archive-openspec-${failurePoint}-retry`
+    const changeDir = path.join(tempHome, "openspec", "changes", change)
+    const statePath = path.join(changeDir, "state.yaml")
+    const state = "work_type: feature\ncanonical_stage: VERIFY\ncompleted_canonical_stages: [DECIDE, PLAN, BUILD, VERIFY]\n"
+    await fs.mkdir(changeDir, { recursive: true })
+    await fs.writeFile(statePath, state, "utf8")
+    await fs.writeFile(path.join(changeDir, "verify-report.yaml"), "status: passed\n", "utf8")
+    let externalDir: string | null = null
+
+    if (failurePoint === "report") {
+      await fs.chmod(changeDir, 0o555)
+    } else {
+      externalDir = await fs.mkdtemp(path.join(os.tmpdir(), "odf-archive-escaped-state-"))
+      const externalState = path.join(externalDir, "state.yaml")
+      await fs.writeFile(externalState, state, "utf8")
+      await fs.unlink(statePath)
+      await fs.symlink(externalState, statePath)
+    }
+
+    try {
+      const first = await commitWorkflowTransition(archiveTransitionInput(tempHome, change, "openspec"))
+      expect(first.status).toBe("blocked")
+      expect(first.reason).toBe(failurePoint === "report" ? "archive-report-write-failed" : "unsafe-state-path")
+
+      if (failurePoint === "report") {
+        await fs.chmod(changeDir, 0o755)
+      } else {
+        await fs.unlink(statePath)
+        await fs.writeFile(statePath, state, "utf8")
+      }
+
+      const retry = await commitWorkflowTransition(archiveTransitionInput(tempHome, change, "openspec"))
+      expect(retry).toMatchObject({ status: "committed", canonical_stage: "ARCHIVED" })
+      expect(YAML.parse(await fs.readFile(statePath, "utf8")).canonical_stage).toBe("ARCHIVED")
+      expect(YAML.parse(await fs.readFile(path.join(changeDir, "archive-report.yaml"), "utf8"))).toMatchObject({ status: "archived" })
+    } finally {
+      await fs.chmod(changeDir, 0o755)
+      if (externalDir) await fs.rm(externalDir, { recursive: true, force: true })
+    }
+  })
+
+  it.each(["state", "archive-report"] as const)("recovers Engram archive after a %s save failure", async failurePoint => {
+    const change = `archive-engram-${failurePoint}-retry`
+    const fake = await configureFakeEngram()
+    await fake.setObservations([{
+      topic_key: `odf/${change}/state`,
+      content: JSON.stringify({ work_type: "feature", canonical_stage: "VERIFY", completed_canonical_stages: ["DECIDE", "PLAN", "BUILD", "VERIFY"] }),
+      created_at: new Date().toISOString(),
+      project: path.basename(tempHome),
+    }, {
+      topic_key: `odf/${change}/verify-report`,
+      content: "status: passed\n",
+      created_at: new Date().toISOString(),
+      project: path.basename(tempHome),
+    }])
+    fake.setFailureTopic(`odf/${change}/${failurePoint}`)
+
+    try {
+      const first = await commitWorkflowTransition(archiveTransitionInput(tempHome, change, "engram"))
+      expect(first.status).toBe("blocked")
+      expect(first.reason).toBe(failurePoint === "state" ? "engram-save-failed" : "archive-report-save-failed")
+
+      fake.setFailureTopic(null)
+      const retry = await commitWorkflowTransition(archiveTransitionInput(tempHome, change, "engram"))
+      expect(retry.reason).toBe("committed")
+      expect(retry).toMatchObject({ status: "committed", canonical_stage: "ARCHIVED" })
+      const calls = JSON.parse(await fs.readFile(fake.logPath, "utf8")) as string[][]
+      const saves = calls.filter(call => call[0] === "save").map(call => call[1])
+      expect(saves.filter(topic => topic === `odf/${change}/state`)).toHaveLength(failurePoint === "state" ? 2 : 1)
+      expect(saves.filter(topic => topic === `odf/${change}/archive-report`)).toHaveLength(2)
+    } finally {
+      await fake.cleanup()
+    }
+  })
+
+  it.each(["state", "archive-report"] as const)("repairs the hybrid Engram mirror after a %s save failure", async failurePoint => {
+    const change = `archive-hybrid-${failurePoint}-retry`
+    const fake = await configureFakeEngram()
+    const changeDir = path.join(tempHome, "openspec", "changes", change)
+    await fs.mkdir(changeDir, { recursive: true })
+    await fs.writeFile(path.join(changeDir, "state.yaml"), "work_type: feature\ncanonical_stage: VERIFY\ncompleted_canonical_stages: [DECIDE, PLAN, BUILD, VERIFY]\n", "utf8")
+    await fs.writeFile(path.join(changeDir, "verify-report.yaml"), "status: passed\n", "utf8")
+    await fake.setObservations([{
+      topic_key: `odf/${change}/state`,
+      content: JSON.stringify({ work_type: "feature", canonical_stage: "VERIFY", completed_canonical_stages: ["DECIDE", "PLAN", "BUILD", "VERIFY"] }),
+      created_at: new Date().toISOString(),
+      project: path.basename(tempHome),
+    }, {
+      topic_key: `odf/${change}/verify-report`,
+      content: "status: passed\n",
+      created_at: new Date().toISOString(),
+      project: path.basename(tempHome),
+    }])
+    fake.setFailureTopic(`odf/${change}/${failurePoint}`)
+
+    try {
+      const first = await commitWorkflowTransition(archiveTransitionInput(tempHome, change, "hybrid"))
+      expect(first.status).toBe("blocked")
+      expect(first.reason).toBe(failurePoint === "state" ? "engram-save-failed" : "archive-report-save-failed")
+      expect(YAML.parse(await fs.readFile(path.join(changeDir, "state.yaml"), "utf8")).canonical_stage).toBe("ARCHIVED")
+
+      fake.setFailureTopic(null)
+      const retry = await commitWorkflowTransition(archiveTransitionInput(tempHome, change, "hybrid"))
+      expect(retry).toMatchObject({ status: "committed", canonical_stage: "ARCHIVED" })
+      const calls = JSON.parse(await fs.readFile(fake.logPath, "utf8")) as string[][]
+      const saves = calls.filter(call => call[0] === "save").map(call => call[1])
+      expect(saves.filter(topic => topic === `odf/${change}/state`)).toHaveLength(failurePoint === "state" ? 2 : 1)
+      expect(saves.filter(topic => topic === `odf/${change}/archive-report`)).toHaveLength(2)
     } finally {
       await fake.cleanup()
     }

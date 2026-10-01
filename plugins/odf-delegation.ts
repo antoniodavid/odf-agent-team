@@ -6417,8 +6417,8 @@ function writeEngramArchive(
   governance?: OcaGovernanceEvidence,
   acknowledgment?: GovernanceAcknowledgment,
 ): string | null {
-  const stateError = writeEngramWorkflowState(workspaceRoot, changeName, stateContent, workType, "ARCHIVED", completedStages, target, governance, acknowledgment)
-  if (stateError) return stateError
+  // Persist the report first so a state-save failure leaves the workflow at VERIFY;
+  // a retry can then safely repeat the archive instead of seeing a false terminal state.
   const topicKey = `odf/${changeName}/archive-report`
   const project = workspaceProjectName(resolveWorkspaceRoot(workspaceRoot))
   try {
@@ -6426,11 +6426,11 @@ function writeEngramArchive(
       "save", topicKey, archiveReport(changeName, workType, completedStages),
       "--type", "architecture", "--project", project, "--scope", "project", "--topic", topicKey,
     ], { cwd: workspaceRoot, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], timeout: 15_000, maxBuffer: 64 * 1024 })
-    return null
   } catch (error) {
     const code = (error as NodeJS.ErrnoException).code
     return code === "ENOENT" ? "engram-cli-unavailable" : code === "ETIMEDOUT" ? "engram-save-timeout" : "archive-report-save-failed"
   }
+  return writeEngramWorkflowState(workspaceRoot, changeName, stateContent, workType, "ARCHIVED", completedStages, target, governance, acknowledgment)
 }
 
 function writeArchiveWorkflow(
@@ -6554,10 +6554,34 @@ export async function commitWorkflowTransition(opts: {
     if (opts.expectedStage === "ARCHIVE") {
       const route = resolveWorkflowRoute(opts.proof.work_type)
       const completed = persistedCompletedStages(read.snapshot, route)
+      const hasArchiveReport = read.snapshot.artifacts.some(artifact => normalizeArtifactKey(artifact.key).type === "archive-report")
       const alreadyArchived = read.snapshot.status.canonical_stage === "ARCHIVED" &&
-        read.snapshot.artifacts.some(artifact => normalizeArtifactKey(artifact.key).type === "archive-report")
+        hasArchiveReport
       if (alreadyArchived) {
-        return makeResult("already-committed", "already-committed", "Workflow is already archived.", read.snapshot, completed, opts.validation, null, "ARCHIVED")
+        if (opts.artifactStore !== "hybrid") {
+          return makeResult("already-committed", "already-committed", "Workflow is already archived.", read.snapshot, completed, opts.validation, null, "ARCHIVED")
+        }
+        // OpenSpec is authoritative for hybrid workflows, but a previous attempt
+        // may have committed it before the Engram mirror failed.
+        const mirrorRead = await readSelectedWorkflowState(opts.workspaceRoot, opts.changeName, "engram")
+        const mirror = mirrorRead.snapshot
+        const mirrorComplete = mirror?.status.canonical_stage === "ARCHIVED" &&
+          route.stages.every(stage => mirror.status.completed_canonical_stages.includes(stage)) &&
+          mirror.artifacts.some(artifact => normalizeArtifactKey(artifact.key).type === "archive-report")
+        if (mirrorComplete) {
+          return makeResult("already-committed", "already-committed", "Workflow is already archived.", read.snapshot, completed, opts.validation, null, "ARCHIVED")
+        }
+        const mirrorError = writeEngramArchive(
+          opts.workspaceRoot,
+          opts.changeName,
+          read.snapshot.stateContent,
+          opts.proof.work_type,
+          route.stages,
+        )
+        if (mirrorError) {
+          return makeResult("blocked", mirrorError, "The authoritative archive is committed, but the Engram mirror could not be repaired.", read.snapshot, completed, opts.validation, null, "ARCHIVED")
+        }
+        return makeResult("committed", "committed", "Repaired the Engram archive mirror from authoritative OpenSpec state.", read.snapshot, route.stages, opts.validation, null, "ARCHIVED")
       }
       if (read.snapshot.status.receipt.state === "pending") {
         return makeResult("blocked", "workflow-receipt-pending", "Resolve the pending failure receipt before archiving.", read.snapshot, completed, opts.validation, null)
@@ -7276,7 +7300,7 @@ The workspace defaults to the current session directory. This tool never writes 
 
 function createODFWorkflowArchive(canonicalDirectory?: string): ReturnType<typeof tool> {
   return tool({
-    description: `Commit the terminal ARCHIVE transition through the selected workflow store. This action is locked and idempotent: it requires terminal VERIFY evidence, blocks pending receipts and running attempts, and safely returns already-committed on a concurrent/repeated request. It does not move or rewrite the change directory.`,
+    description: `Commit the terminal ARCHIVE transition through the selected workflow store. This action is locked and idempotent: it requires terminal VERIFY evidence, blocks pending receipts and running attempts, safely returns already-committed on a concurrent/repeated request, and repairs an incomplete Engram mirror from authoritative OpenSpec state on retry. It does not move or rewrite the change directory.`,
     args: {
       change_name: tool.schema.string().describe("Exact name of the verified ODF change to archive"),
       artifact_store: tool.schema.enum(["openspec", "engram", "hybrid"]).describe("Authoritative workflow store persisted for this change"),
