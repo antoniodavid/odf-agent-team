@@ -14,7 +14,7 @@ export type LegacyPhase = RouteLegacyPhase | "ARCHIVED"
 export type ReceiptState = "none" | "pending" | "resolved"
 export type WorkflowStateKind = "canonical" | "legacy-artifacts" | "expectations-only" | "none"
 export interface NormalizedArtifactKey { original: string; group: WorkflowStage | null; type: string }
-export interface WorkflowArtifact { key?: string; content?: unknown; status?: unknown; created_at?: unknown; createdAt?: unknown; ref?: unknown }
+export interface WorkflowArtifact { key?: string; content?: unknown; status?: unknown; created_at?: unknown; createdAt?: unknown; created?: unknown; ref?: unknown }
 export type WorkflowArtifacts = Record<string, WorkflowArtifact | string | boolean | null | undefined> | WorkflowArtifact[]
 export interface WorkflowState {
   canonical_stage?: unknown; canonicalStage?: unknown; current_stage?: unknown; currentStage?: unknown; stage?: unknown
@@ -319,7 +319,7 @@ function toArtifact(key: string, value: unknown): InternalArtifact {
     normalized: normalizeArtifactKey(key),
     content: typeof value === "string" ? value : asString(record?.content),
     status,
-    createdAt: record?.created_at ?? record?.createdAt,
+    createdAt: record?.created_at ?? record?.createdAt ?? record?.created,
     explicitStatus: Boolean(status),
   }
 }
@@ -331,6 +331,66 @@ function normalizeArtifacts(input?: WorkflowArtifacts): InternalArtifact[] {
   })
   return Object.entries(input).map(([key, value]) => toArtifact(key, value))
 }
+
+interface ArtifactInvalidation {
+  fromIndex: number
+  invalidatedAt: number | null
+  malformed: boolean
+}
+
+function artifactInvalidation(state: WorkflowState | null, routeStages: readonly ActiveCanonicalStage[]): ArtifactInvalidation | null {
+  if (!state || !Object.prototype.hasOwnProperty.call(state, "artifact_invalidation")) return null
+  const marker = asRecord(state.artifact_invalidation)
+  const fromStage = stateStage(marker?.from_stage)
+  const fromIndex = fromStage ? routeStages.indexOf(fromStage as ActiveCanonicalStage) : -1
+  const rawTimestamp = marker?.invalidated_at
+  const invalidatedAt = typeof rawTimestamp === "string" ? Date.parse(rawTimestamp) : Number.NaN
+  const valid = marker?.version === 1 && fromIndex >= 0 && Number.isFinite(invalidatedAt)
+  return {
+    // Malformed invalidation metadata must fail closed rather than making
+    // potentially stale phase evidence current again.
+    fromIndex: valid ? fromIndex : 0,
+    invalidatedAt: valid ? invalidatedAt : null,
+    malformed: !valid,
+  }
+}
+
+function isArtifactInvalidated(artifact: InternalArtifact, marker: ArtifactInvalidation | null, routeStages: readonly ActiveCanonicalStage[]): boolean {
+  if (!marker) return false
+  const stage = artifact.normalized.group
+  const stageIndex = stage ? routeStages.indexOf(stage as ActiveCanonicalStage) : -1
+  if (stageIndex < marker.fromIndex) return false
+  if (marker.invalidatedAt === null) return true
+  const createdAt = typeof artifact.createdAt === "string" ? Date.parse(artifact.createdAt) : Number.NaN
+  // Missing/invalid timestamps cannot prove that the artifact was produced
+  // after the re-entry, so they remain ineligible until rewritten.
+  return !Number.isFinite(createdAt) || createdAt <= marker.invalidatedAt
+}
+
+/**
+ * Keep historical phase artifacts on disk/Engram while excluding evidence
+ * produced before a persisted re-entry marker. Freshly rewritten artifacts
+ * at the same key become eligible once their timestamp is later than the
+ * marker.
+ */
+export function filterInvalidatedWorkflowArtifacts<T extends WorkflowArtifact>(
+  state: WorkflowState | string | null | undefined,
+  artifacts: T[],
+): T[] {
+  const parsedState = stateRecord(state).state
+  if (!parsedState || !Object.prototype.hasOwnProperty.call(parsedState, "artifact_invalidation")) return artifacts
+  const workType = declaredWorkType(parsedState, [])
+  const routeStages = workType ? resolveWorkflowRoute(workType).stages : STAGES
+  const marker = artifactInvalidation(parsedState, routeStages)
+  const normalized = artifacts.map((artifact) => {
+    const key = asString(artifact.key) || ""
+    return { artifact, normalized: normalizeArtifactKey(key), createdAt: artifact.created_at ?? artifact.createdAt ?? artifact.created }
+  })
+  return normalized
+    .filter(({ normalized: key, createdAt }) => !isArtifactInvalidated({ normalized: key, content: null, status: null, createdAt, explicitStatus: false }, marker, routeStages))
+    .map(({ artifact }) => artifact)
+}
+
 function artifactStatus(artifact: InternalArtifact): string | null {
   if (artifact.status) return artifact.status
   if (!artifact.content) return null
@@ -483,13 +543,13 @@ function canonicalCompletion(stage: ActiveCanonicalStage, artifacts: InternalArt
   return Boolean(primary && isTerminal(primary))
 }
 export function deriveWorkflowStatus(input: WorkflowStatusInput): WorkflowStatus {
-  const artifacts = normalizeArtifacts(input.artifacts)
-  const stateArtifact = artifacts.find((artifact) => artifact.normalized.type === "state")
+  const rawArtifacts = normalizeArtifacts(input.artifacts)
+  const stateArtifact = rawArtifacts.find((artifact) => artifact.normalized.type === "state")
   const parsedState = stateRecord(input.state ?? stateArtifact?.content)
   const statePresent = parsedState.state !== null
-  const hasLegacyArtifacts = !statePresent && artifacts.some((artifact) =>
+  const hasLegacyArtifacts = !statePresent && rawArtifacts.some((artifact) =>
     artifact.normalized.group !== null && artifact.normalized.type !== "qa-plan")
-  const expectationsOnly = !statePresent && !hasLegacyArtifacts && artifacts.length > 0 && artifacts.every((artifact) => artifact.normalized.type === "expectations")
+  const expectationsOnly = !statePresent && !hasLegacyArtifacts && rawArtifacts.length > 0 && rawArtifacts.every((artifact) => artifact.normalized.type === "expectations")
   const stateKind: WorkflowStateKind = statePresent ? "canonical" : hasLegacyArtifacts ? "legacy-artifacts" : expectationsOnly ? "expectations-only" : "none"
   const signals = explicitStateSignals(parsedState.state)
   const warnings = [...(input.warnings || []), ...parsedState.warnings]
@@ -498,6 +558,13 @@ export function deriveWorkflowStatus(input: WorkflowStatusInput): WorkflowStatus
   const route = workType ? resolveWorkflowRoute(workType) : null
   const routeStages = route?.stages || STAGES
   const routeLegacyPhases: readonly LegacyPhase[] = route?.legacy_phases || DEFAULT_LEGACY_PHASES
+  const invalidation = artifactInvalidation(parsedState.state, routeStages)
+  const artifacts = rawArtifacts.filter((artifact) => !isArtifactInvalidated(artifact, invalidation, routeStages))
+  if (invalidation?.malformed) {
+    warnings.push("Artifact invalidation metadata is malformed; affected stage artifacts are ignored until regenerated.")
+  } else if (invalidation && invalidation.invalidatedAt !== null) {
+    warnings.push(`Re-entry freshness boundary from ${routeStages[invalidation.fromIndex]}: only later-dated artifacts can complete affected stages.`)
+  }
   const compatibleStateLegacy = signals.legacy && routeLegacyPhases.includes(signals.legacy) ? signals.legacy : null
   const routeCompleted = legacyCompletedStages(routeStages, routeLegacyPhases, compatibleStateLegacy)
   const completionSignals: Partial<Record<CanonicalStage, boolean>> = { ...signals.completed }

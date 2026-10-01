@@ -164,6 +164,50 @@ describe("workflow status adapter", () => {
     expect(complete.legacy_phase).toBe("VERIFY")
   })
 
+  it("ignores phase artifacts created before a persisted re-entry and accepts refreshed artifacts", () => {
+    const state = {
+      work_type: "feature",
+      canonical_stage: "DECIDE",
+      completed_canonical_stages: [],
+      artifact_invalidation: {
+        version: 1,
+        from_stage: "DECIDE",
+        invalidated_at: "2026-10-01T12:00:00.000Z",
+      },
+    }
+    const staleArtifacts = [
+      { key: "openspec/changes/change/proposal.md", content: "status: passed", created_at: "2026-10-01T11:59:00.000Z" },
+      { key: "openspec/changes/change/assessment.md", content: "status: passed", created_at: "2026-10-01T11:59:00.000Z" },
+      { key: "openspec/changes/change/qa-plan.md", content: "status: passed", created_at: "2026-10-01T11:59:00.000Z" },
+    ]
+    const stale = deriveWorkflowStatus({ change: "change", state, artifacts: staleArtifacts })
+    expect(stale).toMatchObject({
+      canonical_stage: "DECIDE",
+      completed_canonical_stages: [],
+      pending_stage: "DECIDE",
+      artifact_refs: { DECIDE: [], PLAN: [] },
+    })
+
+    const refreshed = deriveWorkflowStatus({
+      change: "change",
+      state,
+      artifacts: [
+        ...staleArtifacts,
+        { key: "openspec/changes/change/proposal.md", content: "status: passed", created_at: "2026-10-01T12:01:00.000Z" },
+        { key: "openspec/changes/change/assessment.md", content: "status: passed", created_at: "2026-10-01T12:01:00.000Z" },
+      ],
+    })
+    expect(refreshed).toMatchObject({
+      canonical_stage: "DECIDE",
+      completed_canonical_stages: ["DECIDE"],
+      pending_stage: "PLAN",
+      artifact_refs: { DECIDE: expect.arrayContaining([
+        "openspec/changes/change/proposal.md",
+        "openspec/changes/change/assessment.md",
+      ]), PLAN: [] },
+    })
+  })
+
   it("requires recovery for a canonical state without a work_type and blocks a pending binding", () => {
     const missingWorkType = deriveWorkflowStatus({
       change: "no-work-type",

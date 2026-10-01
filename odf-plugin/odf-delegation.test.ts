@@ -443,8 +443,22 @@ describe("createODFWorkflowOverride", () => {
 
   it("re-enters a completed stage and invalidates later completed stages", async () => {
     const tool = await seedState("BUILD", ["DECIDE", "PLAN", "BUILD"])
+    const statePath = path.join(root, "openspec", "changes", "ov-change", "state.yaml")
+    const priorState = YAML.parse(await fs.readFile(statePath, "utf8"))
+    priorState.phase = "VERIFY"
+    priorState.verify_completed = true
+    priorState.artifacts = { verify: true }
+    await fs.writeFile(statePath, YAML.stringify(priorState), "utf8")
     const output = JSON.parse(await tool.execute(baseArgs({ action: "re-enter", target_stage: "PLAN" }), {} as any) as string)
     expect(output).toMatchObject({ status: "overridden", action: "re-enter", target_stage: "PLAN", completed_stages: ["DECIDE"] })
+    const { createODFWorkflowStatus } = await import("./odf-delegation.js")
+    const status = JSON.parse(await createODFWorkflowStatus().execute({ change_name: "ov-change", workspace_dir: root }, {} as any) as string)
+    expect(status).toMatchObject({
+      canonical_stage: "PLAN",
+      completed_canonical_stages: ["DECIDE"],
+      pending_stage: "PLAN",
+      artifact_refs: { VERIFY: [] },
+    })
   })
 
   it("reopens an archived change when re-entering a completed stage", async () => {
@@ -541,9 +555,20 @@ describe("createODFWorkflowOverride", () => {
 
   it("re-plans from DECIDE with an approved Expectations revision", async () => {
     const tool = await seedState("PLAN", ["DECIDE", "PLAN"], true)
-    const current = await fs.readFile(path.join(root, "openspec", "changes", "ov-change", "expectations.yaml"), "utf8")
+    const changeDir = path.join(root, "openspec", "changes", "ov-change")
+    const current = await fs.readFile(path.join(changeDir, "expectations.yaml"), "utf8")
     const { createHash } = await import("node:crypto")
     const supersedes = createHash("sha256").update(current).digest("hex")
+    const statePath = path.join(changeDir, "state.yaml")
+    const priorState = YAML.parse(await fs.readFile(statePath, "utf8"))
+    priorState.phase = "QA-PLAN"
+    priorState.artifacts = { propose: true, assess: true, "qa-plan": true }
+    await fs.writeFile(statePath, YAML.stringify(priorState), "utf8")
+    await Promise.all([
+      fs.writeFile(path.join(changeDir, "proposal.md"), "status: passed\n", "utf8"),
+      fs.writeFile(path.join(changeDir, "assessment.md"), "status: passed\n", "utf8"),
+      fs.writeFile(path.join(changeDir, "qa-plan.md"), "status: passed\n", "utf8"),
+    ])
     const revision = {
       change: "ov-change", intent: "i2",
       expectations: [{ id: "EXP-01", statement: "s2", testable: true, owned_by: "human" }],
@@ -556,8 +581,36 @@ describe("createODFWorkflowOverride", () => {
     }
     const output = JSON.parse(await tool.execute(baseArgs({ action: "re-plan", target_stage: "DECIDE", expectations_revision: revision }), {} as any) as string)
     expect(output).toMatchObject({ status: "overridden", action: "re-plan", target_stage: "DECIDE", completed_stages: [] })
-    const persisted = JSON.parse(await fs.readFile(path.join(root, "openspec", "changes", "ov-change", "expectations.yaml"), "utf8"))
+    const persisted = JSON.parse(await fs.readFile(path.join(changeDir, "expectations.yaml"), "utf8"))
     expect(persisted).toMatchObject(revision)
+
+    const { createODFWorkflowStatus } = await import("./odf-delegation.js")
+    const staleStatus = JSON.parse(await createODFWorkflowStatus().execute({ change_name: "ov-change", workspace_dir: root }, {} as any) as string)
+    expect(staleStatus).toMatchObject({
+      canonical_stage: "DECIDE",
+      completed_canonical_stages: [],
+      pending_stage: "DECIDE",
+      artifact_refs: { DECIDE: [], PLAN: [] },
+    })
+    await expect(fs.access(path.join(changeDir, "proposal.md"))).resolves.toBeUndefined()
+    await expect(fs.access(path.join(changeDir, "assessment.md"))).resolves.toBeUndefined()
+    await expect(fs.access(path.join(changeDir, "qa-plan.md"))).resolves.toBeUndefined()
+
+    await new Promise((resolve) => setTimeout(resolve, 5))
+    await Promise.all([
+      fs.writeFile(path.join(changeDir, "proposal.md"), "status: passed\n", "utf8"),
+      fs.writeFile(path.join(changeDir, "assessment.md"), "status: passed\n", "utf8"),
+    ])
+    const refreshedStatus = JSON.parse(await createODFWorkflowStatus().execute({ change_name: "ov-change", workspace_dir: root }, {} as any) as string)
+    expect(refreshedStatus).toMatchObject({
+      canonical_stage: "DECIDE",
+      completed_canonical_stages: ["DECIDE"],
+      pending_stage: "PLAN",
+      artifact_refs: { DECIDE: expect.arrayContaining([
+        "openspec/changes/ov-change/proposal.md",
+        "openspec/changes/ov-change/assessment.md",
+      ]), PLAN: [] },
+    })
   })
 
   it("requires a human-approved reason and rejects a wrong supersedes digest", async () => {
