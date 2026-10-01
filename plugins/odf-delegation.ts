@@ -4938,7 +4938,7 @@ interface OpenSpecSnapshot {
 }
 
 const OPEN_SPEC_ARTIFACT_STEMS = new Set([
-  "decision", "plan", "build", "verify", "proposal", "propose", "assess", "spec", "qa-plan", "design",
+  "decision", "plan", "build", "verify", "proposal", "propose", "assess", "assessment", "spec", "qa-plan", "design",
   "tasks", "apply-progress", "implement-progress", "archive-report", "expectations",
 ])
 

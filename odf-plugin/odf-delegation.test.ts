@@ -5551,8 +5551,8 @@ ${overrides}`
       "resumable: true",
       "",
     ].join("\n"), "utf8")
-    await fs.writeFile(path.join(changeDir, "propose.yaml"), "status: passed\n", "utf8")
-    await fs.writeFile(path.join(changeDir, "assess.yaml"), "status: passed\n", "utf8")
+    await fs.writeFile(path.join(changeDir, "proposal.md"), "status: passed\n", "utf8")
+    await fs.writeFile(path.join(changeDir, "assessment.md"), "status: passed\n", "utf8")
 
     const taskApi = vi.fn()
       .mockResolvedValueOnce({ status: "ok", executive_summary: "assessed" })
