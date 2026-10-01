@@ -691,6 +691,8 @@ export interface V2ContextConversation {
   assistantText: string
 }
 
+const OPENCODE_SUBAGENT_USER_PREFIX = "You are a subagent spawned by another session.\n"
+
 /**
  * Bounded conversation view for the native seal path: the first user text is
  * the delegated prompt and the latest assistant text is the phase result.
@@ -722,7 +724,15 @@ export function readV2ContextConversation(response: unknown): V2ContextConversat
       .join("\n")
       .trim()
     if (!text.trim()) continue
-    if (role === "user") userTexts.push(text)
+    if (role === "user") {
+      // OpenCode V2 prepends this fixed host banner to the first user message
+      // in a native subagent session. Strip only the exact observed prefix;
+      // the seal still digests every byte of the prepared prompt itself.
+      const promptText = userTexts.length === 0 && text.startsWith(OPENCODE_SUBAGENT_USER_PREFIX)
+        ? text.slice(OPENCODE_SUBAGENT_USER_PREFIX.length)
+        : text
+      userTexts.push(promptText)
+    }
     if (role === "assistant") assistantText = text
   }
   if (!assistantText) return null
