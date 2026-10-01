@@ -331,6 +331,30 @@ function flowSpanCohortRecords(records) {
   )
 }
 
+function flowStageIdentity(record) {
+  const change = safeToken(record.change)
+  const runId = safeToken(record.run_id)
+  const stage = flowStage(record.flow_stage)
+  return change && runId && stage ? `${change}:${runId}:${stage}` : null
+}
+
+// A delegated phase writes its bounded milestone to both the run lifecycle and
+// its task span with the same run_id. Prefer the run timestamp for that exact
+// pair, but retain span-only markers (for example, the synthetic bind prefix).
+// Keep duplicate run records and different run IDs visible to sequence checks.
+function flowStageRecords(records) {
+  const runs = flowRunRecords(records)
+  const spans = flowSpanCohortRecords(records)
+  const runStageIdentities = new Set(runs.map(flowStageIdentity).filter(Boolean))
+  return [
+    ...runs,
+    ...spans.filter(record => {
+      const identity = flowStageIdentity(record)
+      return identity === null || !runStageIdentities.has(identity)
+    }),
+  ]
+}
+
 function completeFlowSamples(records, sampleRecords = records) {
   const byChange = new Map()
   for (const record of records) {
@@ -453,9 +477,8 @@ function cohortStats(samples, field, key = value => value) {
  * without flow stages parses unchanged and yields zero samples.
  */
 export function entryToFinalGate(records, days = 1) {
-  const flowRecords = [...flowRunRecords(records), ...flowSpanCohortRecords(records)]
   const samples = latestFlowSamples([
-    ...completeFlowSamples(flowRecords, records),
+    ...completeFlowSamples(flowStageRecords(records), records),
   ])
   // Per-interval p50/p95 from the same complete sequences that back the
   // overall p50/p95, so the dominant stage is auditable without inference.
