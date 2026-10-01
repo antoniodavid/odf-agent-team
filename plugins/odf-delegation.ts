@@ -157,6 +157,7 @@ import {
 } from "../odf-plugin/odf-workflow.js"
 import {
   deriveWorkflowStatus,
+  filterInvalidatedWorkflowArtifacts,
   normalizeArtifactKey,
   parseProgress,
   parseWorkflowState,
@@ -5074,7 +5075,10 @@ export async function loadOpenSpecStatus(workspaceRoot: string, changeName: stri
     return artifacts
   }
 
-  const artifacts = await scanChangeDir()
+  const scannedArtifacts = await scanChangeDir()
+  const artifacts = state
+    ? filterInvalidatedWorkflowArtifacts(state.content, scannedArtifacts)
+    : scannedArtifacts
   return { change: changeName, state, artifacts, warnings: Array.from(new Set(warnings)) }
 }
 
@@ -5654,7 +5658,10 @@ async function readSelectedWorkflowState(
   if (!stateObservation) return { snapshot: null, error: "workflow-state-not-found" }
   const parsed = parseStateDocument(stateObservation.content)
   if (!parsed) return { snapshot: null, error: "workflow-state-malformed" }
-  const artifacts = selectedWorkflowArtifacts(changeName, observations)
+  const artifacts = filterInvalidatedWorkflowArtifacts(
+    stateObservation.content,
+    selectedWorkflowArtifacts(changeName, observations),
+  )
   const status = deriveWorkflowStatus({
     change: changeName,
     state: stateObservation.content,
@@ -6951,6 +6958,14 @@ function buildEngramStatus(
   warnings: string[] = []
 ): Omit<ODFChangeStatus, "observability"> {
   const { change: bestChange, artifacts } = snapshot
+  const rawWorkflowArtifacts = Array.from(artifacts.entries()).map(([type, data]) => ({
+    key: `odf/${bestChange}/${type}`,
+    content: data.content,
+    created_at: data.created,
+  }))
+  const stateArtifact = artifacts.get("state")
+  const workflowArtifacts = filterInvalidatedWorkflowArtifacts(stateArtifact?.content, rawWorkflowArtifacts)
+  const activeArtifactTypes = new Set(workflowArtifacts.map((artifact) => normalizeArtifactKey(artifact.key).type))
 
   const status = {
     change: bestChange,
@@ -6963,6 +6978,7 @@ function buildEngramStatus(
   // Map artifact types to state
   const artifactStates: Record<string, string> = {}
   for (const [type, data] of artifacts) {
+    if (normalizeArtifactKey(type).type === "state" || !activeArtifactTypes.has(normalizeArtifactKey(type).type)) continue
     artifactStates[type] = legacyArtifactState(type, data.content)
     if (data.created && Number.isFinite(Date.parse(data.created)) && (!status.lastUpdated || data.created > status.lastUpdated)) {
       status.lastUpdated = data.created
@@ -6970,11 +6986,6 @@ function buildEngramStatus(
   }
   status.artifacts = artifactStates
 
-  const workflowArtifacts = Array.from(artifacts.entries()).map(([type, data]) => ({
-    key: `odf/${bestChange}/${type}`,
-    content: data.content,
-    created_at: data.created,
-  }))
   const expectationWarnings = validateExpectations({ change: bestChange, artifacts: workflowArtifacts }).status === "missing"
     ? ["missing-expectations"]
     : []
@@ -7062,8 +7073,16 @@ function buildMergedStatus(
     .filter((group): group is WorkflowStage => Boolean(group)))
   const mergedArtifacts = [...openSpec.artifacts]
   if (engram) {
-    for (const [type, data] of engram.artifacts) {
-      const artifact: StatusArtifact = { key: `odf/${engram.change}/${type}`, ...data, source: "engram" }
+    const engramArtifacts = filterInvalidatedWorkflowArtifacts(
+      openSpec.state?.content,
+      Array.from(engram.artifacts.entries()).map(([type, data]) => ({
+        key: `odf/${engram.change}/${type}`,
+        content: data.content,
+        created: data.created,
+        source: "engram" as const,
+      })),
+    )
+    for (const artifact of engramArtifacts) {
       const normalized = normalizeArtifactKey(artifact.key)
       if (
         normalized.type === "state" ||
@@ -8053,9 +8072,9 @@ function createODFWorkflowOverride(): ReturnType<typeof tool> {
 
 Actions:
 - skip: mark the pending DECIDE/PLAN stage completed (BUILD/VERIFY can never be skipped; they keep validation and evidence gates).
-- re-enter: move back to a completed stage; later completed stages are invalidated and must be re-run.
-     - re-plan: like re-enter, plus persist a human-approved Expectations revision (revision > current, supersedes = digest of the previous artifact).
-     - disable-fast-lane: disable an existing fast_lane_policy through a separate audited marker without rewriting workflow state or artifacts.
+- re-enter: move back to a completed stage; artifacts at that stage and later stages become historical evidence and must be rewritten after re-entry.
+- re-plan: like re-enter, plus persist a human-approved Expectations revision (revision > current, supersedes = digest of the previous artifact).
+- disable-fast-lane: disable an existing fast_lane_policy through a separate audited marker without rewriting workflow state or artifacts.
 - settle-attempt: append a terminal settlement for a stale running attempt (use the attempt_id from odf_workflow_status active_attempts) so a fresh attempt can be acquired. Requires confirm_no_active_run: true and refuses attempts that are still active in this runtime.
 - settle-join: settle a persisted parallel join that is still running after a host restart so resume_from_join can continue. Every running branch attempt must be settled first with action=settle-attempt; refuses joins whose branch attempts are still active in this runtime. The join becomes blocked with a failure receipt - commit a retry receipt before resuming.
 
@@ -8398,13 +8417,47 @@ Actions:
         if (!parsed) return blocked("malformed-state", "The persisted workflow state is malformed.")
         parsed.document.set("canonical_stage", newStage)
         parsed.document.set("completed_canonical_stages", newCompleted)
+        if (Object.prototype.hasOwnProperty.call(read.snapshot.state, "completed_stages")) {
+          parsed.document.set("completed_stages", newCompleted)
+        }
+        const reopening = args.action === "re-enter" || args.action === "re-plan"
+        const invalidatedAt = reopening ? new Date().toISOString() : null
+        if (reopening && invalidatedAt) {
+          const invalidatedStages = new Set(route.stages.slice(route.stages.indexOf(target)))
+          parsed.document.set("artifact_invalidation", {
+            version: 1,
+            from_stage: target,
+            invalidated_at: invalidatedAt,
+          })
+          const completionFlags: Partial<Record<CanonicalStage, string[]>> = {
+            DECIDE: ["decide_completed", "decision_completed", "decide_done", "decision_done"],
+            PLAN: ["plan_completed", "plan_done"],
+            BUILD: ["build_completed", "build_done", "implement_completed", "implement_done"],
+            VERIFY: ["verify_completed", "verify_done"],
+            EXPLORE: ["explore_completed", "explore_done"],
+            FIX: ["fix_completed", "fix_done"],
+          }
+          for (const stage of invalidatedStages) {
+            for (const flag of completionFlags[stage] || []) parsed.document.delete(flag)
+          }
+          const artifactFlags = read.snapshot.state.artifacts
+          if (artifactFlags && typeof artifactFlags === "object" && !Array.isArray(artifactFlags)) {
+            const retained = Object.fromEntries(Object.entries(artifactFlags as Record<string, unknown>).filter(([key]) => {
+              const group = normalizeArtifactKey(key).group
+              return !group || !invalidatedStages.has(group as CanonicalStage)
+            }))
+            if (Object.keys(retained).length) parsed.document.set("artifacts", retained)
+            else parsed.document.delete("artifacts")
+          }
+        }
         // Reopening a stage unwinds the archive: a change is archived only through
         // these markers, so leaving them behind re-derives ARCHIVED on the next
         // read. Overrides only target route stages (never ARCHIVED), so the
-        // markers are always cleared here. The legacy `phase` is deleted (not
-        // rewritten to the target phase) because `legacyCompletedStages` treats
-        // `phase: verify` as VERIFY done.
+        // archive markers are always cleared here. A legacy phase also cannot
+        // survive re-entry: it can infer completed stages beyond the re-opened
+        // boundary (for example `phase: VERIFY` after re-entering PLAN).
         parsed.document.delete("archived")
+        if (reopening) parsed.document.delete("phase")
         for (const marker of ["phase", "status"]) {
           const value = parsed.document.get(marker)
           if (typeof value === "string" && value.trim().toLowerCase() === "archived") parsed.document.delete(marker)
@@ -8453,6 +8506,8 @@ Actions:
           completed_before: completed,
           completed_after: newCompleted,
           expectations_revision: args.action === "re-plan" ? Number(expectationsRevision?.revision) || null : null,
+          artifacts_invalidated_from: reopening ? target : null,
+          artifacts_invalidated_at: invalidatedAt,
         }
         try {
           fsSync.appendFileSync(path.join(workspaceRoot, ".odf", `override-${changeName}.jsonl`), JSON.stringify(audit) + "\n")
