@@ -6437,9 +6437,12 @@ ${overrides}`
     }
   })
 
-  it("commits VERIFY only when the validation-evidence receipt passes the blind artifact rules", async () => {
-    const change = "direct-verify-commit"
-    const repo = path.join(tempHome, "repo-verify-commit")
+  it.each([
+    { reportStatus: "passed", phaseResultStatus: "ok" as const },
+    { reportStatus: "warning", phaseResultStatus: "warning" as const },
+  ])("commits VERIFY $reportStatus reports only when validation evidence passes", async ({ reportStatus, phaseResultStatus }) => {
+    const change = `direct-verify-commit-${reportStatus}`
+    const repo = path.join(tempHome, `repo-${change}`)
     initGitRepo(repo)
     commitFile(repo, "a.py", 10)
     appendLines(repo, "a.py", 100)
@@ -6453,7 +6456,7 @@ ${overrides}`
       "resumable: true",
       "",
     ].join("\n"), "utf8")
-    await fs.writeFile(path.join(changeDir, "verify-report.yaml"), "status: passed\n", "utf8")
+    await fs.writeFile(path.join(changeDir, "verify-report.yaml"), `status: ${reportStatus}\n`, "utf8")
     const head = gitHead(repo)!
     const digest = computeCandidateDigest(buildCandidateManifest(repo))
 
@@ -6484,7 +6487,7 @@ ${overrides}`
       proof,
       expectedStage: "VERIFY",
       callerResult: recomputed,
-      phaseResultStatus: "ok",
+      phaseResultStatus,
       validationStatus: "verified",
       validation: null,
     })
@@ -7019,6 +7022,36 @@ ${overrides}`
         canonical_stage: "ARCHIVED",
         archived: true,
       })
+      expect(YAML.parse(await fs.readFile(path.join(changeDir, "archive-report.yaml"), "utf8"))).toMatchObject({
+        change,
+        status: "archived",
+      })
+    } finally {
+      await fs.rm(root, { recursive: true, force: true })
+    }
+  })
+
+  it("archives a terminal VERIFY warning report", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "odf-archive-warning-report-"))
+    const change = "archive-warning-report"
+    const changeDir = path.join(root, "openspec", "changes", change)
+    await fs.mkdir(changeDir, { recursive: true })
+    await fs.writeFile(path.join(changeDir, "state.yaml"), [
+      "work_type: feature",
+      "artifact_store: openspec",
+      "canonical_stage: VERIFY",
+      "completed_canonical_stages: [DECIDE, PLAN, BUILD, VERIFY]",
+      "",
+    ].join("\n"), "utf8")
+    await fs.writeFile(path.join(changeDir, "verify-report.yaml"), "status: warning\n", "utf8")
+
+    try {
+      const output = JSON.parse(await createODFWorkflowArchive().execute({
+        change_name: change,
+        artifact_store: "openspec",
+        workspace_dir: root,
+      }, {} as any) as string)
+      expect(output).toMatchObject({ status: "committed", canonical_stage: "ARCHIVED" })
       expect(YAML.parse(await fs.readFile(path.join(changeDir, "archive-report.yaml"), "utf8"))).toMatchObject({
         change,
         status: "archived",
