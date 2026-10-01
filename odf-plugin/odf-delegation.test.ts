@@ -350,6 +350,11 @@ function successfulHealthOutput(): string {
     plugin: { loaded: true, file_status: "readable" },
     command: { status: "readable" },
     task_api: { function_present: true },
+    v2_session: {
+      source: "context.session",
+      function_present: true,
+      operations: ["create", "get", "prompt", "wait", "context", "interrupt"],
+    },
   })
 }
 
@@ -9352,7 +9357,10 @@ describe("odf_health", () => {
 
   it("returns a warning for a valid installation without probing task()", async () => {
     const taskApi = vi.fn()
-    const result = await runHealth({ task: taskApi })
+    const session = {
+      create: vi.fn(), get: vi.fn(), prompt: vi.fn(), wait: vi.fn(), context: vi.fn(), interrupt: vi.fn(),
+    }
+    const result = await runHealth({ task: taskApi, [ODF_V2_SESSION]: session })
 
     expect(result).toMatchObject({
       schema_version: 1,
@@ -9368,11 +9376,14 @@ describe("odf_health", () => {
       plugin: { file_status: "readable", loaded: true },
       command: { command: "/odf-health", path: commandPath, status: "readable" },
       task_api: { source: "toolCtx.task", function_present: true, usability: "unverified", probe: "not-run" },
+      v2_session: { source: "context.session", function_present: true },
       engram: { cli: "unavailable", export_probe: "not-run" },
     })
     expect(result.plugin.registered_tools).toContain("odf_health")
     expect(result.warnings).toEqual(expect.arrayContaining(["task-api-unverified: task usability was not probed because probing executes a task", "engram-cli-unavailable"]))
+    expect(result.warnings).not.toContain("native-seal-session-api-unavailable: context.session was not attached to the tool context")
     expect(taskApi).not.toHaveBeenCalled()
+    expect(Object.values(session).every(method => method.mock.calls.length === 0)).toBe(true)
     expect(Number.isNaN(Date.parse(result.checked_at))).toBe(false)
   })
 
@@ -9388,8 +9399,9 @@ describe("odf_health", () => {
       usability: "unverified",
       probe: "not-run",
     })
-    expect(result.status).toBe("warning")
+    expect(result.status).toBe("blocked")
     expect(result.warnings).toContain("task-api-unverified: task usability was not probed because probing executes a task")
+    expect(result.warnings).toContain("native-seal-session-api-unavailable: context.session was not attached to the tool context")
   })
 
   it("detects the official sdk.v2 session capability without probing it", async () => {
@@ -9411,6 +9423,8 @@ describe("odf_health", () => {
       probe: "not-run",
       detail: null,
     })
+    expect(result.status).toBe("blocked")
+    expect(result.warnings).toContain("native-seal-session-api-unavailable: context.session was not attached to the tool context")
     expect(result.warnings).toContain("v2-session-api-unverified: session usability was not probed because probing executes a task")
     expect(Object.values(session).every(method => method.mock.calls.length === 0)).toBe(true)
   })
@@ -9448,10 +9462,12 @@ describe("odf_health", () => {
       interrupt: vi.fn(),
     }
     const partialResult = await runHealth(
-      { [ODF_V2_SESSION]: partial, sessionID: "parent", directory: configDir },
+      { [ODF_V2_SESSION]: partial, task: vi.fn(), sessionID: "parent", directory: configDir },
       noEngramIo(),
       undefined,
     )
+    expect(partialResult.status).toBe("blocked")
+    expect(partialResult.warnings).toContain("native-seal-session-api-unavailable: context.session is missing operations: wait")
     expect(partialResult.v2_session).toMatchObject({
       source: "unavailable",
       function_present: false,
@@ -9630,6 +9646,31 @@ describe("stable discovery runtime guard", () => {
       await after("s1", "health", {}, result, "odf_health")
       await expect(before("s1", "question", {}, "question")).rejects.toThrow("requires a successful odf_health call")
       expect(abort).toHaveBeenCalledTimes(1)
+    }
+  })
+
+  it("does not authorize a child when task API exists but native-seal V2 context is unavailable", async () => {
+    const reports = [
+      (() => {
+        const report = JSON.parse(successfulHealthOutput())
+        delete report.v2_session
+        return JSON.stringify(report)
+      })(),
+      (() => {
+        const report = JSON.parse(successfulHealthOutput())
+        report.v2_session.source = "sdk.v2"
+        return JSON.stringify(report)
+      })(),
+    ]
+    for (const report of reports) {
+      const { abort, authorizations, activateCommand, before, after } = setup()
+      await activateCommand("s1", "m-no-seal-v2", "odf-new", "no-seal-v2", "expanded odf-new command")
+      await before("s1", "health", {}, "odf_health")
+      await after("s1", "health", {}, report, "odf_health")
+
+      expect(authorizations.has("s1")).toBe(false)
+      await expect(before("s1", "launch-child", {}, "task")).rejects.toThrow("requires a successful odf_health call")
+      expect(abort).toHaveBeenCalledWith({ path: { id: "s1" } })
     }
   })
 

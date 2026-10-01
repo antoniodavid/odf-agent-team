@@ -294,6 +294,11 @@ export async function inspectODFHealth(toolCtx: ToolContext, client: OpencodeCli
         ? `context.session is missing operations: ${contextSessionProbe.missing.join(", ")}`
         : "context.session was not attached to the tool context",
   }
+  const nativeSealWarning = contextSession
+    ? null
+    : contextSessionProbe.attached
+      ? `native-seal-session-api-unavailable: context.session is missing operations: ${contextSessionProbe.missing.join(", ")}`
+      : "native-seal-session-api-unavailable: context.session was not attached to the tool context"
   const taskWarning = taskApi
     ? "task-api-unverified: task usability was not probed because probing executes a task"
     : "task-api-unavailable"
@@ -322,6 +327,7 @@ export async function inspectODFHealth(toolCtx: ToolContext, client: OpencodeCli
     ...(commandFile.status !== "readable" ? [`command-file-${commandFile.status}: ${commandPath}`] : []),
     taskWarning,
     v2Warning,
+    ...(nativeSealWarning ? [nativeSealWarning] : []),
     ...engramInspection.warnings,
   ]
   const staticFailure = registryInspection.registry.status !== "valid" ||
@@ -334,7 +340,7 @@ export async function inspectODFHealth(toolCtx: ToolContext, client: OpencodeCli
     ? "blocked"
     : staticFailure
       ? "failed"
-      : !taskApi
+      : !taskApi || !contextSession
         ? "blocked"
         : "warning"
 
