@@ -1251,7 +1251,8 @@ any off or unreadable local → off, fail-closed) and, for VERIFY, freezes the d
 (git rev-parse HEAD), counts the original changed lines, classifies the risk tier from the
 changed paths, and computes the correction budget (min(200, ceil(lines/2))).
 Persists the decision to <worktree>/.odf/policy-gate-{change}.json (idempotent for the same
-frozen diff ref). The gate documents — the sub-agent applies, never recomputes.`,
+frozen diff ref). If persistence fails, the gate blocks instead of returning an unpersisted
+allow decision. The gate documents — the sub-agent applies, never recomputes.`,
     args: {
       change: tool.schema
         .string()

@@ -152,7 +152,7 @@ export function resolveTddEffective(
   return { global, local_readable: localReadable, local_off: localOff, effective }
 }
 
-export function savePolicyGateJson(workspaceDir: string, decision: PolicyGateDecision): void {
+export function savePolicyGateJson(workspaceDir: string, decision: PolicyGateDecision): boolean {
   try {
     const dir = path.join(workspaceDir, ".odf")
     fsSync.mkdirSync(dir, { recursive: true })
@@ -161,8 +161,10 @@ export function savePolicyGateJson(workspaceDir: string, decision: PolicyGateDec
       JSON.stringify(decision, null, 2),
       "utf8"
     )
+    return true
   } catch (err) {
     console.warn(`[odf-delegation] Failed to persist policy gate for ${decision.change}: ${err}`)
+    return false
   }
 }
 
@@ -485,6 +487,12 @@ export function computePolicyGate(opts: {
     resolved_at: new Date().toISOString(),
   }
 
-  savePolicyGateJson(workspace, decision)
+  if (!savePolicyGateJson(workspace, decision)) {
+    return {
+      ...decision,
+      gate: "block",
+      reason: `policy-gate-persistence-failed — could not persist the decision to .odf/policy-gate-${opts.change}.json`,
+    }
+  }
   return decision
 }
