@@ -26,7 +26,7 @@ function restoreConfigDir(): void {
 function fakeChildSession(opts: { agent: string; prompt: string; resultText: string }) {
   return {
     create: vi.fn(),
-    get: vi.fn().mockResolvedValue({ id: "ses_child", agent: opts.agent }),
+    get: vi.fn().mockResolvedValue({ id: "ses_child", agent: opts.agent, parentID: "parent-session" }),
     prompt: vi.fn(),
     wait: vi.fn(),
     context: vi.fn().mockResolvedValue([
@@ -348,7 +348,7 @@ describe("native prepare/seal delegation", () => {
       artifact_store: "openspec",
       attempt_id: "native-impl-1",
       workflow_advance: implementProof(),
-    }, { sessionID: "prepare-session" } as any) as string)
+    }, { sessionID: "parent-session" } as any) as string)
 
     expect(prepared).toMatchObject({ status: "prepared", change, phase: "IMPLEMENT", attempt_id: "native-impl-1" })
     expect(prepared.policy_gate).toMatchObject({ gate: "allow" })
@@ -380,7 +380,61 @@ describe("native prepare/seal delegation", () => {
     const ledger = await fs.readFile(path.join(tempHome, ".odf", `attempt-ledger-${change}.jsonl`), "utf8")
     const records = ledger.trim().split("\n").map(line => JSON.parse(line))
     const latest = records.filter((record: { attempt_id: string }) => record.attempt_id === "native-impl-1").at(-1)
-    expect(latest).toMatchObject({ status: "completed", next_stage: "BUILD" })
+    expect(latest).toMatchObject({
+      status: "completed",
+      next_stage: "BUILD",
+      native_parent_session_id: "parent-session",
+      native_child_session_id: "ses_child",
+    })
+    expect(latest.native_child_idle_at).toBeTruthy()
+  })
+
+  it("keeps a native attempt running until session.wait confirms the child is idle, then makes recovery actionable", async () => {
+    const { odf_delegation_prepare, odf_delegation_seal } = await tools()
+    const change = "native-implement-idle-recovery"
+    await writeImplementState(tempHome, change)
+    const prepared = JSON.parse(await odf_delegation_prepare.execute({
+      phase: "IMPLEMENT",
+      change,
+      prompt: "Implement the planned change",
+      context_files: [],
+      artifact_store: "openspec",
+      attempt_id: "native-idle-1",
+      workflow_advance: implementProof(),
+    }, { sessionID: "parent-session" } as any) as string)
+    const session = fakeChildSession({
+      agent: prepared.agent,
+      prompt: prepared.delegation.prompt,
+      resultText: "## ODF Result\n- **status**: ok\n- **executive_summary**: implemented",
+    })
+    session.wait.mockRejectedValueOnce(new Error("still busy"))
+    const sealArgs = { token: prepared.token, change, session_id: "ses_child" }
+    const context = { sessionID: "parent-session", [ODF_V2_SESSION]: session } as any
+
+    const waiting = JSON.parse(await odf_delegation_seal.execute(sealArgs, context) as string)
+
+    expect(waiting).toMatchObject({ status: "blocked", reason: "delegation-child-not-idle" })
+    expect(waiting.next_step).toContain("Keep the prepared token and running attempt")
+    expect(session.context).not.toHaveBeenCalled()
+    expect(readDelegationToken(tempHome, change, prepared.token).record).toMatchObject({ status: "prepared" })
+    let ledger = (await fs.readFile(path.join(tempHome, ".odf", `attempt-ledger-${change}.jsonl`), "utf8"))
+      .trim().split("\n").map(line => JSON.parse(line))
+    expect(ledger.at(-1)).toMatchObject({ status: "running", native_parent_session_id: "parent-session" })
+
+    await writeValidationEvidence(tempHome, change)
+    session.wait.mockResolvedValueOnce(undefined)
+    const sealed = JSON.parse(await odf_delegation_seal.execute(sealArgs, context) as string)
+
+    expect(sealed).toMatchObject({ status: "delegated", task_session_id: "ses_child" })
+    expect(session.wait).toHaveBeenCalledTimes(2)
+    ledger = (await fs.readFile(path.join(tempHome, ".odf", `attempt-ledger-${change}.jsonl`), "utf8"))
+      .trim().split("\n").map(line => JSON.parse(line))
+    expect(ledger.at(-1)).toMatchObject({
+      status: "completed",
+      native_parent_session_id: "parent-session",
+      native_child_session_id: "ses_child",
+    })
+    expect(ledger.at(-1).native_child_idle_at).toBeTruthy()
   })
 
   it("fails the proof-backed seal when IMPLEMENT validation evidence is missing", async () => {
@@ -396,7 +450,7 @@ describe("native prepare/seal delegation", () => {
       artifact_store: "openspec",
       attempt_id: "native-impl-2",
       workflow_advance: implementProof(),
-    }, { sessionID: "prepare-session" } as any) as string)
+    }, { sessionID: "parent-session" } as any) as string)
 
     const session = fakeChildSession({
       agent: prepared.agent,
@@ -556,7 +610,7 @@ describe("native prepare/seal delegation", () => {
     const { odf_delegation_prepare, odf_delegation_seal } = await tools(root)
     const prepared = JSON.parse(await odf_delegation_prepare.execute(
       { ...args, workspace_dir: root } as any,
-      { sessionID: "prepare-session" } as any,
+      { sessionID: "parent-session" } as any,
     ) as string)
     if (prepared.status !== "prepared") return prepared
     const session = fakeChildSession({
@@ -744,7 +798,7 @@ describe("native prepare/seal delegation", () => {
       get: vi.fn().mockImplementation(({ sessionID }: { sessionID: string }) => {
         const entry = byId.get(sessionID)
         if (!entry) return Promise.reject(new Error("unknown session"))
-        return Promise.resolve({ id: sessionID, agent: entry.agent })
+        return Promise.resolve({ id: sessionID, agent: entry.agent, parentID: "prepare-session" })
       }),
       prompt: vi.fn(),
       wait: vi.fn(),
@@ -795,7 +849,7 @@ describe("native prepare/seal delegation", () => {
       token: prepared.token,
       change,
       branches: prepared.branches.map((branch: any) => ({ branch_id: branch.branch_id, session_id: `ses_${branch.branch_id}` })),
-    }, { sessionID: "parent-session", [ODF_V2_SESSION]: session } as any) as string)
+    }, { sessionID: "prepare-session", [ODF_V2_SESSION]: session } as any) as string)
 
     expect(output).toMatchObject({
       status: "parallel-delegated",
@@ -803,13 +857,61 @@ describe("native prepare/seal delegation", () => {
       join: { status: "complete", expected: 2, completed: 2, failed: 0, validation_verified: true },
     })
     expect(output.branches.every((branch: any) => branch.task_session_id?.startsWith("ses_"))).toBe(true)
+    expect(session.wait).toHaveBeenCalledTimes(2)
 
     const state = YAML.parse(await fs.readFile(path.join(root, "openspec", "changes", change, "state.yaml"), "utf8"))
     expect(state).toMatchObject({ canonical_stage: "BUILD", completed_canonical_stages: ["DECIDE", "PLAN", "BUILD"] })
     const ledger = (await fs.readFile(path.join(root, ".odf", `attempt-ledger-${change}.jsonl`), "utf8"))
       .trim().split("\n").map(line => JSON.parse(line))
-    expect(ledger.filter((entry: { status: string }) => entry.status === "completed")).toHaveLength(2)
+    const completed = ledger.filter((entry: { status: string }) => entry.status === "completed")
+    expect(completed).toHaveLength(2)
+    expect(completed.every((entry: any) => entry.native_parent_session_id === "prepare-session" &&
+      typeof entry.native_child_session_id === "string" && typeof entry.native_child_idle_at === "string")).toBe(true)
     expect(readDelegationToken(root, change, prepared.token)).toMatchObject({ error: "delegation-token-unknown" })
+  })
+
+  it("keeps native parallel attempts running when a child has not reached idle", async () => {
+    const change = "native-parallel-not-idle"
+    const root = path.join(tempHome, "parallel-not-idle-root")
+    await fs.mkdir(root, { recursive: true })
+    await writeParallelState(root, change)
+    const branches = [
+      { branch_id: "backend-idle", attempt_id: "backend-idle-attempt", prompt: "Implement the backend branch", context_files: ["backend-idle.py"] },
+      { branch_id: "frontend-idle", attempt_id: "frontend-idle-attempt", prompt: "Implement the frontend branch", context_files: ["frontend-idle.py"] },
+    ]
+    const { odf_parallel_prepare, odf_parallel_seal } = await tools(root)
+    const prepared = JSON.parse(await odf_parallel_prepare.execute({
+      work_type: "cross-domain",
+      phase: "IMPLEMENT",
+      change,
+      artifact_store: "openspec",
+      workflow_advance: parallelWorkflowAdvance(),
+      branches,
+    }, { sessionID: "prepare-session" } as any) as string)
+    const session = parallelSessionApi(
+      prepared.branches.map((branch: any) => ({ branch_id: branch.branch_id, agent: branch.agent, prompt: branch.prompt })),
+      () => "## ODF Result\n- **status**: ok\n- **executive_summary**: branch implemented",
+    )
+    session.wait.mockRejectedValueOnce(new Error("still running"))
+
+    const output = JSON.parse(await odf_parallel_seal.execute({
+      token: prepared.token,
+      change,
+      branches: prepared.branches.map((branch: any) => ({ branch_id: branch.branch_id, session_id: `ses_${branch.branch_id}` })),
+    }, { sessionID: "prepare-session", [ODF_V2_SESSION]: session } as any) as string)
+
+    expect(output).toMatchObject({ status: "blocked", reason: "delegation-child-not-idle" })
+    expect(output.next_step).toContain("Keep the prepared token and running branch attempts")
+    expect(output.retry_branches).toEqual([
+      { branch_id: "backend-idle", session_id: "ses_backend-idle" },
+      { branch_id: "frontend-idle", session_id: "ses_frontend-idle" },
+    ])
+    expect(session.context).not.toHaveBeenCalled()
+    expect(readDelegationToken(root, change, prepared.token).record).toMatchObject({ status: "prepared" })
+    const ledger = (await fs.readFile(path.join(root, ".odf", `attempt-ledger-${change}.jsonl`), "utf8"))
+      .trim().split("\n").map(line => JSON.parse(line))
+    expect(ledger).toHaveLength(2)
+    expect(ledger.every((entry: any) => entry.status === "running" && entry.native_parent_session_id === "prepare-session")).toBe(true)
   })
 
   it("fails closed when a parallel child agent does not match its branch", async () => {
@@ -839,7 +941,7 @@ describe("native prepare/seal delegation", () => {
       token: prepared.token,
       change,
       branches: prepared.branches.map((branch: any) => ({ branch_id: branch.branch_id, session_id: `ses_${branch.branch_id}` })),
-    }, { sessionID: "parent-session", [ODF_V2_SESSION]: session } as any) as string)
+    }, { sessionID: "prepare-session", [ODF_V2_SESSION]: session } as any) as string)
 
     expect(output).toMatchObject({ status: "blocked", reason: "delegation-child-mismatch" })
     // A binding failure keeps the token for a retry.

@@ -707,6 +707,78 @@ describe("createODFWorkflowOverride", () => {
     expect(audit).toContain('"attempt_id":"stale-1"')
   })
 
+  it("requires a parent-bound idle child before settling a native attempt", async () => {
+    const ledgerPath = path.join(root, ".odf", "attempt-ledger-ov-change.jsonl")
+    await fs.mkdir(path.dirname(ledgerPath), { recursive: true })
+    const nativeAttempt = {
+      attempt_id: "native-stale-1", branch_id: "default", change: "ov-change", phase: "IMPLEMENT", next_stage: "BUILD",
+      status: "running", started_at: "2026-09-21T20:00:00.000Z", updated_at: "2026-09-21T20:00:00.000Z",
+      settled_at: null, reason: "acquired", result_status: "running", candidate_digest: null,
+      native_parent_session_id: "native-parent",
+    }
+    await fs.writeFile(ledgerPath, JSON.stringify(nativeAttempt) + "\n", "utf8")
+
+    const { createODFWorkflowOverride } = await import("./odf-delegation.js")
+    const tool = createODFWorkflowOverride()
+    const session = {
+      get: vi.fn().mockResolvedValue({ id: "native-child", parentID: "native-parent" }),
+      wait: vi.fn(),
+    }
+    const context = { sessionID: "recovery-session", [ODF_V2_SESSION]: session } as any
+    const args = baseArgs({
+      action: "settle-attempt",
+      target_stage: undefined,
+      attempt_id: "native-stale-1",
+      confirm_no_active_run: true,
+    })
+
+    const unboundChild = JSON.parse(await tool.execute({ ...args, child_session_id: "native-child" }, context) as string)
+    expect(unboundChild).toMatchObject({ status: "blocked", reason: "attempt-child-unbound" })
+    expect(session.get).not.toHaveBeenCalled()
+
+    await fs.writeFile(ledgerPath, JSON.stringify({
+      ...nativeAttempt,
+      native_child_session_id: "native-child",
+      native_child_idle_at: "2026-09-21T20:01:00.000Z",
+    }) + "\n", "utf8")
+
+    const missingChildId = JSON.parse(await tool.execute(args, context) as string)
+    expect(missingChildId).toMatchObject({ status: "blocked", reason: "attempt-child-id-required" })
+    expect(session.get).not.toHaveBeenCalled()
+
+    const siblingChild = JSON.parse(await tool.execute({ ...args, child_session_id: "native-sibling" }, context) as string)
+    expect(siblingChild).toMatchObject({ status: "blocked", reason: "attempt-child-mismatch" })
+    expect(session.get).not.toHaveBeenCalled()
+
+    session.get.mockResolvedValueOnce({ id: "native-child", parentID: "different-parent" })
+    const mismatchedChild = JSON.parse(await tool.execute({ ...args, child_session_id: "native-child" }, context) as string)
+    expect(mismatchedChild).toMatchObject({ status: "blocked", reason: "attempt-child-mismatch" })
+    expect(session.wait).not.toHaveBeenCalled()
+
+    session.wait.mockRejectedValueOnce(new Error("still running"))
+    const activeChild = JSON.parse(await tool.execute({ ...args, child_session_id: "native-child" }, context) as string)
+    expect(activeChild).toMatchObject({ status: "blocked", reason: "attempt-child-not-idle" })
+    expect((await fs.readFile(ledgerPath, "utf8")).trim().split("\n")).toHaveLength(1)
+
+    session.wait.mockResolvedValueOnce(undefined)
+    const settled = JSON.parse(await tool.execute({ ...args, child_session_id: "native-child" }, context) as string)
+    expect(settled).toMatchObject({
+      status: "settled",
+      action: "settle-attempt",
+      attempt_id: "native-stale-1",
+      child_session_id: "native-child",
+      child_idle_confirmed: true,
+    })
+    const records = (await fs.readFile(ledgerPath, "utf8")).trim().split("\n").map(line => JSON.parse(line))
+    expect(records.at(-1)).toMatchObject({
+      status: "failed",
+      native_parent_session_id: "native-parent",
+      native_child_session_id: "native-child",
+    })
+    expect(records.at(-1).native_child_idle_at).toBeTruthy()
+    expect(session.wait).toHaveBeenCalledTimes(2)
+  })
+
   it("requires confirmation, a safe attempt_id, and a running record", async () => {
     const { createODFWorkflowOverride } = await import("./odf-delegation.js")
     const tool = createODFWorkflowOverride()

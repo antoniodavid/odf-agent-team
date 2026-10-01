@@ -657,6 +657,11 @@ interface AttemptLedgerRecord {
   reason: AttemptLedgerReason
   result_status: AttemptLedgerResultStatus
   candidate_digest?: string | null
+  /** Native prepare/seal attempts are bound to the orchestrator session. */
+  native_parent_session_id?: string
+  /** Bound only after the native seal verifies the prepared prompt and child idle state. */
+  native_child_session_id?: string
+  native_child_idle_at?: string
 }
 
 interface AcquiredAttempt {
@@ -755,6 +760,10 @@ function isSafeToken(value: unknown): value is string {
   return typeof value === "string" && SAFE_TOKEN_PATTERN.test(value)
 }
 
+function isSafeSessionId(value: unknown): value is string {
+  return typeof value === "string" && value.length > 0 && value.length <= 128 && !/[\0\r\n]/.test(value)
+}
+
 function isSafeTimestamp(value: unknown): value is string {
   return typeof value === "string" && value.length <= 32 && !/[\r\n]/.test(value)
 }
@@ -777,7 +786,12 @@ function isAttemptLedgerRecord(value: unknown): value is AttemptLedgerRecord {
     (record.result_status === "running" || record.result_status === "delegated" || record.result_status === "validation-failed" || record.result_status === "timeout" ||
       record.result_status === "cancelled" || record.result_status === "empty-task-result" || record.result_status === "error" ||
       record.result_status === "task-api-unavailable") &&
-    (record.candidate_digest === undefined || record.candidate_digest === null || isSafeToken(record.candidate_digest))
+    (record.candidate_digest === undefined || record.candidate_digest === null || isSafeToken(record.candidate_digest)) &&
+    (record.native_parent_session_id === undefined || isSafeSessionId(record.native_parent_session_id)) &&
+    (record.native_child_session_id === undefined || isSafeSessionId(record.native_child_session_id)) &&
+    (record.native_child_idle_at === undefined || isSafeTimestamp(record.native_child_idle_at)) &&
+    ((record.native_child_session_id === undefined) === (record.native_child_idle_at === undefined)) &&
+    (record.native_child_session_id === undefined || record.native_parent_session_id !== undefined)
 }
 
 function attemptBranchId(record: AttemptLedgerRecord): string {
@@ -903,10 +917,12 @@ function acquireAttempt(opts: {
   /**
    * Native prepare/seal path: the attempt spans two tool calls, so the
    * in-process liveness marker would block the audited settle-attempt recovery
-   * for an orphaned prepare. The ledger's "running" record still guards
-   * concurrency; liveness tracking stays on for single-call delegations.
+   * after a host restart. Native recovery binds to the prepared parent session
+   * and verifies the exact child is idle; the ledger still guards concurrency.
+   * Liveness tracking stays on for single-call delegations.
    */
   trackLiveness?: boolean
+  nativeParentSessionId?: string
 }): AttemptAcquisitionResult {
   const ledgerPath = attemptLedgerPath(opts.workspaceDir, opts.change)
   const branchId = opts.branchId || "default"
@@ -931,7 +947,7 @@ function acquireAttempt(opts: {
       return {
         acquired: false,
         reason: "attempt-phase-running",
-        message: `A ${opts.phase} attempt is already running. If no task is active (for example after a host restart), settle the stale attempt with odf_workflow_override action=settle-attempt before retrying.`,
+        message: `A ${opts.phase} attempt is already running. If no task is active (for example after a host restart), settle the stale attempt with odf_workflow_override action=settle-attempt before retrying. Native attempts also require the exact child_session_id and V2 idle confirmation.`,
       }
     }
 
@@ -948,7 +964,8 @@ function acquireAttempt(opts: {
       settled_at: null,
       reason: "acquired",
       result_status: "running",
-       candidate_digest: candidateDigestOrNull(opts.workspaceDir, opts.change),
+      candidate_digest: candidateDigestOrNull(opts.workspaceDir, opts.change),
+      ...(opts.nativeParentSessionId ? { native_parent_session_id: opts.nativeParentSessionId } : {}),
     }
     const appendError = appendAttemptLedgerRecord(opts.workspaceDir, ledgerPath, record)
     if (appendError) {
@@ -985,6 +1002,40 @@ function settleAttempt(
   } else if (result.value) {
     console.warn(`[odf-delegation] Failed to settle attempt ledger: ${result.value}`)
   }
+}
+
+function bindNativeAttemptChild(opts: {
+  workspaceRoot: string
+  change: string
+  attemptId: string
+  branchId: string
+  parentSessionId: string
+  childSessionId: string
+  childIdleAt: string
+}): { record?: AttemptLedgerRecord; error?: string } {
+  const ledgerPath = attemptLedgerPath(opts.workspaceRoot, opts.change)
+  const result = withAttemptLedgerLock(opts.workspaceRoot, ledgerPath, (): { record?: AttemptLedgerRecord; error?: string } => {
+    const ledger = readAttemptLedger(opts.workspaceRoot, ledgerPath)
+    if (ledger.error) return { error: ledger.error }
+    const current = [...ledger.records].reverse().find(entry =>
+      entry.attempt_id === opts.attemptId && attemptBranchId(entry) === opts.branchId)
+    if (!current) return { error: "attempt-not-found" }
+    if (current.status !== "running") return { error: "attempt-not-running" }
+    if (current.native_parent_session_id !== opts.parentSessionId) return { error: "attempt-parent-mismatch" }
+    if (current.native_child_session_id && current.native_child_session_id !== opts.childSessionId) {
+      return { error: "attempt-child-already-bound" }
+    }
+    const bound: AttemptLedgerRecord = {
+      ...current,
+      native_child_session_id: opts.childSessionId,
+      native_child_idle_at: opts.childIdleAt,
+      updated_at: new Date().toISOString(),
+    }
+    const appendError = appendAttemptLedgerRecord(opts.workspaceRoot, ledgerPath, bound)
+    return appendError ? { error: appendError } : { record: bound }
+  })
+  if (!result.locked) return { error: result.error }
+  return result.value
 }
 
 // ==========================================
@@ -2884,6 +2935,7 @@ async function sealProofBackedDelegation(opts: {
   record: DelegationTokenRecord
   childResult: unknown
   sessionId: string
+  childIdleConfirmedAt: string
   workspaceRoot: string
   toolCtx: ToolContext
   canonicalDirectory?: string
@@ -2915,7 +2967,15 @@ async function sealProofBackedDelegation(opts: {
   const ledgerRecord = [...ledger.records].reverse().find(entry =>
     entry.attempt_id === opts.record.attempt_id && attemptBranchId(entry) === branchId)
   const handle: AcquiredAttempt | null = ledgerRecord
-    ? { workspaceRoot: opts.workspaceRoot, ledgerPath, record: ledgerRecord }
+    ? {
+      workspaceRoot: opts.workspaceRoot,
+      ledgerPath,
+      record: {
+        ...ledgerRecord,
+        native_child_session_id: opts.sessionId,
+        native_child_idle_at: opts.childIdleConfirmedAt,
+      },
+    }
     : null
 
   const delegate = createODFDelegate(undefined, opts.canonicalDirectory)
@@ -3100,6 +3160,7 @@ function createODFDelegationPrepare(canonicalDirectory?: string): ReturnType<typ
           nextStage: expectedStage,
           attemptId: args.attempt_id,
           trackLiveness: false,
+          nativeParentSessionId: toolCtx.sessionID,
         })
         if (!acquisition.acquired) {
           return blocked(acquisition.reason, acquisition.message)
@@ -3374,7 +3435,7 @@ function createODFProposalWrite(canonicalDirectory?: string): ReturnType<typeof 
 
 function createODFDelegationSeal(canonicalDirectory?: string): ReturnType<typeof tool> {
   return tool({
-    description: `Seal a native ODF delegation started with odf_delegation_prepare: verify the child session against the token, read its ODF Result, run the phase gates (source authority, design closure, artifact refs and PLAN materialization; proof revalidation, validation-evidence seal, workflow commit and attempt settlement for IMPLEMENT/VERIFY) and return the standard delegation envelope.`,
+    description: `Seal a native ODF delegation started with odf_delegation_prepare: verify the child session against the token, wait until its V2 session loop is idle, read its ODF Result, run the phase gates (source authority, design closure, artifact refs and PLAN materialization; proof revalidation, validation-evidence seal, workflow commit and attempt settlement for IMPLEMENT/VERIFY) and return the standard delegation envelope.`,
     args: {
       token: tool.schema.string().describe("Delegation token returned by odf_delegation_prepare."),
       change: tool.schema.string().describe("Change name (kebab-case) the token belongs to."),
@@ -3416,6 +3477,8 @@ function createODFDelegationSeal(canonicalDirectory?: string): ReturnType<typeof
         return blocked(read.error || "delegation-token-unknown", `The delegation token could not be read: ${read.error}.`)
       }
       const record = read.record
+      let childIdleConfirmedAt: string | null = null
+      let childIdentityBound = false
       const withRecord = (extra: Record<string, unknown> = {}): Record<string, unknown> => ({
         phase: record.phase,
         agent: record.agent,
@@ -3423,6 +3486,13 @@ function createODFDelegationSeal(canonicalDirectory?: string): ReturnType<typeof
         profile: record.profile,
         change: record.change,
         task_session_id: args.session_id,
+        ...(record.attempt_id ? {
+          next_step: childIdentityBound
+            ? `The prepared prompt and exact child are verified idle. Retry odf_delegation_seal with the same token and session_id; if sealing remains impossible, recover attempt ${record.attempt_id} with odf_workflow_override action=settle-attempt, child_session_id=${args.session_id}, and confirm_no_active_run=true.`
+            : childIdleConfirmedAt
+              ? "The child is idle, but its identity is not yet durably bound to this attempt. Retry odf_delegation_seal with the same token and session_id; manual settlement remains blocked until the prepared prompt is verified and the child binding is persisted."
+            : "Keep the prepared token and running attempt. Retry odf_delegation_seal with this same token and session_id after the child session is readable and its V2 session API is available; do not settle the attempt while child completion is unconfirmed.",
+        } : {}),
         ...extra,
       })
 
@@ -3432,10 +3502,23 @@ function createODFDelegationSeal(canonicalDirectory?: string): ReturnType<typeof
       if (isDelegationTokenExpired(record)) {
         return blocked("delegation-token-expired", "The delegation token expired before seal; prepare a fresh delegation.", withRecord())
       }
+      let preparedAttempt: AttemptLedgerRecord | null = null
+      if (record.attempt_id) {
+        const ledger = readAttemptLedger(workspaceRoot, attemptLedgerPath(workspaceRoot, record.change))
+        if (ledger.error) return blocked(ledger.error, "The prepared attempt ledger could not be read safely.", withRecord())
+        preparedAttempt = [...ledger.records].reverse().find(entry =>
+          entry.attempt_id === record.attempt_id && attemptBranchId(entry) === (record.branch_id || "default")) || null
+        if (!preparedAttempt || preparedAttempt.status !== "running") {
+          return blocked("delegation-attempt-unavailable", "The proof-backed attempt is missing or no longer running; refresh odf_workflow_status before recovery.", withRecord())
+        }
+        if (preparedAttempt.native_parent_session_id && preparedAttempt.native_parent_session_id !== toolCtx.sessionID) {
+          return blocked("delegation-parent-mismatch", "The seal must run in the same parent session that prepared the proof-backed attempt.", withRecord())
+        }
+      }
 
       const session = (toolCtx as unknown as Record<PropertyKey, unknown>)[ODF_V2_SESSION] as V2SessionApi | undefined
-      if (!session || typeof session.get !== "function" || typeof session.context !== "function") {
-        return blocked("delegation-session-api-unavailable", "odf_delegation_seal requires the OpenCode V2 session API to read the child session.", withRecord())
+      if (!session || typeof session.get !== "function" || typeof session.wait !== "function" || typeof session.context !== "function") {
+        return blocked("delegation-session-api-unavailable", "odf_delegation_seal requires the OpenCode V2 session.get, session.wait and session.context APIs to verify that the child ended before sealing.", withRecord())
       }
 
       let child: Record<string, unknown>
@@ -3448,7 +3531,12 @@ function createODFDelegationSeal(canonicalDirectory?: string): ReturnType<typeof
       if (typeof child.agent !== "string" || child.agent !== record.agent) {
         return blocked("delegation-child-mismatch", `The child session agent ${typeof child.agent === "string" ? child.agent : "(unknown)"} does not match the prepared agent ${record.agent}.`, withRecord())
       }
-      if (typeof child.parentID === "string" && child.parentID !== toolCtx.sessionID) {
+      if (child.id !== args.session_id) {
+        return blocked("delegation-child-mismatch", "The session API returned a different child session than the one supplied to the seal.", withRecord())
+      }
+      if (preparedAttempt?.native_parent_session_id
+        ? child.parentID !== preparedAttempt.native_parent_session_id
+        : typeof child.parentID === "string" && child.parentID !== toolCtx.sessionID) {
         return blocked("delegation-child-mismatch", "The child session does not belong to the orchestrating session.", withRecord())
       }
       const location = child.location && typeof child.location === "object" && !Array.isArray(child.location)
@@ -3465,6 +3553,17 @@ function createODFDelegationSeal(canonicalDirectory?: string): ReturnType<typeof
         if (canonicalChild && canonicalChild !== record.workspace) {
           return blocked("delegation-child-mismatch", "The child session runs in a different workspace than the prepared delegation.", withRecord())
         }
+      }
+
+      try {
+        await session.wait({ sessionID: args.session_id })
+        childIdleConfirmedAt = new Date().toISOString()
+      } catch {
+        return blocked(
+          "delegation-child-not-idle",
+          `OpenCode could not confirm that child session ${args.session_id} is idle. The prepared token and attempt remain available; retry the seal after the child finishes.`,
+          withRecord(),
+        )
       }
 
       let conversation: { userTexts: string[]; assistantText: string } | null = null
@@ -3485,10 +3584,33 @@ function createODFDelegationSeal(canonicalDirectory?: string): ReturnType<typeof
         )
       }
 
+      if (record.attempt_id && preparedAttempt?.native_parent_session_id) {
+        const bound = bindNativeAttemptChild({
+          workspaceRoot,
+          change: record.change,
+          attemptId: record.attempt_id,
+          branchId: record.branch_id || "default",
+          parentSessionId: preparedAttempt.native_parent_session_id,
+          childSessionId: args.session_id,
+          childIdleAt: childIdleConfirmedAt!,
+        })
+        if (!bound.record) {
+          return blocked(
+            "delegation-attempt-child-bind-failed",
+            `The verified child could not be durably bound to its running attempt (${bound.error || "unknown error"}); the attempt remains running. Retry this seal after resolving the ledger issue.`,
+            withRecord(),
+          )
+        }
+        preparedAttempt = bound.record
+        childIdentityBound = true
+        inFlightAttempts.add(attemptLivenessKey(record.change, record.attempt_id))
+      }
+
       let childResult: unknown
       try {
         childResult = sessionResultFromText(conversation.assistantText)
       } catch (error) {
+        if (record.attempt_id) inFlightAttempts.delete(attemptLivenessKey(record.change, record.attempt_id))
         return blocked("invalid-task-result", `The child session did not return an ODF Result: ${error instanceof Error ? error.message : String(error)}.`, withRecord())
       }
 
@@ -3498,14 +3620,19 @@ function createODFDelegationSeal(canonicalDirectory?: string): ReturnType<typeof
       // child result as the task outcome (proof revalidation, prepared policy
       // gate, validation-evidence seal, workflow commit, attempt settlement).
       if (record.phase === "IMPLEMENT" || record.phase === "VERIFY") {
-        return await sealProofBackedDelegation({
-          record,
-          childResult,
-          sessionId: args.session_id,
-          workspaceRoot,
-          toolCtx,
-          canonicalDirectory,
-        })
+        try {
+          return await sealProofBackedDelegation({
+            record,
+            childResult,
+            sessionId: args.session_id,
+            childIdleConfirmedAt: childIdleConfirmedAt!,
+            workspaceRoot,
+            toolCtx,
+            canonicalDirectory,
+          })
+        } finally {
+          if (record.attempt_id) inFlightAttempts.delete(attemptLivenessKey(record.change, record.attempt_id))
+        }
       }
 
       const requiresOpenSpecProposal = record.phase === "PROPOSE" &&
@@ -3767,6 +3894,7 @@ function createODFParallelPrepare(canonicalDirectory?: string): ReturnType<typeo
           attemptId: branch.attempt_id,
           branchId: branch.branch_id,
           trackLiveness: false,
+          nativeParentSessionId: toolCtx.sessionID,
         })
         if (!acquisition.acquired) return failAcquired(acquisition.reason, acquisition.message)
         acquired.push(acquisition.handle)
@@ -3879,7 +4007,7 @@ function createODFParallelPrepare(canonicalDirectory?: string): ReturnType<typeo
  */
 function createODFParallelSeal(canonicalDirectory?: string): ReturnType<typeof tool> {
   return tool({
-    description: `Seal a native parallel BUILD started with odf_parallel_prepare: verify each child session against the token, collect the branch results and run the authoritative parallel scheduler (per-branch validation evidence, aggregate join and one workflow commit for BUILD).`,
+    description: `Seal a native parallel BUILD started with odf_parallel_prepare: verify each child session against the token, wait until every V2 session loop is idle, collect the branch results and run the authoritative parallel scheduler (per-branch validation evidence, aggregate join and one workflow commit for BUILD).`,
     args: {
       token: tool.schema.string().describe("Parallel delegation token returned by odf_parallel_prepare."),
       change: tool.schema.string().describe("Shared change name the token belongs to."),
@@ -3922,10 +4050,15 @@ function createODFParallelSeal(canonicalDirectory?: string): ReturnType<typeof t
       }
       const record = read.record
       const tokenBranches = record.branches
+      const idleChildSessions = new Map<string, { session_id: string; idle_at: string }>()
+      const sessions = new Map<string, string>()
       const withRecord = (extra: Record<string, unknown> = {}): Record<string, unknown> => ({
         phase: record.phase,
         agent: record.agent,
         change: record.change,
+        child_sessions_idle: Object.fromEntries(idleChildSessions),
+        retry_branches: [...sessions].map(([branch_id, session_id]) => ({ branch_id, session_id })),
+        next_step: "Keep the prepared token and running branch attempts. Retry odf_parallel_seal with the same token and retry_branches mapping after each child is readable and idle. Manual settlement is available only for a branch whose exact child binding was persisted after prompt and idle verification; pass that same child_session_id.",
         ...extra,
       })
       if (!tokenBranches || tokenBranches.length < 2) {
@@ -3938,7 +4071,6 @@ function createODFParallelSeal(canonicalDirectory?: string): ReturnType<typeof t
         return blocked("delegation-token-expired", "The parallel delegation token expired before seal; prepare a fresh delegation.", withRecord())
       }
 
-      const sessions = new Map<string, string>()
       for (const branch of args.branches || []) {
         if (!tokenBranches.some(entry => entry.branch_id === branch.branch_id)) {
           return blocked("delegation-branch-unknown", `Unknown branch "${branch.branch_id}" for this token.`, withRecord())
@@ -3954,8 +4086,8 @@ function createODFParallelSeal(canonicalDirectory?: string): ReturnType<typeof t
       }
 
       const session = (toolCtx as unknown as Record<PropertyKey, unknown>)[ODF_V2_SESSION] as V2SessionApi | undefined
-      if (!session || typeof session.get !== "function" || typeof session.context !== "function") {
-        return blocked("delegation-session-api-unavailable", "odf_parallel_seal requires the OpenCode V2 session API to read the child sessions.", withRecord())
+      if (!session || typeof session.get !== "function" || typeof session.wait !== "function" || typeof session.context !== "function") {
+        return blocked("delegation-session-api-unavailable", "odf_parallel_seal requires the OpenCode V2 session.get, session.wait and session.context APIs to verify that each child ended before sealing.", withRecord())
       }
 
       const resultsByBranch = new Map<string, unknown>()
@@ -3972,7 +4104,10 @@ function createODFParallelSeal(canonicalDirectory?: string): ReturnType<typeof t
         if (typeof child.agent !== "string" || child.agent !== branch.agent) {
           return blocked("delegation-child-mismatch", `Branch "${branch.branch_id}" child agent ${typeof child.agent === "string" ? child.agent : "(unknown)"} does not match the prepared agent ${branch.agent}.`, withRecord())
         }
-        if (typeof child.parentID === "string" && child.parentID !== toolCtx.sessionID) {
+        if (child.id !== sessionId) {
+          return blocked("delegation-child-mismatch", `Branch "${branch.branch_id}" session API returned a different child session than the supplied ID.`, withRecord())
+        }
+        if (typeof child.parentID !== "string" || child.parentID !== toolCtx.sessionID) {
           return blocked("delegation-child-mismatch", `Branch "${branch.branch_id}" child session does not belong to the orchestrating session.`, withRecord())
         }
         const location = child.location && typeof child.location === "object" && !Array.isArray(child.location)
@@ -3989,6 +4124,17 @@ function createODFParallelSeal(canonicalDirectory?: string): ReturnType<typeof t
           if (canonicalChild && canonicalChild !== record.workspace) {
             return blocked("delegation-child-mismatch", `Branch "${branch.branch_id}" runs in a different workspace than the prepared delegation.`, withRecord())
           }
+        }
+        let childIdleAt: string
+        try {
+          await session.wait({ sessionID: sessionId })
+          childIdleAt = new Date().toISOString()
+        } catch {
+          return blocked(
+            "delegation-child-not-idle",
+            `OpenCode could not confirm branch "${branch.branch_id}" child session ${sessionId} is idle. The prepared token and running attempts remain available; retry the parallel seal after the child finishes.`,
+            withRecord({ branch_id: branch.branch_id, task_session_id: sessionId }),
+          )
         }
         let conversation: { userTexts: string[]; assistantText: string } | null = null
         try {
@@ -4007,6 +4153,7 @@ function createODFParallelSeal(canonicalDirectory?: string): ReturnType<typeof t
             withRecord(),
           )
         }
+        idleChildSessions.set(branch.branch_id, { session_id: sessionId, idle_at: childIdleAt })
         let branchResult: unknown
         try {
           branchResult = sessionResultFromText(conversation.assistantText)
@@ -4026,6 +4173,35 @@ function createODFParallelSeal(canonicalDirectory?: string): ReturnType<typeof t
           withRecord(),
         )
       }
+      for (const branch of tokenBranches) {
+        const handle = handles.get(branch.branch_id)
+        const child = idleChildSessions.get(branch.branch_id)
+        if (!handle || handle.record.status !== "running") {
+          return blocked("delegation-attempt-unavailable", `Branch "${branch.branch_id}" no longer has a running prepared attempt; refresh odf_workflow_status before retrying.`, withRecord())
+        }
+        if (handle.record.native_parent_session_id !== toolCtx.sessionID) {
+          return blocked("delegation-parent-mismatch", `Branch "${branch.branch_id}" must be sealed in the same parent session that prepared its attempt.`, withRecord())
+        }
+        if (handle && child) {
+          const bound = bindNativeAttemptChild({
+            workspaceRoot,
+            change: changeName,
+            attemptId: branch.attempt_id,
+            branchId: branch.branch_id,
+            parentSessionId: toolCtx.sessionID,
+            childSessionId: child.session_id,
+            childIdleAt: child.idle_at,
+          })
+          if (!bound.record) {
+            return blocked(
+              "delegation-attempt-child-bind-failed",
+              `The verified child for branch "${branch.branch_id}" could not be durably bound to its running attempt (${bound.error || "unknown error"}); retry this seal after resolving the ledger issue.`,
+              withRecord(),
+            )
+          }
+          handle.record = bound.record
+        }
+      }
 
       const stubTask = markTaskBridge(async (input: { branch_id?: string }): Promise<unknown> => {
         const branchId = typeof input?.branch_id === "string" ? input.branch_id : ""
@@ -4040,6 +4216,9 @@ function createODFParallelSeal(canonicalDirectory?: string): ReturnType<typeof t
         context_files: branch.context_files,
       }))
 
+      const activeAttemptKeys = [...handles.values()].map(handle =>
+        attemptLivenessKey(handle.record.change, handle.record.attempt_id))
+      activeAttemptKeys.forEach(key => inFlightAttempts.add(key))
       let envelopeRaw: string
       try {
         envelopeRaw = await createODFParallelDelegate(undefined, canonicalDirectory, {
@@ -4061,6 +4240,8 @@ function createODFParallelSeal(canonicalDirectory?: string): ReturnType<typeof t
       } catch (error) {
         for (const handle of handles.values()) settleIfStillRunning(handle)
         return blocked("delegation-seal-error", `The parallel seal could not complete: ${error instanceof Error ? error.message : String(error)}.`)
+      } finally {
+        activeAttemptKeys.forEach(key => inFlightAttempts.delete(key))
       }
 
       // The delegation is processed either way: the token seals exactly once.
@@ -8075,7 +8256,7 @@ Actions:
 - re-enter: move back to a completed stage; artifacts at that stage and later stages become historical evidence and must be rewritten after re-entry.
 - re-plan: like re-enter, plus persist a human-approved Expectations revision (revision > current, supersedes = digest of the previous artifact).
 - disable-fast-lane: disable an existing fast_lane_policy through a separate audited marker without rewriting workflow state or artifacts.
-- settle-attempt: append a terminal settlement for a stale running attempt (use the attempt_id from odf_workflow_status active_attempts) so a fresh attempt can be acquired. Requires confirm_no_active_run: true and refuses attempts that are still active in this runtime.
+- settle-attempt: append a terminal settlement for a stale running attempt (use the attempt_id from odf_workflow_status active_attempts) so a fresh attempt can be acquired. Requires confirm_no_active_run: true and refuses attempts that are still active in this runtime. Native prepare/seal attempts additionally require child_session_id; the tool verifies its parent binding and awaits session.wait before settling.
 - settle-join: settle a persisted parallel join that is still running after a host restart so resume_from_join can continue. Every running branch attempt must be settled first with action=settle-attempt; refuses joins whose branch attempts are still active in this runtime. The join becomes blocked with a failure receipt - commit a retry receipt before resuming.
 
      Requires a human-approved reason (>=20 chars). Fast-lane disable additionally requires approved_by and a live session.`,
@@ -8085,6 +8266,7 @@ Actions:
       action: tool.schema.enum(["skip", "re-enter", "re-plan", "disable-fast-lane", "settle-attempt", "settle-join"]).describe("Override action"),
       target_stage: tool.schema.enum(["DECIDE", "PLAN", "BUILD", "VERIFY"]).optional().describe("Canonical stage to skip/re-enter/re-plan from"),
       attempt_id: tool.schema.string().optional().describe("Stale attempt to settle (required for settle-attempt)"),
+      child_session_id: tool.schema.string().optional().describe("Native child session to verify and await before settling a prepared attempt"),
       confirm_no_active_run: tool.schema.boolean().optional().describe("Required true for settle-attempt and settle-join after verifying no task or run is active"),
       reason: tool.schema.string().describe("Human-approved reason (>=20 chars)"),
       approved_by: tool.schema.string().optional().describe("Human approver for disabling the fast lane"),
@@ -8109,6 +8291,7 @@ Actions:
       action: "skip" | "re-enter" | "re-plan" | "disable-fast-lane" | "settle-attempt" | "settle-join"
       target_stage?: "DECIDE" | "PLAN" | "BUILD" | "VERIFY"
       attempt_id?: string
+      child_session_id?: string
       confirm_no_active_run?: boolean
       reason: string
       approved_by?: string
@@ -8144,15 +8327,91 @@ Actions:
           return blocked("attempt-still-running", "The attempt is still active in this runtime; wait for it to settle instead of recovering it.")
         }
         const ledgerPath = attemptLedgerPath(workspaceRoot, changeName)
+        const observedLedger = readAttemptLedger(workspaceRoot, ledgerPath)
+        if (observedLedger.error) return blocked(observedLedger.error, "The attempt ledger could not be read safely.")
+        const observedRecord = [...observedLedger.records].reverse().find(candidate => candidate.attempt_id === attemptId)
+        if (!observedRecord) return blocked("attempt-not-found", "No ledger record matches that attempt_id in this change.")
+        if (observedRecord.status !== "running") return blocked("attempt-not-running", "Only a running attempt can be settled; this attempt already has a terminal record.")
+
+        let nativeChildRecovery: { sessionId: string; idleAt: string } | null = null
+        if (observedRecord.native_parent_session_id) {
+          const childSessionId = (args.child_session_id || "").trim()
+          if (!isSafeSessionId(childSessionId)) {
+            return blocked(
+              "attempt-child-id-required",
+              "Native attempts require child_session_id from the subagent result; settlement is allowed only after the matching child is confirmed idle.",
+            )
+          }
+          if (!observedRecord.native_child_session_id || !observedRecord.native_child_idle_at) {
+            return blocked(
+              "attempt-child-unbound",
+              "This native attempt has no persisted child binding from a seal that verified the prepared prompt and idle state. Retry odf_delegation_seal with its prepared token and exact child session before attempting manual recovery.",
+            )
+          }
+          if (childSessionId !== observedRecord.native_child_session_id) {
+            return blocked(
+              "attempt-child-mismatch",
+              "child_session_id must exactly match the child already bound to this attempt by odf_delegation_seal; a sibling session cannot settle this attempt.",
+            )
+          }
+          const session = (toolCtx as unknown as Record<PropertyKey, unknown>)[ODF_V2_SESSION] as Partial<V2SessionApi> | undefined
+          if (!session || typeof session.get !== "function" || typeof session.wait !== "function") {
+            return blocked(
+              "attempt-child-session-api-unavailable",
+              "Native attempt recovery requires the OpenCode V2 session.get and session.wait APIs; restore the session API and retry without settling the attempt.",
+            )
+          }
+          let childInfo: Record<string, unknown> | null = null
+          try {
+            const response = await session.get({ sessionID: childSessionId })
+            const value = response && typeof response === "object" && !Array.isArray(response)
+              ? response as Record<string, unknown>
+              : null
+            const data = value?.data && typeof value.data === "object" && !Array.isArray(value.data)
+              ? value.data as Record<string, unknown>
+              : value
+            childInfo = data
+          } catch {
+            return blocked(
+              "attempt-child-unknown",
+              `The child session ${childSessionId} could not be read; keep the attempt running and retry recovery when the child is readable.`,
+            )
+          }
+          if (!childInfo || childInfo.id !== childSessionId || childInfo.parentID !== observedRecord.native_parent_session_id) {
+            return blocked(
+              "attempt-child-mismatch",
+              "The child session is not bound to the parent session that prepared this attempt; the attempt remains running. Use the exact child_session_id from the matching subagent result, never a different child.",
+            )
+          }
+          try {
+            await session.wait({ sessionID: childSessionId })
+          } catch {
+            return blocked(
+              "attempt-child-not-idle",
+              `session.wait could not confirm child ${childSessionId} is idle; do not settle this attempt while the child may still be active. Retry after it ends.`,
+            )
+          }
+          nativeChildRecovery = { sessionId: childSessionId, idleAt: new Date().toISOString() }
+        }
+
         const settled = withAttemptLedgerLock(workspaceRoot, ledgerPath, (): { error?: string; record?: AttemptLedgerRecord } => {
           const ledger = readAttemptLedger(workspaceRoot, ledgerPath)
           if (ledger.error) return { error: ledger.error }
           const record = [...ledger.records].reverse().find(candidate => candidate.attempt_id === attemptId)
           if (!record) return { error: "attempt-not-found" }
           if (record.status !== "running") return { error: "attempt-not-running" }
+          if (record.native_parent_session_id !== observedRecord.native_parent_session_id ||
+            record.native_child_session_id !== observedRecord.native_child_session_id ||
+            record.native_child_idle_at !== observedRecord.native_child_idle_at) {
+            return { error: "attempt-changed-during-recovery" }
+          }
           const now = new Date().toISOString()
           const terminal: AttemptLedgerRecord = {
             ...record,
+            ...(nativeChildRecovery ? {
+              native_child_session_id: nativeChildRecovery.sessionId,
+              native_child_idle_at: nativeChildRecovery.idleAt,
+            } : {}),
             status: "failed",
             updated_at: now,
             settled_at: now,
@@ -8168,6 +8427,7 @@ Actions:
           const messages: Record<string, string> = {
             "attempt-not-found": "No ledger record matches that attempt_id in this change.",
             "attempt-not-running": "Only a running attempt can be settled; this attempt already has a terminal record.",
+            "attempt-changed-during-recovery": "The attempt changed while child completion was being verified; read odf_workflow_status again before retrying.",
           }
           return blocked(recoveryError || "attempt-recovery-failed", messages[recoveryError || ""] || "The attempt ledger could not be updated safely.")
         }
@@ -8191,6 +8451,10 @@ Actions:
           attempt_id: attemptId,
           phase: settledRecord.phase,
           settled_at: settledRecord.settled_at,
+          ...(nativeChildRecovery ? {
+            child_session_id: nativeChildRecovery.sessionId,
+            child_idle_confirmed: true,
+          } : {}),
           next_step: "Acquire a fresh attempt_id for the next delegation.",
         }, null, 2)
       }
