@@ -206,6 +206,20 @@ describe("workflow status adapter", () => {
         "openspec/changes/change/assessment.md",
       ]), PLAN: [] },
     })
+
+    const malformed = deriveWorkflowStatus({
+      change: "change",
+      state: {
+        ...state,
+        artifact_invalidation: { version: 1, from_stage: "DECIDE", invalidated_at: "0" },
+      },
+      artifacts: [
+        { key: "openspec/changes/change/proposal.md", content: "status: passed", created_at: "2026-10-01T12:01:00.000Z" },
+        { key: "openspec/changes/change/assessment.md", content: "status: passed", created_at: "2026-10-01T12:01:00.000Z" },
+      ],
+    })
+    expect(malformed).toMatchObject({ completed_canonical_stages: [], pending_stage: "DECIDE", artifact_refs: { DECIDE: [] } })
+    expect(malformed.warnings).toContain("Artifact invalidation metadata is malformed; affected stage artifacts are ignored until regenerated.")
   })
 
   it("requires recovery for a canonical state without a work_type and blocks a pending binding", () => {

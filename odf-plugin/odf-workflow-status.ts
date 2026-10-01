@@ -345,7 +345,9 @@ function artifactInvalidation(state: WorkflowState | null, routeStages: readonly
   const fromIndex = fromStage ? routeStages.indexOf(fromStage as ActiveCanonicalStage) : -1
   const rawTimestamp = marker?.invalidated_at
   const invalidatedAt = typeof rawTimestamp === "string" ? Date.parse(rawTimestamp) : Number.NaN
-  const valid = marker?.version === 1 && fromIndex >= 0 && Number.isFinite(invalidatedAt)
+  const canonicalTimestamp = typeof rawTimestamp === "string" && Number.isFinite(invalidatedAt) &&
+    new Date(invalidatedAt).toISOString() === rawTimestamp
+  const valid = marker?.version === 1 && fromIndex >= 0 && canonicalTimestamp
   return {
     // Malformed invalidation metadata must fail closed rather than making
     // potentially stale phase evidence current again.
