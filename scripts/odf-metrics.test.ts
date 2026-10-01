@@ -279,6 +279,29 @@ describe("buildDashboard + render", () => {
     expect(d.baseline.entry_to_final_gate.stage_durations_ms).toEqual([])
   })
 
+  it("joins entry span markers to later run flow stages for one complete cycle", () => {
+    const stages = ["entry_started", "intent_approved", "policy_selected", "build_started", "verify_started", "verified_completed"]
+    const base = Date.parse("2026-01-01T00:00:00Z")
+    const records: any[] = stages.map((flowStage, index) => ({
+      event: index === 0 ? "span" : "run",
+      ...(index === 0 ? { span_kind: "task" } : { run_id: `flow-run-${index}` }),
+      lifecycle: index === 3 || index === 4 ? "started" : "finished",
+      flow_stage: flowStage,
+      change: "mixed-flow-events",
+      timestamp: new Date(base + index * 100).toISOString(),
+      status: "ok",
+      workspace: "odf-worktree",
+    }))
+
+    const gate = entryToFinalGate(records)
+
+    expect(gate).toMatchObject({ status: "available", sample_count: 1, changes: 1, p50_ms: 500, p95_ms: 500 })
+    expect(gate.stage_durations_ms).toEqual(
+      stages.slice(0, -1).map((from, index) => ({ from, to: stages[index + 1], sample_count: 1, p50_ms: 100, p95_ms: 100 })),
+    )
+    expect(gate.by_workspace).toEqual({ "odf-worktree": 1 })
+  })
+
   it("keeps only the latest complete retry sequence for a change", () => {
     const stages = ["entry_started", "intent_approved", "policy_selected", "build_started", "verify_started", "verified_completed"]
     const sequence = (base: number, retry: string, event: "run" | "span"): any[] => stages.map((stage, index) => ({
@@ -328,17 +351,26 @@ describe("buildDashboard + render", () => {
     expect(entryToFinalGate(records)).toMatchObject({ status: "unavailable", sample_count: 0, changes: 0 })
   })
 
-  it("rejects a duplicate entry stage instead of treating it as a new sequence", () => {
+  it("rejects duplicate entry stages across run/span records instead of treating one as a new sequence", () => {
     const stages = ["entry_started", "intent_approved", "policy_selected", "build_started", "verify_started", "verified_completed"]
     const base = Date.parse("2026-01-01T00:00:00Z")
     const records: any[] = [
-      ...[stages[0], stages[0], ...stages.slice(1)].map((flowStage, index) => ({
+      {
+        event: "span",
+        span_kind: "task",
+        lifecycle: "finished",
+        change: "duplicate-entry",
+        flow_stage: stages[0],
+        timestamp: new Date(base).toISOString(),
+        status: "ok",
+      },
+      ...[stages[0], ...stages.slice(1)].map((flowStage, index) => ({
         event: "run",
         lifecycle: "finished",
         run_id: `duplicate-entry-${index}`,
         change: "duplicate-entry",
         flow_stage: flowStage,
-        timestamp: new Date(base + index * 100).toISOString(),
+        timestamp: new Date(base + (index + 1) * 100).toISOString(),
         status: "ok",
       })),
     ]
