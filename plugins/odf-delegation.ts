@@ -1098,12 +1098,12 @@ const EVIDENCE_MIN_COMMANDS: Record<"LOW" | "MEDIUM" | "HIGH", number> = {
 
 /** Minimal output patterns keyed by command name (only for known commands). */
 const EVIDENCE_PATTERNS: Record<string, RegExp> = {
-  "odoo-tests": /0 failed/i,
-  "odoo-test": /0 failed/i,
-  "pytest-odoo": /0 failed/i,
-  "pre-commit": /all checks passed/i,
-  "pylint-odoo": /^(?:-+)?\s*$/m,
-  "pylint": /^(?:-+)?\s*$/m,
+  "odoo-tests": /^(?!.*\b[1-9]\d*\s+failed\b).*\b0\s+failed\b.*$/is,
+  "odoo-test": /^(?!.*\b[1-9]\d*\s+failed\b).*\b0\s+failed\b.*$/is,
+  "pytest-odoo": /^(?!.*\b[1-9]\d*\s+failed\b).*\b0\s+failed\b.*$/is,
+  "pre-commit": /\bAll checks passed!\s*$/im,
+  "pylint-odoo": /\bYour code has been rated at \d+(?:\.\d+)?\/10\b/i,
+  "pylint": /\bYour code has been rated at \d+(?:\.\d+)?\/10\b/i,
 }
 
 /**
@@ -1251,9 +1251,6 @@ export function validateValidationEvidence(opts: {
     if (isVerify) {
       if (typeof cmd.command !== "string" || !cmd.command.trim()) {
         return { status: "invalid", reason: `command "${cmd.name}" is missing the full command line`, commands_validated: checked }
-      }
-      if (typeof cmd.database !== "string" || !cmd.database.trim()) {
-        return { status: "invalid", reason: `command "${cmd.name}" is missing the database context`, commands_validated: checked }
       }
       if (!(typeof cmd.output_tail === "string" && cmd.output_tail.trim()) && !(typeof cmd.output_evidence === "string" && cmd.output_evidence.trim())) {
         return { status: "invalid", reason: `command "${cmd.name}" is missing output evidence`, commands_validated: checked }

@@ -9003,6 +9003,58 @@ describe("validateValidationEvidence", () => {
     expect(verdict.reason).toContain("success pattern")
   })
 
+  it.each([
+    {
+      name: "odoo-tests",
+      command: "odoo-bin -d odf_test_db --test-enable --stop-after-init",
+      database: "odf_test_db",
+      output_tail: "2026-10-01 INFO test_db odoo.modules.loading: 0 failed, 0 error(s) of 2 tests",
+    },
+    {
+      name: "pytest-odoo",
+      command: "pytest -d odf_test_db --odoo-tests",
+      database: "odf_test_db",
+      output_tail: "2 passed, 0 failed",
+    },
+    {
+      name: "pre-commit",
+      command: "pre-commit run --all-files",
+      output_tail: "trim trailing whitespace................................Passed\nAll checks passed!",
+    },
+    {
+      name: "pylint",
+      command: "pylint addons/my_module",
+      output_tail: "************* Module my_module\nYour code has been rated at 10.00/10",
+    },
+    {
+      name: "pylint-odoo",
+      command: "pylint --load-plugins=pylint_odoo addons/my_module",
+      output_tail: "************* Module my_module\nYour code has been rated at 9.50/10",
+    },
+  ])("accepts realistic successful $name output", async command => {
+    await writeEvidence(validEvidence({
+      risk_tier: "LOW",
+      commands: [{ ...command, exit_code: 0 }],
+    }))
+    const verdict = validateValidationEvidence({ workspaceDir: tmp, change: "ev-change", tier: "LOW", frozenDiffRef: null, now })
+    expect(verdict).toMatchObject({ status: "verified", commands_validated: 1 })
+  })
+
+  it("rejects contradictory Odoo test counts even when output also says zero failed", async () => {
+    await writeEvidence(validEvidence({
+      risk_tier: "LOW",
+      commands: [{
+        name: "odoo-tests",
+        command: "odoo-bin -d odf_test_db --test-enable --stop-after-init",
+        database: "odf_test_db",
+        exit_code: 0,
+        output_tail: "12 failed, 0 failed",
+      }],
+    }))
+    const verdict = validateValidationEvidence({ workspaceDir: tmp, change: "ev-change", tier: "LOW", frozenDiffRef: null, now })
+    expect(verdict).toMatchObject({ status: "invalid", reason: expect.stringContaining("success pattern") })
+  })
+
   it("requires HIGH tier to have 3+ commands", async () => {
     await writeEvidence(validEvidence())
     const verdict = validateValidationEvidence({ workspaceDir: tmp, change: "ev-change", tier: "HIGH", frozenDiffRef: null, now })
@@ -9033,13 +9085,13 @@ describe("validateValidationEvidence", () => {
     expect(verdict.reason).toContain("requires at least one command")
   })
 
-  it("verify-rejects-missing-required-fields: rejects a VERIFY command without database or output", async () => {
+  it("verify-rejects-missing-required-fields: Odoo tests still require a database and all commands require output", async () => {
     await writeEvidence(validVerifyEvidence({ commands: [
       { name: "odoo-tests", command: "odoo-bin -d odf_test_db -i test_module --test-enable --stop-after-init", exit_code: 0, output_tail: "12 passed, 0 failed" },
     ] }))
     const noDb = validateValidationEvidence({ workspaceDir: tmp, change: "ev-change", tier: "LOW", frozenDiffRef: null, now })
     expect(noDb.status).toBe("invalid")
-    expect(noDb.reason).toContain("missing the database context")
+    expect(noDb.reason).toContain("missing an explicit database")
 
     await writeEvidence(validVerifyEvidence({ commands: [
       { name: "odoo-tests", command: "odoo-bin -d odf_test_db -i test_module --test-enable --stop-after-init", database: "odf_test_db", exit_code: 0, output_tail: "", output_evidence: "" },
@@ -9047,6 +9099,14 @@ describe("validateValidationEvidence", () => {
     const noOutput = validateValidationEvidence({ workspaceDir: tmp, change: "ev-change", tier: "LOW", frozenDiffRef: null, now })
     expect(noOutput.status).toBe("invalid")
     expect(noOutput.reason).toContain("missing output evidence")
+  })
+
+  it("verify-allows-non-Odoo commands without database context", async () => {
+    await writeEvidence(validVerifyEvidence({ commands: [
+      { name: "npm-test", command: "npm test", exit_code: 0, output_tail: "Test Files  4 passed (4)\nTests  28 passed (28)" },
+    ] }))
+    const verdict = validateValidationEvidence({ workspaceDir: tmp, change: "ev-change", tier: "LOW", frozenDiffRef: null, now })
+    expect(verdict).toMatchObject({ status: "verified", commands_validated: 1 })
   })
 
   it("verify-rejects-nonzero-exit: any non-zero exit invalidates the VERIFY receipt", async () => {
