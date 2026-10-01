@@ -14,6 +14,7 @@ import {
 // The pack resolver is env-driven, and this repository ships a registry of its
 // own, so tests that need their own pack must set ODF_CONFIG_DIR explicitly.
 const ORIGINAL_CONFIG_DIR = process.env.ODF_CONFIG_DIR
+const OPENCODE_SUBAGENT_USER_PREFIX = "You are a subagent spawned by another session.\n"
 function isolateConfigDir(tempHome: string): void {
   process.env.ODF_CONFIG_DIR = path.join(tempHome, ".config", "opencode")
 }
@@ -30,7 +31,7 @@ function fakeChildSession(opts: { agent: string; prompt: string; resultText: str
     wait: vi.fn(),
     context: vi.fn().mockResolvedValue([
       // Match OpenCode V2 Session.Message.User / Assistant context records.
-      { id: "msg_user", type: "user", text: opts.prompt },
+      { id: "msg_user", type: "user", text: `${OPENCODE_SUBAGENT_USER_PREFIX}${opts.prompt}` },
       { id: "msg_assistant", type: "assistant", content: [{ type: "text", text: opts.resultText }] },
     ]),
     interrupt: vi.fn(),
