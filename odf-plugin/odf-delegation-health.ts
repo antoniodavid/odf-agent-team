@@ -711,12 +711,17 @@ export function readV2ContextConversation(response: unknown): V2ContextConversat
       : Array.isArray(value.parts)
         ? value.parts
         : Array.isArray(info.content) ? info.content : []
-    const text = parts
+    // OpenCode V2 encodes Session.Message.User with a top-level `text` field;
+    // assistant messages instead carry text in tagged `content` entries.
+    // Preserve the user string verbatim because the seal compares its digest
+    // with the exact prompt passed to the child.
+    const directUserText = role === "user" && typeof info.text === "string" ? info.text : null
+    const text = directUserText ?? parts
       .filter((part: any) => part?.type === "text" && typeof part.text === "string")
       .map((part: any) => part.text)
       .join("\n")
       .trim()
-    if (!text) continue
+    if (!text.trim()) continue
     if (role === "user") userTexts.push(text)
     if (role === "assistant") assistantText = text
   }

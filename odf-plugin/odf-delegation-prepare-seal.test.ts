@@ -29,8 +29,9 @@ function fakeChildSession(opts: { agent: string; prompt: string; resultText: str
     prompt: vi.fn(),
     wait: vi.fn(),
     context: vi.fn().mockResolvedValue([
-      { info: { type: "user" }, content: [{ type: "text", text: opts.prompt }] },
-      { info: { type: "assistant" }, content: [{ type: "text", text: opts.resultText }] },
+      // Match OpenCode V2 Session.Message.User / Assistant context records.
+      { id: "msg_user", type: "user", text: opts.prompt },
+      { id: "msg_assistant", type: "assistant", content: [{ type: "text", text: opts.resultText }] },
     ]),
     interrupt: vi.fn(),
   }
@@ -256,6 +257,34 @@ describe("native prepare/seal delegation", () => {
 
     expect(output).toMatchObject({ status: "delegated", phase: "PROPOSE" })
     expect(readDelegationToken(tempHome, change, prepared.token)).toMatchObject({ error: "delegation-token-unknown" })
+  })
+
+  it("keeps expired proposal tokens fail-closed", async () => {
+    const change = "native-propose-expired"
+    const changeDir = await writeProposalState(tempHome, change)
+    const expired = createDelegationTokenRecord({
+      change,
+      phase: "PROPOSE",
+      agent: "odoo_proposer",
+      artifact_store: "openspec",
+      workspace: tempHome,
+      prompt: "Draft the approved proposal",
+      task: "Draft the approved proposal",
+      now: new Date(Date.now() - 10_000),
+      ttl_ms: 1_000,
+    })!
+    expect(writeDelegationToken(tempHome, expired)).toBeNull()
+
+    const { odf_proposal_write } = await tools()
+    const output = JSON.parse(await odf_proposal_write.execute({
+      token: expired.token,
+      change,
+      artifact_store: "openspec",
+      content: "## Proposal: native-propose-expired\n",
+    }, { sessionID: "ses_child", agent: "odoo_proposer", directory: tempHome } as any) as string)
+
+    expect(output).toMatchObject({ status: "blocked", reason: "delegation-token-expired" })
+    await expect(fs.readFile(path.join(changeDir, "proposal.md"), "utf8")).rejects.toMatchObject({ code: "ENOENT" })
   })
 
   it("blocks a successful PROPOSE result that claims an OpenSpec ref without using the writer", async () => {
