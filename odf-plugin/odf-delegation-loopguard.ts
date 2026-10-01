@@ -104,7 +104,10 @@ export function isSuccessfulODFEntryHealth(value: unknown): boolean {
     result.registry?.status === "valid" && Array.isArray(result.registry?.skills?.missing) && result.registry.skills.missing.length === 0 &&
     Array.isArray(result.registry?.agents?.missing) && result.registry.agents.missing.length === 0 &&
     result.plugin?.loaded === true && result.plugin?.file_status === "readable" &&
-    result.command?.status === "readable" && result.task_api?.function_present === true
+    result.command?.status === "readable" && result.task_api?.function_present === true &&
+    result.v2_session?.source === "context.session" && result.v2_session?.function_present === true &&
+    Array.isArray(result.v2_session?.operations) &&
+    ["get", "context"].every(operation => result.v2_session.operations.includes(operation))
 }
 
 export function canonicalLoopGuardValue(value: unknown): unknown {

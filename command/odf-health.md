@@ -18,23 +18,27 @@ result without rewriting it. It checks:
 - The installed plugin and `/odf-health` command file.
 - Native task bridge presence, when the host exposes `toolCtx.task`, or SDK
   child-session capability. It does not call either transport; usability is
-  therefore `unverified` and the overall status is normally `warning`.
+  therefore `unverified`.
+- The V2 session attached to the tool context. The native prepare/subagent/seal
+  protocol requires this API to read and validate the child session; an SDK
+  fallback reported for diagnostics does not satisfy the seal requirement.
 - Engram executable path/version when safely discoverable. `export_probe` must
   remain `not-run`; Engram is optional for OpenSpec-only workflows.
 
 Never use this check to execute Odoo, PostgreSQL, a sub-agent task, or
 `engram export`.
 
-The native task bridge is preferred when present. The current official runtime
-normally uses the SDK child-session fallback (`session.create` followed by
-`session.prompt`). The SDK path cannot reproduce native task permission
-derivation; this health check reports capability only and never infers runtime
-permission parity.
+The native task bridge is preferred when present. Health reports transport
+capability only and never infers usability or runtime permission parity. For
+native delegation, the context-attached V2 session must expose the complete
+supported operation set; the seal specifically uses `session.get` and
+`session.context`.
 
 Status semantics:
 
 - `failed`: malformed/missing registry or required installed files.
-- `blocked`: permission denied, runtime timeout, or unavailable task API.
+- `blocked`: permission denied, runtime timeout, unavailable task API, or
+  missing context-attached V2 session required by the native seal.
 - `warning`: static installation is valid but task usability remains
   unverified, or optional Engram is unavailable.
 - `ok`: all required checks pass and no unverified runtime dependency remains.
