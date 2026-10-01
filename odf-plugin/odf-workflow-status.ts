@@ -403,11 +403,15 @@ function artifactStatus(artifact: InternalArtifact): string | null {
 }
 function successful(artifact: InternalArtifact): boolean {
   const status = artifactStatus(artifact)
-  return status ? SUCCESS_STATUSES.has(status) : false
+  if (!status) return false
+  // A VERIFY warning means the report is complete with non-blocking caveats;
+  // its separate validation-evidence gate still applies. Other artifacts need
+  // an explicit success status.
+  return SUCCESS_STATUSES.has(status) || artifact.normalized.type === "verify-report" && status === "warning"
 }
 function isTerminal(artifact: InternalArtifact): boolean {
   const status = artifactStatus(artifact)
-  if (status) return SUCCESS_STATUSES.has(status)
+  if (status) return successful(artifact)
   if (artifact.explicitStatus) return false
   const { type } = artifact.normalized
   if (type === "verify-report" || type === "archive-report") return successful(artifact)

@@ -550,6 +550,27 @@ describe("workflow status adapter", () => {
     })
   })
 
+  it("treats warning as terminal only for VERIFY reports", () => {
+    const verifyWarning = deriveWorkflowStatus({
+      change: "verify-warning",
+      state: { work_type: "verify-only" },
+      artifacts: { "verify-report": { status: "warning" } },
+    })
+    expect(verifyWarning).toMatchObject({
+      canonical_stage: "VERIFY",
+      completed_canonical_stages: ["VERIFY"],
+      pending_stage: null,
+    })
+
+    const buildWarning = deriveWorkflowStatus({
+      change: "build-warning",
+      state: { work_type: "feature", canonical_stage: "BUILD" },
+      artifacts: { build: { status: "warning" } },
+    })
+    expect(buildWarning.completed_canonical_stages).not.toContain("BUILD")
+    expect(buildWarning.pending_stage).toBe("BUILD")
+  })
+
   it("supports non-default EXPLORE and FIX routes without changing legacy defaults", () => {
     const explore = deriveWorkflowStatus({
       change: "explore-route",
