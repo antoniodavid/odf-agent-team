@@ -307,9 +307,9 @@ function validTimestampMs(value) {
   return Number.isFinite(ms) ? ms : null
 }
 
-// Flow-staged lifecycle records attributable to one change. Join records never
-// anchor funnel timing. Task/branch spans are a fallback for old producers that
-// emitted the bounded stages only on child spans.
+// Flow-staged records attributable to one change. Run events and task/branch
+// spans may carry different stages of the same flow, so keep both event types
+// eligible for one ordered sequence. Join records never anchor funnel timing.
 function flowRunRecords(records) {
   return records.filter(record =>
     !joinRecord(record) &&
@@ -453,9 +453,9 @@ function cohortStats(samples, field, key = value => value) {
  * without flow stages parses unchanged and yields zero samples.
  */
 export function entryToFinalGate(records, days = 1) {
+  const flowRecords = [...flowRunRecords(records), ...flowSpanCohortRecords(records)]
   const samples = latestFlowSamples([
-    ...completeFlowSamples(flowRunRecords(records), records),
-    ...completeFlowSamples(flowSpanCohortRecords(records), records),
+    ...completeFlowSamples(flowRecords, records),
   ])
   // Per-interval p50/p95 from the same complete sequences that back the
   // overall p50/p95, so the dominant stage is auditable without inference.
