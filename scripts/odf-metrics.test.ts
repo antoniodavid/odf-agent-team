@@ -302,6 +302,45 @@ describe("buildDashboard + render", () => {
     expect(gate.by_workspace).toEqual({ "odf-worktree": 1 })
   })
 
+  it("uses the run timestamp once when a run and task span mirror the same milestone", () => {
+    const stages = ["entry_started", "intent_approved", "policy_selected", "build_started", "verify_started", "verified_completed"]
+    const base = Date.parse("2026-01-01T00:00:00Z")
+    const records: any[] = stages.flatMap((flowStage, index) => {
+      const lifecycle = index === 0 || index === 3 || index === 4 ? "started" : "finished"
+      const common = {
+        run_id: `flow-run-${index}`,
+        lifecycle,
+        flow_stage: flowStage,
+        change: "mirrored-flow-events",
+        status: "ok",
+        workspace: "odf-worktree",
+      }
+      return [
+        {
+          event: "span",
+          span_kind: "task",
+          trace_id: "flow-trace",
+          span_id: `flow-span-${index}`,
+          parent_span_id: "flow-root",
+          timestamp: new Date(base + index * 100).toISOString(),
+          ...common,
+        },
+        {
+          event: "run",
+          timestamp: new Date(base + index * 100 + 10).toISOString(),
+          ...common,
+        },
+      ]
+    })
+
+    const gate = entryToFinalGate(records)
+
+    expect(gate).toMatchObject({ status: "available", sample_count: 1, changes: 1, p50_ms: 500, p95_ms: 500 })
+    expect(gate.stage_durations_ms).toEqual(
+      stages.slice(0, -1).map((from, index) => ({ from, to: stages[index + 1], sample_count: 1, p50_ms: 100, p95_ms: 100 })),
+    )
+  })
+
   it("keeps only the latest complete retry sequence for a change", () => {
     const stages = ["entry_started", "intent_approved", "policy_selected", "build_started", "verify_started", "verified_completed"]
     const sequence = (base: number, retry: string, event: "run" | "span"): any[] => stages.map((stage, index) => ({
