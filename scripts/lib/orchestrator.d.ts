@@ -19,6 +19,7 @@ export interface PreflightRecord {
   tdd_mode: boolean;
   solution_strategy: string;
   chain_strategy: string;
+  validation_mode?: 'automated' | 'manual-acceptance';
   persisted_at?: string;
 }
 

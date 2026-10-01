@@ -90,3 +90,49 @@ tests:
       defaults_odoo_version: 17
       defaults_artifact_store: "hybrid"
       defaults_tdd_mode: true
+
+  - name: "registry budget overrides the declared fallback default"
+    input:
+      change_name: "Budgeted Feature"
+      registry_flags:
+        pr_size_budget: 900
+    expected:
+      defaults_change: "budgeted-feature"
+      defaults_odoo_version: 18
+      defaults_artifact_store: "openspec"
+      defaults_tdd_mode: false
+      defaults_review_budget_lines: 900
+      defaults_validation_mode: "automated"
+
+  - name: "unknown preflight fields are rejected"
+    input:
+      record:
+        change: "my-feature"
+        execution_mode: "interactive"
+        artifact_store: "openspec"
+        delivery_strategy: "ask-on-risk"
+        review_budget_lines: 400
+        odoo_version: 18
+        tdd_mode: false
+        solution_strategy: "custom"
+        chain_strategy: "feature-branch"
+        unexpected: true
+    expected:
+      valid: false
+      errors_contains: ["unexpected"]
+
+  - name: "coercible boolean input is rejected"
+    input:
+      record:
+        change: "my-feature"
+        execution_mode: "interactive"
+        artifact_store: "openspec"
+        delivery_strategy: "ask-on-risk"
+        review_budget_lines: 400
+        odoo_version: 18
+        tdd_mode: "false"
+        solution_strategy: "custom"
+        chain_strategy: "feature-branch"
+    expected:
+      valid: false
+      errors_contains: ["tdd_mode"]

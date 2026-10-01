@@ -29,13 +29,17 @@ design:
       - solution_strategy
       - chain_strategy
       - persisted_at
+    optional_fields:
+      - validation_mode
+    generated_fields:
+      - persisted_at
     fields:
       change:
         type: string
         validation: kebab-case, non-empty
       execution_mode:
         type: enum
-        values: [interactive, batch]
+        values: [interactive, batch, auto]
         default: interactive
       artifact_store:
         type: enum
@@ -68,17 +72,29 @@ design:
       persisted_at:
         type: string
         format: ISO8601
+        generated: true
+      validation_mode:
+        type: enum
+        values: [automated, manual-acceptance]
+        default: automated
+        required: false
 
   validation_rules:
     - |
-      change must be non-empty and contain only lowercase letters, numbers,
-      hyphens, and underscores.
+      change is normalized with sanitizeChangeName, then must be non-empty and
+      contain only lowercase letters, numbers, hyphens, and underscores.
     - |
       odoo_version must be one of 16, 17, 18, 19.
     - |
       review_budget_lines must be a positive integer between 100 and 5000.
     - |
-      All enum fields must match allowed values exactly.
+      All enum fields must match allowed values exactly; no case folding or coercion is performed.
+    - |
+      Integer and boolean fields must use their native primitive types; numeric and boolean strings are rejected.
+    - |
+      Unknown input fields are rejected.
+    - |
+      persisted_at is generated when omitted; a supplied timestamp must be a valid ISO8601 datetime.
     - |
       Empty required fields trigger a re-prompt with the field name and allowed
       values.
@@ -86,16 +102,17 @@ design:
   defaults_and_inference:
     sources:
       - source: odf-init/{project} (Engram/OpenSpec)
-        fields: [odoo_version, artifact_store, tdd_mode]
+        fields: [odoo_version, artifact_store, tdd_mode, validation_mode, review_budget_lines]
       - source: __manifest__.py in process.cwd()
         fields: [odoo_version]
       - source: odf-registry.json flags
         fields: [pr_size_budget -> review_budget_lines]
       - source: hardcoded defaults
-        fields: [execution_mode, delivery_strategy, chain_strategy]
+        fields: [execution_mode, artifact_store, delivery_strategy, review_budget_lines, tdd_mode, solution_strategy, chain_strategy, validation_mode]
     fallback: |
-      If inference fails, use hardcoded defaults and ask the user only for
-      fields that cannot be defaulted.
+      Apply project configuration over inferred manifest/registry values, then
+      use the field's hardcoded default. Ask only for required fields with no
+      available value; generated fields are not prompted.
 
   conversation_flow:
     new_change:
@@ -107,6 +124,7 @@ design:
       - Ask review budget (default 400).
       - Ask TDD mode (default false).
       - Ask chain strategy (default none).
+      - Use validation mode from project context or default automated.
       - Show summary and allow amendment.
       - Persist record.
     resume:
@@ -163,6 +181,7 @@ design:
         - Defaults inferred from project config
         - Amendment before delegation
         - Persistence idempotency
+        - Unknown fields, wrong primitive types, and invalid timestamps are rejected
 
   dependencies:
     - orchestrator-agent

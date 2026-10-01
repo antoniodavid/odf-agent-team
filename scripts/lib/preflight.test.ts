@@ -55,6 +55,22 @@ describe('preflight', () => {
       expect(result.normalized.execution_mode).toBe('auto');
     });
 
+    it('canonicalizes the change name while validating its primitive type strictly', () => {
+      const result = validatePreflight({ ...validRecord(), change: 'Mixed Feature' });
+
+      expect(result.valid).toBe(true);
+      expect(result.normalized.change).toBe('mixed-feature');
+      expect(validatePreflight({ ...validRecord(), change: 123 }).valid).toBe(false);
+    });
+
+    it('applies the optional validation mode default and generates an ISO timestamp', () => {
+      const result = validatePreflight(validRecord());
+
+      expect(result.valid).toBe(true);
+      expect(result.normalized.validation_mode).toBe('automated');
+      expect(result.normalized.persisted_at).toMatch(/^\d{4}-\d{2}-\d{2}T.*Z$/);
+    });
+
     it('rejects missing required fields', () => {
       const result = validatePreflight({ change: 'x' });
       expect(result.valid).toBe(false);
@@ -73,10 +89,38 @@ describe('preflight', () => {
       expect(result.errors.some((e) => e.includes('review_budget_lines'))).toBe(true);
     });
 
-    it('normalizes string booleans', () => {
+    it('rejects coercible values instead of silently normalizing them', () => {
       const result = validatePreflight({ ...validRecord(), tdd_mode: 'true' });
-      expect(result.valid).toBe(true);
-      expect(result.normalized.tdd_mode).toBe(true);
+      expect(result.valid).toBe(false);
+      expect(result.errors).toContain('tdd_mode debe ser un valor booleano');
+    });
+
+    it.each([
+      ['execution_mode', 'Interactive'],
+      ['review_budget_lines', '400'],
+      ['odoo_version', '18'],
+    ])('rejects non-exact values for %s', (field, value) => {
+      const result = validatePreflight({ ...validRecord(), [field]: value });
+
+      expect(result.valid).toBe(false);
+      expect(result.errors.some((error) => error.startsWith(`${field} `))).toBe(true);
+    });
+
+    it('rejects unknown fields and non-object records', () => {
+      const withUnknownField = validatePreflight({ ...validRecord(), unexpected: true });
+      const nonObject = validatePreflight([]);
+
+      expect(withUnknownField.valid).toBe(false);
+      expect(withUnknownField.errors).toContain('Campo desconocido: unexpected');
+      expect(nonObject.valid).toBe(false);
+      expect(nonObject.errors).toContain('El preflight debe ser un objeto');
+    });
+
+    it.each(['yesterday', '2026-02-31T00:00:00Z'])('rejects malformed supplied persisted_at value %s', (persistedAt) => {
+      const result = validatePreflight({ ...validRecord(), persisted_at: persistedAt });
+
+      expect(result.valid).toBe(false);
+      expect(result.errors).toContain('persisted_at debe ser una fecha ISO8601 válida');
     });
   });
 
@@ -88,20 +132,27 @@ describe('preflight', () => {
       expect([16, 17, 18, 19]).toContain(defaults.odoo_version);
     });
 
-    it('leaves artifact store unset without project configuration', () => {
+    it('uses declared defaults when project configuration is absent', () => {
       const defaults = inferDefaults('x');
       const missing = getMissingFields(defaults);
 
-      expect(defaults.artifact_store).toBeUndefined();
-      expect(missing).not.toContain('Falta');
-      expect(missing).toEqual(['artifact_store']);
+      expect(defaults.artifact_store).toBe('openspec');
+      expect(defaults.validation_mode).toBe('automated');
+      expect(missing).toEqual([]);
     });
 
     it('merges project config values', () => {
-      const defaults = inferDefaults('x', { odoo_version: 17, artifact_store: 'hybrid', tdd_mode: true });
+      const defaults = inferDefaults('x', { odoo_version: 17, artifact_store: 'hybrid', tdd_mode: true, validation_mode: 'manual-acceptance' });
       expect(defaults.odoo_version).toBe(17);
       expect(defaults.artifact_store).toBe('hybrid');
       expect(defaults.tdd_mode).toBe(true);
+      expect(defaults.validation_mode).toBe('manual-acceptance');
+    });
+
+    it('uses valid registry budget flags and ignores invalid configured budgets', () => {
+      expect(inferDefaults('x', null, { pr_size_budget: 900 }).review_budget_lines).toBe(900);
+      expect(inferDefaults('x', { review_budget_lines: 50 }, { pr_size_budget: 900 }).review_budget_lines).toBe(900);
+      expect(inferDefaults('x', { review_budget_lines: 1200 }, { pr_size_budget: 900 }).review_budget_lines).toBe(1200);
     });
   });
 
