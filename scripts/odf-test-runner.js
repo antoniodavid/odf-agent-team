@@ -249,12 +249,15 @@ function runPreflightSuite(suite) {
 
     if (tc.input.change_name) {
       test('defaults inference matches expected', () => {
-        const defaults = preflight.inferDefaults(tc.input.change_name, tc.input.project_config || null);
+        const registryFlags = tc.input.registry_flags || loadRegistry()?.flags || null;
+        const defaults = preflight.inferDefaults(tc.input.change_name, tc.input.project_config || null, registryFlags);
         return (
           defaults.change === tc.expected.defaults_change &&
           defaults.odoo_version === tc.expected.defaults_odoo_version &&
           defaults.artifact_store === tc.expected.defaults_artifact_store &&
-          defaults.tdd_mode === tc.expected.defaults_tdd_mode
+          defaults.tdd_mode === tc.expected.defaults_tdd_mode &&
+          (tc.expected.defaults_review_budget_lines === undefined || defaults.review_budget_lines === tc.expected.defaults_review_budget_lines) &&
+          (tc.expected.defaults_validation_mode === undefined || defaults.validation_mode === tc.expected.defaults_validation_mode)
         );
       });
     }

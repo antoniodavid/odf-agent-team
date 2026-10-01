@@ -464,6 +464,14 @@ Before any phase, ensure a valid preflight record exists for the change.
 | `chain_strategy` | `none \| chained \| feature-branch` | `none` |
 | `validation_mode` | `automated`, `manual-acceptance` | `automated` |
 
+Normalize `change` with `sanitizeChangeName` before validating. The validated
+preflight is otherwise a strict record: reject unknown keys, enum values outside
+their exact spelling, numeric strings, and non-boolean values. Use
+`odf-registry.json` `flags.pr_size_budget` as the review-budget default when
+valid; a project-specific configured budget may override it. Generate
+`persisted_at` as an ISO8601 timestamp when the record is validated; never ask
+the user to provide it.
+
 Flow:
 
 1. `/odf-new` or `/odf-continue` loads state from the selected artifact store.

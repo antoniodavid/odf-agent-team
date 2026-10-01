@@ -11,12 +11,36 @@ import YAML from 'yaml';
 
 export const PREFLIGHT_VERSION = '1.0.0';
 
+function isValidIso8601Timestamp(value) {
+  if (typeof value !== 'string') return false;
+  const parts = value.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?(Z|([+-])(\d{2}):(\d{2}))$/);
+  if (!parts) return false;
+
+  const [, yearText, monthText, dayText, hourText, minuteText, secondText, , , offsetHourText, offsetMinuteText] = parts;
+  const year = Number(yearText);
+  const month = Number(monthText);
+  const day = Number(dayText);
+  const hour = Number(hourText);
+  const minute = Number(minuteText);
+  const second = Number(secondText);
+  const offsetHour = offsetHourText === undefined ? 0 : Number(offsetHourText);
+  const offsetMinute = offsetMinuteText === undefined ? 0 : Number(offsetMinuteText);
+  const leapYear = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
+  const daysInMonth = [31, leapYear ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+
+  return month >= 1 && month <= 12
+    && day >= 1 && day <= daysInMonth[month - 1]
+    && hour <= 23 && minute <= 59 && second <= 59
+    && offsetHour <= 23 && offsetMinute <= 59
+    && Number.isFinite(Date.parse(value));
+}
+
 export const PREFLIGHT_FIELDS = {
   change: {
     type: 'string',
     required: true,
     question: 'Nombre del cambio (kebab-case):',
-    validate: (v) => /^[a-z0-9_-]+$/.test(String(v)),
+    validate: (v) => /^[a-z0-9]+(?:[-_][a-z0-9]+)*$/.test(v),
   },
   execution_mode: {
     type: 'enum',
@@ -27,6 +51,7 @@ export const PREFLIGHT_FIELDS = {
   artifact_store: {
     type: 'enum',
     values: ['openspec', 'engram', 'hybrid'],
+    default: 'openspec',
     question: 'Almacén de artefactos (openspec | engram | hybrid):',
   },
   delivery_strategy: {
@@ -76,6 +101,7 @@ export const PREFLIGHT_FIELDS = {
     type: 'string',
     required: false,
     question: null,
+    validate: isValidIso8601Timestamp,
   },
 };
 
@@ -122,18 +148,21 @@ export function detectOdooVersionFromManifest(cwd = process.cwd()) {
 /**
  * Build a default preflight record, optionally merging project context.
  */
-export function inferDefaults(changeName, projectConfig = null) {
+export function inferDefaults(changeName, projectConfig = null, registryFlags = null) {
   const detectedVersion = detectOdooVersionFromManifest();
-  const record = {
-    change: sanitizeChangeName(changeName),
-    execution_mode: 'interactive',
-    delivery_strategy: 'ask-on-risk',
-    review_budget_lines: 400,
-    odoo_version: detectedVersion ?? 18,
-    tdd_mode: false,
-    solution_strategy: 'pending',
-    chain_strategy: 'none',
-  };
+  const record = { change: sanitizeChangeName(changeName) };
+  for (const [field, meta] of Object.entries(PREFLIGHT_FIELDS)) {
+    if (meta.default !== undefined) record[field] = meta.default;
+  }
+
+  record.odoo_version = detectedVersion ?? PREFLIGHT_FIELDS.odoo_version.default;
+
+  const registryBudget = registryFlags?.pr_size_budget;
+  if (Number.isInteger(registryBudget)
+    && registryBudget >= PREFLIGHT_FIELDS.review_budget_lines.min
+    && registryBudget <= PREFLIGHT_FIELDS.review_budget_lines.max) {
+    record.review_budget_lines = registryBudget;
+  }
 
   if (projectConfig) {
     if (projectConfig.odoo_version && [16, 17, 18, 19].includes(Number(projectConfig.odoo_version))) {
@@ -144,6 +173,15 @@ export function inferDefaults(changeName, projectConfig = null) {
     }
     if (typeof projectConfig.tdd_mode === 'boolean') {
       record.tdd_mode = projectConfig.tdd_mode;
+    }
+    if (PREFLIGHT_FIELDS.validation_mode.values.includes(projectConfig.validation_mode)) {
+      record.validation_mode = projectConfig.validation_mode;
+    }
+    const configuredBudget = projectConfig.review_budget_lines ?? projectConfig.pr_size_budget;
+    if (Number.isInteger(configuredBudget)
+      && configuredBudget >= PREFLIGHT_FIELDS.review_budget_lines.min
+      && configuredBudget <= PREFLIGHT_FIELDS.review_budget_lines.max) {
+      record.review_budget_lines = configuredBudget;
     }
   }
 
@@ -157,65 +195,80 @@ export function validatePreflight(record) {
   const normalized = {};
   const errors = [];
 
+  if (!record || typeof record !== 'object' || Array.isArray(record)
+    || ![Object.prototype, null].includes(Object.getPrototypeOf(record))) {
+    return {
+      valid: false,
+      errors: ['El preflight debe ser un objeto'],
+      normalized: { persisted_at: new Date().toISOString() },
+    };
+  }
+
+  for (const field of Object.keys(record)) {
+    if (!Object.hasOwn(PREFLIGHT_FIELDS, field)) {
+      errors.push(`Campo desconocido: ${field}`);
+    }
+  }
+
   for (const [field, meta] of Object.entries(PREFLIGHT_FIELDS)) {
     let value = record?.[field];
 
     if (value === undefined || value === null || value === '') {
       if (meta.required === false) {
+        if (meta.default !== undefined) normalized[field] = meta.default;
         continue;
       }
       errors.push(`Falta el campo requerido: ${field}`);
       continue;
     }
 
-    if (field === 'change') {
-      value = sanitizeChangeName(value);
-    }
-
     if (meta.type === 'enum') {
-      const candidate = String(value).toLowerCase();
-      const match = meta.values.find((v) => String(v).toLowerCase() === candidate);
-      if (match === undefined) {
+      if (!meta.values.includes(value)) {
         errors.push(`${field} debe ser uno de: ${meta.values.join(', ')}`);
         continue;
       }
-      value = match;
     }
 
     if (meta.type === 'integer') {
-      const num = Number(value);
-      if (!Number.isInteger(num)) {
+      if (typeof value !== 'number' || !Number.isInteger(value)) {
         errors.push(`${field} debe ser un número entero`);
         continue;
       }
-      if (meta.min !== undefined && num < meta.min) {
+      if (meta.min !== undefined && value < meta.min) {
         errors.push(`${field} debe ser >= ${meta.min}`);
         continue;
       }
-      if (meta.max !== undefined && num > meta.max) {
+      if (meta.max !== undefined && value > meta.max) {
         errors.push(`${field} debe ser <= ${meta.max}`);
         continue;
       }
-      value = num;
     }
 
     if (meta.type === 'boolean') {
-      if (typeof value === 'string') {
-        value = value.toLowerCase() === 'true';
-      } else {
-        value = Boolean(value);
+      if (typeof value !== 'boolean') {
+        errors.push(`${field} debe ser un valor booleano`);
+        continue;
       }
     }
 
+    if (meta.type === 'string' && typeof value !== 'string') {
+      errors.push(`${field} debe ser texto`);
+      continue;
+    }
+
+    if (field === 'change') value = sanitizeChangeName(value);
+
     if (meta.validate && !meta.validate(value)) {
-      errors.push(`${field} tiene un valor inválido: ${value}`);
+      errors.push(field === 'persisted_at'
+        ? 'persisted_at debe ser una fecha ISO8601 válida'
+        : `${field} tiene un valor inválido: ${value}`);
       continue;
     }
 
     normalized[field] = value;
   }
 
-  normalized.persisted_at = new Date().toISOString();
+  if (!normalized.persisted_at) normalized.persisted_at = new Date().toISOString();
 
   return {
     valid: errors.length === 0,
