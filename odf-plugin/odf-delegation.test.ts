@@ -7138,16 +7138,22 @@ ${overrides}`
     expect(getMetricsBuffer()[0].status).toBe("blocked")
   })
 
-  it("accepts the completion-shape proof for an IMPLEMENT start after a BUILD re-entry (issue #28)", async () => {
+  it("accepts a BUILD start proof and validates evidence after the IMPLEMENT child returns (issue #28)", async () => {
     const { createODFDelegate } = await import("./odf-delegation.js")
-    const taskApi = vi.fn().mockResolvedValue({ status: "ok" })
-    await prepareWorkflowState("issue-28-reentry", "IMPLEMENT")
-    await writeValidationEvidence("issue-28-reentry")
+    const change = "issue-28-reentry"
+    const evidencePath = path.join(tempHome, ".odf", `validation-evidence-${change}.json`)
+    let evidenceWasAbsentWhenChildStarted = false
+    const taskApi = vi.fn().mockImplementation(async () => {
+      evidenceWasAbsentWhenChildStarted = !fsSync.existsSync(evidencePath)
+      await writeValidationEvidence(change)
+      return { status: "ok" }
+    })
+    await prepareWorkflowState(change, "IMPLEMENT")
     const delegateTool = createODFDelegate(undefined, tempHome)
 
     const output = JSON.parse(await delegateTool.execute({
       phase: "IMPLEMENT",
-      change: "issue-28-reentry",
+      change,
       artifact_store: "openspec",
       attempt_id: "reentry-1",
       prompt: "Retry the bounded implementation after re-entering BUILD",
@@ -7166,6 +7172,48 @@ ${overrides}`
 
     expect(output.status).toBe("delegated")
     expect(taskApi).toHaveBeenCalledTimes(1)
+    expect(evidenceWasAbsentWhenChildStarted).toBe(true)
+    expect(output.validation).toMatchObject({ status: "verified" })
+  })
+
+  it("does not treat BUILD start proof as validation evidence at the IMPLEMENT seal", async () => {
+    const { createODFDelegate } = await import("./odf-delegation.js")
+    const change = "issue-28-unsealed"
+    const taskApi = vi.fn().mockResolvedValue({ status: "ok" })
+    await prepareWorkflowState(change, "IMPLEMENT")
+    const changeDir = path.join(tempHome, "openspec", "changes", change)
+    const beforeState = YAML.parse(await fs.readFile(path.join(changeDir, "state.yaml"), "utf8"))
+    const delegateTool = createODFDelegate(undefined, tempHome)
+
+    const output = JSON.parse(await delegateTool.execute({
+      phase: "IMPLEMENT",
+      change,
+      artifact_store: "openspec",
+      attempt_id: "unsealed-build-1",
+      prompt: "Retry the bounded implementation after re-entering BUILD",
+      context_files: [],
+      workflow_advance: {
+        work_type: "feature",
+        completed_stages: ["DECIDE", "PLAN"],
+        candidate_stage: "BUILD",
+        phase_result_status: "ok",
+        validation_status: "verified",
+        receipt_state: "none",
+        resumable_state: true,
+        archived_state: false,
+      },
+    }, { sessionID: "s1", task: taskApi } as any) as string)
+
+    const afterState = YAML.parse(await fs.readFile(path.join(changeDir, "state.yaml"), "utf8"))
+    expect(taskApi).toHaveBeenCalledTimes(1)
+    expect(output).toMatchObject({
+      status: "blocked",
+      validation: { status: "missing" },
+      workflow_commit: null,
+    })
+    expect(output.message).toContain("validation-evidence file not found")
+    expect(afterState.canonical_stage).toBe(beforeState.canonical_stage)
+    expect(afterState.completed_canonical_stages).toEqual(beforeState.completed_canonical_stages)
   })
 
   it("still rejects proofs that are neither a start nor a completion shape", async () => {
