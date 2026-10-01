@@ -6103,7 +6103,9 @@ function workflowStateSignals(snapshot: SelectedWorkflowSnapshot): {
  * candidate_stage === expectedStage and completed_stages exactly match the route
  * prefix before it. Callers that ask odf_workflow_advance to "advance BUILD"
  * produce this shape naturally; the delegate reinterprets it as the start intent
- * for BUILD instead of rejecting it as a phase mismatch (issue #28).
+ * for BUILD instead of rejecting it as a phase mismatch (issue #28). This proves
+ * only start intent: validation_status here does not satisfy the BUILD seal,
+ * which checks persisted validation evidence after the child returns.
  */
 function isStageStartProof(route: WorkflowRoute, proof: ODFDelegateWorkflowAdvance, expectedStage: "BUILD" | "VERIFY"): boolean {
   if (proof.candidate_stage !== expectedStage) return false
@@ -7657,13 +7659,13 @@ const workflowAdvanceSchema = tool.schema.object({
       candidate_stage: tool.schema
         .enum(["DECIDE", "PLAN", "BUILD", "VERIFY", "EXPLORE", "FIX"])
         .nullable()
-        .describe("Canonical stage that just completed; null only for an initial transition"),
+        .describe("Canonical stage that just completed; for IMPLEMENT, candidate_stage BUILD with the exact completed route prefix may be normalized as start intent, not as a committed BUILD"),
       phase_result_status: tool.schema
         .enum(["ok", "warning", "blocked", "failed"])
         .describe("Result-contract status for the completed phase"),
       validation_status: tool.schema
         .enum(["verified", "missing", "invalid", "not-required"])
-        .describe("Validation seal status"),
+        .describe("Advisory status for transition calculation; persisted IMPLEMENT validation evidence is independently checked after the child returns at the BUILD seal"),
       receipt_state: tool.schema
         .enum(["none", "pending", "resolved"])
         .describe("Current receipt state"),
@@ -8818,7 +8820,7 @@ Actions:
 }
 
 function createODFWorkflowAdvance(): ReturnType<typeof tool> {  return tool({
-    description: "Advance a canonical ODF workflow without writing state, receipts, artifacts, or files. To start BUILD or VERIFY, pass the stage that precedes it as candidate_stage so the returned next_stage is the stage you are starting.",
+    description: "Advance a canonical ODF workflow without writing state, receipts, artifacts, or files. To start BUILD or VERIFY, pass the stage that precedes it as candidate_stage so the returned next_stage is the stage you are starting. A BUILD start proof authorizes only the start; persisted IMPLEMENT validation evidence is checked after the child returns at the BUILD seal.",
     args: {
       work_type: tool.schema
         .enum([
