@@ -3152,6 +3152,28 @@ describe("computePolicyGate", () => {
     expect(d.reason).toContain("missing change name")
   })
 
+  it("fails closed when the policy gate cannot be persisted", async () => {
+    const odfDir = path.join(tmp, ".odf")
+    await fs.mkdir(odfDir, { recursive: true })
+    await fs.chmod(odfDir, 0o500)
+    try {
+      const decision = computePolicyGate({
+        change: "persist-failure",
+        phase: "IMPLEMENT",
+        workspaceDir: tmp,
+        registry: registryWithTdd(true),
+      })
+
+      expect(decision).toMatchObject({
+        gate: "block",
+        reason: expect.stringContaining("policy-gate-persistence-failed"),
+      })
+      expect(fsSync.existsSync(path.join(tmp, ".odf", "policy-gate-persist-failure.json"))).toBe(false)
+    } finally {
+      await fs.chmod(odfDir, 0o700)
+    }
+  })
+
   it.each(["", "   ", "missing-workspace"]) ("fails closed before creating .odf for an invalid workspace root (%j)", workspaceDir => {
     const selectedWorkspace = workspaceDir.trim() ? path.join(tmp, workspaceDir) : workspaceDir
     const d = computePolicyGate({ change: "invalid-root", phase: "IMPLEMENT", workspaceDir: selectedWorkspace, registry: registryWithTdd(true) })
