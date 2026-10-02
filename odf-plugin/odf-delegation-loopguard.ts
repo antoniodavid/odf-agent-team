@@ -261,7 +261,11 @@ export function createStableDiscoveryGuard(
     "command.execute.before": async (input, output) => {
       clearSession(input.sessionID, false)
       const generation = nextGeneration(input.sessionID)
-      const changeName = canonicalChangeName(input.arguments.trim().split(/\s+/, 1)[0])
+      // Expanded slash-command text can carry sentence punctuation directly
+      // after its first argument (for example `my-change.`). Remove that
+      // terminal punctuation before applying the strict path-segment validator.
+      const rawChangeName = input.arguments.trim().split(/\s+/, 1)[0]
+      const changeName = canonicalChangeName(rawChangeName.replace(/\.$/, ""))
       if (/^\/?odf-new$/.test(input.command) && changeName) {
         boundedSet(pendingCommands, input.sessionID, {
           partsDigest: expandedCommandDigest(output.parts),

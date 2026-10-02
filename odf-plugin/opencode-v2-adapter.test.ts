@@ -420,6 +420,7 @@ describe("OpenCode V2 /odf-new entry authorization", () => {
 
   it.each([
     ["expanded", (body: string) => `${body}\n\nv2-entry-probe "desc"`],
+    ["expanded with trailing sentence period", (body: string) => `${body}\n\nv2-entry-probe. "desc"`],
     ["raw", () => '/odf-new v2-entry-probe "desc"'],
   ])("shares the minted entry capability with the registered bind tool (%s form)", async (_label, makePrompt) => {
     const fsModule = await import("node:fs")
@@ -439,7 +440,6 @@ describe("OpenCode V2 /odf-new entry authorization", () => {
       const result = await bind.execute({
         change_name: "v2-entry-probe",
         work_type: "feature",
-        workspace_dir: tmpDir,
         artifact_store: "openspec",
         preflight: {
           change: "v2-entry-probe",
@@ -456,6 +456,7 @@ describe("OpenCode V2 /odf-new entry authorization", () => {
         sessionID,
         messageID,
         agent: "odoo_orchestrator",
+        directory: tmpDir,
         signal: new AbortController().signal,
         progress: vi.fn(async () => undefined),
       })

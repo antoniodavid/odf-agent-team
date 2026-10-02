@@ -7867,7 +7867,7 @@ only after canonical state exists. Existing state and Expectations are reused on
         workspaceRoot = canonicalWorkspaceRoot(
           typeof args.workspace_dir === "string" && args.workspace_dir.trim()
             ? args.workspace_dir
-            : process.cwd(),
+            : toolCtx.directory || process.cwd(),
         )
       } catch {
         return blocked("unsafe-workspace-path", "The workspace directory does not resolve to a safe existing root.")
