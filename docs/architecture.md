@@ -297,9 +297,16 @@ Regression runner. It:
 
 Runtime state for a change is stored in `openspec/changes/{change}/state.yaml`. OpenSpec is the authoritative state source; Engram keeps legacy observations and semantic recovery data. Canonical artifacts live in the same change folder (`decision`, `plan`, `build`, `verify-report-*`), and runtime seals live in `.odf/*.json`.
 
+When `completed_canonical_stages` is present, it is the completion record used
+by workflow status. A stage omitted from the list stays pending even if a fresh
+artifact exists: a child can write artifact bytes before its parent seal
+commits the stage. Those bytes remain visible, but do not advance the workflow.
+Legacy states without this list retain compatibility-based status derivation.
+
 ```yaml
 change: my-feature
 canonical_stage: PLAN            # DECIDE | PLAN | BUILD | VERIFY | ARCHIVED
+completed_canonical_stages: [DECIDE] # stages committed by workflow transitions
 legacy_phase: design             # last completed legacy phase for compatibility
 preflight:
   change: my-feature
