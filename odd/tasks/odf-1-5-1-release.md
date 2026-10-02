@@ -51,6 +51,7 @@ matrix for this release candidate before promoting the release PR.
 - `ODF_CONFIG_DIR="$PWD" npm run test:yaml`
 - `npm run test:harness`
 - `ODF_CONFIG_DIR="$PWD" node scripts/odf-registry-validate.js`
+- `shellcheck install.sh` (attempted; blocked because mise has no shellcheck version configured)
 - `bash -n install.sh`
 - Release metadata consistency assertion for `1.5.1`
 - `git diff --check`
@@ -66,4 +67,5 @@ authorization for the destination and operation.
   scenarios, 18 harness tests, registry validation, `bash -n install.sh`, and
   `git diff --check` passed. The unit run used four Vitest workers with a 90s
   per-test timeout to avoid a transient installer-test timeout under serial
-  load. No tag or release was created.
+  load. ShellCheck could not run because no mise version is configured. No tag
+  or release was created.
