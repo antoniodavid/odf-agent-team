@@ -164,7 +164,7 @@ describe("workflow status adapter", () => {
     expect(complete.legacy_phase).toBe("VERIFY")
   })
 
-  it("ignores phase artifacts created before a persisted re-entry and accepts refreshed artifacts", () => {
+  it("ignores stale phase artifacts and requires a committed stage for refreshed evidence", () => {
     const state = {
       work_type: "feature",
       canonical_stage: "DECIDE",
@@ -199,12 +199,26 @@ describe("workflow status adapter", () => {
     })
     expect(refreshed).toMatchObject({
       canonical_stage: "DECIDE",
-      completed_canonical_stages: ["DECIDE"],
-      pending_stage: "PLAN",
+      completed_canonical_stages: [],
+      pending_stage: "DECIDE",
       artifact_refs: { DECIDE: expect.arrayContaining([
         "openspec/changes/change/proposal.md",
         "openspec/changes/change/assessment.md",
       ]), PLAN: [] },
+    })
+
+    const committed = deriveWorkflowStatus({
+      change: "change",
+      state: { ...state, completed_canonical_stages: ["DECIDE"] },
+      artifacts: [
+        ...staleArtifacts,
+        { key: "openspec/changes/change/proposal.md", content: "status: passed", created_at: "2026-10-01T12:01:00.000Z" },
+        { key: "openspec/changes/change/assessment.md", content: "status: passed", created_at: "2026-10-01T12:01:00.000Z" },
+      ],
+    })
+    expect(committed).toMatchObject({
+      completed_canonical_stages: ["DECIDE"],
+      pending_stage: "PLAN",
     })
   })
 

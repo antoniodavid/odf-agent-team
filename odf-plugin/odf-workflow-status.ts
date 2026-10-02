@@ -452,36 +452,45 @@ function explicitStateSignals(state: WorkflowState | null): StateSignals {
   const mark = (stage: CanonicalStage, value: unknown): void => {
     if (typeof value === "boolean") completed[stage] = value
   }
-  for (const stage of ALL_STAGES) {
-    for (const key of COMPLETION_FLAGS[stage]) if (key in state) mark(stage, state[key])
-  }
   const completedStages = state.completed_canonical_stages ?? state.completed_stages
   if (Array.isArray(completedStages)) {
+    const listedStages = new Set<CanonicalStage>()
     for (const value of completedStages) {
       const stage = stateStage(value)
-      if (stage && stage !== "INIT") completed[stage] = true
+      if (stage && stage !== "INIT") listedStages.add(stage)
     }
-  }
-  const flags = asRecord(state.artifacts)
-  if (flags) {
-    const artifactFlags = new Map(Object.entries(flags)
-      .filter(([, value]) => typeof value === "boolean")
-      .map(([key, value]) => [normalizeName(key), value as boolean]))
-    if (artifactFlags.has("decision")) mark("DECIDE", artifactFlags.get("decision"))
-    else if (artifactFlags.has("propose") || artifactFlags.has("assess")) {
-      mark("DECIDE", artifactFlags.get("propose") === true && artifactFlags.get("assess") === true)
+    // A persisted canonical completion list is the workflow commit record.
+    // Its omissions are explicit pending stages, not an invitation to infer
+    // completion from phase files that may have been written before a seal
+    // failed.
+    for (const stage of ALL_STAGES) completed[stage] = listedStages.has(stage)
+    if (listedStages.has("ARCHIVED")) completed.ARCHIVED = true
+  } else {
+    for (const stage of ALL_STAGES) {
+      for (const key of COMPLETION_FLAGS[stage]) if (key in state) mark(stage, state[key])
     }
-    if (artifactFlags.has("plan")) mark("PLAN", artifactFlags.get("plan"))
-    else if (artifactFlags.has("design")) mark("PLAN", artifactFlags.get("design"))
-    if (artifactFlags.has("build")) mark("BUILD", artifactFlags.get("build"))
-    else {
-      const key = ["implement-progress", "implement", "apply-progress", "tasks"].find((candidate) => artifactFlags.has(candidate))
-      if (key) mark("BUILD", artifactFlags.get(key))
+
+    const flags = asRecord(state.artifacts)
+    if (flags) {
+      const artifactFlags = new Map(Object.entries(flags)
+        .filter(([, value]) => typeof value === "boolean")
+        .map(([key, value]) => [normalizeName(key), value as boolean]))
+      if (artifactFlags.has("decision")) mark("DECIDE", artifactFlags.get("decision"))
+      else if (artifactFlags.has("propose") || artifactFlags.has("assess")) {
+        mark("DECIDE", artifactFlags.get("propose") === true && artifactFlags.get("assess") === true)
+      }
+      if (artifactFlags.has("plan")) mark("PLAN", artifactFlags.get("plan"))
+      else if (artifactFlags.has("design")) mark("PLAN", artifactFlags.get("design"))
+      if (artifactFlags.has("build")) mark("BUILD", artifactFlags.get("build"))
+      else {
+        const key = ["implement-progress", "implement", "apply-progress", "tasks"].find((candidate) => artifactFlags.has(candidate))
+        if (key) mark("BUILD", artifactFlags.get(key))
+      }
+      if (artifactFlags.has("verify")) mark("VERIFY", artifactFlags.get("verify"))
+      else if (artifactFlags.has("verify-report")) mark("VERIFY", artifactFlags.get("verify-report"))
+      if (artifactFlags.has("explore")) mark("EXPLORE", artifactFlags.get("explore"))
+      if (artifactFlags.has("fix")) mark("FIX", artifactFlags.get("fix"))
     }
-    if (artifactFlags.has("verify")) mark("VERIFY", artifactFlags.get("verify"))
-    else if (artifactFlags.has("verify-report")) mark("VERIFY", artifactFlags.get("verify-report"))
-    if (artifactFlags.has("explore")) mark("EXPLORE", artifactFlags.get("explore"))
-    if (artifactFlags.has("fix")) mark("FIX", artifactFlags.get("fix"))
   }
   const legacy = legacyPhase(state.phase)
   const phaseCompleted: Partial<Record<CanonicalStage, boolean>> = {}
