@@ -172,6 +172,39 @@ Missing fields are collected via `question` tool.
 - **Apply-progress continuity**: continuation batches merge with existing progress, never overwrite
 - **Model routing scope**: profiles only apply to SDD pipeline phases, not general queries
 
+## Development and collaboration practices
+
+These practices apply when changing the ODF harness repository. In customer Odoo projects, follow that project's instructions and the relevant OCA/Odoo skills; do not impose this repository's language or tooling conventions there.
+
+### Communication and scope
+
+- Answer the user's direct question first. Be concise, concrete, and clear; explain non-trivial designs as **problem → example or behavior → solution**, including why the solution is needed.
+- State assumptions and uncertainty. Verify details rather than guessing, especially for external APIs, framework behavior, and repository-specific commands.
+- Keep changes focused on the request. Avoid unrelated cleanup, speculative abstractions, compatibility layers, or dependency upgrades. Understand apparently intentional behavior before proposing its removal; ask before making a consequential removal outside the requested scope.
+
+### Programming practices
+
+- Follow nearby code, tests, and the repository's authoritative documentation. Prefer the smallest readable change that preserves existing module boundaries and sources of truth.
+- Keep the main path easy to follow. Use helpers when they name a meaningful concept, isolate non-trivial logic, or are reused; avoid extracting trivial one-use expressions without a readability benefit.
+- Prefer explicit domain types and validation at trust boundaries. Avoid `any`, unchecked casts, and weakening validation to make a change pass; use the narrowest type or a runtime guard that fits the codebase.
+- Handle errors at the boundary that can make a useful decision. Do not silently swallow failures. Comments should explain non-obvious constraints, invariants, or surprising behavior—not restate the code.
+- Before editing generated or derived files, identify their authoritative source and generation process. Update the source and use the documented generator where applicable; do not hand-edit generated output by default.
+- Avoid new runtime dependencies unless they are justified. Treat dependency manifests and lockfiles as one change; review the resulting dependency diff and consult authoritative release notes when an upgrade may change behavior.
+
+### Tests and verification
+
+- Test observable behavior through the real implementation where practical. Avoid duplicating production logic in tests; use mocks only at external, nondeterministic, or otherwise difficult-to-control boundaries.
+- Add or update focused regression coverage for bug fixes and behavior changes. For routing, state, authorization, or evidence-handling changes, cover relevant invalid, duplicate/retry, stale, and failure cases as well as the happy path.
+- Run the focused tests and documented checks relevant to the change. If a test file changes, run that test; do not trigger networked, paid, production, or destructive test paths without explicit authorization.
+- Report exactly what was run and its result. Never describe an unrun check as passing; call out remaining validation clearly.
+
+### Repository and workflow safety
+
+- Inspect `git status` and the relevant diff before editing or operating on Git state. Preserve changes made by the user or other agents; work only on files in scope.
+- Stage explicit paths. Never use broad or destructive cleanup/rollback commands such as `git reset --hard`, `git checkout --`, `git clean`, `git stash`, `git add -A`, or `git add .`. Never force-push, and commit only when the user explicitly asks.
+- These practices do not replace ODF's route, Policy Gate, required seals, evidence, or human approvals. Never bypass a mandatory workflow gate or treat explanatory prose as machine-validated evidence.
+- For OCA governance, Odoo coding standards, issues, and PR workflows, use the relevant registered skills and repository guidance rather than copying project-specific rules into this section.
+
 ---
 
 ## Key structure
