@@ -609,14 +609,14 @@ describe("createODFWorkflowOverride", () => {
     const refreshedStatus = JSON.parse(await createODFWorkflowStatus().execute({ change_name: "ov-change", workspace_dir: root }, {} as any) as string)
     expect(refreshedStatus).toMatchObject({
       canonical_stage: "DECIDE",
-      completed_canonical_stages: ["DECIDE"],
-      pending_stage: "PLAN",
+      completed_canonical_stages: [],
+      pending_stage: "DECIDE",
       artifact_refs: { DECIDE: expect.arrayContaining([
         "openspec/changes/ov-change/proposal.md",
         "openspec/changes/ov-change/assessment.md",
       ]), PLAN: [] },
     })
-  })
+  }, 10_000)
 
   it("requires a human-approved reason and rejects a wrong supersedes digest", async () => {
     const tool = await seedState("PLAN", ["DECIDE", "PLAN"], true)

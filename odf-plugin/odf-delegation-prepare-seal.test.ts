@@ -522,6 +522,61 @@ describe("native prepare/seal delegation", () => {
     expect(readDelegationToken(tempHome, "native-design", prepared.token).error).toBeNull()
   })
 
+  it("keeps DECIDE pending when fresh artifacts remain after a failed ASSESS seal", async () => {
+    const change = "native-unsealed-assessment"
+    const changeDir = path.join(tempHome, "openspec", "changes", change)
+    await fs.mkdir(changeDir, { recursive: true })
+    await fs.writeFile(path.join(changeDir, "state.yaml"), [
+      "work_type: feature",
+      "artifact_store: openspec",
+      "canonical_stage: DECIDE",
+      "completed_canonical_stages: []",
+      "artifact_invalidation:",
+      "  version: 1",
+      "  from_stage: DECIDE",
+      "  invalidated_at: '2000-01-01T00:00:00.000Z'",
+      "",
+    ].join("\n"), "utf8")
+
+    const { odf_delegation_prepare, odf_delegation_seal, odf_workflow_status } = await tools()
+    const prepared = JSON.parse(await odf_delegation_prepare.execute({
+      phase: "ASSESS",
+      change,
+      prompt: "Assess the approved requirements",
+      context_files: [],
+      artifact_store: "openspec",
+    }, { sessionID: "parent-session" } as any) as string)
+    // Model the child writing its artifacts before the parent attempts to seal;
+    // a failed seal must not let those bytes masquerade as committed workflow state.
+    await fs.writeFile(path.join(changeDir, "proposal.md"), "# Fresh proposal\n", "utf8")
+    await fs.writeFile(path.join(changeDir, "assessment.md"), "# Fresh but unsealed assessment\n", "utf8")
+    const session = fakeChildSession({
+      agent: prepared.agent,
+      prompt: `${prepared.delegation.prompt}\n(edited before launch)`,
+      resultText: "## ODF Result\n- **status**: ok\n- **executive_summary**: assessment saved",
+    })
+
+    const seal = JSON.parse(await odf_delegation_seal.execute({
+      token: prepared.token,
+      change,
+      session_id: "ses_child",
+    }, { sessionID: "parent-session", [ODF_V2_SESSION]: session } as any) as string)
+    const status = JSON.parse(await odf_workflow_status.execute({
+      change_name: change,
+      workspace_dir: tempHome,
+    }, { sessionID: "parent-session", directory: tempHome } as any) as string)
+
+    expect(seal).toMatchObject({ status: "blocked", reason: "delegation-prompt-mismatch" })
+    expect(status).toMatchObject({
+      completed_canonical_stages: [],
+      pending_stage: "DECIDE",
+      artifact_refs: { DECIDE: expect.arrayContaining([
+        `openspec/changes/${change}/proposal.md`,
+        `openspec/changes/${change}/assessment.md`,
+      ]) },
+    })
+  })
+
   it("fails closed when the child agent does not match the prepared agent", async () => {
     const prepared = await prepareDesign()
     const session = fakeChildSession({
