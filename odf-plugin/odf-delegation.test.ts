@@ -784,6 +784,116 @@ describe("createODFWorkflowOverride", () => {
     expect(session.wait).toHaveBeenCalledTimes(2)
   })
 
+  it("settles an unlaunched native attempt only from exact parent safety evidence", async () => {
+    const attemptId = "native-unlaunched-1"
+    const parentSessionId = "native-parent"
+    const startedAt = "2026-09-21T20:00:00.000Z"
+    const startedMs = Date.parse(startedAt)
+    const ledgerPath = path.join(root, ".odf", "attempt-ledger-ov-change.jsonl")
+    await fs.mkdir(path.dirname(ledgerPath), { recursive: true })
+    await fs.writeFile(ledgerPath, JSON.stringify({
+      attempt_id: attemptId, branch_id: "default", change: "ov-change", phase: "IMPLEMENT", next_stage: "BUILD",
+      status: "running", started_at: startedAt, updated_at: startedAt, settled_at: null,
+      reason: "acquired", result_status: "running", candidate_digest: null,
+      native_parent_session_id: parentSessionId,
+    }) + "\n", "utf8")
+
+    const safetyBlock = {
+      status: "blocked", reason: "pre-tool-safety", phase: "IMPLEMENT", agent: null, token: null,
+      task_api_source: "subagent", result: null, classes: ["destructive"], matched_rules: ["destructive-dropdb"],
+    }
+    const context = [{
+      id: "msg-parent-prepare",
+      type: "assistant",
+      time: { created: startedMs - 1_000, streamed: startedMs + 500, completed: startedMs + 1_000 },
+      content: [{
+        type: "tool", id: "call-code", name: "execute",
+        state: {
+          status: "completed",
+          input: { code: `return await tools.odf_delegation_prepare({ phase: "IMPLEMENT", change: "ov-change", attempt_id: "${attemptId}" })` },
+          content: [{ type: "text", text: JSON.stringify(safetyBlock) }],
+        },
+      }],
+    }]
+    const session = {
+      get: vi.fn().mockResolvedValue({
+        id: parentSessionId,
+        time: { created: startedMs - 100_000, updated: startedMs + 10_000, idle: startedMs + 20_000 },
+      }),
+      wait: vi.fn().mockResolvedValue(undefined),
+      context: vi.fn().mockResolvedValue(context),
+    }
+    const { createODFWorkflowOverride } = await import("./odf-delegation.js")
+    const output = JSON.parse(await createODFWorkflowOverride().execute(baseArgs({
+      action: "settle-unlaunched-attempt",
+      target_stage: undefined,
+      attempt_id: attemptId,
+      confirm_no_active_run: true,
+    }), { sessionID: "fresh-recovery-session", [ODF_V2_SESSION]: session } as any) as string)
+
+    expect(output).toMatchObject({
+      status: "settled",
+      action: "settle-unlaunched-attempt",
+      attempt_id: attemptId,
+      verified_unlaunched: true,
+      recovery_evidence: {
+        evidence_type: "native-pretool-safety-block",
+        parent_session_id: parentSessionId,
+        attempt_id: attemptId,
+        parent_message_id: "msg-parent-prepare",
+        prepare_call_id: "call-code",
+        matched_rules: ["destructive-dropdb"],
+      },
+    })
+    expect(session.get).toHaveBeenCalledTimes(2)
+    expect(session.wait).toHaveBeenCalledWith({ sessionID: parentSessionId })
+    expect(session.context).toHaveBeenCalledWith({ sessionID: parentSessionId })
+
+    const records = (await fs.readFile(ledgerPath, "utf8")).trim().split("\n").map(line => JSON.parse(line))
+    expect(records).toHaveLength(2)
+    expect(records.at(-1)).toMatchObject({ status: "failed", reason: "task-cancelled", native_parent_session_id: parentSessionId })
+    const audit = (await fs.readFile(path.join(root, ".odf", "override-ov-change.jsonl"), "utf8"))
+      .trim().split("\n").map(line => JSON.parse(line))
+    expect(audit[0]).toMatchObject({
+      action: "settle-unlaunched-attempt",
+      outcome: "parent-pretool-safety-proof-persisted",
+      attempt_id: attemptId,
+      evidence: { parent_message_id: "msg-parent-prepare", prepare_call_id: "call-code" },
+    })
+  })
+
+  it("leaves a native attempt running when parent safety evidence is unavailable", async () => {
+    const attemptId = "native-unverified-1"
+    const startedAt = "2026-09-21T20:00:00.000Z"
+    const ledgerPath = path.join(root, ".odf", "attempt-ledger-ov-change.jsonl")
+    await fs.mkdir(path.dirname(ledgerPath), { recursive: true })
+    await fs.writeFile(ledgerPath, JSON.stringify({
+      attempt_id: attemptId, branch_id: "default", change: "ov-change", phase: "IMPLEMENT", next_stage: "BUILD",
+      status: "running", started_at: startedAt, updated_at: startedAt, settled_at: null,
+      reason: "acquired", result_status: "running", candidate_digest: null,
+      native_parent_session_id: "native-parent",
+    }) + "\n", "utf8")
+    const session = {
+      get: vi.fn().mockResolvedValue({
+        id: "native-parent",
+        time: { created: Date.parse(startedAt) - 10_000, updated: Date.parse(startedAt) + 10_000, idle: Date.parse(startedAt) + 20_000 },
+      }),
+      wait: vi.fn().mockResolvedValue(undefined),
+      context: vi.fn().mockResolvedValue([]),
+    }
+    const { createODFWorkflowOverride } = await import("./odf-delegation.js")
+    const output = JSON.parse(await createODFWorkflowOverride().execute(baseArgs({
+      action: "settle-unlaunched-attempt",
+      target_stage: undefined,
+      attempt_id: attemptId,
+      confirm_no_active_run: true,
+    }), { sessionID: "fresh-recovery-session", [ODF_V2_SESSION]: session } as any) as string)
+
+    expect(output).toMatchObject({ status: "blocked", reason: "attempt-parent-pretool-proof-missing" })
+    expect((await fs.readFile(ledgerPath, "utf8")).trim().split("\n")).toHaveLength(1)
+    expect(fsSync.existsSync(path.join(root, ".odf", "override-ov-change.jsonl"))).toBe(false)
+  })
+
   it("requires confirmation, a safe attempt_id, and a running record", async () => {
     const { createODFWorkflowOverride } = await import("./odf-delegation.js")
     const tool = createODFWorkflowOverride()

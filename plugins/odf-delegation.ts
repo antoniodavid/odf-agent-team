@@ -65,6 +65,7 @@ import {
   createODFCommunityToolDetect,
   createODFCommunityToolInstall,
 } from "../odf-plugin/odf-community-tools.js"
+import { inspectNativePretoolSafetyBlock, type NativePretoolSafetyEvidence } from "../odf-plugin/odf-native-attempt-recovery.js"
 import {
   type DelegationMetrics,
   flushMetricsSync,
@@ -8281,6 +8282,96 @@ function createODFWorkflowRoute(): ReturnType<typeof tool> {
   })
 }
 
+async function readStableIdleParentContext(input: {
+  session: Partial<V2SessionApi>
+  parentSessionId: string
+  currentSessionId: string
+  attemptStartedAt: string
+}): Promise<{ context: unknown } | { error: string }> {
+  if (input.currentSessionId === input.parentSessionId) return { error: "attempt-parent-session-active" }
+  if (typeof input.session.get !== "function" || typeof input.session.wait !== "function" ||
+    typeof input.session.context !== "function") {
+    return { error: "attempt-parent-session-api-unavailable" }
+  }
+  const readParent = async (): Promise<Record<string, unknown> | null> => {
+    const response = await input.session.get!({ sessionID: input.parentSessionId })
+    if (!response || typeof response !== "object" || Array.isArray(response)) return null
+    const envelope = response as Record<string, unknown>
+    return envelope.data && typeof envelope.data === "object" && !Array.isArray(envelope.data)
+      ? envelope.data as Record<string, unknown>
+      : envelope
+  }
+  const readStamp = (value: Record<string, unknown> | null): { created: number; updated: number; idle: number } | null => {
+    const time = value?.time
+    if (!time || typeof time !== "object" || Array.isArray(time)) return null
+    const record = time as Record<string, unknown>
+    if (typeof record.created !== "number" || typeof record.updated !== "number" || typeof record.idle !== "number") return null
+    return { created: record.created, updated: record.updated, idle: record.idle }
+  }
+  let before: Record<string, unknown> | null
+  try {
+    before = await readParent()
+  } catch {
+    return { error: "attempt-parent-session-unknown" }
+  }
+  const beforeStamp = readStamp(before)
+  const attemptStartedAt = Date.parse(input.attemptStartedAt)
+  if (!before || before.id !== input.parentSessionId || !beforeStamp || !Number.isFinite(attemptStartedAt) ||
+    beforeStamp.created > attemptStartedAt || beforeStamp.idle < beforeStamp.updated || beforeStamp.idle < attemptStartedAt) {
+    return { error: "attempt-parent-session-not-idle" }
+  }
+  try {
+    const waited: unknown = await input.session.wait({ sessionID: input.parentSessionId })
+    if (waited && typeof waited === "object" && !Array.isArray(waited) &&
+      (waited as Record<string, unknown>).error != null) {
+      return { error: "attempt-parent-session-not-idle" }
+    }
+  } catch {
+    return { error: "attempt-parent-session-not-idle" }
+  }
+  let context: unknown
+  try {
+    context = await input.session.context({ sessionID: input.parentSessionId })
+  } catch {
+    return { error: "attempt-parent-context-unavailable" }
+  }
+  let after: Record<string, unknown> | null
+  try {
+    after = await readParent()
+  } catch {
+    return { error: "attempt-parent-session-unknown" }
+  }
+  const afterStamp = readStamp(after)
+  if (!after || after.id !== input.parentSessionId || !afterStamp || !beforeStamp ||
+    afterStamp.created !== beforeStamp.created || afterStamp.updated !== beforeStamp.updated || afterStamp.idle !== beforeStamp.idle ||
+    afterStamp.idle < afterStamp.updated || afterStamp.idle < attemptStartedAt) {
+    return { error: "attempt-parent-session-changed" }
+  }
+  return { context }
+}
+
+function appendRecoveryAudit(workspaceRoot: string, changeName: string, value: Record<string, unknown>): string | null {
+  try {
+    if (!ensureSafeOdfDirectory(workspaceRoot)) return "attempt-recovery-audit-unsafe-path"
+    const auditPath = safeWorkspaceStatePath(workspaceRoot, path.join(workspaceRoot, ".odf", `override-${changeName}.jsonl`))
+    if (!auditPath) return "attempt-recovery-audit-unsafe-path"
+    const line = `${JSON.stringify(value)}\n`
+    const flags = fsSync.constants.O_APPEND | fsSync.constants.O_CREAT | fsSync.constants.O_WRONLY |
+      (fsSync.constants.O_NOFOLLOW || 0)
+    const fd = fsSync.openSync(auditPath, flags, 0o600)
+    try {
+      if (!fsSync.fstatSync(fd).isFile()) return "attempt-recovery-audit-unsafe-path"
+      fsSync.writeFileSync(fd, line, { encoding: "utf8" })
+      fsSync.fsyncSync(fd)
+    } finally {
+      fsSync.closeSync(fd)
+    }
+    return null
+  } catch {
+    return "attempt-recovery-audit-write-failed"
+  }
+}
+
 /**
  * Audited phase override: skip (DECIDE/PLAN only), re-enter, or re-plan (with
  * an approved Expectations revision). Requires an explicit human-approved
@@ -8297,17 +8388,18 @@ Actions:
 - re-plan: like re-enter, plus persist a human-approved Expectations revision (revision > current, supersedes = digest of the previous artifact).
 - disable-fast-lane: disable an existing fast_lane_policy through a separate audited marker without rewriting workflow state or artifacts.
 - settle-attempt: append a terminal settlement for a stale running attempt (use the attempt_id from odf_workflow_status active_attempts) so a fresh attempt can be acquired. Requires confirm_no_active_run: true and refuses attempts that are still active in this runtime. Native prepare/seal attempts additionally require child_session_id; the tool verifies its parent binding and awaits session.wait before settling.
+- settle-unlaunched-attempt: recover a native attempt only when the bound parent session is idle and its transcript contains exactly one matching odf_delegation_prepare call rejected by pre-tool-safety with no token or child identity. Missing, compacted, ambiguous, or changing parent history remains blocked; verification evidence is durably appended before settlement.
 - settle-join: settle a persisted parallel join that is still running after a host restart so resume_from_join can continue. Every running branch attempt must be settled first with action=settle-attempt; refuses joins whose branch attempts are still active in this runtime. The join becomes blocked with a failure receipt - commit a retry receipt before resuming.
 
      Requires a human-approved reason (>=20 chars). Fast-lane disable additionally requires approved_by and a live session.`,
     args: {
       change_name: tool.schema.string().describe("Change name (kebab-case)"),
       artifact_store: tool.schema.enum(["openspec", "engram", "hybrid"]).describe("Authoritative workflow store"),
-      action: tool.schema.enum(["skip", "re-enter", "re-plan", "disable-fast-lane", "settle-attempt", "settle-join"]).describe("Override action"),
+      action: tool.schema.enum(["skip", "re-enter", "re-plan", "disable-fast-lane", "settle-attempt", "settle-unlaunched-attempt", "settle-join"]).describe("Override action"),
       target_stage: tool.schema.enum(["DECIDE", "PLAN", "BUILD", "VERIFY"]).optional().describe("Canonical stage to skip/re-enter/re-plan from"),
-      attempt_id: tool.schema.string().optional().describe("Stale attempt to settle (required for settle-attempt)"),
+      attempt_id: tool.schema.string().optional().describe("Stale attempt to settle (required for settle-attempt and settle-unlaunched-attempt)"),
       child_session_id: tool.schema.string().optional().describe("Native child session to verify and await before settling a prepared attempt"),
-      confirm_no_active_run: tool.schema.boolean().optional().describe("Required true for settle-attempt and settle-join after verifying no task or run is active"),
+      confirm_no_active_run: tool.schema.boolean().optional().describe("Required true for settle-attempt, settle-unlaunched-attempt, and settle-join after verifying no task or run is active"),
       reason: tool.schema.string().describe("Human-approved reason (>=20 chars)"),
       approved_by: tool.schema.string().optional().describe("Human approver for disabling the fast lane"),
       expectations_revision: tool.schema.object({
@@ -8328,7 +8420,7 @@ Actions:
     async execute(args: {
       change_name: string
       artifact_store: "openspec" | "engram" | "hybrid"
-      action: "skip" | "re-enter" | "re-plan" | "disable-fast-lane" | "settle-attempt" | "settle-join"
+      action: "skip" | "re-enter" | "re-plan" | "disable-fast-lane" | "settle-attempt" | "settle-unlaunched-attempt" | "settle-join"
       target_stage?: "DECIDE" | "PLAN" | "BUILD" | "VERIFY"
       attempt_id?: string
       child_session_id?: string
@@ -8349,19 +8441,23 @@ Actions:
       }
       const reason = (args.reason || "").trim()
       if (reason.length < 20) return blocked("override-reason-required", "A human-approved reason of at least 20 characters is required for any override.")
+      if (args.action === "settle-unlaunched-attempt" && (reason.length > 512 || /[\0\r\n]/.test(reason))) {
+        return blocked("attempt-recovery-reason-invalid", "settle-unlaunched-attempt requires a single-line reason no longer than 512 characters.")
+      }
       const approvedBy = (args.approved_by || "").trim()
       if (args.action === "disable-fast-lane" &&
         (approvedBy.length === 0 || approvedBy.length > 256 || /[\r\n]/.test(approvedBy) || !toolCtx?.sessionID)) {
         return blocked("fast-lane-rollback-authorization-required", "Disabling the fast lane requires a named human approver and an active OpenCode session.")
       }
 
-      if (args.action === "settle-attempt") {
+      const isUnlaunchedRecovery = args.action === "settle-unlaunched-attempt"
+      if (args.action === "settle-attempt" || isUnlaunchedRecovery) {
         const attemptId = (args.attempt_id || "").trim()
         if (!attemptId || !SAFE_TOKEN_PATTERN.test(attemptId)) {
-          return blocked("attempt-recovery-id-required", "settle-attempt requires a safe attempt_id from odf_workflow_status active_attempts.")
+          return blocked("attempt-recovery-id-required", `${args.action} requires a safe attempt_id from odf_workflow_status active_attempts.`)
         }
         if (args.confirm_no_active_run !== true) {
-          return blocked("attempt-recovery-confirmation-required", "settle-attempt requires confirm_no_active_run: true after verifying that no task or run is active for this attempt.")
+          return blocked("attempt-recovery-confirmation-required", `${args.action} requires confirm_no_active_run: true after verifying that no task or run is active for this attempt.`)
         }
         if (inFlightAttempts.has(attemptLivenessKey(changeName, attemptId))) {
           return blocked("attempt-still-running", "The attempt is still active in this runtime; wait for it to settle instead of recovering it.")
@@ -8374,7 +8470,38 @@ Actions:
         if (observedRecord.status !== "running") return blocked("attempt-not-running", "Only a running attempt can be settled; this attempt already has a terminal record.")
 
         let nativeChildRecovery: { sessionId: string; idleAt: string } | null = null
-        if (observedRecord.native_parent_session_id) {
+        let nativeUnlaunchedEvidence: NativePretoolSafetyEvidence | null = null
+        if (isUnlaunchedRecovery) {
+          if (!observedRecord.native_parent_session_id) {
+            return blocked("attempt-native-parent-required", "settle-unlaunched-attempt applies only to native attempts bound to a parent session.")
+          }
+          if (observedRecord.native_child_session_id || observedRecord.native_child_idle_at) {
+            return blocked("attempt-child-already-bound", "A child is already bound to this attempt; use settle-attempt with that exact child instead.")
+          }
+          const session = (toolCtx as unknown as Record<PropertyKey, unknown>)[ODF_V2_SESSION] as Partial<V2SessionApi> | undefined
+          if (!session) {
+            return blocked("attempt-parent-session-api-unavailable", "Audited unlaunched recovery requires the OpenCode V2 session API to inspect and seal the original parent history.")
+          }
+          const parentContext = await readStableIdleParentContext({
+            session,
+            parentSessionId: observedRecord.native_parent_session_id,
+            currentSessionId: toolCtx.sessionID,
+            attemptStartedAt: observedRecord.started_at,
+          })
+          if ("error" in parentContext) {
+            return blocked(parentContext.error, "The parent session could not be proven idle and stable; the attempt remains running.")
+          }
+          nativeUnlaunchedEvidence = inspectNativePretoolSafetyBlock(parentContext.context, {
+            parentSessionId: observedRecord.native_parent_session_id,
+            attemptId,
+            change: changeName,
+            phase: observedRecord.phase,
+            startedAt: observedRecord.started_at,
+          })
+          if (!nativeUnlaunchedEvidence) {
+            return blocked("attempt-parent-pretool-proof-missing", "The parent transcript does not contain one complete, exact pre-tool-safety rejection for this attempt; keep it running and use child-bound recovery if a child exists.")
+          }
+        } else if (observedRecord.native_parent_session_id) {
           const childSessionId = (args.child_session_id || "").trim()
           if (!isSafeSessionId(childSessionId)) {
             return blocked(
@@ -8440,12 +8567,26 @@ Actions:
           const record = [...ledger.records].reverse().find(candidate => candidate.attempt_id === attemptId)
           if (!record) return { error: "attempt-not-found" }
           if (record.status !== "running") return { error: "attempt-not-running" }
-          if (record.native_parent_session_id !== observedRecord.native_parent_session_id ||
+          if (record.started_at !== observedRecord.started_at || record.updated_at !== observedRecord.updated_at ||
+            record.native_parent_session_id !== observedRecord.native_parent_session_id ||
             record.native_child_session_id !== observedRecord.native_child_session_id ||
             record.native_child_idle_at !== observedRecord.native_child_idle_at) {
             return { error: "attempt-changed-during-recovery" }
           }
           const now = new Date().toISOString()
+          if (nativeUnlaunchedEvidence) {
+            const auditError = appendRecoveryAudit(workspaceRoot, changeName, {
+              at: now,
+              action: "settle-unlaunched-attempt",
+              outcome: "parent-pretool-safety-proof-persisted",
+              attempt_id: attemptId,
+              phase: record.phase,
+              stage: record.next_stage,
+              reason,
+              evidence: nativeUnlaunchedEvidence,
+            })
+            if (auditError) return { error: auditError }
+          }
           const terminal: AttemptLedgerRecord = {
             ...record,
             ...(nativeChildRecovery ? {
@@ -8474,16 +8615,20 @@ Actions:
         const settledRecord = settled.value.record
         const audit = {
           at: new Date().toISOString(),
-          action: "settle-attempt",
+          action: args.action,
           attempt_id: attemptId,
           phase: settledRecord.phase,
           stage: settledRecord.next_stage,
           reason,
           settled_at: settledRecord.settled_at,
+          ...(nativeUnlaunchedEvidence ? { evidence: nativeUnlaunchedEvidence } : {}),
         }
-        try {
-          fsSync.appendFileSync(path.join(workspaceRoot, ".odf", `override-${changeName}.jsonl`), JSON.stringify(audit) + "\n")
-        } catch { /* audit is best-effort */ }
+        if (nativeUnlaunchedEvidence) appendRecoveryAudit(workspaceRoot, changeName, audit)
+        else {
+          try {
+            fsSync.appendFileSync(path.join(workspaceRoot, ".odf", `override-${changeName}.jsonl`), JSON.stringify(audit) + "\n")
+          } catch { /* audit is best-effort */ }
+        }
         return JSON.stringify({
           status: "settled",
           change_name: changeName,
@@ -8495,6 +8640,7 @@ Actions:
             child_session_id: nativeChildRecovery.sessionId,
             child_idle_confirmed: true,
           } : {}),
+          ...(nativeUnlaunchedEvidence ? { verified_unlaunched: true, recovery_evidence: nativeUnlaunchedEvidence } : {}),
           next_step: "Acquire a fresh attempt_id for the next delegation.",
         }, null, 2)
       }
