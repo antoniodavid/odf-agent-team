@@ -3122,6 +3122,22 @@ function createODFDelegationPrepare(canonicalDirectory?: string): ReturnType<typ
       const contextValidation = validateContextFiles(workspaceRoot, args.context_files || [])
       if (contextValidation.error) return contextValidation.error
 
+      // Reject unsafe caller input before reserving a gated attempt. This is
+      // the pre-tool boundary for the native child launch, where no child
+      // session exists yet for the native recovery contract to verify.
+      const inputSafety = inspectToolArgs({
+        tool: "subagent",
+        args: { prompt: args.prompt },
+        authorized_roots: [workspaceRoot],
+      })
+      if (inputSafety.blocked) {
+        return blocked(
+          "pre-tool-safety",
+          `Pre-tool safety blocked ${args.phase} delegation: ${inputSafety.classes.join(", ")}. ${inputSafety.safe_continuation || "Request explicit user consent for the exact target."}`,
+          { classes: inputSafety.classes, matched_rules: inputSafety.matched_rules, safe_continuation: inputSafety.safe_continuation },
+        )
+      }
+
       const registry = await loadRegistry()
       if (!registry) {
         return `❌ ODF registry not found. Run /odf-init or check ${REGISTRY_PATH}`
@@ -3176,7 +3192,8 @@ function createODFDelegationPrepare(canonicalDirectory?: string): ReturnType<typ
           return blocked(policyGate.reason, `Policy gate blocked ${args.phase} before delegation: ${policyGate.reason}`)
         }
       }
-      // GATED_PREFLIGHT_END — post-acquisition failures must settle the attempt.
+      // Failures after the reservation must settle the attempt. The complete
+      // enriched prompt is checked before it is returned to the host below.
       const fail = (reason: string, message: string, extra: Record<string, unknown> = {}): string => {
         if (acquiredAttempt) {
           settleAttempt(acquiredAttempt, "failed", "validation-failed", "validation-failed")
@@ -3227,19 +3244,6 @@ function createODFDelegationPrepare(canonicalDirectory?: string): ReturnType<typ
         ? { name: profile.name, model: profile.model, temperature: profile.temperature, reasoning: profile.reasoning }
         : null
 
-      const safety = inspectToolArgs({
-        tool: "odf_delegation_prepare",
-        args: { prompt: args.prompt },
-        authorized_roots: [workspaceRoot],
-      })
-      if (safety.blocked) {
-        return fail(
-          "pre-tool-safety",
-          `Pre-tool safety blocked delegation to ${agentName}: ${safety.classes.join(", ")}. ${safety.safe_continuation || "Request explicit user consent for the exact target."}`,
-          { classes: safety.classes, matched_rules: safety.matched_rules, safe_continuation: safety.safe_continuation },
-        )
-      }
-
       const rules = formatCompactRules(skills)
       const enrichedPrompt = buildEnrichedPrompt({ prompt: args.prompt, rules, profileBlock })
       const sourceAuthorityPrompt = sourceAuthorityRequired && sourceAuthorityRoots
@@ -3249,6 +3253,18 @@ function createODFDelegationPrepare(canonicalDirectory?: string): ReturnType<typ
       const token = newDelegationToken()
       const marker = `<!-- ODF-DELEGATION ${JSON.stringify({ change: changeName, phase: args.phase, agent: agentName, token })} -->`
       const finalPrompt = `${marker}\n\n${delegationPrompt}`
+      const safety = inspectToolArgs({
+        tool: "subagent",
+        args: { prompt: finalPrompt },
+        authorized_roots: [workspaceRoot],
+      })
+      if (safety.blocked) {
+        return fail(
+          "pre-tool-safety",
+          `Pre-tool safety blocked delegation to ${agentName}: ${safety.classes.join(", ")}. ${safety.safe_continuation || "Request explicit user consent for the exact target."}`,
+          { classes: safety.classes, matched_rules: safety.matched_rules, safe_continuation: safety.safe_continuation },
+        )
+      }
       const record = createDelegationTokenRecord({
         change: changeName,
         phase: args.phase as DelegationPhase,

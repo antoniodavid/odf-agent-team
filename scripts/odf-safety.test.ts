@@ -37,6 +37,14 @@ describe("allows-destructive-protection-text", () => {
     expect(r.decision).toBe("allow")
   })
 
+  it("allows a Docker Compose test command using --rm with the database guard", () => {
+    const r = block(
+      `${MANDATORY_DATABASE_GUARD}\nRun docker compose run --rm -e TEST_DB=odf_test_db odoo:18 ./odoo-bin --stop-after-init`,
+    )
+    expect(r.blocked).toBe(false)
+    expect(r.decision).toBe("allow")
+  })
+
   it("does not suppress a positive command after the guard", () => {
     const r = block(`${MANDATORY_DATABASE_GUARD}\nRun DROP DATABASE mydb;`)
     expect(r.blocked).toBe(true)
