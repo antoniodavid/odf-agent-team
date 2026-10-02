@@ -335,6 +335,26 @@ describe("native prepare/seal delegation", () => {
     expect(noAttempt).toMatchObject({ status: "blocked", reason: "attempt-id-required" })
   })
 
+  it("does not acquire a native attempt when pre-tool safety blocks the prompt", async () => {
+    const { odf_delegation_prepare } = await tools()
+    const change = "native-implement-safety-blocked"
+    await writeImplementState(tempHome, change)
+
+    const output = JSON.parse(await odf_delegation_prepare.execute({
+      phase: "IMPLEMENT",
+      change,
+      prompt: "Run DROP DATABASE odf_test_db;",
+      context_files: [],
+      artifact_store: "openspec",
+      attempt_id: "native-safety-blocked-1",
+      workflow_advance: implementProof(),
+    }, { sessionID: "parent-session" } as any) as string)
+
+    expect(output).toMatchObject({ status: "blocked", reason: "pre-tool-safety" })
+    await expect(fs.readFile(path.join(tempHome, ".odf", `attempt-ledger-${change}.jsonl`), "utf8"))
+      .rejects.toMatchObject({ code: "ENOENT" })
+  })
+
   it("prepares and seals a proof-backed IMPLEMENT delegation with a multiline task", async () => {
     const { odf_delegation_prepare, odf_delegation_seal } = await tools()
     const change = "native-implement"
