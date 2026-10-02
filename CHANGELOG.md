@@ -1,5 +1,22 @@
 # Changelog — ODF Agent Team
 
+## 1.5.1 (2026-10-01)
+
+### Fixed
+- Workflow persistence and recovery: Policy Gate writes fail closed, ARCHIVE retries repair partial OpenSpec/Engram writes, and replanning invalidates downstream artifacts (#104–#106).
+- Native delegation safety: restore V2 delegation, guard direct tool calls, check seal context before child launch, and bind recovery to the exact idle child; handle multiline prompts, V2 result text, and transport banners safely (#86, #89, #93, #100, #101, #107, #108).
+- Canonical workflow artifacts: terminal BUILD behavior is explicit, and nested assessment artifacts and block-YAML status maps are recognized (#87, #91, #102).
+- VERIFY evidence is command-aware; warning is terminal only for a valid VERIFY report; a BUILD start proof does not replace persisted post-child validation evidence (#109, #110, #112).
+
+### Changed
+- Preflight defaults, strict input validation, and the runtime/specification contract are synchronized (#111).
+- Workflow route, recovery, archive, and metrics guidance reflects the merged behavior (#85, #94, #96, #97).
+- Lifecycle metrics correlate mixed-flow events and deduplicate mirrored stages (#98, #99).
+
+### Verification boundary
+- CI on Node 22 passed for the implementation PRs #104 and #106–#112. The final merged suite contains 1,050 unit tests, 330 YAML scenarios, and 18 harness checks.
+- Odoo-specific release validation and end-to-end telemetry remain outside this harness patch release; ODF 2.0 readiness is not claimed.
+
 ## 1.5.0 (2026-09-29)
 
 ### Added
