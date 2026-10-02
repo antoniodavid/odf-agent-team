@@ -41,7 +41,7 @@ matrix for this release candidate before promoting the release PR.
 - [x] Update documented test counts to the CI-verified baseline.
 - [x] Add a `1.5.1` changelog section covering merged changes since `v1.5.0`.
 - [x] Run the release-preparation validation matrix on this branch.
-- [ ] Open a draft release PR with non-closing `Refs #103` and `type:chore`.
+- [x] Open draft release PR #113 with non-closing `Refs #103` and `type:chore`.
 - [ ] Publish tag/release only after explicit authorization.
 
 ## Validation matrix
@@ -68,4 +68,5 @@ authorization for the destination and operation.
   `git diff --check` passed. The unit run used four Vitest workers with a 90s
   per-test timeout to avoid a transient installer-test timeout under serial
   load. ShellCheck could not run because no mise version is configured. No tag
-  or release was created.
+  or release was created. Draft release PR #113 is open; publication remains
+  pending explicit authorization.
