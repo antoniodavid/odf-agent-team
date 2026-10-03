@@ -28,6 +28,27 @@ export interface NativeSubagentLaunchNotExecutedEvidence {
   launch_failed_at: string
 }
 
+export interface NativeChildBindFailureEvidence {
+  schema_version: 1
+  evidence_type: "native-child-bind-failure"
+  parent_session_id: string
+  attempt_id: string
+  prepare_message_id: string
+  prepare_call_id: string
+  prepared_agent: string
+  prepared_token_sha256: string
+  prepared_prompt_sha256: string
+  prepared_at: string
+  launch_message_id: string
+  launch_call_id: string
+  launch_completed_at: string
+  child_session_id: string
+  seal_message_id: string
+  seal_call_id: string
+  seal_reason: "delegation-attempt-child-bind-failed"
+  seal_failed_at: string
+}
+
 export interface NativePretoolSafetyEvidenceInput {
   parentSessionId: string
   attemptId: string
@@ -176,14 +197,9 @@ function propertyValueEnd(source: string, offset: number, objectClose: number): 
   return objectClose
 }
 
-function exactPrepareArguments(source: string, open: number, input: NativePretoolSafetyEvidenceInput): boolean {
+function exactStaticArguments(source: string, open: number, expected: Map<string, string>): boolean {
   const close = objectEnd(source, open)
   if (close === null) return false
-  const expected = new Map<string, string>([
-    ["attempt_id", input.attemptId],
-    ["change", input.change],
-    ["phase", input.phase],
-  ])
   const seen = new Set<string>()
   let index = open + 1
   while (index < close) {
@@ -234,7 +250,7 @@ function isReturnedPrepareCall(source: string, callStart: number, objectOpen: nu
   return end === source.length
 }
 
-function exactSourceBinding(code: string, input: NativePretoolSafetyEvidenceInput): boolean {
+function exactSourceToolBinding(code: string, toolName: string, expected: Map<string, string>): boolean {
   let index = 0
   const candidates: boolean[] = []
   while (index < code.length) {
@@ -269,7 +285,7 @@ function exactSourceBinding(code: string, input: NativePretoolSafetyEvidenceInpu
     } else {
       continue
     }
-    if (member !== "odf_delegation_prepare") continue
+    if (member !== toolName) continue
     cursor = skipTrivia(code, cursor)
     if (code[cursor] !== "(") continue
     cursor = skipTrivia(code, cursor + 1)
@@ -277,9 +293,30 @@ function exactSourceBinding(code: string, input: NativePretoolSafetyEvidenceInpu
       candidates.push(false)
       continue
     }
-    candidates.push(exactPrepareArguments(code, cursor, input) && isReturnedPrepareCall(code, tokenStart, cursor))
+    candidates.push(exactStaticArguments(code, cursor, expected) && isReturnedPrepareCall(code, tokenStart, cursor))
   }
   return candidates.length === 1 && candidates[0] === true
+}
+
+function exactPrepareSourceBinding(code: string, input: NativePretoolSafetyEvidenceInput): boolean {
+  return exactSourceToolBinding(code, "odf_delegation_prepare", new Map([
+    ["attempt_id", input.attemptId],
+    ["change", input.change],
+    ["phase", input.phase],
+  ]))
+}
+
+function exactSealSourceBinding(code: string, token: string, change: string, childSessionId: string): boolean {
+  return exactSourceToolBinding(code, "odf_delegation_seal", new Map([
+    ["token", token],
+    ["change", change],
+    ["session_id", childSessionId],
+  ]))
+}
+
+function exactDirectStringFields(value: unknown, expected: Map<string, string>): boolean {
+  if (!isRecord(value)) return false
+  return [...expected].every(([key, expectedValue]) => value[key] === expectedValue)
 }
 
 function exactDirectBinding(args: unknown, input: NativePretoolSafetyEvidenceInput): boolean {
@@ -337,7 +374,7 @@ export function inspectNativePretoolSafetyBlock(
         bound = exactDirectBinding(state.input, input)
       } else if (toolName === "execute" && isRecord(state.input) && typeof state.input.code === "string") {
         prepareTool = "odf_delegation_prepare"
-        bound = exactSourceBinding(state.input.code, input)
+        bound = exactPrepareSourceBinding(state.input.code, input)
       }
       if (!bound || !prepareTool) continue
 
@@ -382,6 +419,7 @@ export function inspectNativePretoolSafetyBlock(
 function preparedDelegationToken(state: RecordValue, input: NativePretoolSafetyEvidenceInput): {
   token: string
   agent: string
+  prompt: string
 } | null {
   const outputText = textFromState(state)
   if (!outputText) return null
@@ -406,7 +444,7 @@ function preparedDelegationToken(state: RecordValue, input: NativePretoolSafetyE
   }
   if (!isRecord(identity) || identity.change !== input.change || identity.phase !== input.phase ||
     identity.agent !== output.agent || identity.token !== output.token) return null
-  return { token: output.token, agent: output.agent }
+  return { token: output.token, agent: output.agent, prompt: delegation.prompt }
 }
 
 /**
@@ -455,7 +493,7 @@ export function inspectNativeSubagentLaunchNotExecuted(
       const bound = toolName === "odf_delegation_prepare"
         ? exactDirectBinding(state.input, input)
         : toolName === "execute" && isRecord(state.input) && typeof state.input.code === "string"
-          ? exactSourceBinding(state.input.code, input)
+          ? exactPrepareSourceBinding(state.input.code, input)
           : false
       if (!bound) continue
       const prepared = preparedDelegationToken(state, input)
@@ -537,5 +575,189 @@ export function inspectNativeSubagentLaunchNotExecuted(
     launch_tool: "subagent",
     launch_error_type: "aborted",
     launch_failed_at: new Date(launch.failedAt).toISOString(),
+  }
+}
+
+/**
+ * Prove that the exact prepared prompt was launched once and its matching seal
+ * failed only while persisting the verified child binding. This proves neither
+ * the child's result nor BUILD completion; callers must independently recheck
+ * child ancestry, prompt digest, and idle state before settling the attempt.
+ */
+export function inspectNativeChildBindFailure(
+  context: unknown,
+  input: NativePretoolSafetyEvidenceInput,
+  childSessionId: string,
+): NativeChildBindFailureEvidence | null {
+  if (!safeIdentifier(input.parentSessionId) || !safeIdentifier(input.attemptId) ||
+    !safeIdentifier(input.change) || !Number.isFinite(Date.parse(input.startedAt)) ||
+    !safeIdentifier(childSessionId) || childSessionId.length > 128) return null
+  const messages = messagesFromContext(context)
+  if (!messages || messages.length === 0 || messages.length > 10_000) return null
+  const startedAt = Date.parse(input.startedAt)
+  const prepares: Array<{
+    messageIndex: number
+    partIndex: number
+    messageId: string
+    callId: string
+    completedAt: number
+    token: string
+    agent: string
+    prompt: string
+  }> = []
+
+  for (let messageIndex = 0; messageIndex < messages.length; messageIndex += 1) {
+    const rawMessage = messages[messageIndex]
+    if (!isRecord(rawMessage)) continue
+    const info = isRecord(rawMessage.info) ? rawMessage.info : rawMessage
+    if (info.type !== "assistant" && info.role !== "assistant") continue
+    const messageTime = isRecord(info.time) ? info.time : isRecord(rawMessage.time) ? rawMessage.time : {}
+    const createdAt = typeof messageTime.created === "number" ? messageTime.created : Number.NaN
+    const completedAt = typeof messageTime.completed === "number"
+      ? messageTime.completed
+      : typeof messageTime.streamed === "number" ? messageTime.streamed : Number.NaN
+    if (!Number.isFinite(createdAt) || !Number.isFinite(completedAt) || createdAt > startedAt || completedAt < startedAt) continue
+
+    const parts = messageParts(rawMessage)
+    for (let partIndex = 0; partIndex < parts.length; partIndex += 1) {
+      const rawPart = parts[partIndex]
+      if (!isRecord(rawPart) || rawPart.type !== "tool" || !isRecord(rawPart.state) || rawPart.state.status !== "completed") continue
+      const toolName = typeof rawPart.name === "string" ? rawPart.name : typeof rawPart.tool === "string" ? rawPart.tool : ""
+      const state = rawPart.state
+      const bound = toolName === "odf_delegation_prepare"
+        ? exactDirectBinding(state.input, input)
+        : toolName === "execute" && isRecord(state.input) && typeof state.input.code === "string"
+          ? exactPrepareSourceBinding(state.input.code, input)
+          : false
+      if (!bound) continue
+      const prepared = preparedDelegationToken(state, input)
+      if (!prepared) return null
+      const messageId = safeIdentifier(info.id) ? info.id : safeIdentifier(rawMessage.id) ? rawMessage.id : null
+      if (!messageId) return null
+      prepares.push({
+        messageIndex,
+        partIndex,
+        messageId,
+        callId: safeIdentifier(rawPart.id) ? rawPart.id : messageId,
+        completedAt,
+        ...prepared,
+      })
+    }
+  }
+  if (prepares.length !== 1) return null
+  const prepare = prepares[0]
+
+  const launches: Array<{
+    messageIndex: number
+    partIndex: number
+    messageId: string
+    callId: string
+    completedAt: number
+  }> = []
+  const seals: Array<{
+    messageIndex: number
+    partIndex: number
+    messageId: string
+    callId: string
+    failedAt: number
+  }> = []
+
+  for (let messageIndex = prepare.messageIndex; messageIndex < messages.length; messageIndex += 1) {
+    const rawMessage = messages[messageIndex]
+    if (!isRecord(rawMessage)) continue
+    const info = isRecord(rawMessage.info) ? rawMessage.info : rawMessage
+    if (info.type !== "assistant" && info.role !== "assistant") continue
+    const messageTime = isRecord(info.time) ? info.time : isRecord(rawMessage.time) ? rawMessage.time : {}
+    const createdAt = typeof messageTime.created === "number" ? messageTime.created : Number.NaN
+    const completedAt = typeof messageTime.completed === "number"
+      ? messageTime.completed
+      : typeof messageTime.streamed === "number" ? messageTime.streamed : Number.NaN
+    const parts = messageParts(rawMessage)
+
+    for (let partIndex = 0; partIndex < parts.length; partIndex += 1) {
+      if (messageIndex === prepare.messageIndex && partIndex <= prepare.partIndex) continue
+      const rawPart = parts[partIndex]
+      if (!isRecord(rawPart) || rawPart.type !== "tool") continue
+      const toolName = typeof rawPart.name === "string" ? rawPart.name : typeof rawPart.tool === "string" ? rawPart.tool : ""
+      const state = isRecord(rawPart.state) ? rawPart.state : null
+      const stateInput = state && isRecord(state.input) ? state.input : null
+      const code = toolName === "execute" && typeof stateInput?.code === "string" ? stateInput.code : null
+
+      if (toolName === "odf_delegation_prepare" || code?.includes("odf_delegation_prepare")) return null
+
+      if (toolName === "subagent") {
+        if (!Number.isFinite(createdAt) || !Number.isFinite(completedAt) ||
+          createdAt < prepare.completedAt || completedAt < createdAt || completedAt < startedAt ||
+          !state || state.status !== "completed" || rawPart.executed === false ||
+          stateInput?.agent !== prepare.agent || stateInput.prompt !== prepare.prompt) return null
+        const messageId = safeIdentifier(info.id) ? info.id : safeIdentifier(rawMessage.id) ? rawMessage.id : null
+        if (!messageId) return null
+        launches.push({
+          messageIndex,
+          partIndex,
+          messageId,
+          callId: safeIdentifier(rawPart.id) ? rawPart.id : messageId,
+          completedAt,
+        })
+      }
+
+      const isSealCall = toolName === "odf_delegation_seal" || code?.includes("odf_delegation_seal") === true
+      if (!isSealCall) continue
+      const sealBound = toolName === "odf_delegation_seal"
+        ? exactDirectStringFields(state?.input, new Map([
+          ["token", prepare.token],
+          ["change", input.change],
+          ["session_id", childSessionId],
+        ]))
+        : Boolean(code && exactSealSourceBinding(code, prepare.token, input.change, childSessionId))
+      if (!sealBound || !state || state.status !== "completed" || !Number.isFinite(createdAt) ||
+        !Number.isFinite(completedAt) || completedAt < createdAt || completedAt < startedAt) return null
+      const outputText = textFromState(state)
+      if (!outputText) return null
+      let output: unknown
+      try {
+        output = JSON.parse(outputText)
+      } catch {
+        return null
+      }
+      if (!isRecord(output) || output.status !== "blocked" || output.reason !== "delegation-attempt-child-bind-failed") return null
+      const messageId = safeIdentifier(info.id) ? info.id : safeIdentifier(rawMessage.id) ? rawMessage.id : null
+      if (!messageId) return null
+      seals.push({
+        messageIndex,
+        partIndex,
+        messageId,
+        callId: safeIdentifier(rawPart.id) ? rawPart.id : messageId,
+        failedAt: completedAt,
+      })
+    }
+  }
+
+  if (launches.length !== 1 || seals.length !== 1) return null
+  const launch = launches[0]
+  const seal = seals[0]
+  if (seal.messageIndex < launch.messageIndex ||
+    seal.messageIndex === launch.messageIndex && seal.partIndex <= launch.partIndex ||
+    seal.failedAt < launch.completedAt) return null
+
+  return {
+    schema_version: 1,
+    evidence_type: "native-child-bind-failure",
+    parent_session_id: input.parentSessionId,
+    attempt_id: input.attemptId,
+    prepare_message_id: prepare.messageId,
+    prepare_call_id: prepare.callId,
+    prepared_agent: prepare.agent,
+    prepared_token_sha256: createHash("sha256").update(prepare.token).digest("hex"),
+    prepared_prompt_sha256: createHash("sha256").update(prepare.prompt).digest("hex"),
+    prepared_at: new Date(prepare.completedAt).toISOString(),
+    launch_message_id: launch.messageId,
+    launch_call_id: launch.callId,
+    launch_completed_at: new Date(launch.completedAt).toISOString(),
+    child_session_id: childSessionId,
+    seal_message_id: seal.messageId,
+    seal_call_id: seal.callId,
+    seal_reason: "delegation-attempt-child-bind-failed",
+    seal_failed_at: new Date(seal.failedAt).toISOString(),
   }
 }

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 import {
   inspectNativePretoolSafetyBlock,
+  inspectNativeChildBindFailure,
   inspectNativeSubagentLaunchNotExecuted,
 } from "./odf-native-attempt-recovery.js"
 
@@ -242,5 +243,110 @@ return r;`
     context.push(second)
     expect(inspectNativeSubagentLaunchNotExecuted(context, attempt)).toBeNull()
     expect(inspectNativeSubagentLaunchNotExecuted([], attempt)).toBeNull()
+  })
+})
+
+describe("inspectNativeChildBindFailure", () => {
+  const token = "odf-tok-bind-failure-123"
+  const childSessionId = "child-session"
+  const prompt = `<!-- ODF-DELEGATION {"change":"${attempt.change}","phase":"${attempt.phase}","agent":"odoo_batch_implementer","token":"${token}"} -->\nTask body`
+  const preparedResult = {
+    status: "prepared",
+    change: attempt.change,
+    phase: attempt.phase,
+    attempt_id: attempt.attemptId,
+    agent: "odoo_batch_implementer",
+    token,
+    delegation: { agent: "odoo_batch_implementer", prompt },
+  }
+
+  function bindFailureContext(reason = "delegation-attempt-child-bind-failed"): any[] {
+    const startedMs = Date.parse(attempt.startedAt)
+    return [
+      {
+        id: "msg-parent-prepare",
+        type: "assistant",
+        time: { created: startedMs - 1_000, completed: startedMs + 1_000 },
+        content: [{
+          type: "tool",
+          id: "call-prepare",
+          name: "execute",
+          state: {
+            status: "completed",
+            input: {
+              code: `return await tools.odf_delegation_prepare({ phase: "${attempt.phase}", change: "${attempt.change}", attempt_id: "${attempt.attemptId}" })`,
+            },
+            content: [{ type: "text", text: JSON.stringify(preparedResult) }],
+          },
+        }],
+      },
+      {
+        id: "msg-parent-launch",
+        type: "assistant",
+        time: { created: startedMs + 2_000, completed: startedMs + 3_000 },
+        content: [{
+          type: "tool",
+          id: "call-subagent",
+          name: "subagent",
+          executed: true,
+          state: {
+            status: "completed",
+            input: { agent: preparedResult.agent, prompt },
+            content: [{ type: "text", text: childSessionId }],
+          },
+        }],
+      },
+      {
+        id: "msg-parent-seal",
+        type: "assistant",
+        time: { created: startedMs + 4_000, completed: startedMs + 5_000 },
+        content: [{
+          type: "tool",
+          id: "call-seal",
+          name: "execute",
+          state: {
+            status: "completed",
+            input: {
+              code: `return await tools.odf_delegation_seal({ token: "${token}", change: "${attempt.change}", session_id: "${childSessionId}" })`,
+            },
+            content: [{ type: "text", text: JSON.stringify({ status: "blocked", reason }) }],
+          },
+        }],
+      },
+    ]
+  }
+
+  it("proves the exact prepared child and bind-failed seal without retaining prompt or token", () => {
+    const evidence = inspectNativeChildBindFailure(bindFailureContext(), attempt, childSessionId)
+    expect(evidence).toMatchObject({
+      schema_version: 1,
+      evidence_type: "native-child-bind-failure",
+      parent_session_id: attempt.parentSessionId,
+      attempt_id: attempt.attemptId,
+      prepare_message_id: "msg-parent-prepare",
+      prepare_call_id: "call-prepare",
+      launch_message_id: "msg-parent-launch",
+      launch_call_id: "call-subagent",
+      child_session_id: childSessionId,
+      seal_message_id: "msg-parent-seal",
+      seal_call_id: "call-seal",
+      seal_reason: "delegation-attempt-child-bind-failed",
+    })
+    expect(evidence?.prepared_token_sha256).toMatch(/^[0-9a-f]{64}$/)
+    expect(evidence?.prepared_prompt_sha256).toMatch(/^[0-9a-f]{64}$/)
+    expect(JSON.stringify(evidence)).not.toContain(token)
+    expect(JSON.stringify(evidence)).not.toContain(prompt)
+  })
+
+  it.each([
+    ["a changed launched prompt", (context: any[]) => { context[1].content[0].state.input.prompt += " changed" }],
+    ["a seal for another child", (context: any[]) => { context[2].content[0].state.input.code = `return await tools.odf_delegation_seal({ token: "${token}", change: "${attempt.change}", session_id: "sibling-session" })` }],
+    ["a different seal failure", (context: any[]) => { context[2].content[0].state.content[0].text = JSON.stringify({ status: "blocked", reason: "delegation-prompt-mismatch" }) }],
+    ["an ambiguous second launch", (context: any[]) => { context.splice(2, 0, structuredClone(context[1])) }],
+    ["an incomplete transcript", (context: any[]) => { context.pop() }],
+  ])("fails closed for %s", (_label, mutate) => {
+    const context = bindFailureContext()
+    mutate(context)
+    expect(inspectNativeChildBindFailure(context, attempt, childSessionId)).toBeNull()
   })
 })
