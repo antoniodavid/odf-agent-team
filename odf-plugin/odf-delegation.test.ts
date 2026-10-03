@@ -962,6 +962,215 @@ describe("createODFWorkflowOverride", () => {
     expect(audit[0].evidence.prepared_token_sha256).not.toBe(token)
   })
 
+  it("settles a launched native attempt only after proving the exact child-bind failure", async () => {
+    const attemptId = "native-bind-failed-1"
+    const parentSessionId = "native-parent"
+    const childSessionId = "native-child"
+    const startedAt = "2026-09-21T20:00:00.000Z"
+    const startedMs = Date.parse(startedAt)
+    const token = "odf-tok-bind-failure-123"
+    const prompt = `<!-- ODF-DELEGATION {"change":"ov-change","phase":"IMPLEMENT","agent":"odoo_batch_implementer","token":"${token}"} -->\nTask body`
+    const ledgerPath = path.join(root, ".odf", "attempt-ledger-ov-change.jsonl")
+    await fs.mkdir(path.dirname(ledgerPath), { recursive: true })
+    await fs.writeFile(ledgerPath, JSON.stringify({
+      attempt_id: attemptId, branch_id: "default", change: "ov-change", phase: "IMPLEMENT", next_stage: "BUILD",
+      status: "running", started_at: startedAt, updated_at: startedAt, settled_at: null,
+      reason: "acquired", result_status: "running", candidate_digest: null,
+      native_parent_session_id: parentSessionId,
+    }) + "\n", "utf8")
+
+    const preparedResult = {
+      status: "prepared", change: "ov-change", phase: "IMPLEMENT", attempt_id: attemptId,
+      agent: "odoo_batch_implementer", token,
+      delegation: { agent: "odoo_batch_implementer", prompt },
+    }
+    const parentContext = [
+      {
+        id: "msg-parent-prepare",
+        type: "assistant",
+        time: { created: startedMs - 1_000, completed: startedMs + 1_000 },
+        content: [{
+          type: "tool", id: "call-prepare", name: "execute",
+          state: {
+            status: "completed",
+            input: { code: `return await tools.odf_delegation_prepare({ phase: "IMPLEMENT", change: "ov-change", attempt_id: "${attemptId}" })` },
+            content: [{ type: "text", text: JSON.stringify(preparedResult) }],
+          },
+        }],
+      },
+      {
+        id: "msg-parent-launch",
+        type: "assistant",
+        time: { created: startedMs + 2_000, completed: startedMs + 3_000 },
+        content: [{
+          type: "tool", id: "call-subagent", name: "subagent", executed: true,
+          state: { status: "completed", input: { agent: preparedResult.agent, prompt }, content: [{ type: "text", text: childSessionId }] },
+        }],
+      },
+      {
+        id: "msg-parent-seal",
+        type: "assistant",
+        time: { created: startedMs + 4_000, completed: startedMs + 5_000 },
+        content: [{
+          type: "tool", id: "call-seal", name: "execute",
+          state: {
+            status: "completed",
+            input: { code: `return await tools.odf_delegation_seal({ token: "${token}", change: "ov-change", session_id: "${childSessionId}" })` },
+            content: [{ type: "text", text: JSON.stringify({ status: "blocked", reason: "delegation-attempt-child-bind-failed" }) }],
+          },
+        }],
+      },
+    ]
+    const childContext = [
+      { info: { type: "user", text: prompt } },
+      { info: { type: "assistant", content: [{ type: "text", text: "## ODF Result\nstatus: ok\nprivate child result" }] } },
+    ]
+    const parentInfo = {
+      id: parentSessionId,
+      time: { created: startedMs - 100_000, updated: startedMs + 10_000, idle: startedMs + 20_000 },
+    }
+    const childInfo = {
+      id: childSessionId,
+      parentID: parentSessionId,
+      agent: preparedResult.agent,
+      time: { created: startedMs + 2_500 },
+      location: { directory: root },
+    }
+    const session = {
+      get: vi.fn().mockImplementation(({ sessionID }: { sessionID: string }) =>
+        sessionID === parentSessionId ? parentInfo : childInfo),
+      wait: vi.fn().mockResolvedValue(undefined),
+      context: vi.fn().mockImplementation(({ sessionID }: { sessionID: string }) =>
+        sessionID === parentSessionId ? parentContext : childContext),
+    }
+    const { createODFWorkflowOverride } = await import("./odf-delegation.js")
+    const output = JSON.parse(await createODFWorkflowOverride().execute(baseArgs({
+      action: "settle-bind-failed-attempt",
+      target_stage: undefined,
+      attempt_id: attemptId,
+      child_session_id: childSessionId,
+      confirm_no_active_run: true,
+      reason: "The child completed but its durable attempt binding failed.",
+    }) as any, { sessionID: "fresh-recovery-session", [ODF_V2_SESSION]: session } as any) as string)
+
+    expect(output).toMatchObject({
+      status: "settled",
+      action: "settle-bind-failed-attempt",
+      attempt_id: attemptId,
+      child_session_id: childSessionId,
+      child_idle_confirmed: true,
+      verified_bind_failure: true,
+      recovery_evidence: {
+        evidence_type: "native-child-bind-failure",
+        parent_session_id: parentSessionId,
+        attempt_id: attemptId,
+        child_session_id: childSessionId,
+        prepare_call_id: "call-prepare",
+        launch_call_id: "call-subagent",
+        seal_call_id: "call-seal",
+      },
+    })
+    expect(output.recovery_evidence.prepared_token_sha256).toMatch(/^[0-9a-f]{64}$/)
+    expect(JSON.stringify(output)).not.toContain(token)
+    expect(JSON.stringify(output)).not.toContain("private child result")
+
+    const records = (await fs.readFile(ledgerPath, "utf8")).trim().split("\n").map(line => JSON.parse(line))
+    expect(records).toHaveLength(2)
+    expect(records.at(-1)).toMatchObject({ status: "failed", reason: "task-error", result_status: "error" })
+    const audit = (await fs.readFile(path.join(root, ".odf", "override-ov-change.jsonl"), "utf8"))
+      .trim().split("\n").map(line => JSON.parse(line))
+    expect(audit[0]).toMatchObject({
+      action: "settle-bind-failed-attempt",
+      outcome: "parent-child-bind-failure-proof-persisted",
+      attempt_id: attemptId,
+      evidence: {
+        evidence_type: "native-child-bind-failure",
+        child_session_id: childSessionId,
+        seal_reason: "delegation-attempt-child-bind-failed",
+      },
+    })
+    expect(JSON.stringify(audit)).not.toContain(token)
+    expect(JSON.stringify(audit)).not.toContain("private child result")
+    expect(session.wait).toHaveBeenCalledWith({ sessionID: parentSessionId })
+    expect(session.wait).toHaveBeenCalledWith({ sessionID: childSessionId })
+  })
+
+  it("keeps a child-bind-failed attempt running when the child prompt does not match", async () => {
+    const attemptId = "native-bind-unverified-1"
+    const parentSessionId = "native-parent"
+    const childSessionId = "native-child"
+    const startedAt = "2026-09-21T20:00:00.000Z"
+    const startedMs = Date.parse(startedAt)
+    const token = "odf-tok-bind-failure-456"
+    const prompt = `<!-- ODF-DELEGATION {"change":"ov-change","phase":"IMPLEMENT","agent":"odoo_batch_implementer","token":"${token}"} -->\nTask body`
+    const ledgerPath = path.join(root, ".odf", "attempt-ledger-ov-change.jsonl")
+    await fs.mkdir(path.dirname(ledgerPath), { recursive: true })
+    await fs.writeFile(ledgerPath, JSON.stringify({
+      attempt_id: attemptId, branch_id: "default", change: "ov-change", phase: "IMPLEMENT", next_stage: "BUILD",
+      status: "running", started_at: startedAt, updated_at: startedAt, settled_at: null,
+      reason: "acquired", result_status: "running", candidate_digest: null,
+      native_parent_session_id: parentSessionId,
+    }) + "\n", "utf8")
+    const preparedResult = {
+      status: "prepared", change: "ov-change", phase: "IMPLEMENT", attempt_id: attemptId,
+      agent: "odoo_batch_implementer", token, delegation: { agent: "odoo_batch_implementer", prompt },
+    }
+    const parentContext = [
+      {
+        id: "msg-prepare", type: "assistant", time: { created: startedMs - 1_000, completed: startedMs + 1_000 },
+        content: [{
+          type: "tool", id: "call-prepare", name: "odf_delegation_prepare",
+          state: { status: "completed", input: { attempt_id: attemptId, change: "ov-change", phase: "IMPLEMENT" }, content: [{ type: "text", text: JSON.stringify(preparedResult) }] },
+        }],
+      },
+      {
+        id: "msg-launch", type: "assistant", time: { created: startedMs + 2_000, completed: startedMs + 3_000 },
+        content: [{ type: "tool", id: "call-subagent", name: "subagent", executed: true,
+          state: { status: "completed", input: { agent: preparedResult.agent, prompt } } }],
+      },
+      {
+        id: "msg-seal", type: "assistant", time: { created: startedMs + 4_000, completed: startedMs + 5_000 },
+        content: [{ type: "tool", id: "call-seal", name: "odf_delegation_seal",
+          state: { status: "completed", input: { token, change: "ov-change", session_id: childSessionId }, content: [{ type: "text", text: JSON.stringify({ status: "blocked", reason: "delegation-attempt-child-bind-failed" }) }] } }],
+      },
+    ]
+    const parentInfo = {
+      id: parentSessionId,
+      time: { created: startedMs - 100_000, updated: startedMs + 10_000, idle: startedMs + 20_000 },
+    }
+    const session = {
+      get: vi.fn().mockImplementation(({ sessionID }: { sessionID: string }) => sessionID === parentSessionId
+        ? parentInfo
+        : {
+          id: childSessionId,
+          parentID: parentSessionId,
+          agent: preparedResult.agent,
+          time: { created: startedMs + 2_500 },
+          location: { directory: root },
+        }),
+      wait: vi.fn().mockResolvedValue(undefined),
+      context: vi.fn().mockImplementation(({ sessionID }: { sessionID: string }) => sessionID === parentSessionId
+        ? parentContext
+        : [
+          { info: { type: "user", text: `${prompt} altered` } },
+          { info: { type: "assistant", content: [{ type: "text", text: "## ODF Result\nstatus: ok" }] } },
+        ]),
+    }
+    const { createODFWorkflowOverride } = await import("./odf-delegation.js")
+    const output = JSON.parse(await createODFWorkflowOverride().execute(baseArgs({
+      action: "settle-bind-failed-attempt",
+      target_stage: undefined,
+      attempt_id: attemptId,
+      child_session_id: childSessionId,
+      confirm_no_active_run: true,
+      reason: "The child completed but its durable attempt binding failed.",
+    }) as any, { sessionID: "fresh-recovery-session", [ODF_V2_SESSION]: session } as any) as string)
+
+    expect(output).toMatchObject({ status: "blocked", reason: "attempt-child-prompt-mismatch" })
+    expect((await fs.readFile(ledgerPath, "utf8")).trim().split("\n")).toHaveLength(1)
+    expect(fsSync.existsSync(path.join(root, ".odf", "override-ov-change.jsonl"))).toBe(false)
+  })
+
   it("leaves a native attempt running when parent safety evidence is unavailable", async () => {
     const attemptId = "native-unverified-1"
     const startedAt = "2026-09-21T20:00:00.000Z"

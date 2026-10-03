@@ -66,8 +66,10 @@ import {
   createODFCommunityToolInstall,
 } from "../odf-plugin/odf-community-tools.js"
 import {
+  inspectNativeChildBindFailure,
   inspectNativePretoolSafetyBlock,
   inspectNativeSubagentLaunchNotExecuted,
+  type NativeChildBindFailureEvidence,
   type NativePretoolSafetyEvidence,
   type NativeSubagentLaunchNotExecutedEvidence,
 } from "../odf-plugin/odf-native-attempt-recovery.js"
@@ -8394,17 +8396,18 @@ Actions:
 - disable-fast-lane: disable an existing fast_lane_policy through a separate audited marker without rewriting workflow state or artifacts.
 - settle-attempt: append a terminal settlement for a stale running attempt (use the attempt_id from odf_workflow_status active_attempts) so a fresh attempt can be acquired. Requires confirm_no_active_run: true and refuses attempts that are still active in this runtime. Native prepare/seal attempts additionally require child_session_id; the tool verifies its parent binding and awaits session.wait before settling.
 - settle-unlaunched-attempt: recover a native attempt only when the bound parent session is idle and its transcript proves either an exact odf_delegation_prepare rejection by pre-tool-safety, or an exact successful prepare followed by a host subagent call recorded as aborted and not executed. The latter requires an empty tool input and no child identity. Missing, compacted, ambiguous, or changing parent history remains blocked; verification evidence is durably appended before settlement.
+- settle-bind-failed-attempt: recover a launched native attempt only when the idle parent transcript proves the exact successful prepare, one subagent launch with its exact agent/prompt, and the matching seal blocked specifically because child binding could not be persisted. ODF independently rechecks the child parent, agent, workspace, prompt digest, and idle state; it records the attempt as failed and never accepts the child result or commits BUILD.
 - settle-join: settle a persisted parallel join that is still running after a host restart so resume_from_join can continue. Every running branch attempt must be settled first with action=settle-attempt; refuses joins whose branch attempts are still active in this runtime. The join becomes blocked with a failure receipt - commit a retry receipt before resuming.
 
      Requires a human-approved reason (>=20 chars). Fast-lane disable additionally requires approved_by and a live session.`,
     args: {
       change_name: tool.schema.string().describe("Change name (kebab-case)"),
       artifact_store: tool.schema.enum(["openspec", "engram", "hybrid"]).describe("Authoritative workflow store"),
-      action: tool.schema.enum(["skip", "re-enter", "re-plan", "disable-fast-lane", "settle-attempt", "settle-unlaunched-attempt", "settle-join"]).describe("Override action"),
+      action: tool.schema.enum(["skip", "re-enter", "re-plan", "disable-fast-lane", "settle-attempt", "settle-unlaunched-attempt", "settle-bind-failed-attempt", "settle-join"]).describe("Override action"),
       target_stage: tool.schema.enum(["DECIDE", "PLAN", "BUILD", "VERIFY"]).optional().describe("Canonical stage to skip/re-enter/re-plan from"),
-      attempt_id: tool.schema.string().optional().describe("Stale attempt to settle (required for settle-attempt and settle-unlaunched-attempt)"),
+      attempt_id: tool.schema.string().optional().describe("Stale attempt to settle (required for settle-attempt and native recovery actions)"),
       child_session_id: tool.schema.string().optional().describe("Native child session to verify and await before settling a prepared attempt"),
-      confirm_no_active_run: tool.schema.boolean().optional().describe("Required true for settle-attempt, settle-unlaunched-attempt, and settle-join after verifying no task or run is active"),
+      confirm_no_active_run: tool.schema.boolean().optional().describe("Required true for settle-attempt, native recovery actions, and settle-join after verifying no task or run is active"),
       reason: tool.schema.string().describe("Human-approved reason (>=20 chars)"),
       approved_by: tool.schema.string().optional().describe("Human approver for disabling the fast lane"),
       expectations_revision: tool.schema.object({
@@ -8425,7 +8428,7 @@ Actions:
     async execute(args: {
       change_name: string
       artifact_store: "openspec" | "engram" | "hybrid"
-      action: "skip" | "re-enter" | "re-plan" | "disable-fast-lane" | "settle-attempt" | "settle-unlaunched-attempt" | "settle-join"
+      action: "skip" | "re-enter" | "re-plan" | "disable-fast-lane" | "settle-attempt" | "settle-unlaunched-attempt" | "settle-bind-failed-attempt" | "settle-join"
       target_stage?: "DECIDE" | "PLAN" | "BUILD" | "VERIFY"
       attempt_id?: string
       child_session_id?: string
@@ -8446,8 +8449,9 @@ Actions:
       }
       const reason = (args.reason || "").trim()
       if (reason.length < 20) return blocked("override-reason-required", "A human-approved reason of at least 20 characters is required for any override.")
-      if (args.action === "settle-unlaunched-attempt" && (reason.length > 512 || /[\0\r\n]/.test(reason))) {
-        return blocked("attempt-recovery-reason-invalid", "settle-unlaunched-attempt requires a single-line reason no longer than 512 characters.")
+      if ((args.action === "settle-unlaunched-attempt" || args.action === "settle-bind-failed-attempt") &&
+        (reason.length > 512 || /[\0\r\n]/.test(reason))) {
+        return blocked("attempt-recovery-reason-invalid", "Native attempt recovery requires a single-line reason no longer than 512 characters.")
       }
       const approvedBy = (args.approved_by || "").trim()
       if (args.action === "disable-fast-lane" &&
@@ -8456,7 +8460,8 @@ Actions:
       }
 
       const isUnlaunchedRecovery = args.action === "settle-unlaunched-attempt"
-      if (args.action === "settle-attempt" || isUnlaunchedRecovery) {
+      const isBindFailureRecovery = args.action === "settle-bind-failed-attempt"
+      if (args.action === "settle-attempt" || isUnlaunchedRecovery || isBindFailureRecovery) {
         const attemptId = (args.attempt_id || "").trim()
         if (!attemptId || !SAFE_TOKEN_PATTERN.test(attemptId)) {
           return blocked("attempt-recovery-id-required", `${args.action} requires a safe attempt_id from odf_workflow_status active_attempts.`)
@@ -8476,6 +8481,9 @@ Actions:
 
         let nativeChildRecovery: { sessionId: string; idleAt: string } | null = null
         let nativeUnlaunchedEvidence: NativePretoolSafetyEvidence | NativeSubagentLaunchNotExecutedEvidence | null = null
+        let nativeBindFailureEvidence: NativeChildBindFailureEvidence | null = null
+        let nativeBindFailureAuditEvidence: Record<string, unknown> | null = null
+        let nativeBindFailureChild: { sessionId: string; idleAt: string } | null = null
         if (isUnlaunchedRecovery) {
           if (!observedRecord.native_parent_session_id) {
             return blocked("attempt-native-parent-required", "settle-unlaunched-attempt applies only to native attempts bound to a parent session.")
@@ -8507,6 +8515,132 @@ Actions:
             inspectNativeSubagentLaunchNotExecuted(parentContext.context, evidenceInput)
           if (!nativeUnlaunchedEvidence) {
             return blocked("attempt-parent-unlaunched-proof-missing", "The parent transcript does not prove either an exact pre-tool-safety rejection or a prepared delegation whose host subagent call was recorded as not executed; keep it running and use child-bound recovery if a child exists.")
+          }
+        } else if (isBindFailureRecovery) {
+          if (!observedRecord.native_parent_session_id) {
+            return blocked("attempt-native-parent-required", "settle-bind-failed-attempt applies only to native attempts bound to a parent session.")
+          }
+          if (observedRecord.native_child_session_id || observedRecord.native_child_idle_at) {
+            return blocked("attempt-child-already-bound", "A child is already durably bound to this attempt; use settle-attempt with that exact child instead.")
+          }
+          const childSessionId = (args.child_session_id || "").trim()
+          if (!isSafeSessionId(childSessionId)) {
+            return blocked("attempt-child-id-required", "settle-bind-failed-attempt requires the exact child_session_id used by the failed seal.")
+          }
+          const session = (toolCtx as unknown as Record<PropertyKey, unknown>)[ODF_V2_SESSION] as Partial<V2SessionApi> | undefined
+          if (!session) {
+            return blocked("attempt-parent-session-api-unavailable", "Audited bind-failure recovery requires the OpenCode V2 session API to inspect the parent and child sessions.")
+          }
+          const parentContext = await readStableIdleParentContext({
+            session,
+            parentSessionId: observedRecord.native_parent_session_id,
+            currentSessionId: toolCtx.sessionID,
+            attemptStartedAt: observedRecord.started_at,
+          })
+          if ("error" in parentContext) {
+            return blocked(parentContext.error, "The parent session could not be proven idle and stable; the attempt remains running.")
+          }
+          const evidenceInput = {
+            parentSessionId: observedRecord.native_parent_session_id,
+            attemptId,
+            change: changeName,
+            phase: observedRecord.phase,
+            startedAt: observedRecord.started_at,
+          }
+          nativeBindFailureEvidence = inspectNativeChildBindFailure(parentContext.context, evidenceInput, childSessionId)
+          if (!nativeBindFailureEvidence) {
+            return blocked("attempt-parent-bind-failure-proof-missing", "The idle parent transcript does not prove one exact prepared launch and its matching child-bind-failed seal; keep the attempt running.")
+          }
+          if (typeof session.get !== "function" || typeof session.wait !== "function" || typeof session.context !== "function") {
+            return blocked("attempt-child-session-api-unavailable", "Bind-failure recovery requires OpenCode V2 session.get, session.wait, and session.context APIs.")
+          }
+
+          let childInfo: Record<string, unknown> | null = null
+          try {
+            const response = await session.get({ sessionID: childSessionId })
+            const value = response && typeof response === "object" && !Array.isArray(response)
+              ? response as Record<string, unknown>
+              : null
+            childInfo = value?.data && typeof value.data === "object" && !Array.isArray(value.data)
+              ? value.data as Record<string, unknown>
+              : value
+          } catch {
+            return blocked("attempt-child-unknown", `The child session ${childSessionId} could not be read; keep the attempt running.`)
+          }
+          if (!childInfo || childInfo.id !== childSessionId ||
+            childInfo.parentID !== observedRecord.native_parent_session_id ||
+            childInfo.agent !== nativeBindFailureEvidence.prepared_agent) {
+            return blocked("attempt-child-mismatch", "The child id, parent, or agent does not match the exact prepared launch; keep the attempt running.")
+          }
+          const childTime = childInfo.time && typeof childInfo.time === "object" && !Array.isArray(childInfo.time)
+            ? childInfo.time as Record<string, unknown>
+            : null
+          const childCreatedAt = typeof childTime?.created === "number" ? childTime.created : Number.NaN
+          if (!Number.isFinite(childCreatedAt) ||
+            childCreatedAt < Date.parse(nativeBindFailureEvidence.prepared_at) ||
+            childCreatedAt > Date.parse(nativeBindFailureEvidence.launch_completed_at) ||
+            childCreatedAt > Date.parse(nativeBindFailureEvidence.seal_failed_at)) {
+            return blocked("attempt-child-created-time-mismatch", "The child session creation time does not match the prepared launch window; keep the attempt running.")
+          }
+          const location = childInfo.location && typeof childInfo.location === "object" && !Array.isArray(childInfo.location)
+            ? childInfo.location as Record<string, unknown>
+            : null
+          if (typeof location?.directory !== "string") {
+            return blocked("attempt-child-workspace-unknown", "The child session workspace cannot be proven; keep the attempt running.")
+          }
+          let childWorkspace: string
+          try {
+            childWorkspace = canonicalWorkspaceRoot(location.directory)
+          } catch {
+            return blocked("attempt-child-workspace-mismatch", "The child session workspace is not a safe canonical path; keep the attempt running.")
+          }
+          if (childWorkspace !== workspaceRoot) {
+            return blocked("attempt-child-workspace-mismatch", "The child session ran outside the prepared workspace; keep the attempt running.")
+          }
+
+          try {
+            const waited: unknown = await session.wait({ sessionID: childSessionId })
+            if (waited && typeof waited === "object" && !Array.isArray(waited) &&
+              (waited as Record<string, unknown>).error != null) {
+              return blocked("attempt-child-not-idle", `session.wait could not confirm child ${childSessionId} is idle; keep the attempt running.`)
+            }
+          } catch {
+            return blocked("attempt-child-not-idle", `session.wait could not confirm child ${childSessionId} is idle; keep the attempt running.`)
+          }
+          let childConversation: { userTexts: string[]; assistantText: string } | null = null
+          try {
+            childConversation = readV2ContextConversation(await session.context({ sessionID: childSessionId }))
+          } catch {
+            childConversation = null
+          }
+          if (!childConversation || childConversation.userTexts.length === 0) {
+            return blocked("attempt-child-unreadable", "The child session returned no readable conversation; keep the attempt running.")
+          }
+          if (delegationPromptDigest(childConversation.userTexts[0]) !== nativeBindFailureEvidence.prepared_prompt_sha256) {
+            return blocked("attempt-child-prompt-mismatch", "The child did not receive the exact prepared prompt; keep the attempt running.")
+          }
+          nativeBindFailureChild = { sessionId: childSessionId, idleAt: new Date().toISOString() }
+
+          const refreshedParent = await readStableIdleParentContext({
+            session,
+            parentSessionId: observedRecord.native_parent_session_id,
+            currentSessionId: toolCtx.sessionID,
+            attemptStartedAt: observedRecord.started_at,
+          })
+          if ("error" in refreshedParent) {
+            return blocked(refreshedParent.error, "The parent session changed or could not be re-proven idle; keep the attempt running.")
+          }
+          const refreshedEvidence = inspectNativeChildBindFailure(refreshedParent.context, evidenceInput, childSessionId)
+          if (!refreshedEvidence || JSON.stringify(refreshedEvidence) !== JSON.stringify(nativeBindFailureEvidence)) {
+            return blocked("attempt-parent-proof-changed", "The parent transcript changed during child verification; keep the attempt running.")
+          }
+          nativeBindFailureAuditEvidence = {
+            ...nativeBindFailureEvidence,
+            child_idle_confirmed_at: nativeBindFailureChild.idleAt,
+            child_parent_verified: true,
+            child_agent_verified: true,
+            child_workspace_verified: true,
+            child_prompt_verified: true,
           }
         } else if (observedRecord.native_parent_session_id) {
           const childSessionId = (args.child_session_id || "").trim()
@@ -8596,6 +8730,22 @@ Actions:
             })
             if (auditError) return { error: auditError }
           }
+          if (nativeBindFailureEvidence && nativeBindFailureAuditEvidence) {
+            const auditError = appendRecoveryAudit(workspaceRoot, changeName, {
+              at: now,
+              action: "settle-bind-failed-attempt",
+              outcome: "parent-child-bind-failure-proof-persisted",
+              attempt_id: attemptId,
+              phase: record.phase,
+              stage: record.next_stage,
+              reason,
+              evidence: nativeBindFailureAuditEvidence,
+            })
+            if (auditError) return { error: auditError }
+          }
+          // The bind-failure proof, including the child id and idle timestamp,
+          // is in the mandatory override audit. Keep the terminal ledger record
+          // compact and failed; it must not imply that sealing or BUILD succeeded.
           const terminal: AttemptLedgerRecord = {
             ...record,
             ...(nativeChildRecovery ? {
@@ -8605,8 +8755,8 @@ Actions:
             status: "failed",
             updated_at: now,
             settled_at: now,
-            reason: "task-cancelled",
-            result_status: "cancelled",
+            reason: nativeBindFailureEvidence ? "task-error" : "task-cancelled",
+            result_status: nativeBindFailureEvidence ? "error" : "cancelled",
           }
           const appendError = appendAttemptLedgerRecord(workspaceRoot, ledgerPath, terminal)
           return appendError ? { error: appendError } : { record: terminal }
@@ -8631,8 +8781,9 @@ Actions:
           reason,
           settled_at: settledRecord.settled_at,
           ...(nativeUnlaunchedEvidence ? { evidence: nativeUnlaunchedEvidence } : {}),
+          ...(nativeBindFailureAuditEvidence ? { evidence: nativeBindFailureAuditEvidence } : {}),
         }
-        if (nativeUnlaunchedEvidence) appendRecoveryAudit(workspaceRoot, changeName, audit)
+        if (nativeUnlaunchedEvidence || nativeBindFailureEvidence) appendRecoveryAudit(workspaceRoot, changeName, audit)
         else {
           try {
             fsSync.appendFileSync(path.join(workspaceRoot, ".odf", `override-${changeName}.jsonl`), JSON.stringify(audit) + "\n")
@@ -8648,6 +8799,12 @@ Actions:
           ...(nativeChildRecovery ? {
             child_session_id: nativeChildRecovery.sessionId,
             child_idle_confirmed: true,
+          } : {}),
+          ...(nativeBindFailureChild && nativeBindFailureEvidence ? {
+            child_session_id: nativeBindFailureChild.sessionId,
+            child_idle_confirmed: true,
+            verified_bind_failure: true,
+            recovery_evidence: nativeBindFailureAuditEvidence,
           } : {}),
           ...(nativeUnlaunchedEvidence ? { verified_unlaunched: true, recovery_evidence: nativeUnlaunchedEvidence } : {}),
           next_step: "Acquire a fresh attempt_id for the next delegation.",
