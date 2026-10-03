@@ -65,7 +65,12 @@ import {
   createODFCommunityToolDetect,
   createODFCommunityToolInstall,
 } from "../odf-plugin/odf-community-tools.js"
-import { inspectNativePretoolSafetyBlock, type NativePretoolSafetyEvidence } from "../odf-plugin/odf-native-attempt-recovery.js"
+import {
+  inspectNativePretoolSafetyBlock,
+  inspectNativeSubagentLaunchNotExecuted,
+  type NativePretoolSafetyEvidence,
+  type NativeSubagentLaunchNotExecutedEvidence,
+} from "../odf-plugin/odf-native-attempt-recovery.js"
 import {
   type DelegationMetrics,
   flushMetricsSync,
@@ -8388,7 +8393,7 @@ Actions:
 - re-plan: like re-enter, plus persist a human-approved Expectations revision (revision > current, supersedes = digest of the previous artifact).
 - disable-fast-lane: disable an existing fast_lane_policy through a separate audited marker without rewriting workflow state or artifacts.
 - settle-attempt: append a terminal settlement for a stale running attempt (use the attempt_id from odf_workflow_status active_attempts) so a fresh attempt can be acquired. Requires confirm_no_active_run: true and refuses attempts that are still active in this runtime. Native prepare/seal attempts additionally require child_session_id; the tool verifies its parent binding and awaits session.wait before settling.
-- settle-unlaunched-attempt: recover a native attempt only when the bound parent session is idle and its transcript contains exactly one matching odf_delegation_prepare call rejected by pre-tool-safety with no token or child identity. Missing, compacted, ambiguous, or changing parent history remains blocked; verification evidence is durably appended before settlement.
+- settle-unlaunched-attempt: recover a native attempt only when the bound parent session is idle and its transcript proves either an exact odf_delegation_prepare rejection by pre-tool-safety, or an exact successful prepare followed by a host subagent call recorded as aborted and not executed. The latter requires an empty tool input and no child identity. Missing, compacted, ambiguous, or changing parent history remains blocked; verification evidence is durably appended before settlement.
 - settle-join: settle a persisted parallel join that is still running after a host restart so resume_from_join can continue. Every running branch attempt must be settled first with action=settle-attempt; refuses joins whose branch attempts are still active in this runtime. The join becomes blocked with a failure receipt - commit a retry receipt before resuming.
 
      Requires a human-approved reason (>=20 chars). Fast-lane disable additionally requires approved_by and a live session.`,
@@ -8470,7 +8475,7 @@ Actions:
         if (observedRecord.status !== "running") return blocked("attempt-not-running", "Only a running attempt can be settled; this attempt already has a terminal record.")
 
         let nativeChildRecovery: { sessionId: string; idleAt: string } | null = null
-        let nativeUnlaunchedEvidence: NativePretoolSafetyEvidence | null = null
+        let nativeUnlaunchedEvidence: NativePretoolSafetyEvidence | NativeSubagentLaunchNotExecutedEvidence | null = null
         if (isUnlaunchedRecovery) {
           if (!observedRecord.native_parent_session_id) {
             return blocked("attempt-native-parent-required", "settle-unlaunched-attempt applies only to native attempts bound to a parent session.")
@@ -8491,15 +8496,17 @@ Actions:
           if ("error" in parentContext) {
             return blocked(parentContext.error, "The parent session could not be proven idle and stable; the attempt remains running.")
           }
-          nativeUnlaunchedEvidence = inspectNativePretoolSafetyBlock(parentContext.context, {
+          const evidenceInput = {
             parentSessionId: observedRecord.native_parent_session_id,
             attemptId,
             change: changeName,
             phase: observedRecord.phase,
             startedAt: observedRecord.started_at,
-          })
+          }
+          nativeUnlaunchedEvidence = inspectNativePretoolSafetyBlock(parentContext.context, evidenceInput) ??
+            inspectNativeSubagentLaunchNotExecuted(parentContext.context, evidenceInput)
           if (!nativeUnlaunchedEvidence) {
-            return blocked("attempt-parent-pretool-proof-missing", "The parent transcript does not contain one complete, exact pre-tool-safety rejection for this attempt; keep it running and use child-bound recovery if a child exists.")
+            return blocked("attempt-parent-unlaunched-proof-missing", "The parent transcript does not prove either an exact pre-tool-safety rejection or a prepared delegation whose host subagent call was recorded as not executed; keep it running and use child-bound recovery if a child exists.")
           }
         } else if (observedRecord.native_parent_session_id) {
           const childSessionId = (args.child_session_id || "").trim()
@@ -8578,7 +8585,9 @@ Actions:
             const auditError = appendRecoveryAudit(workspaceRoot, changeName, {
               at: now,
               action: "settle-unlaunched-attempt",
-              outcome: "parent-pretool-safety-proof-persisted",
+              outcome: nativeUnlaunchedEvidence.evidence_type === "native-pretool-safety-block"
+                ? "parent-pretool-safety-proof-persisted"
+                : "parent-subagent-not-executed-proof-persisted",
               attempt_id: attemptId,
               phase: record.phase,
               stage: record.next_stage,

@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto"
+
 export interface NativePretoolSafetyEvidence {
   schema_version: 1
   evidence_type: "native-pretool-safety-block"
@@ -8,6 +10,22 @@ export interface NativePretoolSafetyEvidence {
   prepare_tool: "odf_delegation_prepare"
   blocked_at: string
   matched_rules: string[]
+}
+
+export interface NativeSubagentLaunchNotExecutedEvidence {
+  schema_version: 1
+  evidence_type: "native-subagent-launch-not-executed"
+  parent_session_id: string
+  attempt_id: string
+  prepare_message_id: string
+  prepare_call_id: string
+  prepared_token_sha256: string
+  prepared_at: string
+  launch_message_id: string
+  launch_call_id: string
+  launch_tool: "subagent"
+  launch_error_type: "aborted"
+  launch_failed_at: string
 }
 
 export interface NativePretoolSafetyEvidenceInput {
@@ -170,6 +188,7 @@ function exactPrepareArguments(source: string, open: number, input: NativePretoo
   let index = open + 1
   while (index < close) {
     index = skipTrivia(source, index)
+    if (source[index] === "}") break
     if (source[index] === ",") {
       index += 1
       continue
@@ -197,13 +216,20 @@ function exactPrepareArguments(source: string, open: number, input: NativePretoo
   return seen.size === expected.size
 }
 
-function isReturnedDirectPrepareCall(source: string, callStart: number, objectOpen: number): boolean {
-  if (!/\breturn\s+(?:await\s+)?$/.test(source.slice(0, callStart))) return false
+function isReturnedPrepareCall(source: string, callStart: number, objectOpen: number): boolean {
   const close = objectEnd(source, objectOpen)
   if (close === null) return false
   const callClose = skipTrivia(source, close + 1)
   if (source[callClose] !== ")") return false
   let end = skipTrivia(source, callClose + 1)
+  if (source[end] === ";") end = skipTrivia(source, end + 1)
+  if (end === source.length && /\breturn\s+(?:await\s+)?$/.test(source.slice(0, callStart))) return true
+
+  const assignment = source.slice(0, callStart).match(/(?:^|[;\n])\s*(?:const|let)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:await\s+)?$/)
+  if (!assignment || !/^return\b/.test(source.slice(end))) return false
+  const returned = identifierAt(source, skipTrivia(source, end + "return".length))
+  if (!returned || returned.value !== assignment[1]) return false
+  end = skipTrivia(source, returned.end)
   if (source[end] === ";") end = skipTrivia(source, end + 1)
   return end === source.length
 }
@@ -251,7 +277,7 @@ function exactSourceBinding(code: string, input: NativePretoolSafetyEvidenceInpu
       candidates.push(false)
       continue
     }
-    candidates.push(exactPrepareArguments(code, cursor, input) && isReturnedDirectPrepareCall(code, tokenStart, cursor))
+    candidates.push(exactPrepareArguments(code, cursor, input) && isReturnedPrepareCall(code, tokenStart, cursor))
   }
   return candidates.length === 1 && candidates[0] === true
 }
@@ -262,7 +288,11 @@ function exactDirectBinding(args: unknown, input: NativePretoolSafetyEvidenceInp
 }
 
 function hasChildIdentity(value: RecordValue): boolean {
-  return ["child_session_id", "session_id", "sessionID", "task_session_id", "taskSessionId"]
+  return [
+    "child_session_id", "childSessionId", "child_id", "childId",
+    "session_id", "sessionId", "sessionID",
+    "task_session_id", "taskSessionId",
+  ]
     .some((key) => typeof value[key] === "string" && (value[key] as string).length > 0)
 }
 
@@ -347,4 +377,165 @@ export function inspectNativePretoolSafetyBlock(
   }
 
   return matches.length === 1 ? matches[0] : null
+}
+
+function preparedDelegationToken(state: RecordValue, input: NativePretoolSafetyEvidenceInput): {
+  token: string
+  agent: string
+} | null {
+  const outputText = textFromState(state)
+  if (!outputText) return null
+  let output: unknown
+  try {
+    output = JSON.parse(outputText)
+  } catch {
+    return null
+  }
+  if (!isRecord(output) || output.status !== "prepared" || output.attempt_id !== input.attemptId ||
+    output.change !== input.change || output.phase !== input.phase || !safeIdentifier(output.token) ||
+    !/^[A-Za-z0-9][A-Za-z0-9_-]{0,255}$/.test(output.token) || !safeIdentifier(output.agent)) return null
+  const delegation = isRecord(output.delegation) ? output.delegation : null
+  if (!delegation || delegation.agent !== output.agent || typeof delegation.prompt !== "string") return null
+  const marker = delegation.prompt.match(/^<!-- ODF-DELEGATION (\{[^\r\n]*\}) -->/)
+  if (!marker) return null
+  let identity: unknown
+  try {
+    identity = JSON.parse(marker[1])
+  } catch {
+    return null
+  }
+  if (!isRecord(identity) || identity.change !== input.change || identity.phase !== input.phase ||
+    identity.agent !== output.agent || identity.token !== output.token) return null
+  return { token: output.token, agent: output.agent }
+}
+
+/**
+ * Prove that an exact native prepare succeeded, but the following host
+ * subagent tool call was aborted before execution. We require the persisted
+ * OpenCode `executed: false` marker, empty tool input, the exact terminal
+ * abort envelope, and an unambiguous parent transcript. Any evidence that the
+ * tool started, returned a child, or may have launched a child fails closed.
+ */
+export function inspectNativeSubagentLaunchNotExecuted(
+  context: unknown,
+  input: NativePretoolSafetyEvidenceInput,
+): NativeSubagentLaunchNotExecutedEvidence | null {
+  if (!safeIdentifier(input.parentSessionId) || !safeIdentifier(input.attemptId) ||
+    !safeIdentifier(input.change) || !Number.isFinite(Date.parse(input.startedAt))) return null
+  const messages = messagesFromContext(context)
+  if (!messages || messages.length === 0 || messages.length > 10_000) return null
+  const startedAt = Date.parse(input.startedAt)
+  const prepares: Array<{
+    messageIndex: number
+    partIndex: number
+    messageId: string
+    callId: string
+    completedAt: number
+    tokenSha256: string
+  }> = []
+
+  for (let messageIndex = 0; messageIndex < messages.length; messageIndex += 1) {
+    const rawMessage = messages[messageIndex]
+    if (!isRecord(rawMessage)) continue
+    const info = isRecord(rawMessage.info) ? rawMessage.info : rawMessage
+    if (info.type !== "assistant" && info.role !== "assistant") continue
+    const messageTime = isRecord(info.time) ? info.time : isRecord(rawMessage.time) ? rawMessage.time : {}
+    const createdAt = typeof messageTime.created === "number" ? messageTime.created : Number.NaN
+    const completedAt = typeof messageTime.completed === "number"
+      ? messageTime.completed
+      : typeof messageTime.streamed === "number" ? messageTime.streamed : Number.NaN
+    if (!Number.isFinite(createdAt) || !Number.isFinite(completedAt) || createdAt > startedAt || completedAt < startedAt) continue
+
+    const parts = messageParts(rawMessage)
+    for (let partIndex = 0; partIndex < parts.length; partIndex += 1) {
+      const rawPart = parts[partIndex]
+      if (!isRecord(rawPart) || rawPart.type !== "tool" || !isRecord(rawPart.state) || rawPart.state.status !== "completed") continue
+      const toolName = typeof rawPart.name === "string" ? rawPart.name : typeof rawPart.tool === "string" ? rawPart.tool : ""
+      const state = rawPart.state
+      const bound = toolName === "odf_delegation_prepare"
+        ? exactDirectBinding(state.input, input)
+        : toolName === "execute" && isRecord(state.input) && typeof state.input.code === "string"
+          ? exactSourceBinding(state.input.code, input)
+          : false
+      if (!bound) continue
+      const prepared = preparedDelegationToken(state, input)
+      if (!prepared) return null
+      const messageId = safeIdentifier(info.id) ? info.id : safeIdentifier(rawMessage.id) ? rawMessage.id : null
+      if (!messageId) return null
+      prepares.push({
+        messageIndex,
+        partIndex,
+        messageId,
+        callId: safeIdentifier(rawPart.id) ? rawPart.id : messageId,
+        completedAt,
+        tokenSha256: createHash("sha256").update(prepared.token).digest("hex"),
+      })
+    }
+  }
+  if (prepares.length !== 1) return null
+  const prepare = prepares[0]
+  const launchMatches: Array<{
+    messageId: string
+    callId: string
+    failedAt: number
+  }> = []
+  let laterSubagentCalls = 0
+
+  for (let messageIndex = prepare.messageIndex; messageIndex < messages.length; messageIndex += 1) {
+    const rawMessage = messages[messageIndex]
+    if (!isRecord(rawMessage)) continue
+    const info = isRecord(rawMessage.info) ? rawMessage.info : rawMessage
+    if (info.type !== "assistant" && info.role !== "assistant") continue
+    const messageTime = isRecord(info.time) ? info.time : isRecord(rawMessage.time) ? rawMessage.time : {}
+    const createdAt = typeof messageTime.created === "number" ? messageTime.created : Number.NaN
+    const completedAt = typeof messageTime.completed === "number"
+      ? messageTime.completed
+      : typeof messageTime.streamed === "number" ? messageTime.streamed : Number.NaN
+    const parts = messageParts(rawMessage)
+    for (let partIndex = 0; partIndex < parts.length; partIndex += 1) {
+      if (messageIndex === prepare.messageIndex && partIndex <= prepare.partIndex) continue
+      const rawPart = parts[partIndex]
+      if (!isRecord(rawPart) || rawPart.type !== "tool") continue
+      const toolName = typeof rawPart.name === "string" ? rawPart.name : typeof rawPart.tool === "string" ? rawPart.tool : ""
+      if (toolName === "odf_delegation_prepare" ||
+        (toolName === "execute" && isRecord(rawPart.state) && isRecord(rawPart.state.input) &&
+          typeof rawPart.state.input.code === "string" && rawPart.state.input.code.includes("odf_delegation_prepare"))) return null
+      if (toolName !== "subagent") continue
+      laterSubagentCalls += 1
+      const state = isRecord(rawPart.state) ? rawPart.state : null
+      const error = state && isRecord(state.error) ? state.error : null
+      const toolInput = state && isRecord(state.input) ? state.input : null
+      if (laterSubagentCalls !== 1 || !Number.isFinite(createdAt) || !Number.isFinite(completedAt) ||
+        createdAt < prepare.completedAt || completedAt < createdAt || completedAt < startedAt || rawPart.executed !== false ||
+        !state || state.status !== "error" || !toolInput || Object.keys(toolInput).length !== 0 ||
+        !error || error.type !== "aborted" || error.message !== "Tool execution interrupted" ||
+        hasChildIdentity(rawPart) || hasChildIdentity(state) || hasChildIdentity(error) ||
+        state.content !== undefined || state.metadata !== undefined) return null
+      const messageId = safeIdentifier(info.id) ? info.id : safeIdentifier(rawMessage.id) ? rawMessage.id : null
+      if (!messageId) return null
+      launchMatches.push({
+        messageId,
+        callId: safeIdentifier(rawPart.id) ? rawPart.id : messageId,
+        failedAt: completedAt,
+      })
+    }
+  }
+  if (laterSubagentCalls !== 1 || launchMatches.length !== 1) return null
+
+  const launch = launchMatches[0]
+  return {
+    schema_version: 1,
+    evidence_type: "native-subagent-launch-not-executed",
+    parent_session_id: input.parentSessionId,
+    attempt_id: input.attemptId,
+    prepare_message_id: prepare.messageId,
+    prepare_call_id: prepare.callId,
+    prepared_token_sha256: prepare.tokenSha256,
+    prepared_at: new Date(prepare.completedAt).toISOString(),
+    launch_message_id: launch.messageId,
+    launch_call_id: launch.callId,
+    launch_tool: "subagent",
+    launch_error_type: "aborted",
+    launch_failed_at: new Date(launch.failedAt).toISOString(),
+  }
 }
