@@ -70,3 +70,8 @@ authorization for the destination and operation.
   load. ShellCheck could not run because no mise version is configured. No tag
   or release was created. Draft release PR #113 is open; publication remains
   pending explicit authorization.
+- 2026-10-03: User authorized merge and publication. After adding the V2
+  `/odf-new` regression case, the release candidate passed typecheck, 1,051
+  unit tests, 330 YAML scenarios, 18 harness checks, registry validation,
+  `bash -n install.sh`, and `git diff --check`. ShellCheck remains unavailable
+  because mise has no version configured; CI must still pass before merge.
