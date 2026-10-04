@@ -660,9 +660,15 @@ export function inspectNativeChildBindFailure(
     messageId: string
     callId: string
     failedAt: number
+    reason: "delegation-attempt-child-bind-failed" | "delegation-token-unknown"
   }> = []
+  let terminalMessageIndex: number | null = null
 
   for (let messageIndex = prepare.messageIndex; messageIndex < messages.length; messageIndex += 1) {
+    // Once the exact token is known to be unavailable after a proven bind
+    // failure, later parent activity belongs to subsequent delegations and
+    // cannot change the recovery evidence for this attempt.
+    if (terminalMessageIndex !== null && messageIndex > terminalMessageIndex) break
     const rawMessage = messages[messageIndex]
     if (!isRecord(rawMessage)) continue
     const info = isRecord(rawMessage.info) ? rawMessage.info : rawMessage
@@ -720,7 +726,8 @@ export function inspectNativeChildBindFailure(
       } catch {
         return null
       }
-      if (!isRecord(output) || output.status !== "blocked" || output.reason !== "delegation-attempt-child-bind-failed") return null
+      if (!isRecord(output) || output.status !== "blocked" ||
+        (output.reason !== "delegation-attempt-child-bind-failed" && output.reason !== "delegation-token-unknown")) return null
       const messageId = safeIdentifier(info.id) ? info.id : safeIdentifier(rawMessage.id) ? rawMessage.id : null
       if (!messageId) return null
       seals.push({
@@ -729,16 +736,31 @@ export function inspectNativeChildBindFailure(
         messageId,
         callId: safeIdentifier(rawPart.id) ? rawPart.id : messageId,
         failedAt: completedAt,
+        reason: output.reason,
       })
+      if (output.reason === "delegation-token-unknown") {
+        if (!seals.some((seal) => seal.reason === "delegation-attempt-child-bind-failed")) return null
+        terminalMessageIndex ??= messageIndex
+      }
     }
   }
 
-  if (launches.length !== 1 || seals.length !== 1) return null
+  if (launches.length !== 1 || seals.length === 0) return null
   const launch = launches[0]
-  const seal = seals[0]
-  if (seal.messageIndex < launch.messageIndex ||
-    seal.messageIndex === launch.messageIndex && seal.partIndex <= launch.partIndex ||
-    seal.failedAt < launch.completedAt) return null
+  let firstBindFailure: typeof seals[number] | null = null
+  for (const seal of seals) {
+    if (seal.messageIndex < launch.messageIndex ||
+      seal.messageIndex === launch.messageIndex && seal.partIndex <= launch.partIndex ||
+      seal.failedAt < launch.completedAt) return null
+    if (seal.reason === "delegation-attempt-child-bind-failed") {
+      firstBindFailure ??= seal
+    } else if (!firstBindFailure) {
+      // A token-unknown retry is only explainable after a matching seal already
+      // failed to persist the child binding; on its own it is not recovery proof.
+      return null
+    }
+  }
+  if (!firstBindFailure) return null
 
   return {
     schema_version: 1,
@@ -755,9 +777,9 @@ export function inspectNativeChildBindFailure(
     launch_call_id: launch.callId,
     launch_completed_at: new Date(launch.completedAt).toISOString(),
     child_session_id: childSessionId,
-    seal_message_id: seal.messageId,
-    seal_call_id: seal.callId,
+    seal_message_id: firstBindFailure.messageId,
+    seal_call_id: firstBindFailure.callId,
     seal_reason: "delegation-attempt-child-bind-failed",
-    seal_failed_at: new Date(seal.failedAt).toISOString(),
+    seal_failed_at: new Date(firstBindFailure.failedAt).toISOString(),
   }
 }

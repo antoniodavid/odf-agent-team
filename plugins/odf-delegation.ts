@@ -628,7 +628,9 @@ type InternalODFDelegateArgs = ODFDelegateArgs & {
 const SAFE_TOKEN_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/
 const ATTEMPT_LEDGER_MAX_BYTES = 256 * 1024
 const ATTEMPT_LEDGER_MAX_LINES = 500
-const ATTEMPT_LEDGER_MAX_LINE_BYTES = 512
+// The largest schema-valid native binding record is under 1 KiB; 512 bytes
+// rejected records containing valid 128-character OpenCode session IDs.
+const ATTEMPT_LEDGER_MAX_LINE_BYTES = 1024
 const ATTEMPT_LEDGER_LOCK_SUFFIX = ".lock"
 
 type AttemptLedgerPhase = "IMPLEMENT" | "VERIFY"
@@ -8396,7 +8398,7 @@ Actions:
 - disable-fast-lane: disable an existing fast_lane_policy through a separate audited marker without rewriting workflow state or artifacts.
 - settle-attempt: append a terminal settlement for a stale running attempt (use the attempt_id from odf_workflow_status active_attempts) so a fresh attempt can be acquired. Requires confirm_no_active_run: true and refuses attempts that are still active in this runtime. Native prepare/seal attempts additionally require child_session_id; the tool verifies its parent binding and awaits session.wait before settling.
 - settle-unlaunched-attempt: recover a native attempt only when the bound parent session is idle and its transcript proves either an exact odf_delegation_prepare rejection by pre-tool-safety, or an exact successful prepare followed by a host subagent call recorded as aborted and not executed. The latter requires an empty tool input and no child identity. Missing, compacted, ambiguous, or changing parent history remains blocked; verification evidence is durably appended before settlement.
-- settle-bind-failed-attempt: recover a launched native attempt only when the idle parent transcript proves the exact successful prepare, one subagent launch with its exact agent/prompt, and the matching seal blocked specifically because child binding could not be persisted. ODF independently rechecks the child parent, agent, workspace, prompt digest, and idle state; it records the attempt as failed and never accepts the child result or commits BUILD.
+- settle-bind-failed-attempt: recover a launched native attempt only when the idle parent transcript proves the exact successful prepare, one subagent launch with its exact agent/prompt, and at least one matching seal blocked specifically because child binding could not be persisted. Exact retries of that seal may follow; a later token-unknown retry is ignored only after the bind-failure proof. ODF independently rechecks the child parent, agent, workspace, prompt digest, and idle state; it records the attempt as failed and never accepts the child result or commits BUILD.
 - settle-join: settle a persisted parallel join that is still running after a host restart so resume_from_join can continue. Every running branch attempt must be settled first with action=settle-attempt; refuses joins whose branch attempts are still active in this runtime. The join becomes blocked with a failure receipt - commit a retry receipt before resuming.
 
      Requires a human-approved reason (>=20 chars). Fast-lane disable additionally requires approved_by and a live session.`,

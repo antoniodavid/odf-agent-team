@@ -23,10 +23,18 @@ function restoreConfigDir(): void {
   else process.env.ODF_CONFIG_DIR = ORIGINAL_CONFIG_DIR
 }
 
-function fakeChildSession(opts: { agent: string; prompt: string; resultText: string }) {
+function fakeChildSession(opts: {
+  agent: string
+  prompt: string
+  resultText: string
+  parentSessionId?: string
+  childSessionId?: string
+}) {
+  const parentSessionId = opts.parentSessionId || "parent-session"
+  const childSessionId = opts.childSessionId || "ses_child"
   return {
     create: vi.fn(),
-    get: vi.fn().mockResolvedValue({ id: "ses_child", agent: opts.agent, parentID: "parent-session" }),
+    get: vi.fn().mockResolvedValue({ id: childSessionId, agent: opts.agent, parentID: parentSessionId }),
     prompt: vi.fn(),
     wait: vi.fn(),
     context: vi.fn().mockResolvedValue([
@@ -355,9 +363,12 @@ describe("native prepare/seal delegation", () => {
       .rejects.toMatchObject({ code: "ENOENT" })
   })
 
-  it("prepares and seals a proof-backed IMPLEMENT delegation with a multiline task", async () => {
+  it("seals a proof-backed IMPLEMENT with maximum-length native session IDs", async () => {
     const { odf_delegation_prepare, odf_delegation_seal } = await tools()
     const change = "native-implement"
+    const attemptId = "a".repeat(64)
+    const parentSessionId = "p".repeat(128)
+    const childSessionId = "c".repeat(128)
     await writeImplementState(tempHome, change)
 
     const prepared = JSON.parse(await odf_delegation_prepare.execute({
@@ -366,11 +377,11 @@ describe("native prepare/seal delegation", () => {
       prompt: "Implement the planned change\n\nAcceptance criteria:\n- Preserve approved scope.\n- Add focused tests.",
       context_files: [],
       artifact_store: "openspec",
-      attempt_id: "native-impl-1",
+      attempt_id: attemptId,
       workflow_advance: implementProof(),
-    }, { sessionID: "parent-session" } as any) as string)
+    }, { sessionID: parentSessionId } as any) as string)
 
-    expect(prepared).toMatchObject({ status: "prepared", change, phase: "IMPLEMENT", attempt_id: "native-impl-1" })
+    expect(prepared).toMatchObject({ status: "prepared", change, phase: "IMPLEMENT", attempt_id: attemptId })
     expect(prepared.policy_gate).toMatchObject({ gate: "allow" })
 
     await writeValidationEvidence(tempHome, change)
@@ -378,20 +389,22 @@ describe("native prepare/seal delegation", () => {
       agent: prepared.agent,
       prompt: prepared.delegation.prompt,
       resultText: "## ODF Result\n- **status**: ok\n- **executive_summary**: implemented",
+      parentSessionId,
+      childSessionId,
     })
 
     const output = JSON.parse(await odf_delegation_seal.execute({
       token: prepared.token,
       change,
-      session_id: "ses_child",
-    }, { sessionID: "parent-session", [ODF_V2_SESSION]: session } as any) as string)
+      session_id: childSessionId,
+    }, { sessionID: parentSessionId, [ODF_V2_SESSION]: session } as any) as string)
 
     expect(output).toMatchObject({
       status: "delegated",
       validation: { status: "verified" },
       workflow_commit: { status: "committed" },
       task_api_source: "subagent",
-      task_session_id: "ses_child",
+      task_session_id: childSessionId,
     })
     expect(YAML.parse(await fs.readFile(path.join(tempHome, "openspec", "changes", change, "state.yaml"), "utf8"))).toMatchObject({
       canonical_stage: "BUILD",
@@ -399,14 +412,16 @@ describe("native prepare/seal delegation", () => {
     })
     const ledger = await fs.readFile(path.join(tempHome, ".odf", `attempt-ledger-${change}.jsonl`), "utf8")
     const records = ledger.trim().split("\n").map(line => JSON.parse(line))
-    const latest = records.filter((record: { attempt_id: string }) => record.attempt_id === "native-impl-1").at(-1)
+    const latest = records.filter((record: { attempt_id: string }) => record.attempt_id === attemptId).at(-1)
     expect(latest).toMatchObject({
       status: "completed",
       next_stage: "BUILD",
-      native_parent_session_id: "parent-session",
-      native_child_session_id: "ses_child",
+      native_parent_session_id: parentSessionId,
+      native_child_session_id: childSessionId,
     })
     expect(latest.native_child_idle_at).toBeTruthy()
+    expect(Buffer.byteLength(JSON.stringify(latest))).toBeGreaterThan(512)
+    expect(Buffer.byteLength(JSON.stringify(latest)) + 1).toBeLessThanOrEqual(1024)
   })
 
   it("keeps a native attempt running until session.wait confirms the child is idle, then makes recovery actionable", async () => {
