@@ -964,8 +964,8 @@ describe("createODFWorkflowOverride", () => {
 
   it("settles a launched native attempt only after proving the exact child-bind failure", async () => {
     const attemptId = "native-bind-failed-1"
-    const parentSessionId = "native-parent"
-    const childSessionId = "native-child"
+    const parentSessionId = "ses_f086e2882ffe4g4qlFO0iLTN16"
+    const childSessionId = "ses_f00b004bdffelvfLmaAL8Jsfk6"
     const startedAt = "2026-09-21T20:00:00.000Z"
     const startedMs = Date.parse(startedAt)
     const token = "odf-tok-bind-failure-123"
