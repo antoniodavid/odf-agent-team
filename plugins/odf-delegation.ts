@@ -3114,8 +3114,8 @@ async function sealProofBackedDelegation(opts: {
  * Native delegation step 1 (roadmap issue #55): resolve the phase agent,
  * skills, profile, policy gate and source-authority contract, return the
  * enriched prompt plus a bounded delegation token, and acquire the attempt slot
- * for proof-backed phases. The orchestrator then launches the host `subagent`
- * tool and finishes with odf_delegation_seal.
+ * for proof-backed phases. The orchestrator submits the returned prompt through
+ * odf_delegation_launch, then finishes with odf_delegation_seal.
  */
 const activeNativeLaunches = new Set<string>()
 
@@ -3123,6 +3123,7 @@ function persistNativeChildLaunch(opts: {
   workspaceRoot: string
   change: string
   token: string
+  branchId?: string
   launch: NativeChildLaunch
 }): string | null {
   const odfDirectory = ensureSafeOdfDirectory(opts.workspaceRoot)
@@ -3158,6 +3159,7 @@ function persistNativeChildLaunchLocked(opts: {
   workspaceRoot: string
   change: string
   token: string
+  branchId?: string
   launch: NativeChildLaunch
 }): string | null {
   const read = readDelegationToken(opts.workspaceRoot, opts.change, opts.token)
@@ -3166,13 +3168,22 @@ function persistNativeChildLaunchLocked(opts: {
   if (read.record.parent_session_id && read.record.parent_session_id !== opts.launch.parent_session_id) {
     return "delegation-parent-mismatch"
   }
-  if (read.record.branches) return "delegation-branch-required"
-  if (!isValidNativeLaunchTransition(read.record.launch, opts.launch)) return "delegation-launch-state-conflict"
-  const updated: DelegationTokenRecord = {
-    ...read.record,
-    launch_mode: "programmatic",
-    parent_session_id: opts.launch.parent_session_id,
-    launch: opts.launch,
+  let updated: DelegationTokenRecord
+  if (opts.branchId) {
+    const branches = read.record.branches
+    if (!branches) return "delegation-branch-unknown"
+    const current = branches.find(branch => branch.branch_id === opts.branchId)
+    if (!current) return "delegation-branch-unknown"
+    if (!isValidNativeLaunchTransition(current.launch, opts.launch)) return "delegation-launch-state-conflict"
+    updated = {
+      ...read.record,
+      launch_mode: "programmatic",
+      branches: branches.map(branch => branch.branch_id === opts.branchId ? { ...branch, launch: opts.launch } : branch),
+    }
+  } else {
+    if (read.record.branches) return "delegation-branch-required"
+    if (!isValidNativeLaunchTransition(read.record.launch, opts.launch)) return "delegation-launch-state-conflict"
+    updated = { ...read.record, launch_mode: "programmatic", launch: opts.launch }
   }
   return writeDelegationToken(opts.workspaceRoot, updated)
 }
@@ -3213,19 +3224,32 @@ function safeLaunchErrorType(error: unknown): string {
   return typeof name === "string" && /^[A-Za-z][A-Za-z0-9_.-]{0,63}$/.test(name) ? name : "Error"
 }
 
+function promptCheckDiagnostics(expectedDigest: string, expectedBytes: number | undefined, actual: string | null): Record<string, unknown> {
+  return {
+    expected_utf8_bytes: expectedBytes ?? null,
+    actual_utf8_bytes: actual === null ? null : delegationPromptByteLength(actual),
+    expected_sha256_prefix: expectedDigest.slice(0, 12),
+    actual_sha256_prefix: actual === null ? null : delegationPromptDigest(actual).slice(0, 12),
+    transcript_text_exact: actual !== null,
+  }
+}
+
 function createODFDelegationLaunch(canonicalDirectory?: string): ReturnType<typeof tool> {
   return tool({
     description: "Launch a prepared delegation using the OpenCode V2 session API. The prompt must match the token-bound bytes exactly. Never use the host subagent tool or resend an uncertain/interrupted prompt; pass returned session IDs to the matching seal.",
     args: {
       token: tool.schema.string(),
       change: tool.schema.string(),
-      prompt: tool.schema.string().describe("Exact delegation.prompt returned by odf_delegation_prepare."),
+      prompt: tool.schema.string().optional().describe("Exact delegation.prompt returned by odf_delegation_prepare."),
+      branches: tool.schema.array(tool.schema.object({ branch_id: tool.schema.string(), prompt: tool.schema.string() })).optional()
+        .describe("Exact branch prompts returned by odf_parallel_prepare."),
       workspace_dir: tool.schema.string().optional(),
     },
     async execute(args: {
       token: string
       change: string
-      prompt: string
+      prompt?: string
+      branches?: Array<{ branch_id: string; prompt: string }>
       workspace_dir?: string
     }, toolCtx: ToolContext): Promise<string> {
       const blocked = (reason: string, message: string, extra: Record<string, unknown> = {}): string => JSON.stringify({
@@ -3245,19 +3269,38 @@ function createODFDelegationLaunch(canonicalDirectory?: string): ReturnType<type
         return blocked("delegation-parent-mismatch", "Launch must run in the same parent session that prepared the token.")
       }
 
-      if (record.branches) return blocked("delegation-branch-required", "This launch route accepts serial delegation tokens only.")
-      if (delegationPromptDigest(args.prompt) !== record.prompt_digest ||
-        (record.prompt_byte_length !== undefined && delegationPromptByteLength(args.prompt) !== record.prompt_byte_length)) {
-        return blocked("delegation-prompt-mismatch", "Prompt differs from the token-bound bytes; no child was created.", {
-          prompt_check: promptCheckDiagnostics(record.prompt_digest, record.prompt_byte_length, args.prompt),
-        })
+      const requests: Array<{ branchId?: string; attemptId?: string; agent: string; prompt: string; digest: string; bytes?: number; launch?: NativeChildLaunch }> = []
+      if (record.branches) {
+        if (args.prompt !== undefined || !Array.isArray(args.branches) || args.branches.length !== record.branches.length) {
+          return blocked("delegation-branch-session-missing", "Parallel launch requires exactly one prepared prompt for every token branch.")
+        }
+        const supplied = new Map<string, string>()
+        for (const branch of args.branches) {
+          if (supplied.has(branch.branch_id)) return blocked("delegation-branch-duplicate", "Parallel launch contains a duplicate branch id.")
+          supplied.set(branch.branch_id, branch.prompt)
+        }
+        for (const branch of record.branches) {
+          const prompt = supplied.get(branch.branch_id)
+          if (prompt === undefined) return blocked("delegation-branch-session-missing", `Missing prompt for branch "${branch.branch_id}".`)
+          if (delegationPromptDigest(prompt) !== branch.prompt_digest ||
+            (branch.prompt_byte_length !== undefined && delegationPromptByteLength(prompt) !== branch.prompt_byte_length)) {
+            return blocked("delegation-prompt-mismatch", `Branch "${branch.branch_id}" differs from the token-bound prepared bytes.`, {
+              branch_id: branch.branch_id,
+              prompt_check: promptCheckDiagnostics(branch.prompt_digest, branch.prompt_byte_length, prompt),
+            })
+          }
+          requests.push({ branchId: branch.branch_id, attemptId: branch.attempt_id, agent: branch.agent, prompt, digest: branch.prompt_digest, bytes: branch.prompt_byte_length, launch: branch.launch })
+        }
+      } else {
+        if (args.branches !== undefined || typeof args.prompt !== "string") return blocked("delegation-prompt-required", "Serial launch requires the exact prepared prompt.")
+        if (delegationPromptDigest(args.prompt) !== record.prompt_digest ||
+          (record.prompt_byte_length !== undefined && delegationPromptByteLength(args.prompt) !== record.prompt_byte_length)) {
+          return blocked("delegation-prompt-mismatch", "Prompt differs from the token-bound bytes; no child was created.", {
+            prompt_check: promptCheckDiagnostics(record.prompt_digest, record.prompt_byte_length, args.prompt),
+          })
+        }
+        requests.push({ attemptId: record.attempt_id, agent: record.agent, prompt: args.prompt, digest: record.prompt_digest, bytes: record.prompt_byte_length, launch: record.launch })
       }
-      const requests: Array<{ attemptId?: string; agent: string; prompt: string; launch?: NativeChildLaunch }> = [{
-        attemptId: record.attempt_id,
-        agent: record.agent,
-        prompt: args.prompt,
-        launch: record.launch,
-      }]
 
       const lockKey = `${workspaceRoot}\u0000${change}\u0000${args.token}`
       if (activeNativeLaunches.has(lockKey)) return blocked("delegation-launch-in-progress", "A launch for this token is already active; do not start another child.")
@@ -3281,8 +3324,8 @@ function createODFDelegationLaunch(canonicalDirectory?: string): ReturnType<type
           let launch = request.launch
           if (!launch) {
             launch = { parent_session_id: toolCtx.sessionID, state: "reserved" }
-            const error = persistNativeChildLaunch({ workspaceRoot, change, token: args.token, launch })
-            if (error) return { status: "blocked", reason: error }
+            const error = persistNativeChildLaunch({ workspaceRoot, change, token: args.token, branchId: request.branchId, launch })
+            if (error) return { branch_id: request.branchId ?? null, status: "blocked", reason: error }
           }
           let childId = launch.child_session_id
           if (!childId) {
@@ -3296,27 +3339,27 @@ function createODFDelegationLaunch(canonicalDirectory?: string): ReturnType<type
               })
               childId = sessionIdFromCreate(created) ?? undefined
             } catch (error) {
-              return { status: "blocked", reason: "delegation-launch-outcome-unknown", error_type: safeLaunchErrorType(error) }
+              return { branch_id: request.branchId ?? null, status: "blocked", reason: "delegation-launch-outcome-unknown", error_type: safeLaunchErrorType(error) }
             }
-            if (!childId) return { status: "blocked", reason: "delegation-child-id-missing" }
+            if (!childId) return { branch_id: request.branchId ?? null, status: "blocked", reason: "delegation-child-id-missing" }
             launch = { parent_session_id: toolCtx.sessionID, child_session_id: childId, state: "created" }
-            const error = persistNativeChildLaunch({ workspaceRoot, change, token: args.token, launch })
+            const error = persistNativeChildLaunch({ workspaceRoot, change, token: args.token, branchId: request.branchId, launch })
             if (error) {
               try { await session.interrupt({ sessionID: childId }) } catch { /* leave the launch blocked */ }
-              return { session_id: childId, status: "blocked", reason: "delegation-launch-state-write-failed" }
+              return { branch_id: request.branchId ?? null, session_id: childId, status: "blocked", reason: "delegation-launch-state-write-failed" }
             }
             if (request.attemptId) {
               const observed = observeNativeAttemptChild({
                 workspaceRoot,
                 change,
                 attemptId: request.attemptId,
-                branchId: "default",
+                branchId: request.branchId || "default",
                 parentSessionId: toolCtx.sessionID,
                 childSessionId: childId,
               })
               if (!observed.record) {
                 try { await session.interrupt({ sessionID: childId }) } catch { /* leave the attempt running for recovery */ }
-                return { session_id: childId, status: "blocked", reason: "delegation-attempt-child-observation-failed" }
+                return { branch_id: request.branchId ?? null, session_id: childId, status: "blocked", reason: "delegation-attempt-child-observation-failed" }
               }
             }
           }
@@ -3327,17 +3370,17 @@ function createODFDelegationLaunch(canonicalDirectory?: string): ReturnType<type
           }
           if (signal?.aborted) {
             const state: NativeChildLaunch = { parent_session_id: toolCtx.sessionID, child_session_id: childId, state: "interrupted" }
-            persistNativeChildLaunch({ workspaceRoot, change, token: args.token, launch: state })
+            persistNativeChildLaunch({ workspaceRoot, change, token: args.token, branchId: request.branchId, launch: state })
             await interrupt()
-            return { session_id: childId, status: "interrupted", prompt_resent: false }
+            return { branch_id: request.branchId ?? null, session_id: childId, status: "interrupted", prompt_resent: false }
           }
           if (["submitted", "sending", "uncertain", "interrupted"].includes(launch.state)) {
-            return { session_id: childId, status: launch.state, prompt_resent: false }
+            return { branch_id: request.branchId ?? null, session_id: childId, status: launch.state, prompt_resent: false }
           }
 
           const sending: NativeChildLaunch = { parent_session_id: toolCtx.sessionID, child_session_id: childId, state: "sending" }
-          const sendingError = persistNativeChildLaunch({ workspaceRoot, change, token: args.token, launch: sending })
-          if (sendingError) return { session_id: childId, status: "blocked", reason: sendingError }
+          const sendingError = persistNativeChildLaunch({ workspaceRoot, change, token: args.token, branchId: request.branchId, launch: sending })
+          if (sendingError) return { branch_id: request.branchId ?? null, session_id: childId, status: "blocked", reason: sendingError }
           let aborted = false
           const onAbort = (): void => { aborted = true; void interrupt() }
           signal?.addEventListener("abort", onAbort, { once: true })
@@ -3346,10 +3389,11 @@ function createODFDelegationLaunch(canonicalDirectory?: string): ReturnType<type
             aborted ||= Boolean(signal?.aborted)
             const state: NativeChildLaunchState = aborted ? "interrupted" : "submitted"
             const persistError = persistNativeChildLaunch({
-              workspaceRoot, change, token: args.token,
+              workspaceRoot, change, token: args.token, branchId: request.branchId,
               launch: { parent_session_id: toolCtx.sessionID, child_session_id: childId, state },
             })
             return {
+              branch_id: request.branchId ?? null,
               session_id: childId,
               status: persistError ? "uncertain" : state,
               ...(persistError ? { state_error: persistError } : {}),
@@ -3358,11 +3402,11 @@ function createODFDelegationLaunch(canonicalDirectory?: string): ReturnType<type
           } catch (error) {
             const state: NativeChildLaunchState = aborted || signal?.aborted ? "interrupted" : "uncertain"
             persistNativeChildLaunch({
-              workspaceRoot, change, token: args.token,
+              workspaceRoot, change, token: args.token, branchId: request.branchId,
               launch: { parent_session_id: toolCtx.sessionID, child_session_id: childId, state },
             })
             if (state === "interrupted") await interrupt()
-            return { session_id: childId, status: state, error_type: safeLaunchErrorType(error), prompt_resent: false }
+            return { branch_id: request.branchId ?? null, session_id: childId, status: state, error_type: safeLaunchErrorType(error), prompt_resent: false }
           } finally {
             signal?.removeEventListener("abort", onAbort)
           }
@@ -3376,7 +3420,7 @@ function createODFDelegationLaunch(canonicalDirectory?: string): ReturnType<type
           token: args.token,
           task_api_source: "sdk.v2",
           sessions: outcomes,
-          next: "Pass the returned session_id to odf_delegation_seal. Never resend an uncertain or interrupted prompt; the seal independently waits and verifies the child transcript digest.",
+          next: "Seal only with these session IDs. Never resend an uncertain or interrupted prompt; the seal independently waits and verifies the child transcript digest.",
         }, null, 2)
       } finally {
         activeNativeLaunches.delete(lockKey)
@@ -3783,16 +3827,6 @@ function createODFProposalWrite(canonicalDirectory?: string): ReturnType<typeof 
   })
 }
 
-function promptCheckDiagnostics(expectedDigest: string, expectedBytes: number | undefined, actual: string | null): Record<string, unknown> {
-  return {
-    expected_utf8_bytes: expectedBytes ?? null,
-    actual_utf8_bytes: actual === null ? null : delegationPromptByteLength(actual),
-    expected_sha256_prefix: expectedDigest.slice(0, 12),
-    actual_sha256_prefix: actual === null ? null : delegationPromptDigest(actual).slice(0, 12),
-    transcript_text_exact: actual !== null,
-  }
-}
-
 function createODFDelegationSeal(canonicalDirectory?: string): ReturnType<typeof tool> {
   return tool({
     description: `Seal a native ODF delegation started with odf_delegation_prepare: verify the child session against the token, wait until its V2 session loop is idle, read its ODF Result, run the phase gates (source authority, design closure, artifact refs and PLAN materialization; proof revalidation, validation-evidence seal, workflow commit and attempt settlement for IMPLEMENT/VERIFY) and return the standard delegation envelope.`,
@@ -3840,32 +3874,6 @@ function createODFDelegationSeal(canonicalDirectory?: string): ReturnType<typeof
       let childIdleConfirmedAt: string | null = null
       let childIdentityBound = false
       let childIdentityObserved = false
-      const withRecord = (extra: Record<string, unknown> = {}): Record<string, unknown> => ({
-        phase: record.phase,
-        agent: record.agent,
-        skills_injected: record.skills_injected,
-        profile: record.profile,
-        change: record.change,
-        task_session_id: args.session_id,
-        ...(childIdentityBound
-          ? { child_session_identity: "verified-and-bound" }
-          : childIdentityObserved ? { child_session_identity: "observed-unverified" } : {}),
-        ...(record.attempt_id ? {
-          next_step: childIdentityBound
-            ? `The prepared prompt and exact child are verified idle. Retry odf_delegation_seal with the same token and session_id; if sealing remains impossible, recover attempt ${record.attempt_id} with odf_workflow_override action=settle-attempt, child_session_id=${args.session_id}, and confirm_no_active_run=true.`
-            : childIdleConfirmedAt
-              ? "The child is idle, but its identity is not yet durably bound to this attempt. Retry odf_delegation_seal with the same token and session_id; manual settlement remains blocked until the prepared prompt is verified and the child binding is persisted."
-            : "Keep the prepared token and running attempt. Retry odf_delegation_seal with this same token and session_id after the child session is readable and its V2 session API is available; do not settle the attempt while child completion is unconfirmed.",
-        } : {}),
-        ...extra,
-      })
-
-      if (record.status !== "prepared") {
-        return blocked("delegation-token-already-sealed", "The delegation token was already sealed; a delegation seals exactly once.", withRecord())
-      }
-      if (isDelegationTokenExpired(record)) {
-        return blocked("delegation-token-expired", "The delegation token expired before seal; prepare a fresh delegation.", withRecord())
-      }
       if (record.launch_mode === "programmatic" && record.parent_session_id !== toolCtx.sessionID) {
         return blocked("delegation-parent-mismatch", "The seal must run in the parent session that prepared this programmatic delegation.", {
           phase: record.phase,
@@ -3895,6 +3903,32 @@ function createODFDelegationSeal(canonicalDirectory?: string): ReturnType<typeof
           change: record.change,
           task_session_id: args.session_id,
         })
+      }
+      const withRecord = (extra: Record<string, unknown> = {}): Record<string, unknown> => ({
+        phase: record.phase,
+        agent: record.agent,
+        skills_injected: record.skills_injected,
+        profile: record.profile,
+        change: record.change,
+        task_session_id: args.session_id,
+        ...(childIdentityBound
+          ? { child_session_identity: "verified-and-bound" }
+          : childIdentityObserved ? { child_session_identity: "observed-unverified" } : {}),
+        ...(record.attempt_id ? {
+          next_step: childIdentityBound
+            ? `The prepared prompt and exact child are verified idle. Retry odf_delegation_seal with the same token and session_id; if sealing remains impossible, recover attempt ${record.attempt_id} with odf_workflow_override action=settle-attempt, child_session_id=${args.session_id}, and confirm_no_active_run=true.`
+            : childIdleConfirmedAt
+              ? "The child is idle, but its identity is not yet durably bound to this attempt. Retry odf_delegation_seal with the same token and session_id; manual settlement remains blocked until the prepared prompt is verified and the child binding is persisted."
+            : "Keep the prepared token and running attempt. Retry odf_delegation_seal with this same token and session_id after the child session is readable and its V2 session API is available; do not settle the attempt while child completion is unconfirmed.",
+        } : {}),
+        ...extra,
+      })
+
+      if (record.status !== "prepared") {
+        return blocked("delegation-token-already-sealed", "The delegation token was already sealed; a delegation seals exactly once.", withRecord())
+      }
+      if (isDelegationTokenExpired(record)) {
+        return blocked("delegation-token-expired", "The delegation token expired before seal; prepare a fresh delegation.", withRecord())
       }
       let preparedAttempt: AttemptLedgerRecord | null = null
       if (record.attempt_id) {
@@ -4129,7 +4163,7 @@ const parallelBranchDescriptorSchema = tool.schema.object({
 
 const parallelSessionSchema = tool.schema.object({
   branch_id: tool.schema.string().describe("Branch identifier from the prepared token"),
-  session_id: tool.schema.string().describe("Child session id returned by the host subagent tool"),
+  session_id: tool.schema.string().describe("Child session id returned by odf_delegation_launch"),
 })
 
 /** Reconstruct the attempt handles acquired at parallel prepare time. */
@@ -4159,7 +4193,7 @@ function resolveParallelAttemptHandles(
  */
 function createODFParallelPrepare(canonicalDirectory?: string): ReturnType<typeof tool> {
   return tool({
-    description: `Prepare a native parallel BUILD (cross-domain IMPLEMENT): validate the shared proof, resolve each branch agent/skills/prompt, acquire the branch attempts and return one delegation token plus the per-branch subagent payloads. Launch one subagent per branch (background allowed), then finish with odf_parallel_seal({ token, change, branches }).`,
+    description: `Prepare a native parallel BUILD (cross-domain IMPLEMENT): validate the shared proof, resolve each branch agent/skills/prompt, acquire the branch attempts and return one delegation token plus per-branch prompts. Submit every exact branch prompt with odf_delegation_launch through the V2 session API, then finish with odf_parallel_seal({ token, change, branches }). Do not use host subagent tools.`,
     args: {
       work_type: tool.schema.enum(["cross-domain"]).describe("Only cross-domain work can use the parallel BUILD scheduler"),
       phase: tool.schema.enum(["IMPLEMENT"]).describe("Only IMPLEMENT is parallelized; VERIFY remains sequential"),
@@ -4194,7 +4228,7 @@ function createODFParallelPrepare(canonicalDirectory?: string): ReturnType<typeo
         phase: "IMPLEMENT",
         agent: "scheduler",
         token: null,
-        task_api_source: "subagent",
+        task_api_source: "sdk.v2",
         result: null,
         message,
         ...extra,
@@ -4350,6 +4384,8 @@ function createODFParallelPrepare(canonicalDirectory?: string): ReturnType<typeo
         profile: profilePayload,
         workspace: workspaceRoot,
         prompt: `parallel:${changeName}:${prepared.map(branch => branch.branch_id).join(",")}`,
+        launch_mode: "programmatic",
+        parent_session_id: toolCtx.sessionID,
         task: `parallel ${changeName}`,
         ...(sourceAuthorityRoots
           ? { source_root: sourceAuthorityRoots.source, ...(sourceAuthorityRoots.repos ? { source_repos: sourceAuthorityRoots.repos } : {}) }
@@ -4386,7 +4422,7 @@ function createODFParallelPrepare(canonicalDirectory?: string): ReturnType<typeo
         duration_ms: 0,
         token_estimate: estimateTokens(prepared.map(branch => branch.prompt).join("\n")),
         status: "ok",
-        task_api_source: "subagent",
+        task_api_source: "sdk.v2",
         change: changeName,
         work_type: "cross-domain",
         ...(odooVersion ? { odoo_version: odooVersion } : {}),
@@ -4412,7 +4448,7 @@ function createODFParallelPrepare(canonicalDirectory?: string): ReturnType<typeo
         })),
         policy_gate: policyGate,
         join: { expected: prepared.length },
-        next: "Launch one subagent per branch (delegation fields verbatim; background is allowed), then call odf_parallel_seal({ token, change, branches: [{ branch_id, session_id }] }).",
+        next: "Call odf_delegation_launch({ token, change, branches: [{ branch_id, prompt }] }) with every returned prepared branch prompt; map its sessions by branch_id, then call odf_parallel_seal({ token, change, branches: [{ branch_id, session_id }] }). Do not call host subagent tools.",
       }, null, 2)
     },
   })
@@ -4488,6 +4524,9 @@ function createODFParallelSeal(canonicalDirectory?: string): ReturnType<typeof t
       if (isDelegationTokenExpired(record)) {
         return blocked("delegation-token-expired", "The parallel delegation token expired before seal; prepare a fresh delegation.", withRecord())
       }
+      if (record.launch_mode === "programmatic" && record.parent_session_id !== toolCtx.sessionID) {
+        return blocked("delegation-parent-mismatch", "Parallel seal must run in the parent session that prepared this programmatic delegation.", withRecord())
+      }
 
       for (const branch of args.branches || []) {
         if (!tokenBranches.some(entry => entry.branch_id === branch.branch_id)) {
@@ -4511,6 +4550,16 @@ function createODFParallelSeal(canonicalDirectory?: string): ReturnType<typeof t
       const sessionByBranch = new Map<string, string>()
       for (const branch of tokenBranches) {
         const sessionId = sessions.get(branch.branch_id)!
+        if (record.launch_mode === "programmatic" &&
+          (!branch.launch || !branch.launch.child_session_id || ["reserved", "created", "sending"].includes(branch.launch.state))) {
+          return blocked("delegation-launch-not-submitted", `Branch "${branch.branch_id}" has not reached a state that can be verified by the seal.`, withRecord({ branch_id: branch.branch_id }))
+        }
+        if (branch.launch && branch.launch.parent_session_id !== toolCtx.sessionID) {
+          return blocked("delegation-parent-mismatch", `Branch "${branch.branch_id}" programmatic launch belongs to a different parent session.`, withRecord())
+        }
+        if (branch.launch?.child_session_id && branch.launch.child_session_id !== sessionId) {
+          return blocked("delegation-child-mismatch", `Branch "${branch.branch_id}" session ID differs from its durable launch record.`, withRecord())
+        }
         const observed = observeNativeAttemptChild({
           workspaceRoot,
           change: record.change,
@@ -4577,7 +4626,7 @@ function createODFParallelSeal(canonicalDirectory?: string): ReturnType<typeof t
             withRecord({ branch_id: branch.branch_id, task_session_id: sessionId, conversation_read: conversationRead.diagnostic }),
           )
         }
-        const observedPrompt = preparedPromptFromV2Conversation(conversation, true)
+        const observedPrompt = preparedPromptFromV2Conversation(conversation, record.launch_mode === undefined)
         if (observedPrompt === null ||
           delegationPromptDigest(observedPrompt) !== branch.prompt_digest ||
           (branch.prompt_byte_length !== undefined && delegationPromptByteLength(observedPrompt) !== branch.prompt_byte_length)) {
@@ -4690,7 +4739,7 @@ function createODFParallelSeal(canonicalDirectory?: string): ReturnType<typeof t
       if (envelope.status === "blocked") {
         for (const handle of handles.values()) settleIfStillRunning(handle)
       }
-      envelope.task_api_source = "subagent"
+      envelope.task_api_source = tokenBranches.every(branch => branch.launch) ? "sdk.v2" : "subagent"
       const join = envelope.join && typeof envelope.join === "object" && !Array.isArray(envelope.join)
         ? envelope.join as Record<string, unknown>
         : null
@@ -4710,7 +4759,7 @@ function createODFParallelSeal(canonicalDirectory?: string): ReturnType<typeof t
         duration_ms: Math.max(0, Date.now() - Date.parse(record.created_at)),
         token_estimate: estimateTokens(tokenBranches.map(branch => branch.task).join("\n")),
         status: envelope.status === "parallel-delegated" ? "ok" : envelope.status === "error" ? "error" : envelope.status === "timeout" ? "timeout" : "blocked",
-        task_api_source: "subagent",
+        task_api_source: tokenBranches.every(branch => branch.launch) ? "sdk.v2" : "subagent",
         change: record.change,
         work_type: "cross-domain",
         join_status: envelope.status === "parallel-delegated" ? "complete" : "blocked",
