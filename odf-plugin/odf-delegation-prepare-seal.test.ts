@@ -1204,7 +1204,7 @@ describe("native prepare/seal delegation", () => {
       { branch_id: "backend-native", attempt_id: "backend-native-attempt", prompt: "Implement the backend branch", context_files: ["backend-native.py"] },
       { branch_id: "frontend-native", attempt_id: "frontend-native-attempt", prompt: "Implement the frontend branch", context_files: ["frontend-native.py"] },
     ]
-    const { odf_parallel_prepare, odf_parallel_seal } = await tools(root)
+    const { odf_parallel_prepare, odf_delegation_launch, odf_parallel_seal } = await tools(root)
 
     const prepared = JSON.parse(await odf_parallel_prepare.execute({
       work_type: "cross-domain",
@@ -1225,6 +1225,40 @@ describe("native prepare/seal delegation", () => {
       prepared.branches.map((branch: any) => ({ branch_id: branch.branch_id, agent: branch.agent, prompt: branch.prompt })),
       () => "## ODF Result\n- **status**: ok\n- **executive_summary**: branch implemented",
     )
+    let createIndex = 0
+    const launchSession = {
+      create: vi.fn().mockImplementation(() => Promise.resolve({ id: `ses_${prepared.branches[createIndex++].branch_id}` })),
+      prompt: vi.fn().mockResolvedValue(undefined),
+      interrupt: vi.fn().mockResolvedValue(undefined),
+    }
+    const alteredBranchPrompt = prepared.branches[0].prompt.replace("→", "->")
+    const mismatchText = await odf_delegation_launch.execute({
+      token: prepared.token,
+      change,
+      branches: [
+        { branch_id: prepared.branches[0].branch_id, prompt: alteredBranchPrompt },
+        ...prepared.branches.slice(1).map((branch: any) => ({ branch_id: branch.branch_id, prompt: branch.prompt })),
+      ],
+    }, { sessionID: "prepare-session", [ODF_V2_SESSION]: launchSession } as any) as string
+    const mismatch = JSON.parse(mismatchText)
+    expect(mismatch).toMatchObject({ status: "blocked", reason: "delegation-prompt-mismatch", branch_id: "backend-native" })
+    expect(mismatchText).not.toContain(alteredBranchPrompt)
+    expect(launchSession.create).not.toHaveBeenCalled()
+
+    const launched = JSON.parse(await odf_delegation_launch.execute({
+      token: prepared.token,
+      change,
+      branches: prepared.branches.map((branch: any) => ({ branch_id: branch.branch_id, prompt: branch.prompt })),
+    }, { sessionID: "prepare-session", abort: new AbortController().signal, [ODF_V2_SESSION]: launchSession } as any) as string)
+    expect(launched.status).toBe("launched")
+    expect(launched.sessions.map(({ branch_id, session_id, status }: Record<string, unknown>) => ({ branch_id, session_id, status }))).toEqual([
+      { branch_id: "backend-native", session_id: "ses_backend-native", status: "submitted" },
+      { branch_id: "frontend-native", session_id: "ses_frontend-native", status: "submitted" },
+    ])
+    for (const branch of prepared.branches) {
+      expect(launchSession.prompt).toHaveBeenCalledWith({ sessionID: `ses_${branch.branch_id}`, text: branch.prompt })
+    }
+
     const output = JSON.parse(await odf_parallel_seal.execute({
       token: prepared.token,
       change,
@@ -1233,7 +1267,7 @@ describe("native prepare/seal delegation", () => {
 
     expect(output).toMatchObject({
       status: "parallel-delegated",
-      task_api_source: "subagent",
+      task_api_source: "sdk.v2",
       join: { status: "complete", expected: 2, completed: 2, failed: 0, validation_verified: true },
     })
     expect(output.branches.every((branch: any) => branch.task_session_id?.startsWith("ses_"))).toBe(true)

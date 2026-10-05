@@ -120,21 +120,20 @@ Relative paths are resolved against the directory containing `odf-registry.json`
 ### `plugins/odf-delegation.ts`
 
 The ODF delegation engine and plugin entrypoint. Exposes tools such as
-`odf_delegate`, `odf_delegation_prepare`, `odf_delegation_seal`,
+`odf_delegate`, `odf_delegation_prepare`, `odf_delegation_launch`, `odf_delegation_seal`,
 `odf_workflow_route`, `odf_workflow_status`,
 `odf_workflow_override`, `odf_workflow_bind`, `odf_entry_triage`,
 `odf_skill_inject`, `odf_skill_resolve`, `odf_registry_read`,
 `odf_profile_select`, `odf_notebooklm_lookup`, `odf_policy_gate`,
 `odf_receipt`, and `odf_status`.
 
-`odf_delegation_prepare`/`odf_delegation_seal` implement the native
-prepare/seal route (roadmap #55): prepare resolves the agent, skills, profile
-and source-authority contract, returns the enriched prompt plus a bounded
-`odf-tok-…` token under `.odf/`, and the orchestrator launches the host
-`subagent` tool with those values; seal verifies the child session against the
-token, reads its ODF Result, runs the composite gates and returns the standard
-delegation envelope. Proof-backed IMPLEMENT/VERIFY still use `odf_delegate`
-until parity lands.
+`odf_delegation_prepare`/`odf_delegation_launch`/`odf_delegation_seal` implement
+the native prepare/launch/seal route (roadmap #55): prepare resolves the agent,
+skills, profile and source-authority contract and returns the enriched prompt
+plus a bounded `odf-tok-…` token under `.odf/`; launch verifies the prompt
+digest and submits it through the V2 session API; seal independently verifies
+the child transcript, reads its ODF Result, runs composite gates and returns the
+standard delegation envelope. Fast-lane BUILD/VERIFY still use `odf_delegate`.
 
 The entrypoint stays a monolith for the delegation/workflow core but its
 self-contained sections live in cohesive modules under `odf-plugin/`:
