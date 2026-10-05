@@ -107,6 +107,7 @@ import {
   markTaskSessionId,
   markTaskBridge,
   emitTaskProgress,
+  resolveTaskModel,
   type HealthIo,
   type TaskApi,
   type V2SessionApi,
@@ -124,6 +125,8 @@ import {
   type DelegationPhase,
   type DelegationTokenBranch,
   type DelegationTokenRecord,
+  type NativeChildLaunch,
+  type NativeChildLaunchState,
 } from "../odf-plugin/odf-delegation-tokens.js"
 import {
   proposalContentDigest,
@@ -3114,6 +3117,274 @@ async function sealProofBackedDelegation(opts: {
  * for proof-backed phases. The orchestrator then launches the host `subagent`
  * tool and finishes with odf_delegation_seal.
  */
+const activeNativeLaunches = new Set<string>()
+
+function persistNativeChildLaunch(opts: {
+  workspaceRoot: string
+  change: string
+  token: string
+  launch: NativeChildLaunch
+}): string | null {
+  const odfDirectory = ensureSafeOdfDirectory(opts.workspaceRoot)
+  if (!odfDirectory) return "delegation-launch-state-unsafe-path"
+  const lockPath = safeWorkspaceStatePath(
+    opts.workspaceRoot,
+    path.join(odfDirectory, `launch-${opts.token}.lock`),
+  )
+  if (!lockPath) return "delegation-launch-state-unsafe-path"
+  let lockFd = -1
+  try {
+    lockFd = fsSync.openSync(lockPath, "wx", 0o600)
+    fsSync.writeFileSync(lockFd, JSON.stringify({ pid: process.pid, acquired_at: new Date().toISOString() }), "utf8")
+  } catch (error) {
+    if (lockFd >= 0) {
+      try { fsSync.closeSync(lockFd) } catch { /* preserve the lock error */ }
+      try { fsSync.unlinkSync(lockPath) } catch { /* preserve the lock error */ }
+    }
+    return (error as NodeJS.ErrnoException).code === "EEXIST"
+      ? "delegation-launch-state-locked"
+      : "delegation-launch-state-lock-failed"
+  }
+
+  try {
+    return persistNativeChildLaunchLocked(opts)
+  } finally {
+    try { fsSync.closeSync(lockFd) } catch { /* best-effort lock cleanup */ }
+    try { fsSync.unlinkSync(lockPath) } catch { /* best-effort lock cleanup */ }
+  }
+}
+
+function persistNativeChildLaunchLocked(opts: {
+  workspaceRoot: string
+  change: string
+  token: string
+  launch: NativeChildLaunch
+}): string | null {
+  const read = readDelegationToken(opts.workspaceRoot, opts.change, opts.token)
+  if (read.error || !read.record) return read.error || "delegation-token-unknown"
+  if (read.record.status !== "prepared") return "delegation-token-already-sealed"
+  if (read.record.parent_session_id && read.record.parent_session_id !== opts.launch.parent_session_id) {
+    return "delegation-parent-mismatch"
+  }
+  if (read.record.branches) return "delegation-branch-required"
+  if (!isValidNativeLaunchTransition(read.record.launch, opts.launch)) return "delegation-launch-state-conflict"
+  const updated: DelegationTokenRecord = {
+    ...read.record,
+    launch_mode: "programmatic",
+    parent_session_id: opts.launch.parent_session_id,
+    launch: opts.launch,
+  }
+  return writeDelegationToken(opts.workspaceRoot, updated)
+}
+
+function isValidNativeLaunchTransition(current: NativeChildLaunch | undefined, next: NativeChildLaunch): boolean {
+  if (!current) return next.state === "reserved"
+  if (current.parent_session_id !== next.parent_session_id) return false
+  switch (current.state) {
+    case "reserved":
+      return next.state === "created" && Boolean(next.child_session_id)
+    case "created":
+      return next.state === "sending" || next.state === "interrupted"
+    case "sending":
+      return next.state === "submitted" || next.state === "uncertain" || next.state === "interrupted"
+    case "submitted":
+    case "uncertain":
+    case "interrupted":
+      return false
+  }
+}
+
+function sessionResponseData(response: unknown): unknown {
+  if (!response || typeof response !== "object" || Array.isArray(response)) return response
+  const envelope = response as Record<string, unknown>
+  if (envelope.error != null) throw envelope.error
+  return envelope.data ?? response
+}
+
+function sessionIdFromCreate(response: unknown): string | null {
+  const value = sessionResponseData(response)
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null
+  const id = (value as Record<string, unknown>).id
+  return typeof id === "string" && id.length > 0 && id.length <= 256 && !/[\0\r\n]/.test(id) ? id : null
+}
+
+function safeLaunchErrorType(error: unknown): string {
+  const name = error && typeof error === "object" ? (error as Record<string, unknown>).name : undefined
+  return typeof name === "string" && /^[A-Za-z][A-Za-z0-9_.-]{0,63}$/.test(name) ? name : "Error"
+}
+
+function createODFDelegationLaunch(canonicalDirectory?: string): ReturnType<typeof tool> {
+  return tool({
+    description: "Launch a prepared delegation using the OpenCode V2 session API. The prompt must match the token-bound bytes exactly. Never use the host subagent tool or resend an uncertain/interrupted prompt; pass returned session IDs to the matching seal.",
+    args: {
+      token: tool.schema.string(),
+      change: tool.schema.string(),
+      prompt: tool.schema.string().describe("Exact delegation.prompt returned by odf_delegation_prepare."),
+      workspace_dir: tool.schema.string().optional(),
+    },
+    async execute(args: {
+      token: string
+      change: string
+      prompt: string
+      workspace_dir?: string
+    }, toolCtx: ToolContext): Promise<string> {
+      const blocked = (reason: string, message: string, extra: Record<string, unknown> = {}): string => JSON.stringify({
+        status: "blocked", reason, token: args.token, task_api_source: "sdk.v2", message, ...extra,
+      }, null, 2)
+      if (!toolCtx?.sessionID) return blocked("delegation-launch-parent-required", "Launch requires the preparing parent session.")
+      const workspaceRoot = resolveSelectedWorkspaceRoot(args.workspace_dir, canonicalDirectory)
+      if (!workspaceRoot) return blocked("unsafe-workspace-path", "The workspace directory does not resolve to a safe existing root.")
+      const change = args.change?.trim()
+      if (!change) return blocked("delegation-token-invalid", "Launch requires the change name bound to the token.")
+      const read = readDelegationToken(workspaceRoot, change, args.token)
+      if (!read.record || read.error) return blocked(read.error || "delegation-token-unknown", "The prepared token could not be read safely.")
+      const record = read.record
+      if (record.status !== "prepared") return blocked("delegation-token-already-sealed", "A sealed token cannot launch another child.")
+      if (isDelegationTokenExpired(record)) return blocked("delegation-token-expired", "The prepared token expired before launch; prepare a fresh delegation.")
+      if (record.parent_session_id && record.parent_session_id !== toolCtx.sessionID) {
+        return blocked("delegation-parent-mismatch", "Launch must run in the same parent session that prepared the token.")
+      }
+
+      if (record.branches) return blocked("delegation-branch-required", "This launch route accepts serial delegation tokens only.")
+      if (delegationPromptDigest(args.prompt) !== record.prompt_digest ||
+        (record.prompt_byte_length !== undefined && delegationPromptByteLength(args.prompt) !== record.prompt_byte_length)) {
+        return blocked("delegation-prompt-mismatch", "Prompt differs from the token-bound bytes; no child was created.", {
+          prompt_check: promptCheckDiagnostics(record.prompt_digest, record.prompt_byte_length, args.prompt),
+        })
+      }
+      const requests: Array<{ attemptId?: string; agent: string; prompt: string; launch?: NativeChildLaunch }> = [{
+        attemptId: record.attempt_id,
+        agent: record.agent,
+        prompt: args.prompt,
+        launch: record.launch,
+      }]
+
+      const lockKey = `${workspaceRoot}\u0000${change}\u0000${args.token}`
+      if (activeNativeLaunches.has(lockKey)) return blocked("delegation-launch-in-progress", "A launch for this token is already active; do not start another child.")
+      activeNativeLaunches.add(lockKey)
+      try {
+        const session = (toolCtx as unknown as Record<PropertyKey, unknown>)[ODF_V2_SESSION] as V2SessionApi | undefined
+        if (!session || typeof session.create !== "function" || typeof session.prompt !== "function" || typeof session.interrupt !== "function") {
+          return blocked("delegation-session-api-unavailable", "Programmatic launch requires the OpenCode V2 session.create, session.prompt and session.interrupt APIs.")
+        }
+        for (const request of requests) {
+          if (request.launch?.parent_session_id !== undefined && request.launch.parent_session_id !== toolCtx.sessionID) {
+            return blocked("delegation-parent-mismatch", "A prepared child launch is bound to a different parent session.")
+          }
+          if (request.launch?.state === "reserved") {
+            return blocked("delegation-launch-outcome-unknown", "The durable launch reservation has no child ID; do not retry this token until session creation is reconciled.")
+          }
+        }
+
+        const model = resolveTaskModel(toolCtx as unknown as Record<string, unknown>)
+        const launchOne = async (request: typeof requests[number]): Promise<Record<string, unknown>> => {
+          let launch = request.launch
+          if (!launch) {
+            launch = { parent_session_id: toolCtx.sessionID, state: "reserved" }
+            const error = persistNativeChildLaunch({ workspaceRoot, change, token: args.token, launch })
+            if (error) return { status: "blocked", reason: error }
+          }
+          let childId = launch.child_session_id
+          if (!childId) {
+            let created: unknown
+            try {
+              created = await session.create({
+                agent: request.agent,
+                ...(model ? { model: { providerID: model.providerID, id: model.modelID } } : {}),
+                title: `ODF delegation: ${request.agent}`,
+                location: { directory: workspaceRoot },
+              })
+              childId = sessionIdFromCreate(created) ?? undefined
+            } catch (error) {
+              return { status: "blocked", reason: "delegation-launch-outcome-unknown", error_type: safeLaunchErrorType(error) }
+            }
+            if (!childId) return { status: "blocked", reason: "delegation-child-id-missing" }
+            launch = { parent_session_id: toolCtx.sessionID, child_session_id: childId, state: "created" }
+            const error = persistNativeChildLaunch({ workspaceRoot, change, token: args.token, launch })
+            if (error) {
+              try { await session.interrupt({ sessionID: childId }) } catch { /* leave the launch blocked */ }
+              return { session_id: childId, status: "blocked", reason: "delegation-launch-state-write-failed" }
+            }
+            if (request.attemptId) {
+              const observed = observeNativeAttemptChild({
+                workspaceRoot,
+                change,
+                attemptId: request.attemptId,
+                branchId: "default",
+                parentSessionId: toolCtx.sessionID,
+                childSessionId: childId,
+              })
+              if (!observed.record) {
+                try { await session.interrupt({ sessionID: childId }) } catch { /* leave the attempt running for recovery */ }
+                return { session_id: childId, status: "blocked", reason: "delegation-attempt-child-observation-failed" }
+              }
+            }
+          }
+
+          const signal = toolCtx.abort
+          const interrupt = async (): Promise<void> => {
+            try { await session.interrupt({ sessionID: childId! }) } catch { /* seal must still verify the child */ }
+          }
+          if (signal?.aborted) {
+            const state: NativeChildLaunch = { parent_session_id: toolCtx.sessionID, child_session_id: childId, state: "interrupted" }
+            persistNativeChildLaunch({ workspaceRoot, change, token: args.token, launch: state })
+            await interrupt()
+            return { session_id: childId, status: "interrupted", prompt_resent: false }
+          }
+          if (["submitted", "sending", "uncertain", "interrupted"].includes(launch.state)) {
+            return { session_id: childId, status: launch.state, prompt_resent: false }
+          }
+
+          const sending: NativeChildLaunch = { parent_session_id: toolCtx.sessionID, child_session_id: childId, state: "sending" }
+          const sendingError = persistNativeChildLaunch({ workspaceRoot, change, token: args.token, launch: sending })
+          if (sendingError) return { session_id: childId, status: "blocked", reason: sendingError }
+          let aborted = false
+          const onAbort = (): void => { aborted = true; void interrupt() }
+          signal?.addEventListener("abort", onAbort, { once: true })
+          try {
+            if (!signal?.aborted) await session.prompt({ sessionID: childId, text: request.prompt })
+            aborted ||= Boolean(signal?.aborted)
+            const state: NativeChildLaunchState = aborted ? "interrupted" : "submitted"
+            const persistError = persistNativeChildLaunch({
+              workspaceRoot, change, token: args.token,
+              launch: { parent_session_id: toolCtx.sessionID, child_session_id: childId, state },
+            })
+            return {
+              session_id: childId,
+              status: persistError ? "uncertain" : state,
+              ...(persistError ? { state_error: persistError } : {}),
+              prompt_resent: false,
+            }
+          } catch (error) {
+            const state: NativeChildLaunchState = aborted || signal?.aborted ? "interrupted" : "uncertain"
+            persistNativeChildLaunch({
+              workspaceRoot, change, token: args.token,
+              launch: { parent_session_id: toolCtx.sessionID, child_session_id: childId, state },
+            })
+            if (state === "interrupted") await interrupt()
+            return { session_id: childId, status: state, error_type: safeLaunchErrorType(error), prompt_resent: false }
+          } finally {
+            signal?.removeEventListener("abort", onAbort)
+          }
+        }
+
+        const outcomes = await Promise.all(requests.map(launchOne))
+        const submitted = outcomes.every(outcome => outcome.status === "submitted")
+        return JSON.stringify({
+          status: submitted ? "launched" : "launch-pending",
+          ...(!submitted ? { reason: "delegation-launch-incomplete" } : {}),
+          token: args.token,
+          task_api_source: "sdk.v2",
+          sessions: outcomes,
+          next: "Pass the returned session_id to odf_delegation_seal. Never resend an uncertain or interrupted prompt; the seal independently waits and verifies the child transcript digest.",
+        }, null, 2)
+      } finally {
+        activeNativeLaunches.delete(lockKey)
+      }
+    },
+  })
+}
+
 function createODFDelegationPrepare(canonicalDirectory?: string): ReturnType<typeof tool> {
   return tool({
     description: `Prepare a native ODF delegation: resolve the phase agent, skills, profile, policy gate and source-authority contract; return the enriched prompt plus a bounded delegation token. Then call the host subagent tool with the returned delegation values and finish with odf_delegation_seal({ token, change, session_id }).`,
@@ -9397,6 +9668,7 @@ export function createODFRegisteredTools(
   return {
     odf_delegate: createODFDelegate(client, canonicalDirectory),
     odf_delegation_prepare: createODFDelegationPrepare(canonicalDirectory),
+    odf_delegation_launch: createODFDelegationLaunch(canonicalDirectory),
     odf_proposal_write: createODFProposalWrite(canonicalDirectory),
     odf_delegation_seal: createODFDelegationSeal(canonicalDirectory),
     odf_parallel_delegate: createODFParallelDelegate(client, canonicalDirectory),
