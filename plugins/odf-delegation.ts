@@ -3010,7 +3010,7 @@ async function sealProofBackedDelegation(opts: {
     phase: opts.record.phase,
     agent: opts.record.agent,
     token: opts.record.token,
-    task_api_source: "subagent",
+    task_api_source: opts.record.launch ? "sdk.v2" : "subagent",
     result: null,
     message,
     ...extra,
@@ -3079,7 +3079,7 @@ async function sealProofBackedDelegation(opts: {
   } catch {
     return blocked("invalid-task-result", "The proof-backed seal returned an unreadable envelope.")
   }
-  envelope.task_api_source = "subagent"
+  envelope.task_api_source = opts.record.launch ? "sdk.v2" : "subagent"
   if (envelope.task_session_id === undefined) envelope.task_session_id = opts.sessionId
 
   const disposition = innerResultDisposition(opts.childResult)
@@ -3387,7 +3387,7 @@ function createODFDelegationLaunch(canonicalDirectory?: string): ReturnType<type
 
 function createODFDelegationPrepare(canonicalDirectory?: string): ReturnType<typeof tool> {
   return tool({
-    description: `Prepare a native ODF delegation: resolve the phase agent, skills, profile, policy gate and source-authority contract; return the enriched prompt plus a bounded delegation token. Then call the host subagent tool with the returned delegation values and finish with odf_delegation_seal({ token, change, session_id }).`,
+    description: `Prepare a native ODF delegation: resolve the phase agent, skills, profile, policy gate and source-authority contract; return the exact enriched prompt plus a bounded token. Call odf_delegation_launch with that prompt to submit it through the V2 session API, then finish with odf_delegation_seal({ token, change, session_id }). Do not use the host subagent tool.`,
     args: {
       phase: tool.schema.string().describe("ODF phase: PROPOSE, ASSESS, QA-PLAN, DESIGN, IMPLEMENT, VERIFY, EXPLORE, FIX"),
       change: tool.schema.string().describe("Change name (kebab-case)"),
@@ -3608,6 +3608,8 @@ function createODFDelegationPrepare(canonicalDirectory?: string): ReturnType<typ
         profile: profilePayload,
         workspace: workspaceRoot,
         prompt: finalPrompt,
+        launch_mode: "programmatic",
+        parent_session_id: toolCtx.sessionID,
         task: args.prompt,
         ...(sourceAuthorityRoots
           ? { source_root: sourceAuthorityRoots.source, ...(sourceAuthorityRoots.repos ? { source_repos: sourceAuthorityRoots.repos } : {}) }
@@ -3667,7 +3669,7 @@ function createODFDelegationPrepare(canonicalDirectory?: string): ReturnType<typ
         artifact_store: args.artifact_store ?? null,
         attempt_id: args.attempt_id ?? null,
         context_files: contextValidation.relativePaths,
-        next: "Call subagent with delegation.agent, delegation.description and delegation.prompt (verbatim), then odf_delegation_seal({ token, change, session_id }).",
+        next: "Call odf_delegation_launch({ token, change, prompt: delegation.prompt }) to submit the exact prepared bytes through the V2 session API, then odf_delegation_seal({ token, change, session_id: sessions[0].session_id }). Do not call the host subagent tool.",
       }, null, 2)
     },
   })
@@ -3797,7 +3799,7 @@ function createODFDelegationSeal(canonicalDirectory?: string): ReturnType<typeof
     args: {
       token: tool.schema.string().describe("Delegation token returned by odf_delegation_prepare."),
       change: tool.schema.string().describe("Change name (kebab-case) the token belongs to."),
-      session_id: tool.schema.string().describe("Child session id returned by the host subagent tool."),
+      session_id: tool.schema.string().describe("Child session id returned by odf_delegation_launch."),
       workspace_dir: tool.schema.string().optional().describe("Absolute project root; omit it to use the current session's project directory."),
     },
     async execute(args: {
@@ -3863,6 +3865,36 @@ function createODFDelegationSeal(canonicalDirectory?: string): ReturnType<typeof
       }
       if (isDelegationTokenExpired(record)) {
         return blocked("delegation-token-expired", "The delegation token expired before seal; prepare a fresh delegation.", withRecord())
+      }
+      if (record.launch_mode === "programmatic" && record.parent_session_id !== toolCtx.sessionID) {
+        return blocked("delegation-parent-mismatch", "The seal must run in the parent session that prepared this programmatic delegation.", {
+          phase: record.phase,
+          change: record.change,
+          task_session_id: args.session_id,
+        })
+      }
+      if (record.launch_mode === "programmatic" &&
+        (!record.launch || !record.launch.child_session_id || ["reserved", "created", "sending"].includes(record.launch.state))) {
+        return blocked("delegation-launch-not-submitted", "The programmatic launch has not reached a state that can be verified by the seal; retry odf_delegation_launch only if it is still in the created state.", {
+          phase: record.phase,
+          change: record.change,
+          task_session_id: args.session_id,
+          launch: record.launch ? { state: record.launch.state, child_session_id: record.launch.child_session_id ?? null } : null,
+        })
+      }
+      if (record.launch && record.launch.parent_session_id !== toolCtx.sessionID) {
+        return blocked("delegation-parent-mismatch", "The launched child belongs to a different parent session.", {
+          phase: record.phase,
+          change: record.change,
+          task_session_id: args.session_id,
+        })
+      }
+      if (record.launch?.child_session_id && record.launch.child_session_id !== args.session_id) {
+        return blocked("delegation-child-mismatch", "The supplied child session ID does not match the durable programmatic launch record.", {
+          phase: record.phase,
+          change: record.change,
+          task_session_id: args.session_id,
+        })
       }
       let preparedAttempt: AttemptLedgerRecord | null = null
       if (record.attempt_id) {
@@ -3959,7 +3991,7 @@ function createODFDelegationSeal(canonicalDirectory?: string): ReturnType<typeof
           withRecord({ conversation_read: conversationRead.diagnostic }),
         )
       }
-      const observedPrompt = preparedPromptFromV2Conversation(conversation, true)
+      const observedPrompt = preparedPromptFromV2Conversation(conversation, record.launch_mode === undefined)
       if (observedPrompt === null ||
         delegationPromptDigest(observedPrompt) !== record.prompt_digest ||
         (record.prompt_byte_length !== undefined && delegationPromptByteLength(observedPrompt) !== record.prompt_byte_length)) {
@@ -4055,7 +4087,7 @@ function createODFDelegationSeal(canonicalDirectory?: string): ReturnType<typeof
         duration_ms: Math.max(0, Date.now() - Date.parse(record.created_at)),
         token_estimate: estimateTokens(record.task),
         status: outcome.failure ? "blocked" : innerDisposition.metricStatus,
-        task_api_source: "subagent",
+        task_api_source: record.launch ? "sdk.v2" : "subagent",
         change: record.change,
         workspace: workspaceProjectName(workspaceRoot),
       })
@@ -4077,7 +4109,7 @@ function createODFDelegationSeal(canonicalDirectory?: string): ReturnType<typeof
         profile: record.profile,
         policy_gate: null,
         validation: null,
-        task_api_source: "subagent",
+        task_api_source: record.launch ? "sdk.v2" : "subagent",
         result: outcome.result,
         task_session_id: args.session_id,
         ...(outcome.materialization ? { workflow_materialization: outcome.materialization } : {}),

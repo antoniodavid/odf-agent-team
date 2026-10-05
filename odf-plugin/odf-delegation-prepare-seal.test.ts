@@ -6,6 +6,7 @@ import YAML from "yaml"
 import { ODF_V2_SESSION } from "./odf-delegation-health.js"
 import {
   createDelegationTokenRecord,
+  delegationPromptByteLength,
   delegationPromptDigest,
   readDelegationToken,
   writeDelegationToken,
@@ -70,6 +71,55 @@ describe("native prepare/seal delegation", () => {
   const tools = async (root: string = tempHome) => {
     const { createODFRegisteredTools } = await import("./odf-delegation.js")
     return createODFRegisteredTools(undefined, root)
+  }
+
+  const markTokenLegacy = async (root: string, change: string, token: string) => {
+    const read = readDelegationToken(root, change, token)
+    if (!read.record) throw new Error(`test setup could not read token: ${read.error}`)
+    const legacy = { ...read.record } as Record<string, any>
+    delete legacy.prompt_byte_length
+    delete legacy.launch_mode
+    delete legacy.parent_session_id
+    delete legacy.launch
+    if (Array.isArray(legacy.branches)) {
+      legacy.branches = legacy.branches.map((branch: Record<string, any>) => {
+        const legacyBranch = { ...branch }
+        delete legacyBranch.prompt_byte_length
+        delete legacyBranch.launch
+        return legacyBranch
+      })
+    }
+    const error = writeDelegationToken(root, legacy as any)
+    if (error) throw new Error(`test setup could not write legacy token: ${error}`)
+  }
+
+  const legacyTools = async (root: string = tempHome) => {
+    const registered = await tools(root)
+    const downgrade = async (definition: any, args: Record<string, any>, context: any) => {
+      const raw = await definition.execute(args, context) as string
+      const output = JSON.parse(raw)
+      if (output.status === "prepared" && typeof output.token === "string" && typeof args.change === "string") {
+        await markTokenLegacy(root, args.change, output.token)
+      }
+      return raw
+    }
+    return {
+      ...registered,
+      odf_delegation_prepare: {
+        ...registered.odf_delegation_prepare,
+        execute: (args: Record<string, any>, context: any) => downgrade(registered.odf_delegation_prepare, args, context),
+      },
+      odf_parallel_prepare: {
+        ...registered.odf_parallel_prepare,
+        execute: (args: Record<string, any>, context: any) => downgrade(registered.odf_parallel_prepare, args, context),
+      },
+    }
+  }
+
+  const prepareDesignLegacy = async (change = "native-design") => {
+    const prepared = await prepareDesign(change)
+    await markTokenLegacy(tempHome, change, prepared.token)
+    return prepared
   }
 
   const prepareDesign = async (change = "native-design") => {
@@ -170,53 +220,122 @@ describe("native prepare/seal delegation", () => {
     expect(read.error).toBeNull()
     expect(read.record).toMatchObject({ status: "prepared", agent: output.agent, change: "native-design" })
     expect(read.record?.prompt_digest).toBe(delegationPromptDigest(output.delegation.prompt))
+    expect(read.record?.prompt_byte_length).toBe(delegationPromptByteLength(output.delegation.prompt))
+    expect(read.record?.launch_mode).toBe("programmatic")
   }, 10_000)
 
-  it("submits the exact prepared prompt and does not resend it on retry", async () => {
+  it("submits the exact prepared prompt through the V2 session API", async () => {
+    await writeDesignBoundaryFixture(tempHome, "native-design")
     const prepared = await prepareDesign()
     const session = {
-      create: vi.fn().mockResolvedValue({ id: "ses_programmatic" }),
+      create: vi.fn().mockResolvedValue({ id: "ses_programmatic", agent: prepared.agent }),
       prompt: vi.fn().mockResolvedValue(undefined),
+      get: vi.fn().mockResolvedValue({
+        id: "ses_programmatic",
+        agent: prepared.agent,
+        parentID: "prepare-session",
+        location: { directory: tempHome },
+      }),
+      wait: vi.fn().mockResolvedValue(undefined),
+      context: vi.fn().mockResolvedValue([
+        { type: "user", text: prepared.delegation.prompt },
+        { type: "assistant", content: [{ type: "text", text: "## ODF Result\n- **status**: ok\n- **design_closed**: true" }] },
+      ]),
       interrupt: vi.fn().mockResolvedValue(undefined),
     }
-    const { odf_delegation_launch } = await tools()
-    const args = { token: prepared.token, change: prepared.change, prompt: prepared.delegation.prompt }
-    const context = { sessionID: "prepare-session", abort: new AbortController().signal, [ODF_V2_SESSION]: session } as any
+    const { odf_delegation_launch, odf_delegation_seal } = await tools()
 
-    const launched = JSON.parse(await odf_delegation_launch.execute(args, context) as string)
-    const retry = JSON.parse(await odf_delegation_launch.execute(args, context) as string)
+    const unlaunched = JSON.parse(await odf_delegation_seal.execute({
+      token: prepared.token,
+      change: prepared.change,
+      session_id: "ses_programmatic",
+    }, { sessionID: "prepare-session", [ODF_V2_SESSION]: session } as any) as string)
+    expect(unlaunched).toMatchObject({ status: "blocked", reason: "delegation-launch-not-submitted" })
+    expect(session.get).not.toHaveBeenCalled()
 
-    expect(launched).toMatchObject({ status: "launched", sessions: [{ session_id: "ses_programmatic", status: "submitted" }] })
-    expect(retry).toMatchObject({ status: "launched", sessions: [{ session_id: "ses_programmatic", status: "submitted", prompt_resent: false }] })
+    const output = JSON.parse(await odf_delegation_launch.execute({
+      token: prepared.token,
+      change: prepared.change,
+      prompt: prepared.delegation.prompt,
+    }, {
+      sessionID: "prepare-session",
+      abort: new AbortController().signal,
+      [ODF_V2_SESSION]: session,
+    } as any) as string)
+
+    expect(output).toMatchObject({ status: "launched", task_api_source: "sdk.v2", sessions: [{ session_id: "ses_programmatic", status: "submitted" }] })
+    expect(session.create).toHaveBeenCalledWith(expect.objectContaining({ agent: prepared.agent, location: { directory: tempHome } }))
     expect(session.prompt).toHaveBeenCalledTimes(1)
     expect(session.prompt).toHaveBeenCalledWith({ sessionID: "ses_programmatic", text: prepared.delegation.prompt })
-    expect(session.create).toHaveBeenCalledTimes(1)
     expect(readDelegationToken(tempHome, prepared.change, prepared.token).record?.launch).toMatchObject({
       parent_session_id: "prepare-session",
       child_session_id: "ses_programmatic",
       state: "submitted",
     })
+
+    const sealed = JSON.parse(await odf_delegation_seal.execute({
+      token: prepared.token,
+      change: prepared.change,
+      session_id: "ses_programmatic",
+    }, { sessionID: "prepare-session", [ODF_V2_SESSION]: session } as any) as string)
+    expect(sealed).toMatchObject({ status: "delegated", task_api_source: "sdk.v2", task_session_id: "ses_programmatic" })
+    expect(session.wait).toHaveBeenCalledWith({ sessionID: "ses_programmatic" })
   })
 
-  it("rejects byte-different prompts before child creation without exposing prompt text", async () => {
+  it("rejects byte-different prompts before creating a child and does not leak prompt text", async () => {
     const prepared = await prepareDesign()
     const alteredPrompt = prepared.delegation.prompt.replace("→", "->")
+    expect(alteredPrompt).not.toBe(prepared.delegation.prompt)
     const session = { create: vi.fn(), prompt: vi.fn(), interrupt: vi.fn() }
     const { odf_delegation_launch } = await tools()
 
-    const resultText = await odf_delegation_launch.execute({
-      token: prepared.token, change: prepared.change, prompt: alteredPrompt,
+    const outputText = await odf_delegation_launch.execute({
+      token: prepared.token,
+      change: prepared.change,
+      prompt: alteredPrompt,
     }, { sessionID: "prepare-session", [ODF_V2_SESSION]: session } as any) as string
-    const result = JSON.parse(resultText)
+    const output = JSON.parse(outputText)
 
-    expect(result).toMatchObject({ status: "blocked", reason: "delegation-prompt-mismatch" })
-    expect(resultText).not.toContain(prepared.delegation.prompt)
-    expect(resultText).not.toContain(alteredPrompt)
+    expect(output).toMatchObject({ status: "blocked", reason: "delegation-prompt-mismatch" })
+    expect(output.prompt_check).toMatchObject({
+      expected_utf8_bytes: delegationPromptByteLength(prepared.delegation.prompt),
+      actual_utf8_bytes: delegationPromptByteLength(alteredPrompt),
+      expected_sha256_prefix: delegationPromptDigest(prepared.delegation.prompt).slice(0, 12),
+      actual_sha256_prefix: delegationPromptDigest(alteredPrompt).slice(0, 12),
+      transcript_text_exact: true,
+    })
+    expect(outputText).not.toContain(prepared.delegation.prompt)
+    expect(outputText).not.toContain(alteredPrompt)
     expect(session.create).not.toHaveBeenCalled()
     expect(session.prompt).not.toHaveBeenCalled()
   })
 
-  it("serializes concurrent launch calls for one token", async () => {
+  it("does not resubmit an interrupted prompt or create a duplicate child on retry", async () => {
+    const prepared = await prepareDesign()
+    const controller = new AbortController()
+    const session = {
+      create: vi.fn().mockResolvedValue({ id: "ses_interrupted", agent: prepared.agent }),
+      prompt: vi.fn().mockImplementation(async () => { controller.abort() }),
+      interrupt: vi.fn().mockResolvedValue(undefined),
+    }
+    const { odf_delegation_launch } = await tools()
+    const args = { token: prepared.token, change: prepared.change, prompt: prepared.delegation.prompt }
+
+    const first = JSON.parse(await odf_delegation_launch.execute(args, {
+      sessionID: "prepare-session", abort: controller.signal, [ODF_V2_SESSION]: session,
+    } as any) as string)
+    const retry = JSON.parse(await odf_delegation_launch.execute(args, {
+      sessionID: "prepare-session", abort: new AbortController().signal, [ODF_V2_SESSION]: session,
+    } as any) as string)
+
+    expect(first).toMatchObject({ status: "launch-pending", sessions: [{ session_id: "ses_interrupted", status: "interrupted", prompt_resent: false }] })
+    expect(retry).toMatchObject({ status: "launch-pending", sessions: [{ session_id: "ses_interrupted", status: "interrupted", prompt_resent: false }] })
+    expect(session.create).toHaveBeenCalledTimes(1)
+    expect(session.prompt).toHaveBeenCalledTimes(1)
+    expect(session.interrupt).toHaveBeenCalledWith({ sessionID: "ses_interrupted" })
+  })
+
+  it("serializes concurrent launch calls so one token creates and submits only once", async () => {
     const prepared = await prepareDesign()
     let finishCreate!: (value: { id: string }) => void
     const session = {
@@ -235,34 +354,11 @@ describe("native prepare/seal delegation", () => {
     const first = JSON.parse(await firstPromise)
 
     expect(concurrent).toMatchObject({ status: "blocked", reason: "delegation-launch-in-progress" })
-    expect(first.sessions).toMatchObject([{ session_id: "ses_concurrent", status: "submitted" }])
+    expect(first.status).toBe("launched")
+    expect(first.sessions.map(({ session_id, status }: Record<string, unknown>) => ({ session_id, status })))
+      .toEqual([{ session_id: "ses_concurrent", status: "submitted" }])
     expect(session.create).toHaveBeenCalledTimes(1)
     expect(session.prompt).toHaveBeenCalledTimes(1)
-  })
-
-  it("does not resubmit an interrupted prompt or create a duplicate child", async () => {
-    const prepared = await prepareDesign()
-    const controller = new AbortController()
-    const session = {
-      create: vi.fn().mockResolvedValue({ id: "ses_interrupted" }),
-      prompt: vi.fn().mockImplementation(async () => { controller.abort() }),
-      interrupt: vi.fn().mockResolvedValue(undefined),
-    }
-    const { odf_delegation_launch } = await tools()
-    const args = { token: prepared.token, change: prepared.change, prompt: prepared.delegation.prompt }
-
-    const first = JSON.parse(await odf_delegation_launch.execute(args, {
-      sessionID: "prepare-session", abort: controller.signal, [ODF_V2_SESSION]: session,
-    } as any) as string)
-    const retry = JSON.parse(await odf_delegation_launch.execute(args, {
-      sessionID: "prepare-session", abort: new AbortController().signal, [ODF_V2_SESSION]: session,
-    } as any) as string)
-
-    expect(first).toMatchObject({ status: "launch-pending", sessions: [{ session_id: "ses_interrupted", status: "interrupted", prompt_resent: false }] })
-    expect(retry.sessions).toMatchObject([{ session_id: "ses_interrupted", status: "interrupted", prompt_resent: false }])
-    expect(session.create).toHaveBeenCalledTimes(1)
-    expect(session.prompt).toHaveBeenCalledTimes(1)
-    expect(session.interrupt).toHaveBeenCalledWith({ sessionID: "ses_interrupted" })
   })
 
   it("requires the selected store for native PROPOSE", async () => {
@@ -298,7 +394,7 @@ describe("native prepare/seal delegation", () => {
   it("writes a token-bound OpenSpec proposal and requires the seal to verify its persisted bytes", async () => {
     const change = "native-propose"
     const changeDir = await writeProposalState(tempHome, change)
-    const { odf_delegation_prepare, odf_proposal_write, odf_delegation_seal } = await tools()
+    const { odf_delegation_prepare, odf_proposal_write, odf_delegation_seal } = await legacyTools()
     const prepared = JSON.parse(await odf_delegation_prepare.execute({
       phase: "PROPOSE",
       change,
@@ -392,7 +488,7 @@ describe("native prepare/seal delegation", () => {
   it("blocks a successful PROPOSE result that claims an OpenSpec ref without using the writer", async () => {
     const change = "native-propose-unwritten"
     await writeProposalState(tempHome, change)
-    const { odf_delegation_prepare, odf_delegation_seal } = await tools()
+    const { odf_delegation_prepare, odf_delegation_seal } = await legacyTools()
     const prepared = JSON.parse(await odf_delegation_prepare.execute({
       phase: "PROPOSE",
       change,
@@ -457,7 +553,7 @@ describe("native prepare/seal delegation", () => {
   })
 
   it("seals a proof-backed IMPLEMENT with maximum-length native session IDs", async () => {
-    const { odf_delegation_prepare, odf_delegation_seal } = await tools()
+    const { odf_delegation_prepare, odf_delegation_seal } = await legacyTools()
     const change = "native-implement"
     const attemptId = "a".repeat(64)
     const parentSessionId = "p".repeat(128)
@@ -518,7 +614,7 @@ describe("native prepare/seal delegation", () => {
   })
 
   it("keeps a native attempt running until session.wait confirms the child is idle, then makes recovery actionable", async () => {
-    const { odf_delegation_prepare, odf_delegation_seal } = await tools()
+    const { odf_delegation_prepare, odf_delegation_seal } = await legacyTools()
     const change = "native-implement-idle-recovery"
     await writeImplementState(tempHome, change)
     const prepared = JSON.parse(await odf_delegation_prepare.execute({
@@ -566,7 +662,7 @@ describe("native prepare/seal delegation", () => {
   })
 
   it("seals from the wrapped V2 session.context history shape", async () => {
-    const { odf_delegation_prepare, odf_delegation_seal } = await tools()
+    const { odf_delegation_prepare, odf_delegation_seal } = await legacyTools()
     const change = "native-implement-wrapped-context"
     const attemptId = "native-wrapped-context-1"
     await writeImplementState(tempHome, change)
@@ -621,7 +717,7 @@ describe("native prepare/seal delegation", () => {
   })
 
   it("persists an observed child ID but does not bind it when session.context fails", async () => {
-    const { odf_delegation_prepare, odf_delegation_seal } = await tools()
+    const { odf_delegation_prepare, odf_delegation_seal } = await legacyTools()
     const change = "native-implement-unreadable-child"
     const attemptId = "native-unreadable-child-1"
     await writeImplementState(tempHome, change)
@@ -668,7 +764,7 @@ describe("native prepare/seal delegation", () => {
   })
 
   it("fails the proof-backed seal when IMPLEMENT validation evidence is missing", async () => {
-    const { odf_delegation_prepare, odf_delegation_seal } = await tools()
+    const { odf_delegation_prepare, odf_delegation_seal } = await legacyTools()
     const change = "native-implement-missing-evidence"
     await writeImplementState(tempHome, change)
 
@@ -702,7 +798,7 @@ describe("native prepare/seal delegation", () => {
 
   it("seals a DESIGN delegation, materializes PLAN and consumes the token", async () => {
     const changeDir = await writeDesignBoundaryFixture(tempHome, "native-design")
-    const prepared = await prepareDesign()
+    const prepared = await prepareDesignLegacy()
     const session = fakeChildSession({
       agent: prepared.agent,
       prompt: prepared.delegation.prompt,
@@ -733,7 +829,7 @@ describe("native prepare/seal delegation", () => {
   })
 
   it("fails closed when the child prompt was modified", async () => {
-    const prepared = await prepareDesign()
+    const prepared = await prepareDesignLegacy()
     const session = fakeChildSession({
       agent: prepared.agent,
       prompt: `${prepared.delegation.prompt}\n(edited by the orchestrator)`,
@@ -768,7 +864,7 @@ describe("native prepare/seal delegation", () => {
       "",
     ].join("\n"), "utf8")
 
-    const { odf_delegation_prepare, odf_delegation_seal, odf_workflow_status } = await tools()
+    const { odf_delegation_prepare, odf_delegation_seal, odf_workflow_status } = await legacyTools()
     const prepared = JSON.parse(await odf_delegation_prepare.execute({
       phase: "ASSESS",
       change,
@@ -808,7 +904,7 @@ describe("native prepare/seal delegation", () => {
   })
 
   it("fails closed when the child agent does not match the prepared agent", async () => {
-    const prepared = await prepareDesign()
+    const prepared = await prepareDesignLegacy()
     const session = fakeChildSession({
       agent: "odoo_code_reviewer",
       prompt: prepared.delegation.prompt,
@@ -826,7 +922,7 @@ describe("native prepare/seal delegation", () => {
   })
 
   it("fails closed without the V2 session API and for expired tokens", async () => {
-    const prepared = await prepareDesign()
+    const prepared = await prepareDesignLegacy()
     const { odf_delegation_seal } = await tools()
 
     const noApi = JSON.parse(await odf_delegation_seal.execute({
@@ -892,7 +988,7 @@ describe("native prepare/seal delegation", () => {
   }
 
   const runSeal = async (root: string, args: Record<string, unknown>, childResult: Record<string, unknown>) => {
-    const { odf_delegation_prepare, odf_delegation_seal } = await tools(root)
+    const { odf_delegation_prepare, odf_delegation_seal } = await legacyTools(root)
     const prepared = JSON.parse(await odf_delegation_prepare.execute(
       { ...args, workspace_dir: root } as any,
       { sessionID: "parent-session" } as any,
@@ -1129,7 +1225,6 @@ describe("native prepare/seal delegation", () => {
       prepared.branches.map((branch: any) => ({ branch_id: branch.branch_id, agent: branch.agent, prompt: branch.prompt })),
       () => "## ODF Result\n- **status**: ok\n- **executive_summary**: branch implemented",
     )
-
     const output = JSON.parse(await odf_parallel_seal.execute({
       token: prepared.token,
       change,
@@ -1164,7 +1259,7 @@ describe("native prepare/seal delegation", () => {
       { branch_id: "backend-idle", attempt_id: "backend-idle-attempt", prompt: "Implement the backend branch", context_files: ["backend-idle.py"] },
       { branch_id: "frontend-idle", attempt_id: "frontend-idle-attempt", prompt: "Implement the frontend branch", context_files: ["frontend-idle.py"] },
     ]
-    const { odf_parallel_prepare, odf_parallel_seal } = await tools(root)
+    const { odf_parallel_prepare, odf_parallel_seal } = await legacyTools(root)
     const prepared = JSON.parse(await odf_parallel_prepare.execute({
       work_type: "cross-domain",
       phase: "IMPLEMENT",
@@ -1214,7 +1309,7 @@ describe("native prepare/seal delegation", () => {
       { branch_id: "backend-a", attempt_id: "backend-a-attempt", prompt: "Implement the backend branch", context_files: ["backend-a.py"] },
       { branch_id: "frontend-a", attempt_id: "frontend-a-attempt", prompt: "Implement the frontend branch", context_files: ["frontend-a.py"] },
     ]
-    const { odf_parallel_prepare, odf_parallel_seal } = await tools(root)
+    const { odf_parallel_prepare, odf_parallel_seal } = await legacyTools(root)
     const prepared = JSON.parse(await odf_parallel_prepare.execute({
       work_type: "cross-domain",
       phase: "IMPLEMENT",

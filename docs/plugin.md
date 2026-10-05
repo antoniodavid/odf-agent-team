@@ -7,8 +7,8 @@ The ODF plugin injects **29 tools** into the orchestrator's tool list at runtime
 | Tool | Kind | Purpose |
 |------|------|---------|
 | `odf_delegate` | write | Route a phase + prompt to the right sub-agent with skill injection |
-| `odf_delegation_prepare` | write | Resolve agent/skills/profile/prompt and mint a bounded delegation token for the host `subagent` tool |
-| `odf_delegation_launch` | write | Verify exact serial prompt bytes and submit them through the V2 session API |
+| `odf_delegation_prepare` | write | Resolve agent/skills/profile/prompt and mint a bounded delegation token |
+| `odf_delegation_launch` | write | Verify exact prepared prompt bytes and submit them through the V2 session API |
 | `odf_proposal_write` | write | Persist the token-bound PROPOSE artifact to its canonical OpenSpec path |
 | `odf_delegation_seal` | write | Bind the child session to the token, run the phase gates and return the standard envelope |
 | `odf_parallel_delegate` | write | Cross-domain BUILD as 2–3 parallel branches, one aggregate join |
@@ -94,15 +94,15 @@ specialist agent  ──►  Odoo worktree (edits, tests)
 
 ## Native prepare/seal flow (OpenCode V2)
 
-When the host exposes the `subagent` tool, the orchestrator can delegate through
-the native pair so the phase runs as a visible child session:
+The orchestrator delegates serial phases through the native V2 route, which
+creates a visible child session without using the host `subagent` tool:
 
 ```
 orchestrator
    │ 1. odf_delegation_prepare(phase, change, prompt, …)
    │      → { token, delegation: { agent, description, prompt } }
-   │ 2. subagent({ agent, description, prompt })   ← host child session
-   │      → child sessionID
+   │ 2. odf_delegation_launch({ token, change, prompt })
+   │      → session.prompt(text: exact prepared bytes) → child sessionID
    │ 3. odf_delegation_seal({ token, change, session_id })
    ▼
 plugin
@@ -114,8 +114,12 @@ plugin
    • consumes the token and returns the standard envelope (+ task_session_id)
 ```
 
-- The prompt must be passed **verbatim**; the seal compares its SHA-256 digest
-  with the prepared one and fails closed on any edit.
+- Launch checks the prompt digest and UTF-8 byte length before creating a child,
+  then submits the same string through `session.prompt`. The seal independently
+  verifies the child's transcript after `session.wait`; launch success alone is
+  not proof of receipt.
+- A durable launch record binds the parent and child IDs. Retries never resend
+  prompts in `sending`, `submitted`, `uncertain`, or `interrupted` states.
 - The seal reads the transcript through the documented V2 `session.context`
   API, including its projected V2 message and supported response-envelope
   shapes. Empty, incomplete, malformed, or failed reads return a bounded
@@ -130,8 +134,7 @@ plugin
   binding failures keep it for a retry, processed delegations consume it.
 - IMPLEMENT/VERIFY also require `artifact_store`, the exact `workflow_advance`
   proof and a fresh `attempt_id`; the attempt is acquired at prepare time and
-  settled by the seal. Fast-lane and cross-domain parallel BUILD stay on
-  `odf_delegate`/`odf_parallel_delegate`.
+  settled by the seal. Fast-lane BUILD/VERIFY stays on `odf_delegate`.
 - V2 blocks direct `subagent` calls to ODF specialists from the orchestrator
   without the prepared marker, so the gates cannot be bypassed silently.
 
@@ -145,13 +148,12 @@ receipt on failure. The aggregate envelope matches `odf_parallel_delegate` plus
 per-branch `task_session_id`. Branch context files must not overlap and branches
 range from two to three.
 
-**Visibility and interruptions:** with the native pair the parent transcript
-shows the `subagent` row (agent, description, live status). With legacy
-`odf_delegate` the delegation runs inside the tool call, so the child session —
-titled `ODF <phase> → <agent> · <change>` — is visible under `/sessions` while
-it runs. Interrupting a delegation aborts the child and settles the attempt as
-failed; the single transport relaunch applies and a second interruption stops
-the run.
+**Visibility and interruptions:** the launch result identifies the V2 child
+session, which is visible under `/sessions` without a host `subagent` row. An
+interrupted or uncertain submission is never resent; retry the seal with that
+same child ID so it can independently wait for and inspect the transcript.
+Legacy `odf_delegate` runs inside the tool call, with its child visible under
+`/sessions` while it runs.
 
 ## Transport
 

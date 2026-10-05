@@ -274,7 +274,7 @@ implementation is not part of a customer-project task.
 - `odf_workflow_advance(...)` is a read-only, store-independent advisory transition check; for BUILD/VERIFY starts, embed its exact input under `workflow_advance` in `odf_delegate` and pass an explicit `artifact_store: openspec|engram`. Delegate-side validation is authoritative and commits only that selected store; it never dual-writes.
 - `odf_workflow_archive(change_name, artifact_store, ...)` is the first-class terminal ARCHIVE action. It re-reads and locks the selected state, requires terminal VERIFY evidence, blocks pending receipts/running attempts/joins, preserves OCA governance gates, and returns `already-committed` for a completed retry. It does not move the change directory.
 - `odf_delegate` runs legacy phase adapters and preserves their contracts.
-- `odf_delegation_prepare(phase, change, prompt, ...)` + `odf_delegation_seal(token, change, session_id)` are the **native delegation** pair: prepare resolves the agent, skills, profile, policy gate and source-authority contract and returns an enriched prompt plus a bounded token; the orchestrator launches the host `subagent` tool with `delegation.agent`/`delegation.description`/`delegation.prompt` **verbatim** and then seals with the returned child `session_id`. The seal verifies the child session, runs the phase gates and returns the **same envelope** as `odf_delegate` (plus `task_session_id`).
+- For serial phases on OpenCode V2, `odf_delegation_prepare(phase, change, prompt, ...)` → `odf_delegation_launch(token, change, prompt)` → `odf_delegation_seal(token, change, session_id)` is the **native delegation** route. Prepare returns the exact enriched prompt plus a bounded token; launch verifies its digest and UTF-8 byte length before submitting it through `session.create`/`session.prompt`; seal independently verifies the transcript after `session.wait`, runs the phase gates and returns the **same envelope** as `odf_delegate` (plus `task_session_id`). Never use host `subagent` to transport a prepared serial prompt.
 - `odf_health` returns a schema-versioned, read-only installed/runtime health result. It checks static files and task API presence but never probes `task()`, Odoo, PostgreSQL, or `engram export`.
 - `odf_parallel_delegate` is the only cross-domain BUILD scheduler: fresh calls accept one shared `change`, explicit `artifact_store`, the exact `workflow_advance` proof, and 2-3 independent branches with unique safe `branch_id` and `attempt_id` values plus non-overlapping `context_files`; branches never commit workflow state individually. The aggregate join commits once after all branches validate; continuation calls use `resume_from_join: true` to reconstruct retryable branches from the bounded `.odf/parallel-join-{change}.json` artifact.
 - `odf_parallel_prepare(...)` + `odf_parallel_seal(...)` are the **native parallel BUILD** pair: prepare validates the shared proof, resolves each branch agent/skills/prompt, acquires the branch attempts and returns one token plus per-branch subagent payloads; the orchestrator launches one `subagent` per branch (background allowed) and seals with the branch sessions, running the same aggregate scheduler and a single BUILD commit.
@@ -311,13 +311,13 @@ start intent. Neither form commits BUILD or makes a caller-supplied
 persisted validation-evidence artifact, and the plugin revalidates it after the
 child returns at the BUILD seal. Missing/invalid evidence leaves BUILD pending.
 
-4. Delegate every ODF phase through the ODF delegation path: when your tool list exposes the host `subagent` tool, use `odf_delegation_prepare` → `subagent` → `odf_delegation_seal`; otherwise use `odf_delegate`. Pass the selected `artifact_store` when preparing PROPOSE so the child token is bound to the store. `odf_delegate` remains mandatory for fast-lane BUILD/VERIFY. For a fresh cross-domain BUILD, use `odf_parallel_prepare` → one host `subagent` per branch → `odf_parallel_seal` when available; use `odf_parallel_delegate` as the non-native fallback and for `resume_from_join` continuations (native parallel prepare is fresh-join only). Never call `task()` directly.
+4. Delegate serial phases through the ODF path: on OpenCode V2 use `odf_delegation_prepare` → `odf_delegation_launch` with the returned prompt unchanged → `odf_delegation_seal`; otherwise use `odf_delegate`. Pass the selected `artifact_store` when preparing PROPOSE so the child token is bound to the store. `odf_delegate` remains mandatory for fast-lane BUILD/VERIFY. For a fresh cross-domain BUILD, retain `odf_parallel_prepare` → one host `subagent` per branch → `odf_parallel_seal` until its programmatic branch transport lands; use `odf_parallel_delegate` as the fallback and for `resume_from_join` continuations. Never call `task()` directly or use host `subagent` to transport a prepared serial prompt.
 5. Before every code/design/review delegation, resolve registry skills by file and task context.
 6. Inject compact rules under `## Project Standards (auto-resolved)`, with at most five skills; prioritize code context, then task context.
 7. If an agent reports `self-discovered`, `none`, or a skill cache miss, reload the registry, inject standards in later calls, and warn the user.
 8. Pass the forwarding fields defined below and require the inner `## ODF Result` as the last section.
 9. Use `odf_parallel_delegate` for cross-domain BUILD only. It requires `phase: IMPLEMENT`, `work_type: cross-domain`, one shared `change`, explicit `artifact_store`, the exact `workflow_advance` proof advancing to `BUILD`, and 2-3 independent branches with unique safe branch IDs/attempt IDs and non-overlapping context paths. On hosts with the `subagent` tool, the native pair (`odf_parallel_prepare` → one `subagent` per branch → `odf_parallel_seal`) runs the same scheduler with visible branch sessions. Branches do not commit workflow state individually. A persisted `parallel_join` with `join.status: running` is live runtime evidence: inspect its running/completed/failed counts and branch statuses, do not close BUILD, and do not relaunch active branches. Require `join.status: complete`, every branch delegated successfully, and every branch `validation.status: verified`; then commit the selected store once. VERIFY is always sequential after the aggregate join. All other routes remain sequential through `odf_delegate`.
-10. Keep a session launch log keyed by `(phase, task fingerprint)`. A transport-class failure (timeout, empty/malformed task result, no committed artifacts) allows AT MOST ONE automatic relaunch of that pair with a fresh `attempt_id`; a second transport failure stops the run for the user. Never relaunch a phase that already committed artifacts or duplicate a successful launch.
+10. Keep a session launch log keyed by `(phase, task fingerprint)`. For legacy `odf_delegate`, a transport-class failure (timeout, empty/malformed task result, no committed artifacts) allows AT MOST ONE automatic relaunch with a fresh `attempt_id`; a second failure stops for the user. For serial `odf_delegation_launch`, never recreate a child or resend a prompt automatically: only a durably recorded `created` child may resume submission; `sending`, `submitted`, `uncertain`, and `interrupted` are never resent. Seal with the same child ID to inspect its transcript. Never relaunch a phase that already committed artifacts.
 
 11. On `/odf-continue` for a cross-domain BUILD join, use `odf_workflow_status.parallel_join` as supplemental runtime evidence only; OpenSpec/Engram remains primary. If `parallel_join.join.status` is `running`, do not call continuation against it while the scheduler is active: any resume attempt must fail closed with `reason: parallel-join-running`. If the host restarted and no branch attempt is active, recover with the audited `odf_workflow_override` `settle-attempt` (per running branch attempt) then `settle-join`, and commit a retry receipt before resuming. Otherwise call `odf_parallel_delegate` with `resume_from_join: true`, the exact shared transition proof, and no branch descriptors. Completed and verified branches are reused without relaunching; only retryable/incomplete branches receive fresh attempt IDs. Preserve the artifact's aggregate `join.expected` and completed semantics. One remaining retry branch is valid only for continuation. Malformed, mismatched, oversized, or unsafe join reads block closed.
 
@@ -325,20 +325,20 @@ child returns at the BUILD seal. Missing/invalid evidence leaves BUILD pending.
 
 ### Native delegation (OpenCode V2)
 
-When the host `subagent` tool is available, delegate with the native pair so the
-phase launches as a visible child session:
+For serial phases on OpenCode V2, use the native route to create a visible child
+session programmatically:
 
 1. `odf_delegation_prepare(phase, change, prompt, context_files, ...)`; for
    PROPOSE pass the selected `artifact_store`; for BUILD/VERIFY also pass
    `artifact_store`, the exact `workflow_advance` proof,
    and a fresh `attempt_id`. It returns `{ token, delegation: { agent,
    description, prompt } }` and persists the token under `.odf/`.
-2. Use the `delegation` object returned by that immediately preceding prepare
-   call: `subagent({ agent: delegation.agent, description: delegation.description,
-   prompt: delegation.prompt })` — pass the prompt **verbatim** and keep the
-   returned child `sessionID`. Never edit, summarize, or translate the prompt.
-   It is already present in the prepare result; never recover it from `.odf/`
-   token files, the OpenCode SQLite database, or by recomputing its digest.
+2. Pass `delegation.prompt` unchanged to
+   `odf_delegation_launch({ token, change, prompt: delegation.prompt })` and keep
+   `sessions[0].session_id`. The launch tool verifies the prepared bytes before
+   creating a child and submits those same bytes. Never edit, summarize,
+   translate, or reconstruct the prompt; never recover it from `.odf/` token
+   files or the OpenCode SQLite database.
 3. `odf_delegation_seal({ token, change, session_id })`. The returned envelope
    is the standard one (`delegated|blocked`, `policy_gate`, `validation`,
    `receipt`, `result`, plus `task_session_id`); consume it exactly like an
@@ -346,8 +346,14 @@ phase launches as a visible child session:
 
 Failure handling:
 
-- `delegation-prompt-mismatch`: the prompt was modified in transit; re-run the
-  prepare/subagent pair without edits.
+- `delegation-prompt-mismatch`: before dispatch, no child was created; pass the
+  exact returned prompt. If the seal reports a transcript mismatch, do not
+  resend; retain the token and inspect/retry the same child ID.
+- `delegation-launch-not-submitted`: seal is blocked until launch reaches a
+  verifiable state. Retry only the same child in `created`; never resend from
+  `sending`, `uncertain`, or `interrupted`.
+- `delegation-launch-outcome-unknown` / missing child ID: stop; do not create a
+  replacement child because the original `session.create` may have succeeded.
 - `delegation-token-expired` / `delegation-token-unknown`: prepare the
   delegation again (an unknown token was either never prepared or already
   consumed).
@@ -367,15 +373,15 @@ Duration, visibility and interruptions:
 - A heavy phase takes minutes; a VERIFY that runs the real module suite can
   exceed ten minutes. Pass `timeout_ms: 900000` for VERIFY, ASSESS, QA-PLAN and
   DESIGN.
-- With the native pair the parent transcript shows the `subagent` row (agent,
-  description, live status) and the child session is titled
-  `ODF <phase> → <agent> · <change>`. With the legacy `odf_delegate` path the
+- With the native route, the launch result identifies the V2 child session; it
+  is visible under `/sessions`, but there is no host `subagent` row. The child is
+  titled `ODF delegation: <agent>`. With legacy `odf_delegate` the
   delegation runs inside the tool call and only the final envelope appears, so
   tell the user to look for that same title under `/sessions` while it runs.
-- Never interrupt a running delegation. Cancelling the step aborts the child,
-  settles the attempt as failed and consumes the single transport relaunch;
-  a second interruption stops the run. After an interruption,
-  `/odf-continue <change>` rediscovers the failed attempt and continues.
+- An interrupted launch records `interrupted` and requests child interruption;
+  never resend that prompt. Retry the seal with the same child ID so it waits
+  for and inspects the transcript. If no verifiable child exists, keep the
+  attempt running until audited recovery confirms it is safe to settle.
 
 The plugin blocks direct `subagent` calls to ODF specialists from the
 orchestrator without the delegation marker; that guard protects the gates, not
@@ -651,7 +657,7 @@ authoritative for policy, validation, and failure persistence.
 
 ## Safety Rules
 
-- Never call `task()` directly for ODF work; use the ODF delegation path (`odf_delegation_prepare` → `subagent` → `odf_delegation_seal` on V2, otherwise `odf_delegate`).
+- Never call `task()` directly for ODF work; for serial phases on V2 use `odf_delegation_prepare` → `odf_delegation_launch` → `odf_delegation_seal`, otherwise `odf_delegate`. Native parallel BUILD retains its current route until the programmatic branch transport lands.
 - Deduplicate launches by `(phase, fingerprint)` and emit one launch per pair.
 - Use a fresh sub-agent context for adversarial review.
 - After wrong `cwd`, accidental mutation, merge recovery, or environment workaround, stop and audit before continuing.

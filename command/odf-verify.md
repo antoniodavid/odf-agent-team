@@ -19,7 +19,7 @@ Run the quality gate: pre-commit, tests, OCA compliance, spec compliance matrix,
 2. **Verify IMPLEMENT has progress** — if no tasks completed, warn
 3. **Load all artifacts**: assess (for requirements), design (for decisions), implement-progress
 4. **Freeze the candidate diff**: record the base tree/reference and `original_changed_lines`; compute the correction budget (`min(200, ceil(original_changed_lines / 2))` lines)
-5. **Classify risk tier** from the frozen diff (Risk Tier Classification in the skill), then delegate the VERIFY phase through `odf_delegation_prepare` → host `subagent` → `odf_delegation_seal` whenever the host exposes `subagent`; otherwise use `odf_delegate`. Pass the frozen ref, risk tier, changed lines, correction budget, effective TDD, exact `workflow_advance`, selected `artifact_store`, and fresh `attempt_id` unchanged. Delegate by tier:
+5. **Classify risk tier** from the frozen diff (Risk Tier Classification in the skill), then on OpenCode V2 delegate VERIFY through `odf_delegation_prepare` → `odf_delegation_launch` → `odf_delegation_seal`; otherwise use `odf_delegate`. Pass the frozen ref, risk tier, changed lines, correction budget, effective TDD, exact `workflow_advance`, selected `artifact_store`, and fresh `attempt_id` unchanged. Delegate by tier:
    - **HIGH** → 4 lenses: risk, resilience, readability, reliability (Judgment Day 3-pass; attacker perspective covered by the risk lens)
    - **MEDIUM** → 1 lens, single focus (default readability)
    - **LOW** → 0 lenses: silent structural readback + native tool verification (pre-commit/lint if applicable). Launch NO reviewers
