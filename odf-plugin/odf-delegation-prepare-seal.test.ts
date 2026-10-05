@@ -472,6 +472,108 @@ describe("native prepare/seal delegation", () => {
     expect(ledger.at(-1).native_child_idle_at).toBeTruthy()
   })
 
+  it("seals from the wrapped V2 session.context history shape", async () => {
+    const { odf_delegation_prepare, odf_delegation_seal } = await tools()
+    const change = "native-implement-wrapped-context"
+    const attemptId = "native-wrapped-context-1"
+    await writeImplementState(tempHome, change)
+    const prepared = JSON.parse(await odf_delegation_prepare.execute({
+      phase: "IMPLEMENT",
+      change,
+      prompt: "Implement the planned change",
+      context_files: [],
+      artifact_store: "openspec",
+      attempt_id: attemptId,
+      workflow_advance: implementProof(),
+    }, { sessionID: "parent-session" } as any) as string)
+    await writeValidationEvidence(tempHome, change)
+    const session = fakeChildSession({
+      agent: prepared.agent,
+      prompt: prepared.delegation.prompt,
+      resultText: "## ODF Result\n- **status**: ok\n- **executive_summary**: implemented",
+    })
+    session.context.mockResolvedValue({
+      data: [
+        {
+          info: { id: "msg_user", type: "user", text: `${OPENCODE_SUBAGENT_USER_PREFIX}${prepared.delegation.prompt}` },
+          parts: [],
+        },
+        {
+          info: { id: "msg_assistant", type: "assistant" },
+          parts: [{ type: "text", text: "## ODF Result\n- **status**: ok\n- **executive_summary**: implemented" }],
+        },
+      ],
+    })
+
+    const output = JSON.parse(await odf_delegation_seal.execute({
+      token: prepared.token,
+      change,
+      session_id: "ses_child",
+    }, {
+      sessionID: "parent-session",
+      [ODF_V2_SESSION]: session,
+    } as any) as string)
+
+    expect(output).toMatchObject({ status: "delegated", task_session_id: "ses_child", validation: { status: "verified" } })
+    expect(session.context).toHaveBeenCalledWith({ sessionID: "ses_child" })
+    const ledger = (await fs.readFile(path.join(tempHome, ".odf", `attempt-ledger-${change}.jsonl`), "utf8"))
+      .trim().split("\n").map(line => JSON.parse(line))
+    const latest = ledger.filter((entry: { attempt_id: string }) => entry.attempt_id === attemptId).at(-1)
+    expect(latest).toMatchObject({
+      status: "completed",
+      native_child_observed_session_id: "ses_child",
+      native_child_session_id: "ses_child",
+    })
+    expect(latest.native_child_observed_at).toBeTruthy()
+  })
+
+  it("persists an observed child ID but does not bind it when session.context fails", async () => {
+    const { odf_delegation_prepare, odf_delegation_seal } = await tools()
+    const change = "native-implement-unreadable-child"
+    const attemptId = "native-unreadable-child-1"
+    await writeImplementState(tempHome, change)
+    const prepared = JSON.parse(await odf_delegation_prepare.execute({
+      phase: "IMPLEMENT",
+      change,
+      prompt: "Implement the planned change",
+      context_files: [],
+      artifact_store: "openspec",
+      attempt_id: attemptId,
+      workflow_advance: implementProof(),
+    }, { sessionID: "parent-session" } as any) as string)
+    const session = fakeChildSession({
+      agent: prepared.agent,
+      prompt: prepared.delegation.prompt,
+      resultText: "## ODF Result\n- **status**: ok",
+    })
+    session.context.mockRejectedValue(new Error("do not expose this context error"))
+    const output = JSON.parse(await odf_delegation_seal.execute({
+      token: prepared.token,
+      change,
+      session_id: "ses_child",
+    }, {
+      sessionID: "parent-session",
+      [ODF_V2_SESSION]: session,
+    } as any) as string)
+
+    expect(output).toMatchObject({
+      status: "blocked",
+      reason: "delegation-child-unreadable",
+      conversation_read: {
+        context: { status: "request-failed", error_type: "Error" },
+      },
+    })
+    expect(JSON.stringify(output)).not.toContain("do not expose")
+    const ledger = (await fs.readFile(path.join(tempHome, ".odf", `attempt-ledger-${change}.jsonl`), "utf8"))
+      .trim().split("\n").map(line => JSON.parse(line))
+    const latest = ledger.filter((entry: { attempt_id: string }) => entry.attempt_id === attemptId).at(-1)
+    expect(latest).toMatchObject({ status: "running", native_child_observed_session_id: "ses_child" })
+    expect(latest.native_child_observed_at).toBeTruthy()
+    expect(latest.native_child_session_id).toBeUndefined()
+    expect(latest.native_child_idle_at).toBeUndefined()
+    expect(readDelegationToken(tempHome, change, prepared.token).record).toMatchObject({ status: "prepared" })
+  })
+
   it("fails the proof-backed seal when IMPLEMENT validation evidence is missing", async () => {
     const { odf_delegation_prepare, odf_delegation_seal } = await tools()
     const change = "native-implement-missing-evidence"
@@ -1000,8 +1102,14 @@ describe("native prepare/seal delegation", () => {
     expect(readDelegationToken(root, change, prepared.token).record).toMatchObject({ status: "prepared" })
     const ledger = (await fs.readFile(path.join(root, ".odf", `attempt-ledger-${change}.jsonl`), "utf8"))
       .trim().split("\n").map(line => JSON.parse(line))
-    expect(ledger).toHaveLength(2)
+    expect(ledger).toHaveLength(3)
     expect(ledger.every((entry: any) => entry.status === "running" && entry.native_parent_session_id === "prepare-session")).toBe(true)
+    expect(ledger.at(-1)).toMatchObject({
+      branch_id: "backend-idle",
+      native_child_observed_session_id: "ses_backend-idle",
+    })
+    expect(ledger.at(-1).native_child_observed_at).toBeTruthy()
+    expect(ledger.at(-1).native_child_session_id).toBeUndefined()
   })
 
   it("fails closed when a parallel child agent does not match its branch", async () => {

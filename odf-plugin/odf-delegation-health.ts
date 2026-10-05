@@ -697,6 +697,78 @@ export interface V2ContextConversation {
   assistantText: string
 }
 
+export interface V2ConversationReadDiagnostic {
+  context: { status: string; error_type?: string }
+}
+
+export interface V2SessionConversationRead {
+  conversation: V2ContextConversation | null
+  diagnostic: V2ConversationReadDiagnostic
+}
+
+function errorType(error: unknown): string {
+  const name = error && typeof error === "object"
+    ? (error as Record<string, unknown>).name
+    : undefined
+  return typeof name === "string" && /^[A-Za-z][A-Za-z0-9_.-]{0,63}$/.test(name) ? name : "Error"
+}
+
+function contextMessages(response: unknown): unknown[] | null {
+  let value = response
+  for (let depth = 0; depth < 4; depth += 1) {
+    if (Array.isArray(value)) return value
+    if (!value || typeof value !== "object") return null
+    const envelope = value as Record<string, unknown>
+    if (Array.isArray(envelope.messages)) return envelope.messages
+    value = envelope.data
+  }
+  return null
+}
+
+function completeConversation(messages: unknown[]): V2ContextConversation | null {
+  const conversation = readV2ContextConversation(messages)
+  return conversation && conversation.userTexts.length > 0 && conversation.assistantText.trim()
+    ? conversation
+    : null
+}
+
+function contextFailureStatus(response: unknown): string {
+  const messages = contextMessages(response)
+  if (messages?.length === 0) return "empty-response"
+  if (!messages) return "invalid-response"
+  const conversation = readV2ContextConversation(messages)
+  if (!conversation) return "assistant-message-missing"
+  if (conversation.userTexts.length === 0) return "prompt-missing"
+  return "conversation-incomplete"
+}
+
+/**
+ * Read the documented session.context response shapes. A result is returned
+ * only when both a user prompt and assistant response are present; callers
+ * still verify the prompt digest and ODF Result.
+ */
+export async function readV2SessionConversation(input: {
+  session: Pick<V2SessionApi, "context">
+  sessionID: string
+}): Promise<V2SessionConversationRead> {
+  try {
+    const response = await input.session.context({ sessionID: input.sessionID })
+    const messages = contextMessages(response)
+    const conversation = completeConversation(messages || [])
+    return {
+      conversation,
+      diagnostic: {
+        context: { status: conversation ? "readable" : contextFailureStatus(response) },
+      },
+    }
+  } catch (error) {
+    return {
+      conversation: null,
+      diagnostic: { context: { status: "request-failed", error_type: errorType(error) } },
+    }
+  }
+}
+
 const OPENCODE_SUBAGENT_USER_PREFIX = "You are a subagent spawned by another session.\n"
 
 /**
@@ -706,10 +778,11 @@ const OPENCODE_SUBAGENT_USER_PREFIX = "You are a subagent spawned by another ses
  * failure reason); never throws.
  */
 export function readV2ContextConversation(response: unknown): V2ContextConversation | null {
-  if (!Array.isArray(response) || response.length === 0) return null
+  const messages = contextMessages(response)
+  if (!messages || messages.length === 0) return null
   const userTexts: string[] = []
   let assistantText: string | null = null
-  for (const message of response) {
+  for (const message of messages) {
     if (!message || typeof message !== "object" || Array.isArray(message)) continue
     const value = message as Record<string, any>
     const info = value.info && typeof value.info === "object" ? value.info : value
