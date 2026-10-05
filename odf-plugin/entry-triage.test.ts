@@ -7,6 +7,7 @@ import {
   detectRiskSignals,
   predictEntryRouteShadow,
   validateEntryRouteBinding,
+  type EntryRouteBinding,
   type EntryTriageInput,
 } from "./entry-triage.js"
 
@@ -36,6 +37,27 @@ const shadowReady = (overrides: Partial<EntryTriageInput> = {}): EntryTriageInpu
   ...overrides,
   shadow_context: { ...shadowFacts, ...(overrides.shadow_context || {}) },
 })
+
+// Captured from the three-file implementation; do not regenerate with current code.
+const legacyBinding: EntryRouteBinding = {
+  version: 1,
+  source: "odf_entry_triage",
+  mode: "shadow",
+  advisory: true,
+  execution_unchanged: true,
+  predicted_route: "small-change",
+  predicted_stages: ["DECIDE", "BUILD", "VERIFY"],
+  micro_policy: "eligible",
+  required_checks: [
+    "approved Expectations", "clear intent", "complete source authority", "expected files <=3",
+    "high reversibility", "known module", "low blast radius", "no architecture or scope signal",
+    "no contradictory prior learning", "no protected risk or domain", "single functional domain",
+  ],
+  missing_facts: [],
+  blocking_reasons: [],
+  candidate_digest: null,
+  shadow_digest: "ae91f6784df1e435314a4c67cc8e4d969b567a8258f5b079591ce805733138e8",
+}
 
 describe("classifyEntryTriage", () => {
   it("honors an explicit security work type as full and never micro", () => {
@@ -72,6 +94,41 @@ describe("classifyEntryTriage", () => {
     expect(r.work_type).toBe("small-change")
     expect(r.needs_question).toBe(false)
   })
+
+  it.each([3, 4, 5])("classifies a bounded %i-file change as small-change", expected_files => {
+    const result = classifyEntryTriage(shadowReady({ expected_files }))
+    expect(result).toMatchObject({ level: "micro", work_type: "small-change", needs_question: false })
+  })
+
+  it.each([-1, 1.5, NaN, Infinity])("asks for a valid file count instead of accepting %s as micro", expected_files => {
+    const result = classifyEntryTriage(shadowReady({ expected_files }))
+    expect(result.work_type).toBe("feature")
+    expect(result.needs_question).toBe(true)
+    expect(result.question).toContain("valid expected file count")
+    expect(result.shadow.micro_policy).not.toBe("eligible")
+  })
+
+  it("keeps an otherwise bounded change provisional when only the file count is missing", () => {
+    const input = shadowReady({ expected_files: undefined })
+    const result = classifyEntryTriage(input)
+    expect(result).toMatchObject({ work_type: "small-change", needs_question: true })
+    expect(result.question).toContain("expected file count (<=5")
+    expect(result.shadow.micro_policy).toBe("unknown")
+    expect(result.shadow.missing_facts).toContain("expected file count")
+    expect(classifyEntryTriage({ ...input, expected_files: 5 }))
+      .toMatchObject({ work_type: "small-change", needs_question: false })
+    expect(classifyEntryTriage({ ...input, expected_files: 6 }))
+      .toMatchObject({ work_type: "feature", needs_question: false })
+  })
+
+  it.each(["security", "migration", "payment", "public-api", "data-loss", "pii"])(
+    "never selects small-change for a five-file change with %s risk", signal => {
+      const result = classifyEntryTriage(shadowReady({ expected_files: 5, risk_signals: [signal] }))
+      expect(result.level).toBe("full")
+      expect(result.work_type).not.toBe("small-change")
+      expect(result.shadow.micro_policy).not.toBe("eligible")
+    },
+  )
 
   it("classifies standard-config wording as standard-config micro", () => {
     const r = classifyEntryTriage(base({
@@ -245,7 +302,7 @@ describe("ICE triage improvements", () => {
         metadata: {
           module: "sale",
           domain: "sales",
-          expected_files: 2,
+          expected_files: 5,
           expectations: { approved: true, reference: "odf/triage-test/expectations" },
         },
       },
@@ -423,11 +480,23 @@ describe("predictEntryRouteShadow", () => {
     expect(result.blocking_reasons).toContain("malformed context")
   })
 
-  it("uses the explicit three-file boundary", () => {
-    expect(predictEntryRouteShadow(shadowReady({ expected_files: 3 })).micro_policy).toBe("eligible")
-    const four = predictEntryRouteShadow(shadowReady({ expected_files: 4 }))
-    expect(four).toMatchObject({ predicted_route: "feature", micro_policy: "ineligible" })
-    expect(four.blocking_reasons).toContain("predicted route is not the existing small-change route")
+  it.each([3, 4, 5])("allows the explicit %i-file forecast for FAST", expected_files => {
+    const result = predictEntryRouteShadow(shadowReady({ expected_files }))
+    expect(result.micro_policy).toBe("eligible")
+    expect(result.required_checks).toContain("expected files <=5")
+  })
+
+  it("blocks FAST beyond the five-file boundary, including an explicit small-change override", () => {
+    const six = predictEntryRouteShadow(shadowReady({ expected_files: 6 }))
+    expect(six).toMatchObject({ predicted_route: "feature", micro_policy: "ineligible" })
+    expect(six.blocking_reasons).toContain("blast radius exceeds the <=5 file boundary")
+    const explicit = predictEntryRouteShadow(shadowReady({ expected_files: 6, explicit_work_type: "small-change" }))
+    expect(explicit).toMatchObject({ predicted_route: "small-change", micro_policy: "ineligible" })
+  })
+
+  it.each([3, 4, 5, 6])("checks a numeric blast radius of %i against the same FAST cap", blast_radius => {
+    const result = predictEntryRouteShadow(shadowReady({ shadow_context: { ...shadowFacts, blast_radius } }))
+    expect(result.micro_policy).toBe(blast_radius <= 5 ? "eligible" : "ineligible")
   })
 
   it("fails closed for multiple functional domains without changing single-domain behavior", () => {
@@ -439,6 +508,35 @@ describe("predictEntryRouteShadow", () => {
 })
 
 describe("EntryRouteBinding", () => {
+  it("preserves signed three-file bindings without rewriting their checks or digest", () => {
+    const shadow = predictEntryRouteShadow(shadowReady())
+    expect(validateEntryRouteBinding(legacyBinding, "small-change")).toBe(true)
+    const tampered = { ...legacyBinding, required_checks: shadow.required_checks }
+    expect(validateEntryRouteBinding(tampered)).toBe(false)
+  })
+
+  it("preserves the signed reason for an older ineligible file forecast", () => {
+    const legacyBlocked: EntryRouteBinding = {
+      ...legacyBinding,
+      predicted_route: "feature",
+      predicted_stages: ["DECIDE", "PLAN", "BUILD", "VERIFY"],
+      micro_policy: "ineligible",
+      blocking_reasons: ["blast radius exceeds the <=3 file boundary", "predicted route is not the existing small-change route"],
+      shadow_digest: "2d22516a6cf7a1194d2b92df1fd8f32a852374b11f4736adc61cd01af29578ca",
+    }
+    expect(validateEntryRouteBinding(legacyBlocked, "feature")).toBe(true)
+  })
+
+  it("rejects mixed bounds and cannot replace a mandatory check with a legacy bound", () => {
+    const shadow = predictEntryRouteShadow(shadowReady())
+    expect(() => createEntryRouteBinding({
+      ...shadow, required_checks: [...shadow.required_checks, "expected files <=3"],
+    })).toThrow(TypeError)
+    expect(() => createEntryRouteBinding({
+      ...shadow, required_checks: shadow.required_checks.map(check => check === "no protected risk or domain" ? "expected files <=3" : check),
+    })).toThrow(TypeError)
+  })
+
   it("computes the same digest when shadow arrays arrive in a different order", () => {
     const shadow = predictEntryRouteShadow(shadowReady())
     const reordered = {

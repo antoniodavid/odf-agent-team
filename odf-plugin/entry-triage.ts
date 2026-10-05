@@ -17,6 +17,11 @@ import { tool } from "./odf-tool.js"
 export type EntryLevel = "micro" | "standard" | "full"
 export type EntryClarity = "clear" | "unclear"
 
+const SMALL_CHANGE_MAX_FILES = 5
+const FILE_BOUND_CHECK = `expected files <=${SMALL_CHANGE_MAX_FILES}`
+const FILE_BOUND_REASON = `blast radius exceeds the <=${SMALL_CHANGE_MAX_FILES} file boundary`
+const LEGACY_FILE_BOUND_CHECK = "expected files <=3"
+
 export const ICE_CONTEXT_SOURCES = [
   "project",
   "project-scan",
@@ -167,7 +172,7 @@ const SHADOW_REQUIRED_CHECKS = [
   "approved Expectations",
   "known module",
   "single functional domain",
-  "expected files <=3",
+  FILE_BOUND_CHECK,
   "clear intent",
   "no protected risk or domain",
   "no architecture or scope signal",
@@ -206,7 +211,8 @@ const SHADOW_MISSING_FACTS = new Set([
 const SHADOW_BLOCKING_REASONS = new Set([
   "malformed context", "malformed shadow context", "protected risk signal", "standard-config is a DECIDE-only route",
   "diagnosis, root-cause, and regression evidence are required before predicting a bugfix route",
-  "FAST is restricted to the existing small-change route", "blast radius exceeds the <=3 file boundary",
+  "FAST is restricted to the existing small-change route", FILE_BOUND_REASON,
+  "blast radius exceeds the <=3 file boundary",
   "predicted route is not the existing small-change route", "unknown module", "approved Expectations are not approved",
   "protected domain", "multiple functional domains", "architecture signal", "scope signal", "contradictory prior learning",
   "prior learning is missing or uncertain", "high blast radius", "low reversibility", "incomplete source authority",
@@ -353,8 +359,14 @@ function normalizedCandidateDigest(value: unknown): string | null {
   return value === null || value === undefined || typeof value !== "string" || !SHA256_HEX.test(value) ? null : value
 }
 
-function expectedShadowChecks(route: WorkType): Set<string> {
-  return new Set([...SHADOW_REQUIRED_CHECKS, ...(route === "bugfix" ? SHADOW_BUGFIX_CHECKS : [])])
+function expectedShadowChecks(route: WorkType, requiredChecks: unknown): Set<string> {
+  const checks = new Set<string>([...SHADOW_REQUIRED_CHECKS, ...(route === "bugfix" ? SHADOW_BUGFIX_CHECKS : [])])
+  // Persisted version-1 bindings keep their original digest and narrower bound.
+  if (Array.isArray(requiredChecks) && requiredChecks.includes(LEGACY_FILE_BOUND_CHECK)) {
+    checks.delete(FILE_BOUND_CHECK)
+    checks.add(LEGACY_FILE_BOUND_CHECK)
+  }
+  return checks
 }
 
 export function createEntryRouteBinding(shadow: EntryRouteShadow, candidateDigest?: string | null): EntryRouteBinding {
@@ -364,10 +376,11 @@ export function createEntryRouteBinding(shadow: EntryRouteShadow, candidateDiges
   }
   const route = shadow.predicted_route
   const stages = normalizeBindingStages(shadow.predicted_stages, route)
-  const requiredChecks = normalizeBindingList(shadow.required_checks, expectedShadowChecks(route))
+  const expectedChecks = expectedShadowChecks(route, shadow.required_checks)
+  const requiredChecks = normalizeBindingList(shadow.required_checks, expectedChecks)
   const missingFacts = normalizeBindingList(shadow.missing_facts, SHADOW_MISSING_FACTS)
   const blockingReasons = normalizeBindingList(shadow.blocking_reasons, SHADOW_BLOCKING_REASONS)
-  if (!stages || !requiredChecks || requiredChecks.length !== expectedShadowChecks(route).size ||
+  if (!stages || !requiredChecks || requiredChecks.length !== expectedChecks.size ||
     !missingFacts || !blockingReasons) throw new TypeError("Cannot bind a malformed shadow route.")
 
   const normalizedCandidate = normalizedCandidateDigest(candidateDigest)
@@ -401,11 +414,12 @@ export function validateEntryRouteBinding(value: unknown, expectedWorkType?: Wor
   }
   const route = value.predicted_route
   const stages = normalizeBindingStages(value.predicted_stages, route)
-  const requiredChecks = normalizeBindingList(value.required_checks, expectedShadowChecks(route))
+  const expectedChecks = expectedShadowChecks(route, value.required_checks)
+  const requiredChecks = normalizeBindingList(value.required_checks, expectedChecks)
   const missingFacts = normalizeBindingList(value.missing_facts, SHADOW_MISSING_FACTS)
   const blockingReasons = normalizeBindingList(value.blocking_reasons, SHADOW_BLOCKING_REASONS)
   const candidateDigest = normalizedCandidateDigest(value.candidate_digest)
-  if (!stages || !requiredChecks || requiredChecks.length !== expectedShadowChecks(route).size || !missingFacts || !blockingReasons ||
+  if (!stages || !requiredChecks || requiredChecks.length !== expectedChecks.size || !missingFacts || !blockingReasons ||
     (value.candidate_digest !== null && value.candidate_digest !== undefined && candidateDigest === null)) return false
 
   const payload: EntryRouteBindingPayload = {
@@ -594,7 +608,8 @@ function signalToWorkType(signal: string): WorkType {
 function missingFacts(input: EntryTriageInput): string[] {
   const facts: string[] = []
   if (!input.module || !input.domain) facts.push("affected module and functional domain")
-  if (input.expected_files === undefined) facts.push("expected file count (<=3 for a micro change)")
+  if (input.expected_files === undefined) facts.push(`expected file count (<=${SMALL_CHANGE_MAX_FILES} for a micro change)`)
+  else if (!Number.isInteger(input.expected_files) || input.expected_files < 0) facts.push("valid expected file count (a non-negative integer)")
   if (input.expectations_clear === undefined) facts.push("whether expectations are clear")
   return facts
 }
@@ -697,13 +712,15 @@ function classifyEntryTriageBase(input: EntryTriageInput): EntryTriageClassifica
     input.module &&
     input.domain &&
     input.expected_files !== undefined &&
-    input.expected_files <= 3 &&
+    Number.isInteger(input.expected_files) &&
+    input.expected_files >= 0 &&
+    input.expected_files <= SMALL_CHANGE_MAX_FILES &&
     input.expectations_clear === true
   ) {
     return {
       level: "micro",
       work_type: "small-change",
-      reason: "Single module, single domain, <=3 files, and clear expectations.",
+      reason: `Single module, single domain, <=${SMALL_CHANGE_MAX_FILES} files, and clear expectations.`,
       needs_question: false,
       signals,
       clarity,
@@ -713,6 +730,18 @@ function classifyEntryTriageBase(input: EntryTriageInput): EntryTriageClassifica
 
   const missing = missingFacts(input)
   const unclear = clarity === "unclear"
+  if (input.module && input.domain && input.expectations_clear === true && !unclear && input.expected_files === undefined) {
+    return {
+      level: "standard",
+      work_type: "small-change",
+      reason: "Potential small change; confirm the file count before selecting or binding the route.",
+      needs_question: true,
+      question: iceQuestion(input, missing, false),
+      signals,
+      clarity,
+      ...(warnings.length ? { warnings } : {}),
+    }
+  }
   if (missing.length > 0 || unclear) {
     return {
       level: "standard",
@@ -786,8 +815,8 @@ export function predictEntryRouteShadow(input: EntryTriageInput): EntryRouteShad
     return finish(malformed || missingFacts.length > 0 ? "unknown" : "ineligible")
   }
 
-  if (typeof input.expected_files === "number" && input.expected_files > 3) {
-    block("blast radius exceeds the <=3 file boundary")
+  if (typeof input.expected_files === "number" && input.expected_files > SMALL_CHANGE_MAX_FILES) {
+    block(FILE_BOUND_REASON)
   }
   if (triage.work_type !== "small-change") {
     if (triage.needs_question) missing("complete entry facts")
@@ -828,7 +857,7 @@ export function predictEntryRouteShadow(input: EntryTriageInput): EntryRouteShad
     block("prior learning is missing or uncertain")
   }
   if (context.blast_radius === "high" || context.blast_radius === "medium" ||
-    (typeof context.blast_radius === "number" && context.blast_radius > 3)) {
+    (typeof context.blast_radius === "number" && context.blast_radius > SMALL_CHANGE_MAX_FILES)) {
     block("high blast radius")
   } else if (context.blast_radius === undefined || context.blast_radius === "unknown") {
     missing("blast radius")
@@ -886,8 +915,10 @@ is true, ask one grouped question for the missing facts and re-run.`,
         .describe("Functional domain (micro eligibility)"),
       expected_files: tool.schema
         .number()
+        .int()
+        .nonnegative()
         .optional()
-        .describe("Forecast number of files to change (micro eligibility)"),
+        .describe("Forecast number of files to change (<=5 for small-change and FAST eligibility)"),
       expectations_clear: tool.schema
         .boolean()
         .optional()

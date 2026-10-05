@@ -311,7 +311,7 @@ function smallChangeEntryRouteBinding(change: string, candidateDigest: string | 
     description: "Add a computed discount field to sale.order.",
     module: "sale",
     domain: "sales",
-    expected_files: 2,
+    expected_files: 5,
     expectations_clear: true,
     known_modules: ["sale"],
     shadow_context: {
@@ -1490,11 +1490,17 @@ describe("createODFWorkflowBind", () => {
     }
   })
 
-  it("reuses a semantically identical binding despite stored array order", async () => {
+  it.each(["current", "legacy"])("reuses a %s binding despite stored array order without changing its digest", async version => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), "odf-workflow-bind-route-reuse-"))
     const change = "route-binding-reuse"
     const changeDir = path.join(root, "openspec", "changes", change)
     const binding = featureEntryRouteBinding(change)
+    if (version === "legacy") {
+      // Frozen pre-change digest: legacy bindings must not be silently upgraded.
+      binding.required_checks = binding.required_checks.map(check => check === "expected files <=5" ? "expected files <=3" : check)
+      binding.blocking_reasons = ["blast radius exceeds the <=3 file boundary", "predicted route is not the existing small-change route"]
+      binding.shadow_digest = "2d22516a6cf7a1194d2b92df1fd8f32a852374b11f4736adc61cd01af29578ca"
+    }
     const reordered = {
       ...binding,
       predicted_stages: [...binding.predicted_stages].reverse(),
