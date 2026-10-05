@@ -115,6 +115,16 @@ plugin
 
 - The prompt must be passed **verbatim**; the seal compares its SHA-256 digest
   with the prepared one and fails closed on any edit.
+- The seal reads the transcript through the documented V2 `session.context`
+  API, including its projected V2 message and supported response-envelope
+  shapes. Empty, incomplete, malformed, or failed reads return a bounded
+  `conversation_read.context` diagnostic; raw host error text is not exposed.
+- For proof-backed attempts, the returned child ID is first recorded as
+  `native_child_observed_session_id` (unverified). It becomes
+  `native_child_session_id` only after ancestry, agent, workspace, idle, and
+  exact prompt-digest checks pass. An observed ID alone never completes or
+  settles an attempt; an unreadable transcript leaves the token and attempt
+  available for a safe retry.
 - The token is a bounded opaque `odf-tok-…` file under `.odf/` (two-hour TTL);
   binding failures keep it for a retry, processed delegations consume it.
 - IMPLEMENT/VERIFY also require `artifact_store`, the exact `workflow_advance`

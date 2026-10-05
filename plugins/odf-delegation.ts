@@ -100,6 +100,7 @@ import {
   isEmptyTaskResult,
   inspectODFHealth,
   readV2ContextConversation,
+  readV2SessionConversation,
   sessionResultFromText,
   taskSessionIdOf,
   markTaskSessionId,
@@ -669,6 +670,9 @@ interface AttemptLedgerRecord {
   candidate_digest?: string | null
   /** Native prepare/seal attempts are bound to the orchestrator session. */
   native_parent_session_id?: string
+  /** Observed from the host's seal call, but not trusted until prompt and idle checks pass. */
+  native_child_observed_session_id?: string
+  native_child_observed_at?: string
   /** Bound only after the native seal verifies the prepared prompt and child idle state. */
   native_child_session_id?: string
   native_child_idle_at?: string
@@ -798,9 +802,13 @@ function isAttemptLedgerRecord(value: unknown): value is AttemptLedgerRecord {
       record.result_status === "task-api-unavailable") &&
     (record.candidate_digest === undefined || record.candidate_digest === null || isSafeToken(record.candidate_digest)) &&
     (record.native_parent_session_id === undefined || isSafeSessionId(record.native_parent_session_id)) &&
+    (record.native_child_observed_session_id === undefined || isSafeSessionId(record.native_child_observed_session_id)) &&
+    (record.native_child_observed_at === undefined || isSafeTimestamp(record.native_child_observed_at)) &&
     (record.native_child_session_id === undefined || isSafeSessionId(record.native_child_session_id)) &&
     (record.native_child_idle_at === undefined || isSafeTimestamp(record.native_child_idle_at)) &&
+    ((record.native_child_observed_session_id === undefined) === (record.native_child_observed_at === undefined)) &&
     ((record.native_child_session_id === undefined) === (record.native_child_idle_at === undefined)) &&
+    (record.native_child_observed_session_id === undefined || record.native_parent_session_id !== undefined) &&
     (record.native_child_session_id === undefined || record.native_parent_session_id !== undefined)
 }
 
@@ -1032,6 +1040,9 @@ function bindNativeAttemptChild(opts: {
     if (!current) return { error: "attempt-not-found" }
     if (current.status !== "running") return { error: "attempt-not-running" }
     if (current.native_parent_session_id !== opts.parentSessionId) return { error: "attempt-parent-mismatch" }
+    if (current.native_child_observed_session_id && current.native_child_observed_session_id !== opts.childSessionId) {
+      return { error: "attempt-child-observation-mismatch" }
+    }
     if (current.native_child_session_id && current.native_child_session_id !== opts.childSessionId) {
       return { error: "attempt-child-already-bound" }
     }
@@ -1043,6 +1054,46 @@ function bindNativeAttemptChild(opts: {
     }
     const appendError = appendAttemptLedgerRecord(opts.workspaceRoot, ledgerPath, bound)
     return appendError ? { error: appendError } : { record: bound }
+  })
+  if (!result.locked) return { error: result.error }
+  return result.value
+}
+
+/** Persist the host-returned child ID as an untrusted pointer before reading it. */
+function observeNativeAttemptChild(opts: {
+  workspaceRoot: string
+  change: string
+  attemptId: string
+  branchId: string
+  parentSessionId: string
+  childSessionId: string
+}): { record?: AttemptLedgerRecord; error?: string } {
+  if (!isSafeSessionId(opts.childSessionId)) return { error: "attempt-child-id-invalid" }
+  const ledgerPath = attemptLedgerPath(opts.workspaceRoot, opts.change)
+  const result = withAttemptLedgerLock(opts.workspaceRoot, ledgerPath, (): { record?: AttemptLedgerRecord; error?: string } => {
+    const ledger = readAttemptLedger(opts.workspaceRoot, ledgerPath)
+    if (ledger.error) return { error: ledger.error }
+    const current = [...ledger.records].reverse().find(entry =>
+      entry.attempt_id === opts.attemptId && attemptBranchId(entry) === opts.branchId)
+    if (!current) return { error: "attempt-not-found" }
+    if (current.status !== "running") return { error: "attempt-not-running" }
+    if (current.native_parent_session_id !== opts.parentSessionId) return { error: "attempt-parent-mismatch" }
+    if (current.native_child_session_id && current.native_child_session_id !== opts.childSessionId) {
+      return { error: "attempt-child-already-bound" }
+    }
+    if (current.native_child_observed_session_id) {
+      return current.native_child_observed_session_id === opts.childSessionId
+        ? { record: current }
+        : { error: "attempt-child-observation-conflict" }
+    }
+    const observed: AttemptLedgerRecord = {
+      ...current,
+      native_child_observed_session_id: opts.childSessionId,
+      native_child_observed_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    }
+    const appendError = appendAttemptLedgerRecord(opts.workspaceRoot, ledgerPath, observed)
+    return appendError ? { error: appendError } : { record: observed }
   })
   if (!result.locked) return { error: result.error }
   return result.value
@@ -3503,6 +3554,7 @@ function createODFDelegationSeal(canonicalDirectory?: string): ReturnType<typeof
       const record = read.record
       let childIdleConfirmedAt: string | null = null
       let childIdentityBound = false
+      let childIdentityObserved = false
       const withRecord = (extra: Record<string, unknown> = {}): Record<string, unknown> => ({
         phase: record.phase,
         agent: record.agent,
@@ -3510,6 +3562,9 @@ function createODFDelegationSeal(canonicalDirectory?: string): ReturnType<typeof
         profile: record.profile,
         change: record.change,
         task_session_id: args.session_id,
+        ...(childIdentityBound
+          ? { child_session_identity: "verified-and-bound" }
+          : childIdentityObserved ? { child_session_identity: "observed-unverified" } : {}),
         ...(record.attempt_id ? {
           next_step: childIdentityBound
             ? `The prepared prompt and exact child are verified idle. Retry odf_delegation_seal with the same token and session_id; if sealing remains impossible, recover attempt ${record.attempt_id} with odf_workflow_override action=settle-attempt, child_session_id=${args.session_id}, and confirm_no_active_run=true.`
@@ -3538,6 +3593,26 @@ function createODFDelegationSeal(canonicalDirectory?: string): ReturnType<typeof
         if (preparedAttempt.native_parent_session_id && preparedAttempt.native_parent_session_id !== toolCtx.sessionID) {
           return blocked("delegation-parent-mismatch", "The seal must run in the same parent session that prepared the proof-backed attempt.", withRecord())
         }
+      }
+
+      if (record.attempt_id && preparedAttempt?.native_parent_session_id) {
+        const observed = observeNativeAttemptChild({
+          workspaceRoot,
+          change: record.change,
+          attemptId: record.attempt_id,
+          branchId: record.branch_id || "default",
+          parentSessionId: preparedAttempt.native_parent_session_id,
+          childSessionId: args.session_id,
+        })
+        if (!observed.record) {
+          return blocked(
+            "delegation-attempt-child-observation-failed",
+            `The host-returned child ID could not be preserved as an unverified pointer (${observed.error || "unknown error"}); the attempt remains running.`,
+            withRecord(),
+          )
+        }
+        preparedAttempt = observed.record
+        childIdentityObserved = true
       }
 
       const session = (toolCtx as unknown as Record<PropertyKey, unknown>)[ODF_V2_SESSION] as V2SessionApi | undefined
@@ -3590,15 +3665,16 @@ function createODFDelegationSeal(canonicalDirectory?: string): ReturnType<typeof
         )
       }
 
-      let conversation: { userTexts: string[]; assistantText: string } | null = null
-      try {
-        const response = await session.context({ sessionID: args.session_id })
-        conversation = readV2ContextConversation(response)
-      } catch {
-        conversation = null
-      }
-      if (!conversation || conversation.userTexts.length === 0) {
-        return blocked("delegation-child-unreadable", "The child session returned no readable conversation.", withRecord())
+      const conversationRead = await readV2SessionConversation({ session, sessionID: args.session_id })
+      const conversation = conversationRead.conversation
+      if (!conversation) {
+        return blocked(
+          "delegation-child-unreadable",
+          childIdentityObserved
+            ? "The child transcript from session.context is empty, incomplete, or unreadable; the attempt remains running and its child ID is preserved as unverified."
+            : "The child transcript from session.context is empty, incomplete, or unreadable; the delegation remains unsealed and the child identity is unverified.",
+          withRecord({ conversation_read: conversationRead.diagnostic }),
+        )
       }
       if (delegationPromptDigest(conversation.userTexts[0]) !== record.prompt_digest) {
         return blocked(
@@ -4113,11 +4189,25 @@ function createODFParallelSeal(canonicalDirectory?: string): ReturnType<typeof t
       if (!session || typeof session.get !== "function" || typeof session.wait !== "function" || typeof session.context !== "function") {
         return blocked("delegation-session-api-unavailable", "odf_parallel_seal requires the OpenCode V2 session.get, session.wait and session.context APIs to verify that each child ended before sealing.", withRecord())
       }
-
       const resultsByBranch = new Map<string, unknown>()
       const sessionByBranch = new Map<string, string>()
       for (const branch of tokenBranches) {
         const sessionId = sessions.get(branch.branch_id)!
+        const observed = observeNativeAttemptChild({
+          workspaceRoot,
+          change: record.change,
+          attemptId: branch.attempt_id,
+          branchId: branch.branch_id,
+          parentSessionId: toolCtx.sessionID,
+          childSessionId: sessionId,
+        })
+        if (!observed.record) {
+          return blocked(
+            "delegation-attempt-child-observation-failed",
+            `Branch "${branch.branch_id}" child ID could not be preserved as an unverified pointer (${observed.error || "unknown error"}); the attempt remains running.`,
+            withRecord({ branch_id: branch.branch_id, task_session_id: sessionId }),
+          )
+        }
         let child: Record<string, unknown>
         try {
           const info = await session.get({ sessionID: sessionId })
@@ -4160,15 +4250,14 @@ function createODFParallelSeal(canonicalDirectory?: string): ReturnType<typeof t
             withRecord({ branch_id: branch.branch_id, task_session_id: sessionId }),
           )
         }
-        let conversation: { userTexts: string[]; assistantText: string } | null = null
-        try {
-          const response = await session.context({ sessionID: sessionId })
-          conversation = readV2ContextConversation(response)
-        } catch {
-          conversation = null
-        }
-        if (!conversation || conversation.userTexts.length === 0) {
-          return blocked("delegation-child-unreadable", `Branch "${branch.branch_id}" returned no readable conversation.`, withRecord())
+        const conversationRead = await readV2SessionConversation({ session, sessionID: sessionId })
+        const conversation = conversationRead.conversation
+        if (!conversation) {
+          return blocked(
+            "delegation-child-unreadable",
+            `Branch "${branch.branch_id}" transcript from session.context is empty, incomplete, or unreadable; the attempt remains running and its child ID is preserved as unverified.`,
+            withRecord({ branch_id: branch.branch_id, task_session_id: sessionId, conversation_read: conversationRead.diagnostic }),
+          )
         }
         if (delegationPromptDigest(conversation.userTexts[0]) !== branch.prompt_digest) {
           return blocked(
