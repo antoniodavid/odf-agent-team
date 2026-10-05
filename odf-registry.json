@@ -614,7 +614,7 @@
         "develop",
         "build"
       ],
-      "compact_rules": "Implement tasks under the persisted route's approved plan.\n- Require authoritative work_type/plan mode and approved Expectations; never infer route from missing artifacts\n- plan: required: read REQ-XX from ASSESS; require design_closed: true and closed design tasks; otherwise block and reopen PLAN\n- plan: inline (small-change/bugfix): use completed DECIDE/FIX evidence plus bounded inline tasks/QA; formal ASSESS/DESIGN/task artifacts are not prerequisites; trace tasks to EXP-XX and focused checks\n- Follow approved decisions; if wrong or unresolved, stop for orchestrator disposition; never improvise\n- Tests with code: same commit as behavior they verify\n- Odoo DB tests require exact -d {test_db}; Docker: docker compose run --rm odoo odoo -d {test_db} -i {module} --test-enable --stop-after-init\n- Disposable test databases are preferred; a named non-isolated development DB is allowed only for the current run when the user-approved scope names and authorizes that exact DB\n- State non-isolated/user-authorized status and warn tests may mutate module, schema, and test data\n- Consent to use the DB does not authorize destructive setup; separate current consent is required for the exact operation/database\n- Smoke tests per batch: pre-commit + pylint-odoo on changed files\n- Mark tasks [x] as you go. If blocked: status: blocked",
+      "compact_rules": "Implement tasks under the persisted route's approved plan.\n- Require authoritative work_type/plan mode and approved Expectations; never infer route from missing artifacts\n- plan: required: read REQ-XX from ASSESS; require design_closed: true and closed design tasks; otherwise block and reopen PLAN\n- plan: inline (small-change/bugfix): use completed DECIDE/FIX evidence plus bounded inline tasks/QA; formal ASSESS/DESIGN/task artifacts are not prerequisites; trace tasks to EXP-XX and focused checks\n- Follow approved decisions; if wrong or unresolved, stop for orchestrator disposition; never improvise\n- Tests with code: same commit as behavior they verify\n- Odoo DB tests require exact -d {test_db}; Docker: docker compose run --rm odoo odoo -d {test_db} -i {module} --test-enable --stop-after-init\n- Disposable test databases are preferred; a named non-isolated development DB is allowed only for the current run when the user-approved scope names and authorizes that exact DB\n- State non-isolated/user-authorized status and warn tests may mutate module, schema, and test data\n- Consent to use the DB does not authorize destructive setup; separate current consent is required for the exact operation/database\n- Smoke tests per batch: pre-commit + pylint-odoo on changed files\n- Settle all candidate-affecting progress/task artifacts before writing validation evidence; write evidence last\n- Ordinary IMPLEMENT policy gates return candidate_digest=null; omit/null the optional evidence digest. Targeted fast-lane and VERIFY use their required authoritative digest; never guess or reuse stale values\n- Mark tasks [x] only after verification. If blocked: status: blocked",
       "path": "skills/odf-implement/SKILL.md",
       "odoo_versions": [
         14,
@@ -625,8 +625,13 @@
         19
       ],
       "sdd_phase": "IMPLEMENT",
-      "version": "2.4",
+      "version": "2.5",
       "changelog": [
+        {
+          "version": "2.5",
+          "date": "2026-10-05",
+          "change": "Finalize candidate artifacts before evidence and clarify IMPLEMENT digest semantics"
+        },
         {
           "version": "2.4",
           "date": "2026-10-04",
@@ -653,7 +658,7 @@
           "change": "Initial implementation flow"
         }
       ],
-      "last_updated": "2026-10-04"
+      "last_updated": "2026-10-05"
     },
     {
       "name": "odf-batch-implement",
@@ -669,7 +674,7 @@
         "T10",
         "validation evidence"
       ],
-      "compact_rules": "Bounded route-aware IMPLEMENT batch for timeout-sensitive work units/T8-T10.\n- Require persisted work_type/plan mode, approved Expectations, completed entry stage, and exact scope; never infer route from missing artifacts\n- plan: required: require approved spec, closed design, and tasks\n- plan: inline: require completed DECIDE/FIX plus bounded approved inline tasks/QA; formal ASSESS/DESIGN/task artifacts are not prerequisites\n- Batch 1 may initialize implement-progress; continuations must merge existing progress\n- One cohesive 1-3 task/file vertical slice; tests with code; strict TDD when effective\n- Merge progress and write verified validation evidence\n- Exact authorized long DB command once; no destructive setup; timeout => blocked partial evidence",
+      "compact_rules": "Bounded route-aware IMPLEMENT batch for timeout-sensitive work units/T8-T10.\n- Require persisted work_type/plan mode, approved Expectations, completed entry stage, and exact scope; never infer route from missing artifacts\n- plan: required: require approved spec, closed design, and tasks\n- plan: inline: require completed DECIDE/FIX plus bounded approved inline tasks/QA; formal ASSESS/DESIGN/task artifacts are not prerequisites\n- Batch 1 may initialize implement-progress; continuations must merge existing progress\n- One cohesive 1-3 task/file vertical slice; tests with code; strict TDD when effective\n- Finalize merged progress/task artifacts before validation evidence; capture evidence last after required checks\n- Ordinary IMPLEMENT gates return candidate_digest=null; omit/null optional evidence digest. Targeted fast-lane and VERIFY require their authoritative digest; never guess/reuse stale values\n- Exact authorized long DB command once; no destructive setup; timeout => blocked partial evidence",
       "path": "skills/odf-batch-implement/SKILL.md",
       "odoo_versions": [
         16,
@@ -678,8 +683,13 @@
         19
       ],
       "sdd_phase": "IMPLEMENT",
-      "version": "1.2",
+      "version": "1.3",
       "changelog": [
+        {
+          "version": "1.3",
+          "date": "2026-10-05",
+          "change": "Settle progress before validation evidence and clarify route-specific candidate digests"
+        },
         {
           "version": "1.2",
           "date": "2026-10-04",
@@ -691,7 +701,7 @@
           "change": "Initial bounded IMPLEMENT batch workflow"
         }
       ],
-      "last_updated": "2026-10-04"
+      "last_updated": "2026-10-05"
     },
     {
       "name": "odf-verify",

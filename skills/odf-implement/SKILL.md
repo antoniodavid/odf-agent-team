@@ -4,7 +4,7 @@ description: "Implement Odoo tasks from the plan required by the persisted workf
 license: MIT
 metadata:
   author: adruban
-  version: "2.4"
+  version: "2.5"
 ---
 
 ## Activation Contract
@@ -40,7 +40,8 @@ scope or promote inline notes into formal artifacts.
 | Project context | Name per `project_context.glossary` and follow `project_context.principles` from `odf-init/{project}`; a conflict with the approved route plan or a principle is reported and blocked — never silently deviated |
 | Tests with code | Tests belong in the same commit as the behavior they verify |
 | Smoke tests per batch | Run pre-commit + pylint-odoo on changed files after each batch |
-| Stop-validation evidence | After each batch, run the tier's stop-validation commands and write `<worktree>/.odf/validation-evidence-{change}.json` — a batch WITHOUT verified evidence does NOT close |
+| Stop-validation evidence | Settle all candidate-affecting files (including merged progress/task artifacts), run the tier's stop-validation commands, then write `<worktree>/.odf/validation-evidence-{change}.json` last — a batch WITHOUT verified evidence does NOT close |
+| Candidate digest | Ordinary IMPLEMENT policy gates currently return `candidate_digest: null`; omit/null that optional evidence field. Targeted fast-lane and VERIFY evidence must use the authoritative digest their route requires; never guess or reuse a stale value. |
 | Mark tasks as you go | Update task status immediately, not at the end |
 
 ## Decision Gates
@@ -51,16 +52,17 @@ scope or promote inline notes into formal artifacts.
 | Required formal plan is not closed (`design_closed !== true`) | Block IMPLEMENT, persist the reason, and re-open PLAN before any code change or task update |
 | Inline-plan inputs are missing, ambiguous, or exceed the approved route scope | Block IMPLEMENT and ask the orchestrator to resolve scope or escalate to formal PLAN before editing |
 | Pre-commit or pylint errors | Fix immediately before proceeding |
-| Stop-validation evidence not verified (`validation.status !== "verified"`) | Do NOT close the batch — fix, re-run the commands, rewrite the evidence file |
+| Stop-validation evidence not verified (`validation.status !== "verified"`) | Do NOT close the batch — fix the cause, settle candidate-affecting artifacts, re-run the required commands, and rewrite evidence with the route-appropriate digest |
 | All tasks in batch complete | Persist progress, return for next batch or VERIFY |
 
 ## Execution Steps
 
 1. **Retrieve route-specific inputs** from the selected store and forwarded workflow context. Require the persisted `work_type`, route plan mode, completed entry stage, approved Expectations, and exact approved scope. For `plan: required`, also read ASSESS and DESIGN/tasks and verify `design_closed === true`; otherwise stop with `blocked`, `next_recommended: ["design"]`, and no code/task edits. For `plan: inline`, use the approved Expectations and forwarded inline tasks/QA plan; do not require formal ASSESS/DESIGN/task artifacts. If required inputs are absent or conflict with the persisted route, stop and ask the orchestrator to resolve or escalate.
 2. **Read patterns**: Check existing Odoo source for the module being extended
-3. **Implement tasks**: For each task, read its REQ-XX on `plan: required` routes or its approved EXP-XX trace on `plan: inline` routes → read source patterns → write code (OCA standards) → mark [x]
-4. **Smoke test**: pre-commit run --files {changed} + pylint-odoo on changed files
-5. **Write stop-validation evidence**: run the tier's stop-validation commands and write `<worktree>/.odf/validation-evidence-{change}.json`. The Policy Gate decision injected in your prompt carries the authoritative `risk_tier`, `frozen_diff_ref`, and `candidate_digest` — use them. Minimum commands per tier (use the project's real commands from `odf-init/{project}`; no fabricated exit codes):
+3. **Implement tasks**: For each task, read its REQ-XX on `plan: required` routes or its approved EXP-XX trace on `plan: inline` routes → read source patterns → write code (OCA standards) → run focused tests; mark [x] only after the behavior is verified
+4. **Smoke test**: run pre-commit --files {changed} + pylint-odoo on changed files; finish any source/test fixes before proceeding
+5. **Finalize progress and task artifacts**: merge progress into the existing canonical artifact and update task status only from actual verification results. These files can be part of the Git candidate, so complete all such edits before final validation evidence/digest capture.
+6. **Run stop-validation and write evidence last**: run the tier's required stop-validation commands against the settled candidate, capture their real outputs, then write `<worktree>/.odf/validation-evidence-{change}.json` as the final candidate-related write. `.odf/` evidence is excluded from the candidate manifest; do not edit code, tests, progress, or other candidate files after capturing any required digest. The Policy Gate supplies the authoritative `risk_tier` and `frozen_diff_ref`; its `candidate_digest` is null for ordinary IMPLEMENT, so omit/null that optional field. Targeted fast-lane or VERIFY evidence must carry the exact digest required by that route; if it is unavailable, stop as blocked rather than guess or reuse a stale digest. Minimum commands per tier (use the project's real commands from `odf-init/{project}`; no fabricated exit codes):
    - **LOW**: ≥ 1 — e.g. `git diff --check` (+ AST parse of changed `.py`, or `xmllint --noout` when only views changed)
    - **MEDIUM**: ≥ 2 — LOW + module lint (pre-commit `--files` or pylint-odoo) + module tests (`test_command`)
    - **HIGH**: ≥ 3 — MEDIUM + `pre-commit run -a` + automated security scan (grep for `env.cr.execute` with interpolation, `eval(`, `subprocess` with `shell=True`)
@@ -70,7 +72,6 @@ scope or promote inline notes into formal artifacts.
    {
      "change": "my-change", "phase": "IMPLEMENT", "batch": 1,
      "risk_tier": "MEDIUM", "frozen_diff_ref": "<same ref as the policy gate>",
-      "candidate_digest": "<same digest as the policy gate>",
      "resolved_at": "<ISO-8601>",
      "commands": [
        { "name": "git-diff-check", "command": "git diff --check", "exit_code": 0, "output_tail": "..." },
@@ -80,10 +81,9 @@ scope or promote inline notes into formal artifacts.
     ```
     - When `{test_db}` is non-isolated, include the non-isolated/user-authorized statement and mutation warning in the ODF Result and evidence.
    - Evidence is smoke for THIS batch — the compliance matrix, review lenses, and correction budget remain in VERIFY. Do not grow this into a parallel VERIFY.
-6. **Persist progress** in the selected store with its canonical `artifact_ref`.
-   Update the closed design/task artifact on formal-plan routes; on inline-plan
-   routes, maintain the canonical implementation-progress checklist and trace
-   completed tasks to the approved inline plan.
+7. **Return evidence and progress refs** in the ODF Result. Do not make further
+   candidate-file edits after writing validation evidence; all canonical design,
+   task, and progress updates must already be persisted.
 
 ## Test Discipline
 
