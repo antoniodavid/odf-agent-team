@@ -63,7 +63,7 @@ evidence gates remain required by the resolved route.
 5. **Load project configuration** from `odf-init/{project}` if it exists.
 6. **Run the preflight gate**: if it is incomplete, ask for the missing fields in English and validate them, but keep it in memory; do not persist it yet.
 7. **Construct ICE context once** from already available project facts, then invoke `odf_entry_triage`. The optional `ice_context` envelope is reference-only: it contains bounded provenance, safe references, and classifier metadata, never raw intent or Expectations content. Forward it only to entry triage; do not persist it, send it to phase delegation, or build a second context artifact. Explicit/current user fields and approved Expectations remain authoritative; valid context only fills omitted facts, while risk signals may add a monotonic escalation. Invalid, unsafe, or incomplete context is ignored with a warning and cannot make the request more eligible. Do not invent project facts or automatically query CodeGraph in this slice.
-8. **Classify the entry** with `odf_entry_triage`: pass the parsed `description` and the available optional fields (`module`, `domain`, `expected_files`, `expectations_clear`, `risk_signals`). Pass `known_modules` with the project modules from `odf-init/{project}` (persisted config) so triage flags nonexistent modules. If `needs_question` is `true`, ask ONE grouped question (data + intent/context/Expectations when the description is not concrete) and re-run triage. Use its `work_type`; do not choose it freely. Migration/security/payment/public API/data-loss/pii are never micro.
+8. **Classify the entry** with `odf_entry_triage`: pass the parsed `description` and the available optional fields (`module`, `domain`, `expected_files`, `expectations_clear`, `risk_signals`). Pass `known_modules` with the project modules from `odf-init/{project}` (persisted config) so triage flags nonexistent modules. A bounded single-module/domain change with clear expectations and up to five predicted files qualifies as `small-change`. If `needs_question` is `true`, the returned work type is provisional: ask ONE grouped question (data + intent/context/Expectations when the description is not concrete) and re-run triage with the answers. Do not bind, delegate, or present a final route until `needs_question` is `false`; unresolved facts block rather than default to `feature`. Use the final `work_type`; do not choose it freely. Migration/security/payment/public API/data-loss/pii are never micro.
 9. **Redundancy pre-check (before PROPOSE)**: with domain terms from the `description`, run:
    ```
    PACK="${ODF_CONFIG_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/opencode}"
@@ -100,7 +100,7 @@ that route.
 When the explicit policy enables the contract, follow the single bounded IMPLEMENT prompt and
 existing gate requirements in [the orchestrator contract](../agent/odoo_orchestrator.md#opt-in-inline-build-contract-fl-06).
 The prompt must reference approved human Expectations/intent, one known module, one functional
-domain, no more than three predicted files, only relevant context files, exact source roots,
+domain, no more than five predicted files, only relevant context files, exact source roots,
 the configured test command and authorized test database, validation evidence, source authority,
 an out-of-scope guard, and escalation conditions. It must still call `odf_delegate` at the
 canonical `small-change` BUILD stage with exact `workflow_advance`, an explicit artifact store,

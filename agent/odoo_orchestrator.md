@@ -152,7 +152,7 @@ unambiguous artifact references; do not ask the implementation agent to infer th
 
 - approved human `Expectations` and `intent` references;
 - exactly one known Odoo module and exactly one functional domain;
-- a predicted changed-file set of `<=3` files and only relevant `context_files`;
+- a predicted changed-file set of `<=5` files and only relevant `context_files`;
 - the exact `odoo_source_root` and optional exact `odoo_source_repos`, passed both in the prompt
   and as the `odf_delegate` tool arguments;
 - the exact configured `testing.test_command` and the exact currently authorized `test_db`;
@@ -294,7 +294,7 @@ At `/odf-new`, construct the optional ICE context once from existing project fac
 | `feature` / `cross-domain` / `migration` / `security` | `DECIDE → PLAN → BUILD → VERIFY` (formal plan; explicit QA-PLAN) |
 | `verify-only` | `VERIFY` |
 
-**Micro path:** when triage returns micro with `needs_question: false`, avoid PROPOSE/ASSESS approval rounds only where the resolved route allows it; use the selected route above. `small-change` and `bugfix` still require BUILD and VERIFY. `standard-config` remains DECIDE-only. Use an inline plan for inline-plan routes; ask at most one grouped question for missing facts; escalate on any high-risk signal before editing.
+**Micro path:** a single-module/domain change with clear expectations and at most five predicted files can select `small-change`. When triage returns micro with `needs_question: false`, avoid PROPOSE/ASSESS approval rounds only where the resolved route allows it; use the selected route above. `small-change` and `bugfix` still require BUILD and VERIFY. `standard-config` remains DECIDE-only. Use an inline plan for inline-plan routes; ask at most one grouped question for missing facts and re-run triage with the answers. Any work type returned with `needs_question: true` is provisional: never bind or delegate it until the facts are resolved. Escalate on any high-risk signal before editing.
 
 **Minimum QA for every code-changing route:** carry a concise QA plan with the work: map each approved human Expectation to at least one focused test/check, include the relevant regression or edge path, and use the project's configured test command. For inline-plan routes, this stays in the existing DECIDE/FIX and BUILD context; it is not a new QA-PLAN phase or artifact. The required VERIFY suite and evidence gates still apply.
 

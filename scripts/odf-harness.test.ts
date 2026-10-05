@@ -45,7 +45,7 @@ describe("harness smoke: core determinism", () => {
   it("triage: risk escalates, micro stays micro, standard-config routes cheap, vague asks ICE", () => {
     const risky = classifyEntryTriage({ change: "c", description: "Expose a public API webhook endpoint" })
     expect(risky).toMatchObject({ level: "full", work_type: "feature" })
-    const micro = classifyEntryTriage({ change: "c", description: "Add a computed discount field to sale.order.", module: "sale", domain: "sales", expected_files: 2, expectations_clear: true })
+    const micro = classifyEntryTriage({ change: "c", description: "Add a computed discount field to sale.order.", module: "sale", domain: "sales", expected_files: 5, expectations_clear: true })
     expect(micro).toMatchObject({ level: "micro", work_type: "small-change" })
     const config = classifyEntryTriage({ change: "c", description: "Install and configure l10n_mx_edi on the instance." })
     expect(config).toMatchObject({ level: "micro", work_type: "standard-config" })
