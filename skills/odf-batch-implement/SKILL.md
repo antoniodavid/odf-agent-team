@@ -4,7 +4,7 @@ description: "Trigger: bounded batch, work unit, IMPLEMENT batch, timeout-sensit
 license: MIT
 metadata:
   author: adruban
-  version: "1.2"
+  version: "1.3"
 ---
 
 ## Activation Contract
@@ -19,7 +19,8 @@ backend/frontend IMPLEMENT work stays with its domain specialist.
 - **Keep `implement-progress` a checklist.** BUILD is terminal only when its selected canonical artifact is terminal; the `implement-progress` checklist must have every step marked `[x]` (or a success `status:` line). A prose slice log is not terminal and the commit gate refuses the stage. Older `tasks.md` / `apply-progress.md` files are legacy fallbacks only when no canonical `build` or `implement-progress` artifact exists; they cannot override an incomplete canonical artifact. `build_completed`/`completed_canonical_stages` are state-record keys read from `state.yaml`, not from the artifact — writing them here changes nothing.
 - Implement one cohesive batch, normally 1-3 related tasks/files. Do not redesign, broaden scope, or re-research settled decisions.
 - Write code early in vertical slices; add tests with the code. When effective strict TDD is on, prove red before implementation.
-- Merge progress, task status, and required validation evidence in the selected ODF store. Keep technical output English.
+- Merge progress and task status before final validation evidence; keep technical output English. These candidate-affecting artifacts must be settled before digest capture, and the `.odf` evidence file is written last.
+- Ordinary IMPLEMENT policy gates currently return `candidate_digest: null`; leave the optional evidence field omitted/null instead of copying null, reusing a stale value, or inventing one. Targeted fast-lane and VERIFY evidence must use the authoritative digest their route requires; if unavailable, block rather than guess.
 - Never perform destructive database setup.
 - For view/XML/QWeb/OWL view work, record source-authority evidence; otherwise report that source authority is not required.
 
@@ -33,8 +34,9 @@ backend/frontend IMPLEMENT work stays with its domain specialist.
 
 1. Read the forwarded task, persisted route context, approved Expectations, and the route-appropriate plan inputs: spec/closed design/tasks for `plan: required`, or bounded inline tasks/QA plan for `plan: inline`. Read source authority and project test command. Read existing progress for continuation; initialize minimal progress for batch 1 when absent. If route context or required inputs are missing/contradictory, stop as `blocked` before editing.
 2. Implement the selected vertical slice and its test; avoid unrelated files.
-3. Run focused checks and the authorized DB command once when required.
-4. Persist merged progress and validation evidence; report files, exits, unfinished work, and conditional source-authority refs for view work.
+3. After the slice's focused tests pass, finalize/merge progress and task artifacts from those results.
+4. Run the required focused checks and authorized DB command against the settled candidate (once when required). If a check requires any source or progress change, settle the artifacts again and rerun the affected required checks before recording evidence.
+5. Write validation evidence last with actual outputs and only the route-appropriate candidate digest; `.odf` evidence itself is excluded from the candidate manifest. Report files, exits, unfinished work, and conditional source-authority refs for view work.
 
 ## Output Contract
 
@@ -42,6 +44,7 @@ Return the shared `## ODF Result` with `status`, `executive_summary`, `strategy`
 
 ## Changelog
 
+- 1.3 - Settle progress before validation evidence and clarify route-specific candidate digests.
 - 1.2 - Allow route-approved inline-plan BUILD without requiring formal ASSESS/DESIGN/task artifacts.
 - 1.1 - Allow batch 1 progress initialization and require conditional view source evidence.
 
