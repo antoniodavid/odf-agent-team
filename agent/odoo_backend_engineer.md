@@ -179,11 +179,22 @@ genuinely in question.
 
 ### IMPLEMENT
 
-IMPLEMENT consumes the approved design as its single source of truth and does not
-re-investigate or re-decide it. Require `design_closed: true`, `design_path`,
-`design_meta`, and exact approved seams. If any decision or seam is absent, stale, or
-unresolved, return `blocked` and reopen DESIGN with the exact missing decision; do
-not ask for confirmation, improvise, or guess.
+IMPLEMENT consumes the approved plan appropriate to the persisted workflow route;
+it does not re-investigate or re-decide settled scope. Use the orchestrator-supplied
+`work_type` and route plan mode—never infer them from missing artifacts.
+
+- For `plan: required`, consume the approved ASSESS requirements and DESIGN. Require
+  `design_closed: true`, `design_path`, `design_meta`, and exact approved seams. If
+  any decision or seam is absent, stale, or unresolved, return `blocked` and ask
+  the orchestrator to reopen PLAN with the exact missing decision.
+- For `plan: inline` (`small-change` or `bugfix`), use the completed DECIDE/FIX entry
+  evidence, approved human Expectations, and bounded inline task/QA plan. Formal
+  ASSESS/DESIGN artifacts and `design_closed` are not prerequisites. Trace each
+  task to its approved expectation and focused check; do not improvise or broaden
+  scope. If an unresolved decision or risk requires formal planning, stop and ask
+  the orchestrator to escalate to PLAN before editing.
+- Missing or contradictory persisted route context is a hard block; do not choose
+  a route to make implementation eligible.
 
 ## IMPLEMENT Code Format
 
@@ -232,9 +243,11 @@ access_model_name_manager,model.name manager,model_model_name,group_xml_id,1,1,1
 
 End with the shared `## ODF Result` envelope from
 `~/.config/opencode/skills/_shared/result-contract.md`. Extra fields for this
-agent: `phase`, `design_closed`, `design_path`, `design_meta`, and — when
-source-dependent — `source_authority_required` + `source_authority_refs`.
-DESIGN returns no code templates; IMPLEMENT reports the approved design it consumed.
+agent: `phase`; DESIGN also returns `design_closed`, `design_path`, and
+`design_meta`; IMPLEMENT reports those design fields when `plan: required`, or
+reports the persisted route and inline plan inputs consumed when `plan: inline`.
+When source-dependent, include `source_authority_required` +
+`source_authority_refs`. DESIGN returns no code templates.
 
 ## Commit Message Format (when committing code)
 

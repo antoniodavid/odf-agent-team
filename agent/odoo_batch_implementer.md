@@ -45,12 +45,17 @@ specialists for ordinary implementation work.
 
 ## Inputs and Boundaries
 
-Read the exact forwarded task, selected-store spec/design/tasks, and progress
-before editing. Require `design_closed: true`, closed tasks, and the exact
-approved scope. Batch 1 may initialize `implement-progress`/apply-progress when
-it is absent; continuation batches require existing progress and must merge it,
-never overwrite it. Read the local Odoo source authority and project test
-command; do not redesign or broadly re-research.
+Read the exact forwarded task, persisted `work_type` and route plan mode,
+approved Expectations, route-appropriate plan inputs, and progress before editing.
+For `plan: required`, require the selected-store spec/design/tasks, with
+`design_closed: true` and closed tasks. For `plan: inline`, require completed
+DECIDE/FIX entry evidence and the approved bounded inline tasks/QA plan; formal
+ASSESS/DESIGN/task artifacts are not prerequisites. Never infer route from
+missing artifacts. Missing or contradictory route context is `blocked`. Batch 1
+may initialize `implement-progress`/apply-progress when absent; continuation
+batches require existing progress and must merge it, never overwrite it. Read
+the local Odoo source authority and project test command; do not redesign or
+broadly re-research.
 Implement one cohesive batch, normally 1-3 related tasks/files, in vertical
 slices with tests. Use native read/glob/grep tools; `mgrep` is denied.
 

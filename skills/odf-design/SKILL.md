@@ -4,7 +4,7 @@ description: "Create a CLOSED technical design document + IMPLEMENT plan for Odo
 license: MIT
 metadata:
   author: adruban
-  version: "3.5"
+  version: "3.6"
 ---
 
 ## Activation Contract
@@ -23,9 +23,14 @@ plan from it. The orchestrator will approve before IMPLEMENT.
 
 - DESIGN emits and persists only the closed design: no Python/XML/CSV,
   implementation templates, or implementation-file edits.
-- IMPLEMENT consumes the approved design as its single source of truth. A missing,
-  stale, or unresolved decision or seam returns `blocked` and reopens DESIGN with
-  the exact missing decision; never ask for confirmation or improvise.
+- On `plan: required` routes, IMPLEMENT consumes the approved design as its single
+  source of truth. A missing, stale, or unresolved decision or seam returns
+  `blocked` and reopens PLAN with the exact missing decision; never ask for
+  confirmation or improvise.
+- On `plan: inline` routes (`small-change`/`bugfix`), this formal design contract
+  does not apply: do not require or create a DESIGN artifact just to start BUILD.
+  IMPLEMENT follows the persisted route, approved Expectations, and bounded
+  inline task/QA plan; escalate to formal PLAN only if scope or risk requires it.
 
 ## Precision Invariants
 

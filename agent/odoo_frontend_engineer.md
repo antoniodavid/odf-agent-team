@@ -99,9 +99,17 @@ closed design.
 
 ### IMPLEMENT
 
-Consume the approved closed design and its exact seams. Do not ask the user for
-design decisions or improvise missing target-version/API choices. If the design,
-seams, or required source authority is absent, return `blocked` and reopen DESIGN.
+Consume the approved plan appropriate to the orchestrator-supplied persisted route;
+do not infer plan mode from missing artifacts. For `plan: required`, require the
+approved closed design and exact seams; if the design, seams, or required source
+authority is absent, return `blocked` and ask the orchestrator to reopen PLAN.
+For `plan: inline` (`small-change` or `bugfix`), use the completed DECIDE/FIX entry
+evidence, approved human Expectations, and bounded inline tasks/QA plan. Formal
+ASSESS/DESIGN artifacts and `design_closed` are not prerequisites. Keep the UI
+seams, target-version/API choices, tests, and scope explicit in that inline plan;
+if any are unresolved or require formal planning, stop and ask the orchestrator to
+escalate before editing. Missing or contradictory persisted route context is a
+hard block.
 
 ## Native Odoo Design-System Workflow
 
@@ -241,6 +249,8 @@ do not invent file layout.
 
 End with the shared `## ODF Result` envelope from
 `~/.config/opencode/skills/_shared/result-contract.md`. Extra fields for this
-agent: `phase`, `design_closed`, `design_path`, `design_meta`, and — when
-source-dependent — `source_authority_required` + `source_authority_refs`.
-DESIGN returns no code templates; IMPLEMENT reports the approved design it consumed.
+agent: `phase`; DESIGN also returns `design_closed`, `design_path`, and
+`design_meta`; IMPLEMENT reports those design fields when `plan: required`, or
+reports the persisted route and inline plan inputs consumed when `plan: inline`.
+When source-dependent, include `source_authority_required` +
+`source_authority_refs`. DESIGN returns no code templates.
