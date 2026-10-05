@@ -214,6 +214,7 @@ export interface ODFRegistry {
 export const ODF_REGISTERED_TOOLS = [
   "odf_delegate",
   "odf_delegation_prepare",
+  "odf_delegation_launch",
   "odf_proposal_write",
   "odf_delegation_seal",
   "odf_parallel_delegate",

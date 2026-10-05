@@ -172,6 +172,99 @@ describe("native prepare/seal delegation", () => {
     expect(read.record?.prompt_digest).toBe(delegationPromptDigest(output.delegation.prompt))
   }, 10_000)
 
+  it("submits the exact prepared prompt and does not resend it on retry", async () => {
+    const prepared = await prepareDesign()
+    const session = {
+      create: vi.fn().mockResolvedValue({ id: "ses_programmatic" }),
+      prompt: vi.fn().mockResolvedValue(undefined),
+      interrupt: vi.fn().mockResolvedValue(undefined),
+    }
+    const { odf_delegation_launch } = await tools()
+    const args = { token: prepared.token, change: prepared.change, prompt: prepared.delegation.prompt }
+    const context = { sessionID: "prepare-session", abort: new AbortController().signal, [ODF_V2_SESSION]: session } as any
+
+    const launched = JSON.parse(await odf_delegation_launch.execute(args, context) as string)
+    const retry = JSON.parse(await odf_delegation_launch.execute(args, context) as string)
+
+    expect(launched).toMatchObject({ status: "launched", sessions: [{ session_id: "ses_programmatic", status: "submitted" }] })
+    expect(retry).toMatchObject({ status: "launched", sessions: [{ session_id: "ses_programmatic", status: "submitted", prompt_resent: false }] })
+    expect(session.prompt).toHaveBeenCalledTimes(1)
+    expect(session.prompt).toHaveBeenCalledWith({ sessionID: "ses_programmatic", text: prepared.delegation.prompt })
+    expect(session.create).toHaveBeenCalledTimes(1)
+    expect(readDelegationToken(tempHome, prepared.change, prepared.token).record?.launch).toMatchObject({
+      parent_session_id: "prepare-session",
+      child_session_id: "ses_programmatic",
+      state: "submitted",
+    })
+  })
+
+  it("rejects byte-different prompts before child creation without exposing prompt text", async () => {
+    const prepared = await prepareDesign()
+    const alteredPrompt = prepared.delegation.prompt.replace("→", "->")
+    const session = { create: vi.fn(), prompt: vi.fn(), interrupt: vi.fn() }
+    const { odf_delegation_launch } = await tools()
+
+    const resultText = await odf_delegation_launch.execute({
+      token: prepared.token, change: prepared.change, prompt: alteredPrompt,
+    }, { sessionID: "prepare-session", [ODF_V2_SESSION]: session } as any) as string
+    const result = JSON.parse(resultText)
+
+    expect(result).toMatchObject({ status: "blocked", reason: "delegation-prompt-mismatch" })
+    expect(resultText).not.toContain(prepared.delegation.prompt)
+    expect(resultText).not.toContain(alteredPrompt)
+    expect(session.create).not.toHaveBeenCalled()
+    expect(session.prompt).not.toHaveBeenCalled()
+  })
+
+  it("serializes concurrent launch calls for one token", async () => {
+    const prepared = await prepareDesign()
+    let finishCreate!: (value: { id: string }) => void
+    const session = {
+      create: vi.fn(() => new Promise<{ id: string }>(resolve => { finishCreate = resolve })),
+      prompt: vi.fn().mockResolvedValue(undefined),
+      interrupt: vi.fn().mockResolvedValue(undefined),
+    }
+    const { odf_delegation_launch } = await tools()
+    const args = { token: prepared.token, change: prepared.change, prompt: prepared.delegation.prompt }
+    const context = { sessionID: "prepare-session", abort: new AbortController().signal, [ODF_V2_SESSION]: session } as any
+
+    const firstPromise = odf_delegation_launch.execute(args, context) as Promise<string>
+    await vi.waitFor(() => expect(session.create).toHaveBeenCalledTimes(1))
+    const concurrent = JSON.parse(await odf_delegation_launch.execute(args, context) as string)
+    finishCreate({ id: "ses_concurrent" })
+    const first = JSON.parse(await firstPromise)
+
+    expect(concurrent).toMatchObject({ status: "blocked", reason: "delegation-launch-in-progress" })
+    expect(first.sessions).toMatchObject([{ session_id: "ses_concurrent", status: "submitted" }])
+    expect(session.create).toHaveBeenCalledTimes(1)
+    expect(session.prompt).toHaveBeenCalledTimes(1)
+  })
+
+  it("does not resubmit an interrupted prompt or create a duplicate child", async () => {
+    const prepared = await prepareDesign()
+    const controller = new AbortController()
+    const session = {
+      create: vi.fn().mockResolvedValue({ id: "ses_interrupted" }),
+      prompt: vi.fn().mockImplementation(async () => { controller.abort() }),
+      interrupt: vi.fn().mockResolvedValue(undefined),
+    }
+    const { odf_delegation_launch } = await tools()
+    const args = { token: prepared.token, change: prepared.change, prompt: prepared.delegation.prompt }
+
+    const first = JSON.parse(await odf_delegation_launch.execute(args, {
+      sessionID: "prepare-session", abort: controller.signal, [ODF_V2_SESSION]: session,
+    } as any) as string)
+    const retry = JSON.parse(await odf_delegation_launch.execute(args, {
+      sessionID: "prepare-session", abort: new AbortController().signal, [ODF_V2_SESSION]: session,
+    } as any) as string)
+
+    expect(first).toMatchObject({ status: "launch-pending", sessions: [{ session_id: "ses_interrupted", status: "interrupted", prompt_resent: false }] })
+    expect(retry.sessions).toMatchObject([{ session_id: "ses_interrupted", status: "interrupted", prompt_resent: false }])
+    expect(session.create).toHaveBeenCalledTimes(1)
+    expect(session.prompt).toHaveBeenCalledTimes(1)
+    expect(session.interrupt).toHaveBeenCalledWith({ sessionID: "ses_interrupted" })
+  })
+
   it("requires the selected store for native PROPOSE", async () => {
     const { odf_delegation_prepare } = await tools()
     const result = JSON.parse(await odf_delegation_prepare.execute({
