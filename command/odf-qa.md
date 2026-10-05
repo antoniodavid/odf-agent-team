@@ -57,10 +57,10 @@ Use for:
 
 ### 3. Run the QA activity
 
-For a canonical phase such as QA-PLAN, use the native
-`odf_delegation_prepare` → host `subagent` → `odf_delegation_seal` sequence when
-available; otherwise use `odf_delegate` and its skill resolution. Pass the
-prepared prompt verbatim and never call `task()` directly. Legacy artifact names
+For a canonical phase such as QA-PLAN, on OpenCode V2 use the native
+`odf_delegation_prepare` → `odf_delegation_launch` → `odf_delegation_seal` route;
+otherwise use `odf_delegate` and its skill resolution. Pass the prepared prompt
+unchanged and never call `task()` or host `subagent` for this serial delegation. Legacy artifact names
 are kept as compatibility adapters. QA-REVIEW/AGGREGATE/REPORT are supplemental
 lenses inside an already-open BUILD/VERIFY attempt, not new canonical phases.
 With strict workflow active by default, every
