@@ -168,5 +168,7 @@ When providing DevOps/DBA assistance, structure your response as follows:
 
 End with the shared `## ODF Result` envelope from
 `~/.config/opencode/skills/_shared/result-contract.md`. Extra fields for this
-agent: `phase` (DESIGN | IMPLEMENT), `design_closed`/`design_path`/`design_meta`
-+ `required_evidence` (DESIGN), `implementation_evidence` (IMPLEMENT).
+agent: `phase` (DESIGN | IMPLEMENT); DESIGN also returns
+`design_closed`/`design_path`/`design_meta` and `required_evidence`; IMPLEMENT
+returns `implementation_evidence` and reports the persisted route/plan inputs
+consumed (plus design fields only when `plan: required`).

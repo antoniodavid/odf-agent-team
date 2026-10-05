@@ -9,11 +9,30 @@ const reviewer = read("../agent/odoo_code_reviewer.md")
 const verify = read("../skills/odf-verify/SKILL.md")
 const design = read("../skills/odf-design/SKILL.md")
 const designContract = read("../docs/design-contract.md")
+const implement = read("../skills/odf-implement/SKILL.md")
+const batchImplement = read("../skills/odf-batch-implement/SKILL.md")
+const backendEngineer = read("../agent/odoo_backend_engineer.md")
+const frontendEngineer = read("../agent/odoo_frontend_engineer.md")
 
 describe("cross-artifact audit contract", () => {
   it("orchestrator audits EXP/REQ/tasks before BUILD", () => {
     expect(orchestrator).toContain("Cross-artifact consistency audit")
     expect(orchestrator).toContain("scope creep")
+  })
+})
+
+describe("route-aware BUILD input contract", () => {
+  it("keeps closed design mandatory only for routes that require formal PLAN", () => {
+    expect(implement).toContain("When the route has `plan: required`")
+    expect(implement).toContain("When the route has `plan: inline`")
+    expect(implement).toMatch(/Formal\s+ASSESS, QA-PLAN, DESIGN, and task artifacts are not prerequisites/)
+    expect(design).toMatch(/this formal design contract\s+does not apply/)
+    expect(design).toContain("do not require or create a DESIGN artifact just to start BUILD")
+    expect(batchImplement).toContain("For `plan: inline`, require the approved inline implementation tasks and QA plan")
+    expect(backendEngineer).toMatch(/Formal\s+ASSESS\/DESIGN artifacts and `design_closed` are not prerequisites/)
+    expect(frontendEngineer).toMatch(/Formal\s+ASSESS\/DESIGN artifacts and `design_closed` are not prerequisites/)
+    expect(orchestrator).toContain("route-aware BUILD input audit")
+    expect(orchestrator).toMatch(/Do not require\s+formal ASSESS, QA-PLAN, DESIGN, or task artifacts for this route/)
   })
 })
 
@@ -72,7 +91,6 @@ const dba = read("../agent/odoo_dba_devops.md")
 const migrator = read("../agent/odoo_upgrade_migrator.md")
 const explore = read("../skills/odf-explore/SKILL.md")
 const styleGuide = read("../docs/skill-style-guide.md")
-const implement = read("../skills/odf-implement/SKILL.md")
 
 describe("operations contracts", () => {
   it("dba generates wizards for human-only steps", () => {

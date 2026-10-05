@@ -557,7 +557,7 @@
         "architecture",
         "task breakdown"
       ],
-      "compact_rules": "Produce a CLOSED design per docs/design-contract.md; apply the closed-design checklist, iterate when not closed, and emit no implementation code or edits.\n- Read approved ASSESS REQ-XX + human EXPECTATIONS EXP-XX and target module source first\n- Keep the requested change minimal: reuse repository conventions; no speculative refactors/features\n- Resolve every EXP-XX into concrete fields/models/views/security/data decisions; data model covers _name/_inherit, types, required, index, relation, and default\n- Views cover type/action/domain/menu parent; security covers ir.model.access.csv by group plus ir.rule; trace every task to REQ-XX/EXP-XX and exact files\n- Source authority: target repository/source -> approved ODF artifacts/project conventions -> external references as needed -> model memory last; verify source claims with odf-toolkit; hand off OWL/JavaScript seams to odoo_frontend_engineer\n- Fix new vs inherited module and derive IMPLEMENT tasks from closed tables; missing or product-behavior decision -> blocked with exact decision and reopen DESIGN, never ask for confirmation or improvise",
+      "compact_rules": "Formal PLAN only: produce a CLOSED design per docs/design-contract.md; apply the closed-design checklist, iterate when not closed, and emit no implementation code or edits.\n- Read approved ASSESS REQ-XX + human EXPECTATIONS EXP-XX and target module source first\n- Keep the requested change minimal: reuse repository conventions; no speculative refactors/features\n- Resolve every EXP-XX into concrete fields/models/views/security/data decisions; data model covers _name/_inherit, types, required, index, relation, and default\n- Views cover type/action/domain/menu parent; security covers ir.model.access.csv by group plus ir.rule; trace every task to REQ-XX/EXP-XX and exact files\n- Source authority: target repository/source -> approved ODF artifacts/project conventions -> external references as needed -> model memory last; verify source claims with odf-toolkit; hand off OWL/JavaScript seams to odoo_frontend_engineer\n- For plan: required, derive IMPLEMENT tasks from closed tables; missing/product-behavior decision -> blocked and reopen PLAN. For plan: inline (small-change/bugfix), do not require/create a formal DESIGN artifact; use approved Expectations + inline tasks/QA and escalate only when scope/risk needs formal PLAN",
       "path": "skills/odf-design/SKILL.md",
       "odoo_versions": [
         14,
@@ -568,8 +568,13 @@
         19
       ],
       "sdd_phase": "DESIGN",
-      "version": "3.5",
+      "version": "3.6",
       "changelog": [
+        {
+          "version": "3.6",
+          "date": "2026-10-04",
+          "change": "Clarify closed-design applicability by persisted route"
+        },
         {
           "version": "3.5",
           "date": "2026-09-21",
@@ -596,7 +601,7 @@
           "change": "Initial design flow"
         }
       ],
-      "last_updated": "2026-08-17"
+      "last_updated": "2026-10-04"
     },
     {
       "name": "odf-implement",
@@ -609,7 +614,7 @@
         "develop",
         "build"
       ],
-      "compact_rules": "Implement assigned tasks in batches following spec + closed design.\n- Read REQ-XX from assess before implementing each task\n- If design_closed is not true, block and reopen DESIGN; never improvise\n- Follow design decisions. If wrong: NOTE IT, don't silently deviate\n- Tests with code: same commit as behavior they verify\n- Odoo DB tests require exact -d {test_db}; Docker: docker compose run --rm odoo odoo -d {test_db} -i {module} --test-enable --stop-after-init\n- Disposable test databases are preferred; a named non-isolated development DB is allowed only for the current run when the user-approved scope names and authorizes that exact DB\n- State non-isolated/user-authorized status and warn tests may mutate module, schema, and test data\n- Consent to use the DB does not authorize destructive setup; separate current consent is required for the exact operation/database\n- Smoke tests per batch: pre-commit + pylint-odoo on changed files\n- Mark tasks [x] as you go. If blocked: status: blocked",
+      "compact_rules": "Implement tasks under the persisted route's approved plan.\n- Require authoritative work_type/plan mode and approved Expectations; never infer route from missing artifacts\n- plan: required: read REQ-XX from ASSESS; require design_closed: true and closed design tasks; otherwise block and reopen PLAN\n- plan: inline (small-change/bugfix): use completed DECIDE/FIX evidence plus bounded inline tasks/QA; formal ASSESS/DESIGN/task artifacts are not prerequisites; trace tasks to EXP-XX and focused checks\n- Follow approved decisions; if wrong or unresolved, stop for orchestrator disposition; never improvise\n- Tests with code: same commit as behavior they verify\n- Odoo DB tests require exact -d {test_db}; Docker: docker compose run --rm odoo odoo -d {test_db} -i {module} --test-enable --stop-after-init\n- Disposable test databases are preferred; a named non-isolated development DB is allowed only for the current run when the user-approved scope names and authorizes that exact DB\n- State non-isolated/user-authorized status and warn tests may mutate module, schema, and test data\n- Consent to use the DB does not authorize destructive setup; separate current consent is required for the exact operation/database\n- Smoke tests per batch: pre-commit + pylint-odoo on changed files\n- Mark tasks [x] as you go. If blocked: status: blocked",
       "path": "skills/odf-implement/SKILL.md",
       "odoo_versions": [
         14,
@@ -620,8 +625,13 @@
         19
       ],
       "sdd_phase": "IMPLEMENT",
-      "version": "2.2",
+      "version": "2.4",
       "changelog": [
+        {
+          "version": "2.4",
+          "date": "2026-10-04",
+          "change": "Make IMPLEMENT compact rules route-aware for inline-plan BUILD"
+        },
         {
           "version": "2.2",
           "date": "2026-08-21",
@@ -643,7 +653,7 @@
           "change": "Initial implementation flow"
         }
       ],
-      "last_updated": "2026-08-21"
+      "last_updated": "2026-10-04"
     },
     {
       "name": "odf-batch-implement",
@@ -659,7 +669,7 @@
         "T10",
         "validation evidence"
       ],
-      "compact_rules": "Bounded IMPLEMENT batch for timeout-sensitive work units/T8-T10.\n- Require closed spec/design/tasks and existing implement-progress before editing\n- One cohesive 1-3 task/file vertical slice; tests with code; strict TDD when effective\n- Merge progress and write verified validation evidence\n- Exact authorized long DB command once; no destructive setup; timeout => blocked partial evidence",
+      "compact_rules": "Bounded route-aware IMPLEMENT batch for timeout-sensitive work units/T8-T10.\n- Require persisted work_type/plan mode, approved Expectations, completed entry stage, and exact scope; never infer route from missing artifacts\n- plan: required: require approved spec, closed design, and tasks\n- plan: inline: require completed DECIDE/FIX plus bounded approved inline tasks/QA; formal ASSESS/DESIGN/task artifacts are not prerequisites\n- Batch 1 may initialize implement-progress; continuations must merge existing progress\n- One cohesive 1-3 task/file vertical slice; tests with code; strict TDD when effective\n- Merge progress and write verified validation evidence\n- Exact authorized long DB command once; no destructive setup; timeout => blocked partial evidence",
       "path": "skills/odf-batch-implement/SKILL.md",
       "odoo_versions": [
         16,
@@ -668,15 +678,20 @@
         19
       ],
       "sdd_phase": "IMPLEMENT",
-      "version": "1.0",
+      "version": "1.2",
       "changelog": [
+        {
+          "version": "1.2",
+          "date": "2026-10-04",
+          "change": "Allow route-approved inline-plan BUILD without formal PLAN artifacts"
+        },
         {
           "version": "1.0",
           "date": "2026-08-26",
           "change": "Initial bounded IMPLEMENT batch workflow"
         }
       ],
-      "last_updated": "2026-08-26"
+      "last_updated": "2026-10-04"
     },
     {
       "name": "odf-verify",

@@ -534,10 +534,25 @@ comes from `odf_workflow_route`; adapters must not create extra business stages.
 
 - Select the domain agent(s), using the ASSESS and QA artifacts plus codebase context.
 - Persist `odf/{change}/design`.
-- **Cross-artifact consistency audit (before any planned BUILD)**: read the persisted proposal, `assess` (REQ-XX), `expectations` (EXP-XX), `design`, and `qa-plan` when formal QA-PLAN ran. Check by ID: (a) every EXP-XX is resolved in the design and covered by at least one REQ-XX; (b) every REQ-XX maps to at least one design task and one test/check, using the inline QA plan when no `qa-plan` artifact exists; (c) every design task traces to a REQ-XX and nothing exceeds the proposal's in-scope capabilities (scope creep); (d) no dangling IDs. Report the audit as a compact table; any gap stops progression and is presented with the exact missing/extra IDs — adjust the design, re-plan, or cancel. Never delegate BUILD with an unresolved gap.
-- In `interactive`, show the task list and ask to approve, adjust, or cancel; in `batch` and `auto`, continue only for inner `ok`/`warning` AND a clean audit. `blocked`/`failed`, correction, or disposition stops.
+- In `interactive`, show the task list and ask to approve, adjust, or cancel; in `batch` and `auto`, continue only for inner `ok`/`warning`. `blocked`/`failed`, correction, or disposition stops.
 
 ### IMPLEMENT
+
+Before delegation, perform the **Cross-artifact consistency audit (route-aware BUILD input audit)** using the persisted
+`work_type` and authoritative route (never infer from triage labels or missing
+artifacts). For `plan: required`, audit the proposal, ASSESS (REQ-XX), approved
+Expectations (EXP-XX), DESIGN, and `qa-plan` when formal QA-PLAN ran: every
+expectation must be resolved and covered, every requirement must map to a design
+task and test/check, every task must trace to a requirement and remain in scope,
+avoid scope creep, and ensure no IDs dangle. For `plan: inline` (`small-change`/`bugfix`), audit the
+approved Expectations, completed DECIDE/FIX entry evidence, and bounded inline
+implementation tasks/QA plan: each expectation must map to a task and focused
+check, scope must remain approved with no scope creep, and IDs must be consistent. Do not require
+formal ASSESS, QA-PLAN, DESIGN, or task artifacts for this route. If inline inputs
+do not close scope or reveal a decision/risk needing formal planning, stop and
+escalate to PLAN before editing. Report exact missing/extra EXP/REQ IDs and
+identify any unmapped task or focused check; never delegate BUILD while any
+route's required input is unresolved.
 
 1. Call `odf_policy_gate(change, phase="IMPLEMENT")` before delegation. The returned decision is authoritative; never recompute it. Forward strict TDD only when `tdd.effective === "on"`.
 2. For a fresh cross-domain BUILD, call `odf_parallel_delegate` with 2-3 non-overlapping branch descriptors. Each descriptor must include a unique safe `branch_id`, a fresh safe `attempt_id`, its prompt, and its context files. For continuation, call it with `resume_from_join: true` and omit descriptors so the persisted join supplies the prompts/context. The tool atomically acquires a branch-aware attempt-ledger record only for launched retry branches and returns one aggregate join.

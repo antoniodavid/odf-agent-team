@@ -1,30 +1,43 @@
 ---
 name: odf-implement
-description: "Implement Odoo tasks from design artifact. Write code following spec + design. Trigger: Phase 3 (IMPLEMENT) of /odf-new after DESIGN approved."
+description: "Implement Odoo tasks from the plan required by the persisted workflow route. Write code following approved scope and route-specific inputs. Trigger: BUILD/IMPLEMENT after route approval."
 license: MIT
 metadata:
   author: adruban
-  version: "2.3"
+  version: "2.4"
 ---
 
 ## Activation Contract
 
-Use only for Phase 3 (IMPLEMENT) after DESIGN is approved and the current
-design artifact proves `design_closed: true`. A missing, false, stale, or
-unverifiable value is a hard block that reopens DESIGN; IMPLEMENT must never
-annotate and continue.
+Use only for a route whose next canonical stage is BUILD (legacy IMPLEMENT),
+using the persisted `work_type` and authoritative route context supplied by the
+orchestrator. Never infer the plan mode from triage labels or missing artifacts.
+
+- When the route has `plan: required`, require approved ASSESS/Expectations,
+  DESIGN with `design_closed: true`, and its closed task breakdown. Missing,
+  false, stale, or unverifiable design is a hard block that reopens PLAN.
+- When the route has `plan: inline` (`small-change` or `bugfix`), require its
+  completed DECIDE/FIX entry evidence, approved Expectations, and the bounded
+  inline implementation tasks and QA plan forwarded by the orchestrator. Formal
+  ASSESS, QA-PLAN, DESIGN, and task artifacts are not prerequisites for this
+  route. Do not invent REQ-XX or pretend a formal design exists.
+- A `plan: none` route does not run BUILD. Missing or contradictory route
+  context is a hard block; do not choose a route to make implementation eligible.
 
 ## When to Use
 
-Use after DESIGN returns approved task breakdown. Implement assigned tasks in batches. Follow functional spec and design strictly — do NOT freelance different approaches.
+Implement only the approved work for the persisted route. On formal-plan routes,
+follow the approved functional spec and closed design. On inline-plan routes,
+follow the approved Expectations and inline task/QA plan; do not silently expand
+scope or promote inline notes into formal artifacts.
 
 ## Hard Rules
 
 | Rule | Requirement |
 |------|-------------|
-| Specs are acceptance criteria | Read REQ-XX from assess before implementing each task |
-| Follow design decisions | If design is wrong, NOTE IT — don't silently deviate |
-| Project context | Name per `project_context.glossary` and follow `project_context.principles` from `odf-init/{project}`; a conflict with the design or a principle is reported and blocked — never silently deviated |
+| Route-specific acceptance criteria | On `plan: required`, read REQ-XX from ASSESS for each task; on `plan: inline`, trace each task directly to approved EXP-XX and the inline task/QA plan |
+| Follow approved decisions | On formal-plan routes follow DESIGN; on inline routes follow the approved inline plan. If either is wrong, NOTE IT and stop for orchestrator disposition |
+| Project context | Name per `project_context.glossary` and follow `project_context.principles` from `odf-init/{project}`; a conflict with the approved route plan or a principle is reported and blocked — never silently deviated |
 | Tests with code | Tests belong in the same commit as the behavior they verify |
 | Smoke tests per batch | Run pre-commit + pylint-odoo on changed files after each batch |
 | Stop-validation evidence | After each batch, run the tier's stop-validation commands and write `<worktree>/.odf/validation-evidence-{change}.json` — a batch WITHOUT verified evidence does NOT close |
@@ -35,16 +48,17 @@ Use after DESIGN returns approved task breakdown. Implement assigned tasks in ba
 | Condition | Action |
 |-----------|--------|
 | Task blocked by unexpected issue | Stop batch, report status: blocked to orchestrator |
-| Design is not closed (`design_closed !== true`) | Block IMPLEMENT, persist the reason, and re-open DESIGN before any code change or task update |
+| Required formal plan is not closed (`design_closed !== true`) | Block IMPLEMENT, persist the reason, and re-open PLAN before any code change or task update |
+| Inline-plan inputs are missing, ambiguous, or exceed the approved route scope | Block IMPLEMENT and ask the orchestrator to resolve scope or escalate to formal PLAN before editing |
 | Pre-commit or pylint errors | Fix immediately before proceeding |
 | Stop-validation evidence not verified (`validation.status !== "verified"`) | Do NOT close the batch — fix, re-run the commands, rewrite the evidence file |
 | All tasks in batch complete | Persist progress, return for next batch or VERIFY |
 
 ## Execution Steps
 
-1. **Retrieve**: Read assess (functional spec) + the current design (task breakdown) from the selected store. Verify `design_closed === true`; otherwise stop, return `blocked` with `next_recommended: ["design"]`, persist the reopen reason, and do not edit code or task status.
+1. **Retrieve route-specific inputs** from the selected store and forwarded workflow context. Require the persisted `work_type`, route plan mode, completed entry stage, approved Expectations, and exact approved scope. For `plan: required`, also read ASSESS and DESIGN/tasks and verify `design_closed === true`; otherwise stop with `blocked`, `next_recommended: ["design"]`, and no code/task edits. For `plan: inline`, use the approved Expectations and forwarded inline tasks/QA plan; do not require formal ASSESS/DESIGN/task artifacts. If required inputs are absent or conflict with the persisted route, stop and ask the orchestrator to resolve or escalate.
 2. **Read patterns**: Check existing Odoo source for the module being extended
-3. **Implement tasks**: For each task → read REQ-XX → read source patterns → write code (OCA standards) → mark [x]
+3. **Implement tasks**: For each task, read its REQ-XX on `plan: required` routes or its approved EXP-XX trace on `plan: inline` routes → read source patterns → write code (OCA standards) → mark [x]
 4. **Smoke test**: pre-commit run --files {changed} + pylint-odoo on changed files
 5. **Write stop-validation evidence**: run the tier's stop-validation commands and write `<worktree>/.odf/validation-evidence-{change}.json`. The Policy Gate decision injected in your prompt carries the authoritative `risk_tier`, `frozen_diff_ref`, and `candidate_digest` — use them. Minimum commands per tier (use the project's real commands from `odf-init/{project}`; no fabricated exit codes):
    - **LOW**: ≥ 1 — e.g. `git diff --check` (+ AST parse of changed `.py`, or `xmllint --noout` when only views changed)
@@ -67,7 +81,9 @@ Use after DESIGN returns approved task breakdown. Implement assigned tasks in ba
     - When `{test_db}` is non-isolated, include the non-isolated/user-authorized statement and mutation warning in the ODF Result and evidence.
    - Evidence is smoke for THIS batch — the compliance matrix, review lenses, and correction budget remain in VERIFY. Do not grow this into a parallel VERIFY.
 6. **Persist progress** in the selected store with its canonical `artifact_ref`.
-   Update the selected task/design artifact with [x] marks as applicable.
+   Update the closed design/task artifact on formal-plan routes; on inline-plan
+   routes, maintain the canonical implementation-progress checklist and trace
+   completed tasks to the approved inline plan.
 
 ## Test Discipline
 
@@ -92,7 +108,7 @@ A task is DONE only when ALL hold:
 
 ## Output Contract
 
-Return ODF Result envelope with: status (ok|warning|blocked), executive_summary ("N/M tasks done. Smoke: pass/warn."), batch_summary (completed tasks, files changed, deviations from design, smoke test results), artifacts_saved, next_recommended (["implement"] or ["verify"]), risks, modules_affected, validation_evidence (path to the evidence file + command/exit_code summary — REQUIRED for IMPLEMENT batches).
+Return ODF Result envelope with: status (ok|warning|blocked), executive_summary ("N/M tasks done. Smoke: pass/warn."), batch_summary (completed tasks, files changed, deviations from the approved route plan, smoke test results), artifacts_saved, next_recommended (["implement"] or ["verify"]), risks, modules_affected, validation_evidence (path to the evidence file + command/exit_code summary — REQUIRED for IMPLEMENT batches).
 
 ## References
 
