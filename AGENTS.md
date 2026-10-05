@@ -77,7 +77,7 @@ escalation.
 
 ### Plugin tools (`odf-delegation.ts`)
 
-28 tools injected at runtime into the orchestrator's tool list:
+29 tools injected at runtime into the orchestrator's tool list:
 
 | Tool | Purpose |
 |------|---------|

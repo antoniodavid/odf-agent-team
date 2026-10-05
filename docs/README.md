@@ -6,7 +6,7 @@ Everything about ODF — spec-driven Odoo delivery on OpenCode. Pick what you ne
 |------------|------|
 | **Start using ODF** — mental model, commands, workflow | [Intended usage](intended-usage.md) |
 | **Understand the system** — stages, components, data flow | [Architecture](architecture.md) |
-| **Extend the plugin** — the 28 tools, `odf_delegate` path | [Plugin reference](plugin.md) |
+| **Extend the plugin** — the 29 tools, `odf_delegate` path | [Plugin reference](plugin.md) |
 | **Write a skill** — structure, frontmatter, compact rules | [Skill style guide](skill-style-guide.md) |
 
 ## Diagrams
