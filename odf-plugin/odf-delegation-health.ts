@@ -449,7 +449,7 @@ export const EXECUTOR_BOUNDARY = `## Executor Boundary (non-negotiable)
 
 type TaskModel = { providerID: string; modelID: string }
 
-function resolveTaskModel(context: Record<string, unknown>): TaskModel | undefined {
+export function resolveTaskModel(context: Record<string, unknown>): TaskModel | undefined {
   const validModelPart = (value: unknown): value is string =>
     typeof value === "string" && value.trim().length > 0 && !/\s/.test(value)
   const rawModel = context.model
@@ -693,6 +693,8 @@ function v2ContextResult(response: unknown): unknown {
 export interface V2ContextConversation {
   /** Text parts of every user message, oldest first. */
   userTexts: string[]
+  /** False when the transcript shape cannot prove the original user text byte-for-byte. */
+  userTextExact: boolean
   /** Text parts of the latest assistant message. */
   assistantText: string
 }
@@ -781,6 +783,7 @@ export function readV2ContextConversation(response: unknown): V2ContextConversat
   const messages = contextMessages(response)
   if (!messages || messages.length === 0) return null
   const userTexts: string[] = []
+  let userTextExact = true
   let assistantText: string | null = null
   for (const message of messages) {
     if (!message || typeof message !== "object" || Array.isArray(message)) continue
@@ -796,26 +799,46 @@ export function readV2ContextConversation(response: unknown): V2ContextConversat
     // assistant messages instead carry text in tagged `content` entries.
     // Preserve the user string verbatim because the seal compares its digest
     // with the exact prompt passed to the child.
-    const directUserText = role === "user" && typeof info.text === "string" ? info.text : null
-    const text = directUserText ?? parts
-      .filter((part: any) => part?.type === "text" && typeof part.text === "string")
-      .map((part: any) => part.text)
-      .join("\n")
-      .trim()
-    if (!text.trim()) continue
     if (role === "user") {
-      // OpenCode V2 prepends this fixed host banner to the first user message
-      // in a native subagent session. Strip only the exact observed prefix;
-      // the seal still digests every byte of the prepared prompt itself.
-      const promptText = userTexts.length === 0 && text.startsWith(OPENCODE_SUBAGENT_USER_PREFIX)
-        ? text.slice(OPENCODE_SUBAGENT_USER_PREFIX.length)
-        : text
-      userTexts.push(promptText)
+      if (typeof info.text === "string") {
+        userTexts.push(info.text)
+        continue
+      }
+      const textParts = parts
+        .filter((part: any) => part?.type === "text" && typeof part.text === "string")
+        .map((part: any) => part.text as string)
+      if (textParts.length !== 1) userTextExact = false
+      // A single documented text part is byte-preserving. Multiple parts do
+      // not reveal whether the original separators were newlines, so the seal
+      // must fail closed instead of hashing a reconstructed/trimmed prompt.
+      userTexts.push(textParts.length === 1 ? textParts[0] : textParts.join("\n"))
+      continue
     }
-    if (role === "assistant") assistantText = text
+    if (role === "assistant") {
+      const text = parts
+        .filter((part: any) => part?.type === "text" && typeof part.text === "string")
+        .map((part: any) => part.text)
+        .join("\n")
+        .trim()
+      if (text) assistantText = text
+    }
   }
   if (!assistantText) return null
-  return { userTexts, assistantText }
+  return { userTexts, userTextExact, assistantText }
+}
+
+/**
+ * Return the exact prepared prompt represented by the first user message.
+ * Only legacy host-subagent transcripts may remove the one known fixed prefix.
+ */
+export function preparedPromptFromV2Conversation(
+  conversation: V2ContextConversation,
+  allowLegacyHostPrefix: boolean,
+): string | null {
+  if (!conversation.userTextExact || conversation.userTexts.length === 0) return null
+  const first = conversation.userTexts[0]
+  if (!allowLegacyHostPrefix || !first.startsWith(OPENCODE_SUBAGENT_USER_PREFIX)) return first
+  return first.slice(OPENCODE_SUBAGENT_USER_PREFIX.length)
 }
 
 type V2TaskInvocation = { childID?: string; abortRequested: boolean; aborting?: Promise<void> }

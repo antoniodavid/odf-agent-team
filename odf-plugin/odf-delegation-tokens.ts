@@ -49,8 +49,19 @@ export interface DelegationTokenBranch {
   agent: string
   attempt_id: string
   prompt_digest: string
+  /** UTF-8 byte length of the exact prepared prompt; absent on legacy records. */
+  prompt_byte_length?: number
   task: string
   context_files: string[]
+  launch?: NativeChildLaunch
+}
+
+export type NativeChildLaunchState = "reserved" | "created" | "sending" | "submitted" | "uncertain" | "interrupted"
+
+export interface NativeChildLaunch {
+  parent_session_id: string
+  state: NativeChildLaunchState
+  child_session_id?: string
 }
 
 export interface DelegationTokenInput {
@@ -67,6 +78,10 @@ export interface DelegationTokenInput {
   workspace: string
   /** Enriched prompt the orchestrator must pass to the host subagent tool verbatim. */
   prompt: string
+  /** Native prepared prompts are dispatched through the V2 session API. */
+  launch_mode?: "programmatic"
+  /** Parent session that prepared this delegation. */
+  parent_session_id?: string
   /**
    * Raw phase task text. Seal uses it for deterministic source-authority hints
    * so injected contract text cannot change the relation detection.
@@ -104,6 +119,14 @@ export interface DelegationTokenRecord {
   workspace: string
   /** SHA-256 of the enriched prompt the child session must have received. */
   prompt_digest: string
+  /** UTF-8 byte length of the exact prepared prompt; absent on legacy records. */
+  prompt_byte_length?: number
+  /** Present for newly prepared records that use programmatic V2 dispatch. */
+  launch_mode?: "programmatic"
+  /** Parent session that prepared this delegation; absent on legacy records. */
+  parent_session_id?: string
+  /** Durable idempotency/recovery pointer for a programmatically launched child. */
+  launch?: NativeChildLaunch
   /** Raw phase task text used for source-authority hints at seal time. */
   task: string
   source_root?: string
@@ -192,6 +215,10 @@ export function delegationPromptDigest(prompt: string): string {
   return nodeCrypto.createHash("sha256").update(typeof prompt === "string" ? prompt : "").digest("hex")
 }
 
+export function delegationPromptByteLength(prompt: string): number {
+  return Buffer.byteLength(prompt, "utf8")
+}
+
 /** New opaque token. 16 random bytes rendered as 32 lowercase hex characters. */
 export function newDelegationToken(): string {
   return `odf-tok-${nodeCrypto.randomBytes(16).toString("hex")}`
@@ -205,6 +232,8 @@ export function createDelegationTokenRecord(input: DelegationTokenInput): Delega
   if (!change || !agent || !phase || !workspace) return null
   const task = safeTask(input.task)
   if (!task) return null
+  if (input.launch_mode !== undefined && input.launch_mode !== "programmatic") return null
+  if (input.parent_session_id !== undefined && !safeSessionId(input.parent_session_id)) return null
   const token = input.token === undefined ? newDelegationToken() : (DELEGATION_TOKEN_PATTERN.test(input.token) ? input.token : null)
   if (!token) return null
   const skills = Array.isArray(input.skills_injected)
@@ -243,6 +272,9 @@ export function createDelegationTokenRecord(input: DelegationTokenInput): Delega
     ...(input.artifact_store ? { artifact_store: input.artifact_store } : {}),
     workspace,
     prompt_digest: delegationPromptDigest(input.prompt),
+    prompt_byte_length: delegationPromptByteLength(input.prompt),
+    ...(input.launch_mode ? { launch_mode: input.launch_mode } : {}),
+    ...(input.parent_session_id ? { parent_session_id: input.parent_session_id } : {}),
     task,
     ...(input.source_root ? { source_root: input.source_root } : {}),
     ...(input.source_repos ? { source_repos: input.source_repos } : {}),
@@ -269,8 +301,11 @@ function isTokenBranch(value: unknown): value is DelegationTokenBranch {
     safeLabel(branch.agent) !== null &&
     safeLabel(branch.attempt_id) !== null &&
     typeof branch.prompt_digest === "string" && PROMPT_DIGEST_PATTERN.test(branch.prompt_digest) &&
+    (branch.prompt_byte_length === undefined ||
+      (Number.isSafeInteger(branch.prompt_byte_length) && (branch.prompt_byte_length as number) >= 0)) &&
     safeTask(branch.task) !== null &&
-    Array.isArray(branch.context_files) && branch.context_files.every(file => typeof file === "string")
+    Array.isArray(branch.context_files) && branch.context_files.every(file => typeof file === "string") &&
+    (branch.launch === undefined || isNativeChildLaunch(branch.launch))
 }
 
 function buildBranches(inputs: DelegationTokenBranchInput[]): DelegationTokenBranch[] | null {
@@ -295,6 +330,7 @@ function buildBranches(inputs: DelegationTokenBranchInput[]): DelegationTokenBra
       agent,
       attempt_id: attemptId,
       prompt_digest: delegationPromptDigest(input.prompt),
+      prompt_byte_length: delegationPromptByteLength(input.prompt),
       task,
       context_files: contextFiles,
     })
@@ -313,6 +349,11 @@ function isDelegationTokenRecord(value: unknown): value is DelegationTokenRecord
     typeof record.proposal_session_id === "string" && record.proposal_session_id.length > 0 &&
     record.proposal_session_id.length <= 256 && !/[\0\r\n]/.test(record.proposal_session_id)
   )
+  const promptByteLengthValid = record.prompt_byte_length === undefined ||
+    (Number.isSafeInteger(record.prompt_byte_length) && (record.prompt_byte_length as number) >= 0)
+  const launchModeValid = record.launch_mode === undefined || record.launch_mode === "programmatic"
+  const parentSessionValid = record.parent_session_id === undefined || safeSessionId(record.parent_session_id)
+  const launchValid = record.launch === undefined || isNativeChildLaunch(record.launch)
   return record.schema_version === DELEGATION_TOKEN_SCHEMA_VERSION &&
     typeof record.token === "string" && DELEGATION_TOKEN_PATTERN.test(record.token) &&
     typeof record.change === "string" && CHANGE_NAME_PATTERN.test(record.change) &&
@@ -321,6 +362,7 @@ function isDelegationTokenRecord(value: unknown): value is DelegationTokenRecord
     (record.artifact_store === undefined || ["openspec", "engram", "hybrid"].includes(record.artifact_store as string)) &&
     typeof record.workspace === "string" && record.workspace.length > 0 &&
     typeof record.prompt_digest === "string" && PROMPT_DIGEST_PATTERN.test(record.prompt_digest) &&
+    promptByteLengthValid && launchModeValid && parentSessionValid && launchValid &&
     safeTask(record.task) !== null &&
     (record.source_root === undefined || safeRoot(record.source_root) !== null) &&
     (record.source_repos === undefined || safeRoot(record.source_repos) !== null) &&
@@ -337,6 +379,19 @@ function isDelegationTokenRecord(value: unknown): value is DelegationTokenRecord
     (record.status === "prepared" || record.status === "sealed") &&
     (record.sealed_at === undefined || safeTimestamp(record.sealed_at) !== null) &&
     proposalEvidenceValid
+}
+
+function isNativeChildLaunch(value: unknown): value is NativeChildLaunch {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false
+  const launch = value as Record<string, unknown>
+  return safeSessionId(launch.parent_session_id) &&
+    ["reserved", "created", "sending", "submitted", "uncertain", "interrupted"].includes(String(launch.state)) &&
+    (launch.child_session_id === undefined || safeSessionId(launch.child_session_id)) &&
+    (launch.state === "reserved" ? launch.child_session_id === undefined : safeSessionId(launch.child_session_id))
+}
+
+function safeSessionId(value: unknown): value is string {
+  return typeof value === "string" && value.length > 0 && value.length <= 256 && !/[\0\r\n]/.test(value)
 }
 
 export function isDelegationTokenExpired(record: DelegationTokenRecord, now: Date = new Date()): boolean {

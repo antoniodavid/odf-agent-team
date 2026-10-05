@@ -2,7 +2,12 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { ODF_REGISTERED_TOOLS } from "./odf-delegation-shared.js"
 import { ODF_SYSTEM_RULES } from "../plugins/odf-delegation.js"
 import { invokeTask } from "../plugins/odf-delegation.js"
-import { createV2SessionTaskApi, findTaskApi } from "./odf-delegation-health.js"
+import {
+  createV2SessionTaskApi,
+  findTaskApi,
+  preparedPromptFromV2Conversation,
+  readV2ContextConversation,
+} from "./odf-delegation-health.js"
 import { ODF_ENTRY_HEALTH_REASON } from "./odf-delegation-loopguard.js"
 import { OdfDelegationPluginV2, createV2ToolContext, detectOdfNewEntry, loadOdfNewCommandBody, setupODFV2 } from "./opencode-v2-adapter.js"
 
@@ -91,6 +96,37 @@ describe("OpenCode V2 ODF adapter", () => {
     expect(fixture.tools).toHaveLength(ODF_REGISTERED_TOOLS.length)
     expect(fixture.tools.map(tool => tool.name)).toEqual([...ODF_REGISTERED_TOOLS])
     await cleanup()
+  })
+
+  it("preserves transcript bytes and strips only one exact legacy host prefix", () => {
+    const prompt = "  Unicode →\r\ntrailing whitespace \t\n"
+    const assistant = { type: "assistant", content: [{ type: "text", text: "## ODF Result\n- **status**: ok" }] }
+    const direct = readV2ContextConversation([
+      { type: "user", text: prompt },
+      assistant,
+    ])!
+    expect(direct.userTexts[0]).toBe(prompt)
+    expect(direct.userTextExact).toBe(true)
+    expect(preparedPromptFromV2Conversation(direct, false)).toBe(prompt)
+
+    const hostPrefix = "You are a subagent spawned by another session.\n"
+    const legacy = readV2ContextConversation([
+      { type: "user", text: `${hostPrefix}${prompt}` },
+      assistant,
+    ])!
+    expect(preparedPromptFromV2Conversation(legacy, true)).toBe(prompt)
+    const doubled = readV2ContextConversation([
+      { type: "user", text: `${hostPrefix}${hostPrefix}${prompt}` },
+      assistant,
+    ])!
+    expect(preparedPromptFromV2Conversation(doubled, true)).toBe(`${hostPrefix}${prompt}`)
+
+    const ambiguousParts = readV2ContextConversation([
+      { info: { type: "user" }, content: [{ type: "text", text: "first" }, { type: "text", text: "second" }] },
+      assistant,
+    ])!
+    expect(ambiguousParts.userTextExact).toBe(false)
+    expect(preparedPromptFromV2Conversation(ambiguousParts, true)).toBeNull()
   })
 
   it("uses JSON Schema and preserves V1 validation plus result output", async () => {

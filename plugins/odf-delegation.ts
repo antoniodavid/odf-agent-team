@@ -101,6 +101,7 @@ import {
   inspectODFHealth,
   readV2ContextConversation,
   readV2SessionConversation,
+  preparedPromptFromV2Conversation,
   sessionResultFromText,
   taskSessionIdOf,
   markTaskSessionId,
@@ -113,6 +114,7 @@ import {
 } from "../odf-plugin/odf-delegation-health.js"
 import {
   createDelegationTokenRecord,
+  delegationPromptByteLength,
   delegationPromptDigest,
   deleteDelegationToken,
   isDelegationTokenExpired,
@@ -3508,6 +3510,16 @@ function createODFProposalWrite(canonicalDirectory?: string): ReturnType<typeof 
   })
 }
 
+function promptCheckDiagnostics(expectedDigest: string, expectedBytes: number | undefined, actual: string | null): Record<string, unknown> {
+  return {
+    expected_utf8_bytes: expectedBytes ?? null,
+    actual_utf8_bytes: actual === null ? null : delegationPromptByteLength(actual),
+    expected_sha256_prefix: expectedDigest.slice(0, 12),
+    actual_sha256_prefix: actual === null ? null : delegationPromptDigest(actual).slice(0, 12),
+    transcript_text_exact: actual !== null,
+  }
+}
+
 function createODFDelegationSeal(canonicalDirectory?: string): ReturnType<typeof tool> {
   return tool({
     description: `Seal a native ODF delegation started with odf_delegation_prepare: verify the child session against the token, wait until its V2 session loop is idle, read its ODF Result, run the phase gates (source authority, design closure, artifact refs and PLAN materialization; proof revalidation, validation-evidence seal, workflow commit and attempt settlement for IMPLEMENT/VERIFY) and return the standard delegation envelope.`,
@@ -3676,11 +3688,14 @@ function createODFDelegationSeal(canonicalDirectory?: string): ReturnType<typeof
           withRecord({ conversation_read: conversationRead.diagnostic }),
         )
       }
-      if (delegationPromptDigest(conversation.userTexts[0]) !== record.prompt_digest) {
+      const observedPrompt = preparedPromptFromV2Conversation(conversation, true)
+      if (observedPrompt === null ||
+        delegationPromptDigest(observedPrompt) !== record.prompt_digest ||
+        (record.prompt_byte_length !== undefined && delegationPromptByteLength(observedPrompt) !== record.prompt_byte_length)) {
         return blocked(
           "delegation-prompt-mismatch",
-          "The child session did not receive the prepared prompt verbatim; the delegation gates cannot be trusted. Re-run prepare/subagent without modifying delegation.prompt.",
-          withRecord(),
+          "The child session transcript does not prove receipt of the exact prepared prompt; the delegation gates cannot be trusted.",
+          withRecord({ prompt_check: promptCheckDiagnostics(record.prompt_digest, record.prompt_byte_length, observedPrompt) }),
         )
       }
 
@@ -4259,11 +4274,14 @@ function createODFParallelSeal(canonicalDirectory?: string): ReturnType<typeof t
             withRecord({ branch_id: branch.branch_id, task_session_id: sessionId, conversation_read: conversationRead.diagnostic }),
           )
         }
-        if (delegationPromptDigest(conversation.userTexts[0]) !== branch.prompt_digest) {
+        const observedPrompt = preparedPromptFromV2Conversation(conversation, true)
+        if (observedPrompt === null ||
+          delegationPromptDigest(observedPrompt) !== branch.prompt_digest ||
+          (branch.prompt_byte_length !== undefined && delegationPromptByteLength(observedPrompt) !== branch.prompt_byte_length)) {
           return blocked(
             "delegation-prompt-mismatch",
-            `Branch "${branch.branch_id}" did not receive the prepared prompt verbatim; the delegation gates cannot be trusted.`,
-            withRecord(),
+            `Branch "${branch.branch_id}" transcript does not prove receipt of its exact prepared prompt; the delegation gates cannot be trusted.`,
+            withRecord({ branch_id: branch.branch_id, prompt_check: promptCheckDiagnostics(branch.prompt_digest, branch.prompt_byte_length, observedPrompt) }),
           )
         }
         idleChildSessions.set(branch.branch_id, { session_id: sessionId, idle_at: childIdleAt })
