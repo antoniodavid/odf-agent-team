@@ -58,7 +58,7 @@ async function odfSubagentChokepointError(input: { tool: string; agent: string; 
   if (!isOdfAgent) return null
   const prompt = typeof args?.prompt === "string" ? args.prompt : ""
   if (prompt.includes(ODF_DELEGATION_MARKER)) return null
-  return `Blocked: ${target} is an ODF specialist. Delegate through odf_delegation_prepare → subagent → odf_delegation_seal (or odf_delegate for fast-lane/parallel) so the ODF gates run; direct ${input.tool} calls to ODF agents from the orchestrator are not allowed.`
+  return `Blocked: ${target} is an ODF specialist. Delegate through odf_delegation_prepare → odf_delegation_launch → odf_delegation_seal (or odf_delegate for fast-lane/parallel) so the ODF gates run; direct ${input.tool} calls to ODF agents from the orchestrator are not allowed.`
 }
 
 type JsonSchema = Record<string, unknown>

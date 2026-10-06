@@ -421,7 +421,7 @@ export function normalizeNativeTaskResult(response: unknown): unknown {
   if (!output || typeof output !== "object" || Array.isArray(output)) {
     throw new Error("invalid-task-result: task() returned an invalid output")
   }
-  if (typeof (output as Record<string, unknown>).status === "string") return output
+  if (typeof (output as Record<string, unknown>).status === "string") return validateODFResult(output as Record<string, unknown>)
   return sessionPromptResult(output)
 }
 
@@ -820,7 +820,9 @@ export function readV2ContextConversation(response: unknown): V2ContextConversat
         .map((part: any) => part.text)
         .join("\n")
         .trim()
-      if (text) assistantText = text
+      // The terminal assistant message is authoritative even when it has no
+      // text: do not fall back to an earlier successful answer after an error.
+      assistantText = info.error || value.error ? "" : text
     }
   }
   if (!assistantText) return null
@@ -1083,7 +1085,7 @@ export function sessionPromptResult(response: unknown): unknown {
     }
     throw new Error(`session-prompt-error: ${message}`)
   }
-  if (typeof value.status === "string") return value
+  if (typeof value.status === "string") return validateODFResult(value)
 
   const text = Array.isArray(value.parts)
     ? value.parts
@@ -1121,8 +1123,7 @@ function resultKey(rawKey: string): string {
   return rawKey.trim().toLowerCase().replace(/[\s-]+/g, "_")
 }
 
-function resultValue(rawValue: string, key: string): unknown {
-  if (key === "status") return rawValue.split("|")[0].trim()
+function resultValue(rawValue: string, _key: string): unknown {
   if (rawValue === "null") return null
   if (rawValue === "true") return true
   if (rawValue === "false") return false
@@ -1134,6 +1135,15 @@ function resultValue(rawValue: string, key: string): unknown {
     }
   }
   return rawValue
+}
+
+const ODF_RESULT_STATUSES = new Set(["ok", "warning", "blocked", "failed"])
+
+function validateODFResult(result: Record<string, unknown>): Record<string, unknown> {
+  if (typeof result.status !== "string" || !ODF_RESULT_STATUSES.has(result.status)) {
+    throw new Error("invalid-task-result: ODF Result status must be exactly one of ok, warning, blocked, or failed")
+  }
+  return result
 }
 
 /**
@@ -1177,10 +1187,7 @@ export function sessionResultFromText(text: string): Record<string, unknown> {
   const resultSection = trimmed.match(/##\s*ODF Result\s*([\s\S]*)/i)?.[1]
   if (resultSection !== undefined) {
     const result = parseResultSection(resultSection)
-    if (typeof result.status !== "string" || result.status.length === 0) {
-      throw new Error("invalid-task-result: session.prompt did not return an ODF Result")
-    }
-    return result
+    return validateODFResult(result)
   }
 
   // No ODF Result section: accept the whole message or the first fenced block
@@ -1190,12 +1197,14 @@ export function sessionResultFromText(text: string): Record<string, unknown> {
     trimmed,
   ].filter((candidate): candidate is string => Boolean(candidate))
   for (const candidate of candidates) {
+    let parsed: unknown
     try {
-      const parsed = JSON.parse(candidate)
-      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) return parsed as Record<string, unknown>
+      parsed = JSON.parse(candidate)
     } catch {
       // Keep looking for a structured result.
+      continue
     }
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) return validateODFResult(parsed as Record<string, unknown>)
   }
   throw new Error("invalid-task-result: session.prompt did not return an ODF Result")
 }

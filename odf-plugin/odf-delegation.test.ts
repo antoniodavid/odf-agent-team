@@ -3082,6 +3082,12 @@ describe("sessionResultFromText", () => {
     expect(() => sessionResultFromText("## ODF Result\n- **design_closed**: true")).toThrow(/invalid-task-result/)
   })
 
+  it("rejects unresolved status templates and unsupported status values", () => {
+    expect(() => sessionResultFromText("## ODF Result\n- **status**: ok | warning | blocked | failed")).toThrow(/status must be exactly/)
+    expect(() => sessionResultFromText('{"status":"success"}')).toThrow(/status must be exactly/)
+    expect(() => sessionResultFromText('{"status":"ok "}')).toThrow(/status must be exactly/)
+  })
+
   it("drops prototype-polluting keys from nested structures", () => {
     const result = sessionResultFromText([
       "## ODF Result",
