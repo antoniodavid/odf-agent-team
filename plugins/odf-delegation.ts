@@ -119,6 +119,7 @@ import {
   delegationPromptDigest,
   deleteDelegationToken,
   isDelegationTokenExpired,
+  markDelegationTokenSealed,
   newDelegationToken,
   readDelegationToken,
   writeDelegationToken,
@@ -1008,8 +1009,7 @@ function settleAttempt(
   status: Exclude<AttemptLedgerStatus, "running">,
   resultStatus: Exclude<AttemptLedgerResultStatus, "running">,
   reason: Exclude<AttemptLedgerReason, "acquired">,
-): void {
-  inFlightAttempts.delete(attemptLivenessKey(attempt.record.change, attempt.record.attempt_id))
+): string | null {
   const now = new Date().toISOString()
   const settled: AttemptLedgerRecord = {
     ...attempt.record,
@@ -1022,9 +1022,13 @@ function settleAttempt(
   const result = withAttemptLedgerLock(attempt.workspaceRoot, attempt.ledgerPath, () => appendAttemptLedgerRecord(attempt.workspaceRoot, attempt.ledgerPath, settled))
   if (!result.locked) {
     console.warn(`[odf-delegation] Failed to settle attempt ledger: ${result.error}`)
+    return result.error
   } else if (result.value) {
     console.warn(`[odf-delegation] Failed to settle attempt ledger: ${result.value}`)
+    return result.value
   }
+  inFlightAttempts.delete(attemptLivenessKey(attempt.record.change, attempt.record.attempt_id))
+  return null
 }
 
 function bindNativeAttemptChild(opts: {
@@ -2559,7 +2563,39 @@ Use this instead of generic task() for ODF workflow delegation.`,
             validation = lifecycle.validation
           }
           if (acquiredAttempt && !executionOptions.suppress_attempt_settlement) {
-            settleAttempt(acquiredAttempt, "completed", "delegated", "task-completed")
+            const settlementError = settleAttempt(acquiredAttempt, "completed", "delegated", "task-completed")
+            if (settlementError) {
+              const summary = `Attempt ${acquiredAttempt.record.attempt_id} completed, but its ledger settlement failed: ${settlementError}`
+              const receipt = proofBacked && !executionOptions.suppress_failure_receipt
+                ? persistWorkflowFailureReceipt(
+                  workspaceRoot,
+                  changeName!,
+                  args.phase as ODFReceipt["phase"],
+                  summary,
+                  policyGate,
+                  [],
+                  "blocked",
+                  "validation-failed",
+                  expectationsIds,
+                )
+                : null
+              recordLifecycle("finished", { status: "error", error: summary })
+              return JSON.stringify({
+                status: "error",
+                reason: "attempt-settlement-failed",
+                phase: args.phase,
+                agent: agentName,
+                policy_gate: policyGate,
+                validation,
+                receipt,
+                task_api_source: taskApiInfo.source,
+                result: resultForOutput,
+                ...(taskSessionId ? { task_session_id: taskSessionId } : {}),
+                ...(workflowResult ? { workflow_advance: workflowResult } : {}),
+                ...(workflowCommit ? { workflow_commit: workflowCommit } : {}),
+                message: summary,
+              }, null, 2)
+            }
           }
           recordLifecycle("finished", {
             status: innerDisposition.metricStatus,
@@ -3093,9 +3129,6 @@ async function sealProofBackedDelegation(opts: {
     return blocked("delegation-seal-error", `The proof-backed seal could not complete: ${error instanceof Error ? error.message : String(error)}.`)
   }
 
-  // The delegation is processed either way: the token seals exactly once.
-  deleteDelegationToken(opts.workspaceRoot, opts.record.change, opts.record.token)
-
   let envelope: Record<string, unknown>
   try {
     envelope = JSON.parse(envelopeRaw) as Record<string, unknown>
@@ -3559,15 +3592,55 @@ function createODFDelegationPrepare(canonicalDirectory?: string): ReturnType<typ
         if (!args.attempt_id || !SAFE_TOKEN_PATTERN.test(args.attempt_id)) {
           return blocked("attempt-id-required", "Proof-backed IMPLEMENT/VERIFY delegation requires a fresh opaque attempt_id.")
         }
-        const fastLaneRead = await readSelectedWorkflowState(workspaceRoot, changeName, args.artifact_store)
-        const fastLaneState = fastLaneRead.snapshot?.state?.fast_lane_policy as Record<string, unknown> | undefined
+        const selected = await readSelectedWorkflowState(workspaceRoot, changeName, args.artifact_store)
+        if (!selected.snapshot) {
+          return blocked(selected.error || "workflow-state-unavailable", "The selected workflow state could not be read before native delegation.")
+        }
+        const proof = {
+          ...args.workflow_advance,
+          ...(args.target ? { target: args.target } : {}),
+          ...(args.governance_acknowledgment ? { governance_acknowledgment: args.governance_acknowledgment } : {}),
+        } as ODFDelegateWorkflowAdvance
+        const expectedStage: "BUILD" | "VERIFY" = args.phase === "IMPLEMENT" ? "BUILD" : "VERIFY"
+        const callerResult = advanceWorkflow({ route: resolveWorkflowRoute(proof.work_type), ...proof })
+        const transition = inspectPersistedTransition({
+          snapshot: selected.snapshot,
+          proof,
+          expectedStage,
+          callerResult,
+        })
+        if (!transition.ok) return blocked(transition.reason, transition.message)
+        if (transition.alreadyCommitted) {
+          return blocked("workflow-stage-already-complete", `The ${expectedStage} stage is already complete; native delegation will not launch another attempt.`)
+        }
+        if (args.phase === "VERIFY") {
+          const expectations = validateExpectations({ change: changeName, artifacts: selected.snapshot.artifacts })
+          if (expectations.status === "invalid" || expectations.status === "tampered") {
+            return blocked(
+              expectations.status === "invalid" ? "expectations-not-approved" : "expectations-invalid",
+              expectations.status === "invalid"
+                ? "Human Expectations are not approved; approve them before VERIFY."
+                : "The Expectations artifact is invalid or tampered; restore the approved human artifact before VERIFY.",
+              { safe_continuation: `/odf-continue ${changeName}` },
+            )
+          }
+        }
+        const fastLaneState = selected.snapshot.state?.fast_lane_policy as Record<string, unknown> | undefined
         if (fastLaneState?.enabled === true) {
           return blocked(
             "native-delegation-fast-lane-unsupported",
             "The persisted fast-lane policy is enabled; use odf_delegate for bounded fast-lane BUILD/VERIFY until the native path supports it.",
           )
         }
-        const expectedStage: "BUILD" | "VERIFY" = args.phase === "IMPLEMENT" ? "BUILD" : "VERIFY"
+        policyGate = computePolicyGate({
+          change: changeName,
+          phase: args.phase as "IMPLEMENT" | "VERIFY",
+          workspaceDir: workspaceRoot,
+          registry,
+        })
+        if (policyGate && policyGate.gate === "block") {
+          return blocked(policyGate.reason, `Policy gate blocked ${args.phase} before delegation: ${policyGate.reason}`)
+        }
         const acquisition = acquireAttempt({
           workspaceDir: workspaceRoot,
           change: changeName,
@@ -3581,17 +3654,6 @@ function createODFDelegationPrepare(canonicalDirectory?: string): ReturnType<typ
           return blocked(acquisition.reason, acquisition.message)
         }
         acquiredAttempt = acquisition.handle
-        policyGate = computePolicyGate({
-          change: changeName,
-          phase: args.phase as "IMPLEMENT" | "VERIFY",
-          workspaceDir: workspaceRoot,
-          registry,
-        })
-        if (policyGate && policyGate.gate === "block") {
-          settleAttempt(acquiredAttempt, "failed", "validation-failed", "validation-failed")
-          acquiredAttempt = null
-          return blocked(policyGate.reason, `Policy gate blocked ${args.phase} before delegation: ${policyGate.reason}`)
-        }
       }
       // Failures after the reservation must settle the attempt. The complete
       // enriched prompt is checked before it is returned to the host below.
@@ -3947,11 +4009,24 @@ function createODFDelegationSeal(canonicalDirectory?: string): ReturnType<typeof
         ...extra,
       })
 
-      if (record.status !== "prepared") {
-        return blocked("delegation-token-already-sealed", "The delegation token was already sealed; a delegation seals exactly once.", withRecord())
+      if (record.status === "sealed") {
+        if (record.sealed_session_id === args.session_id && record.sealed_result) return record.sealed_result
+        return blocked("delegation-token-already-sealed", "The delegation token was already sealed for a different or unrecoverable child result.", withRecord())
+      }
+      const persistSealResult = (result: string): string => {
+        const error = markDelegationTokenSealed(workspaceRoot, record, new Date(), {
+          sessionId: args.session_id,
+          result,
+        })
+        return error
+          ? blocked("delegation-seal-result-not-persisted", "The seal completed but its replayable result could not be persisted. Keep this token and do not relaunch the child.", withRecord({ seal_result_persist_error: error }))
+          : result
       }
       if (isDelegationTokenExpired(record)) {
-        return blocked("delegation-token-expired", "The delegation token expired before seal; prepare a fresh delegation.", withRecord())
+        const message = record.launch?.child_session_id
+          ? "The delegation token expired after launch. Do not relaunch the child; sealing requires the separate, explicitly approved late-seal recovery capability."
+          : "The delegation token expired before launch; prepare a fresh delegation."
+        return blocked("delegation-token-expired", message, withRecord())
       }
       let preparedAttempt: AttemptLedgerRecord | null = null
       if (record.attempt_id) {
@@ -4085,8 +4160,33 @@ function createODFDelegationSeal(canonicalDirectory?: string): ReturnType<typeof
       try {
         childResult = sessionResultFromText(conversation.assistantText)
       } catch (error) {
+        const message = `The child session did not return a valid ODF Result: ${error instanceof Error ? error.message : String(error)}.`
+        let settlementError: string | null = null
+        let receipt: ODFReceipt | null = null
+        if (record.attempt_id && preparedAttempt) {
+          settlementError = settleAttempt({
+            workspaceRoot,
+            ledgerPath: attemptLedgerPath(workspaceRoot, record.change),
+            record: preparedAttempt,
+          }, "failed", "validation-failed", "validation-failed")
+          if (!settlementError && record.policy_gate) {
+            receipt = persistWorkflowFailureReceipt(
+              workspaceRoot,
+              record.change,
+              record.phase as ODFReceipt["phase"],
+              message,
+              record.policy_gate as unknown as PolicyGateDecision,
+              [],
+              "blocked",
+              "validation-failed",
+            )
+          }
+        }
         if (record.attempt_id) inFlightAttempts.delete(attemptLivenessKey(record.change, record.attempt_id))
-        return blocked("invalid-task-result", `The child session did not return an ODF Result: ${error instanceof Error ? error.message : String(error)}.`, withRecord())
+        return persistSealResult(blocked("invalid-task-result", message, withRecord({
+          ...(receipt ? { receipt } : {}),
+          ...(settlementError ? { attempt_settlement_error: settlementError } : {}),
+        })))
       }
 
       const innerDisposition = innerResultDisposition(childResult)
@@ -4096,7 +4196,7 @@ function createODFDelegationSeal(canonicalDirectory?: string): ReturnType<typeof
       // gate, validation-evidence seal, workflow commit, attempt settlement).
       if (record.phase === "IMPLEMENT" || record.phase === "VERIFY") {
         try {
-          return await sealProofBackedDelegation({
+          const result = await sealProofBackedDelegation({
             record,
             childResult,
             sessionId: args.session_id,
@@ -4105,6 +4205,7 @@ function createODFDelegationSeal(canonicalDirectory?: string): ReturnType<typeof
             toolCtx,
             canonicalDirectory,
           })
+          return persistSealResult(result)
         } finally {
           if (record.attempt_id) inFlightAttempts.delete(attemptLivenessKey(record.change, record.attempt_id))
         }
@@ -4131,9 +4232,6 @@ function createODFDelegationSeal(canonicalDirectory?: string): ReturnType<typeof
           workspaceRoot,
           artifactStore: record.artifact_store,
         })
-      // The delegation is processed either way: the token seals exactly once.
-      deleteDelegationToken(workspaceRoot, record.change, record.token)
-
       recordMetrics({
         timestamp: new Date().toISOString(),
         session_id: toolCtx.sessionID,
@@ -4151,14 +4249,14 @@ function createODFDelegationSeal(canonicalDirectory?: string): ReturnType<typeof
       flushMetricsSync()
 
       if (outcome.failure) {
-        return blocked(outcome.failure.reason, outcome.failure.message, withRecord({
+        return persistSealResult(blocked(outcome.failure.reason, outcome.failure.message, withRecord({
           result: outcome.result,
           ...(outcome.failure.workflow_materialization ? { workflow_materialization: outcome.failure.workflow_materialization } : {}),
           ...(outcome.warnings.length ? { warnings: outcome.warnings } : {}),
-        }))
+        })))
       }
 
-      return JSON.stringify({
+      return persistSealResult(JSON.stringify({
         status: "delegated",
         phase: record.phase,
         agent: record.agent,
@@ -4171,7 +4269,7 @@ function createODFDelegationSeal(canonicalDirectory?: string): ReturnType<typeof
         task_session_id: args.session_id,
         ...(outcome.materialization ? { workflow_materialization: outcome.materialization } : {}),
         ...(outcome.warnings.length ? { warnings: outcome.warnings } : {}),
-      }, null, 2)
+      }, null, 2))
     },
   })
 }

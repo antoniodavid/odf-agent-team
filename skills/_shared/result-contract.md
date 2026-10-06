@@ -94,6 +94,7 @@ part of the contract:
   first and never replaces it with an unrelated fenced JSON block. Without that
   section, the first fenced JSON block or the whole message is parsed as JSON.
 - A section without a `status` line is an invalid task result.
+- `status` must be exactly `ok`, `warning`, `blocked`, or `failed`; unresolved template text such as `ok | warning | blocked | failed` is invalid.
 - Do not add fenced code blocks to the final message unless the whole message is
   the JSON result.
 
