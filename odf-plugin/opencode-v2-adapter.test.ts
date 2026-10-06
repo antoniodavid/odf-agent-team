@@ -129,6 +129,22 @@ describe("OpenCode V2 ODF adapter", () => {
     expect(preparedPromptFromV2Conversation(ambiguousParts, true)).toBeNull()
   })
 
+  it("does not reuse an earlier success when the terminal assistant message fails or is empty", () => {
+    const prompt = { type: "user", text: "prepared prompt" }
+    const success = { type: "assistant", content: [{ type: "text", text: "## ODF Result\n- **status**: ok" }] }
+
+    expect(readV2ContextConversation([
+      prompt,
+      success,
+      { type: "assistant", error: { name: "ProviderError", message: "generation failed" }, content: [] },
+    ])).toBeNull()
+    expect(readV2ContextConversation([
+      prompt,
+      success,
+      { type: "assistant", content: [] },
+    ])).toBeNull()
+  })
+
   it("uses JSON Schema and preserves V1 validation plus result output", async () => {
     const fixture = testContext()
     const cleanup = await setupODFV2(fixture.context as any)

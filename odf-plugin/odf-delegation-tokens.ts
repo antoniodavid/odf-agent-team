@@ -148,6 +148,10 @@ export interface DelegationTokenRecord {
   expires_at: string
   status: DelegationTokenStatus
   sealed_at?: string
+  /** Exact terminal seal envelope, retained so a lost response can be replayed safely. */
+  sealed_result?: string
+  /** Child identity the cached seal envelope belongs to. */
+  sealed_session_id?: string
 }
 
 export type DelegationTokenReadResult =
@@ -354,6 +358,10 @@ function isDelegationTokenRecord(value: unknown): value is DelegationTokenRecord
   const launchModeValid = record.launch_mode === undefined || record.launch_mode === "programmatic"
   const parentSessionValid = record.parent_session_id === undefined || safeSessionId(record.parent_session_id)
   const launchValid = record.launch === undefined || isNativeChildLaunch(record.launch)
+  const sealedResultValid = record.sealed_result === undefined ||
+    (typeof record.sealed_result === "string" && record.sealed_result.length > 0 &&
+      Buffer.byteLength(record.sealed_result, "utf8") <= MAX_TOKEN_FILE_BYTES && !record.sealed_result.includes("\0"))
+  const sealedSessionValid = record.sealed_session_id === undefined || safeSessionId(record.sealed_session_id)
   return record.schema_version === DELEGATION_TOKEN_SCHEMA_VERSION &&
     typeof record.token === "string" && DELEGATION_TOKEN_PATTERN.test(record.token) &&
     typeof record.change === "string" && CHANGE_NAME_PATTERN.test(record.change) &&
@@ -362,7 +370,8 @@ function isDelegationTokenRecord(value: unknown): value is DelegationTokenRecord
     (record.artifact_store === undefined || ["openspec", "engram", "hybrid"].includes(record.artifact_store as string)) &&
     typeof record.workspace === "string" && record.workspace.length > 0 &&
     typeof record.prompt_digest === "string" && PROMPT_DIGEST_PATTERN.test(record.prompt_digest) &&
-    promptByteLengthValid && launchModeValid && parentSessionValid && launchValid &&
+    promptByteLengthValid && launchModeValid && parentSessionValid && launchValid && sealedResultValid && sealedSessionValid &&
+    (record.sealed_result === undefined) === (record.sealed_session_id === undefined) &&
     safeTask(record.task) !== null &&
     (record.source_root === undefined || safeRoot(record.source_root) !== null) &&
     (record.source_repos === undefined || safeRoot(record.source_repos) !== null) &&
@@ -476,12 +485,20 @@ export function markDelegationTokenSealed(
   workspace: string,
   record: DelegationTokenRecord,
   now: Date = new Date(),
+  sealedOutcome?: { sessionId: string; result: string },
 ): string | null {
   if (record.status !== "prepared") return "delegation-token-already-sealed"
+  if (sealedOutcome && (!safeSessionId(sealedOutcome.sessionId) || typeof sealedOutcome.result !== "string" || !sealedOutcome.result.trim())) {
+    return "delegation-seal-result-invalid"
+  }
   const sealed: DelegationTokenRecord = {
     ...record,
     status: "sealed",
     sealed_at: (Number.isFinite(now.getTime()) ? now : new Date()).toISOString(),
+    ...(sealedOutcome ? {
+      sealed_session_id: sealedOutcome.sessionId,
+      sealed_result: sealedOutcome.result,
+    } : {}),
   }
   return writeDelegationToken(workspace, sealed)
 }

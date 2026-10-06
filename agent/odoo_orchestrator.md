@@ -300,7 +300,7 @@ At `/odf-new`, construct the optional ICE context once from existing project fac
 
 1. At `/odf-new` start, after the health gate and user approvals, call `odf_workflow_route(work_type)` and then one `odf_workflow_bind` with the complete preflight plus the exact approved Expectations document. Use `artifact_store: openspec` for OpenSpec and hybrid authority, or `artifact_store: engram` for Engram-only. The bind must report canonical state persisted before Expectations; stop on any failure. Never write Expectations directly through Engram or filesystem tools. The ICE envelope is not a workflow artifact and does not change this binding order.
 2. On continuation, use `state_kind` from `odf_workflow_status`. `expectations-only` and `none` stop; `legacy-artifacts` remains resumable only through explicit `--work-type <type>` recovery and never creates/binds state; `canonical` uses its persisted `work_type`, or requires explicit recovery and binds only that existing state. Never infer work type from legacy phase, artifacts, Expectations, or solution strategy, and never supply start preflight/Expectations from `/odf-continue`.
-3. Before BUILD (`IMPLEMENT`) or VERIFY starts, call `odf_workflow_advance` with that persisted or explicitly selected `work_type` and current transition evidence, then embed that exact input under `workflow_advance` in the delegation call (`odf_delegate`, or `odf_delegation_prepare` on the native path) together with an explicit `artifact_store` and fresh opaque `attempt_id`. Reusing an attempt ID or relaunching a completed phase is blocked; an already committed desired state returns `already-committed` without relaunching. The delegate locks and re-reads the selected state, recomputes the transition, commits state before settling the attempt complete, and fails closed on evidence or persistence errors. Legacy compatibility callers may omit `workflow_advance` (and therefore `artifact_store` and `attempt_id`) only while registry `flags.strict_workflow` is explicitly `false` (self-service opt-out; the default is `true` since the strict-workflow rollout); strict mode blocks that omission before delegation.
+3. Before BUILD (`IMPLEMENT`) or VERIFY starts, call `odf_workflow_advance` with that persisted or explicitly selected `work_type` and current transition evidence, then embed that exact input under `workflow_advance` in the delegation call (`odf_delegate`, or `odf_delegation_prepare` on the native path) together with an explicit `artifact_store` and fresh opaque `attempt_id`. Both paths validate the persisted route, receipt and phase state before execution. Reusing an attempt ID or relaunching a completed phase is blocked; an already committed desired state returns `already-committed` without relaunching. The delegate locks and re-reads the selected state, recomputes the transition, commits state before settling the attempt complete, and fails closed on evidence or persistence errors. Legacy compatibility callers may omit `workflow_advance` (and therefore `artifact_store` and `attempt_id`) only while registry `flags.strict_workflow` is explicitly `false` (self-service opt-out; the default is `true` since the strict-workflow rollout); strict mode blocks that omission before delegation.
 **BUILD start proof is not BUILD completion evidence.** Prefer the exact
 `odf_workflow_advance` input whose `candidate_stage` is the preceding route
 stage and whose `next_stage` is BUILD. For IMPLEMENT re-entry, the delegate
@@ -342,7 +342,8 @@ Use the native V2 route to create a visible child session programmatically:
 3. `odf_delegation_seal({ token, change, session_id })`. The returned envelope
    is the standard one (`delegated|blocked`, `policy_gate`, `validation`,
    `receipt`, `result`, plus `task_session_id`); consume it exactly like an
-   `odf_delegate` envelope.
+   `odf_delegate` envelope. Repeating a completed seal with the same child ID
+   replays the persisted terminal envelope and never reruns phase work.
 
 Failure handling:
 
@@ -354,9 +355,11 @@ Failure handling:
   never resend from `sending`, `uncertain`, or `interrupted`.
 - `delegation-launch-outcome-unknown` / missing child ID: stop; do not create a
   replacement child because the original `session.create` may have succeeded.
-- `delegation-token-expired` / `delegation-token-unknown`: prepare the
-  delegation again (an unknown token was either never prepared or already
-  consumed).
+- `delegation-token-expired`: stop; never relaunch the child. An already-launched
+  child requires the separate, explicitly human-approved late-seal recovery
+  capability; ordinary seal does not extend token authority after its TTL.
+- `delegation-token-unknown`: the token was never prepared or its terminal result
+  is unavailable; inspect canonical workflow/receipt state before any retry.
 - `delegation-child-mismatch` / `delegation-session-api-unavailable`: verify the
   child `session_id` and the agent; do not seal a session you did not launch.
 - If the prepare result is unavailable or was lost, do not reconstruct it from

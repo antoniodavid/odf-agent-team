@@ -454,7 +454,17 @@ describe("native prepare/seal delegation", () => {
     }, { sessionID: "parent-session", [ODF_V2_SESSION]: session } as any) as string)
 
     expect(output).toMatchObject({ status: "delegated", phase: "PROPOSE" })
-    expect(readDelegationToken(tempHome, change, prepared.token)).toMatchObject({ error: "delegation-token-unknown" })
+    const sealed = readDelegationToken(tempHome, change, prepared.token)
+    expect(sealed.record).toMatchObject({ status: "sealed", sealed_session_id: "ses_child" })
+    expect(JSON.parse(sealed.record!.sealed_result!)).toMatchObject({ status: "delegated", phase: "PROPOSE" })
+
+    const replay = await odf_delegation_seal.execute({
+      token: prepared.token,
+      change,
+      session_id: "ses_child",
+    }, { sessionID: "parent-session", [ODF_V2_SESSION]: session } as any)
+    expect(JSON.parse(replay as string)).toEqual(output)
+    expect(session.context).toHaveBeenCalledTimes(1)
   })
 
   it("keeps expired proposal tokens fail-closed", async () => {
@@ -509,7 +519,7 @@ describe("native prepare/seal delegation", () => {
     }, { sessionID: "parent-session", [ODF_V2_SESSION]: session } as any) as string)
 
     expect(output).toMatchObject({ status: "blocked", reason: "proposal-artifact-not-written" })
-    expect(readDelegationToken(tempHome, change, prepared.token)).toMatchObject({ error: "delegation-token-unknown" })
+    expect(readDelegationToken(tempHome, change, prepared.token).record).toMatchObject({ status: "sealed" })
   })
 
   it("blocks a proof-backed prepare without store, proof or attempt", async () => {
@@ -552,6 +562,25 @@ describe("native prepare/seal delegation", () => {
       .rejects.toMatchObject({ code: "ENOENT" })
   })
 
+  it("validates the persisted transition before acquiring a native attempt", async () => {
+    const { odf_delegation_prepare } = await tools()
+    const change = "native-implement-stale-proof"
+    await writeImplementState(tempHome, change)
+    const output = JSON.parse(await odf_delegation_prepare.execute({
+      phase: "IMPLEMENT",
+      change,
+      prompt: "Implement the planned change",
+      context_files: [],
+      artifact_store: "openspec",
+      attempt_id: "stale-proof-attempt",
+      workflow_advance: { ...implementProof(), work_type: "bugfix" },
+    }, { sessionID: "parent-session" } as any) as string)
+
+    expect(output).toMatchObject({ status: "blocked", reason: "workflow-work-type-mismatch" })
+    await expect(fs.readFile(path.join(tempHome, ".odf", `attempt-ledger-${change}.jsonl`), "utf8"))
+      .rejects.toMatchObject({ code: "ENOENT" })
+  })
+
   it("seals a proof-backed IMPLEMENT with maximum-length native session IDs", async () => {
     const { odf_delegation_prepare, odf_delegation_seal } = await legacyTools()
     const change = "native-implement"
@@ -581,6 +610,10 @@ describe("native prepare/seal delegation", () => {
       parentSessionId,
       childSessionId,
     })
+    session.context.mockResolvedValue([
+      { id: "msg_user", type: "user", text: prepared.delegation.prompt },
+      { id: "msg_assistant", type: "assistant", content: [{ type: "text", text: "## ODF Result\n- **status**: ok\n- **executive_summary**: implemented" }] },
+    ])
 
     const output = JSON.parse(await odf_delegation_seal.execute({
       token: prepared.token,
@@ -611,6 +644,87 @@ describe("native prepare/seal delegation", () => {
     expect(latest.native_child_idle_at).toBeTruthy()
     expect(Buffer.byteLength(JSON.stringify(latest))).toBeGreaterThan(512)
     expect(Buffer.byteLength(JSON.stringify(latest)) + 1).toBeLessThanOrEqual(1024)
+  })
+
+  it("keeps an expired launched child fail-closed pending an approved recovery capability", async () => {
+    const { odf_delegation_prepare, odf_delegation_seal } = await tools()
+    const change = "native-expired-launched-child"
+    const parentSessionId = "expired-parent"
+    const childSessionId = "expired-child"
+    await writeImplementState(tempHome, change)
+    const prepared = JSON.parse(await odf_delegation_prepare.execute({
+      phase: "IMPLEMENT",
+      change,
+      prompt: "Implement the planned change",
+      context_files: [],
+      artifact_store: "openspec",
+      attempt_id: "expired-launched-attempt",
+      workflow_advance: implementProof(),
+    }, { sessionID: parentSessionId } as any) as string)
+    const token = readDelegationToken(tempHome, change, prepared.token).record!
+    expect(writeDelegationToken(tempHome, {
+      ...token,
+      expires_at: new Date(Date.now() - 60_000).toISOString(),
+      launch: { parent_session_id: parentSessionId, state: "submitted", child_session_id: childSessionId },
+    })).toBeNull()
+    const session = fakeChildSession({
+      agent: prepared.agent,
+      prompt: prepared.delegation.prompt,
+      resultText: "## ODF Result\n- **status**: ok\n- **executive_summary**: implemented",
+      parentSessionId,
+      childSessionId,
+    })
+    session.context.mockResolvedValue([
+      { id: "msg_user", type: "user", text: prepared.delegation.prompt },
+      { id: "msg_assistant", type: "assistant", content: [{ type: "text", text: "## ODF Result\n- **status**: ok\n- **executive_summary**: implemented" }] },
+    ])
+
+    const output = JSON.parse(await odf_delegation_seal.execute({
+      token: prepared.token,
+      change,
+      session_id: childSessionId,
+    }, { sessionID: parentSessionId, [ODF_V2_SESSION]: session } as any) as string)
+    expect(output).toMatchObject({ status: "blocked", reason: "delegation-token-expired" })
+    expect(session.get).not.toHaveBeenCalled()
+    expect(session.context).not.toHaveBeenCalled()
+    expect(readDelegationToken(tempHome, change, prepared.token).record).toMatchObject({ status: "prepared" })
+    const ledger = (await fs.readFile(path.join(tempHome, ".odf", `attempt-ledger-${change}.jsonl`), "utf8"))
+      .trim().split("\n").map(line => JSON.parse(line))
+    expect(ledger.at(-1)).toMatchObject({ status: "running", attempt_id: "expired-launched-attempt" })
+  })
+
+  it("settles an idle native attempt and persists a receipt when its ODF Result is invalid", async () => {
+    const { odf_delegation_prepare, odf_delegation_seal } = await legacyTools()
+    const change = "native-invalid-result"
+    const attemptId = "invalid-result-attempt"
+    await writeImplementState(tempHome, change)
+    const prepared = JSON.parse(await odf_delegation_prepare.execute({
+      phase: "IMPLEMENT",
+      change,
+      prompt: "Implement the planned change",
+      context_files: [],
+      artifact_store: "openspec",
+      attempt_id: attemptId,
+      workflow_advance: implementProof(),
+    }, { sessionID: "parent-session" } as any) as string)
+    const session = fakeChildSession({
+      agent: prepared.agent,
+      prompt: prepared.delegation.prompt,
+      resultText: "## ODF Result\n- **status**: ok | warning | blocked | failed",
+      parentSessionId: "parent-session",
+    })
+
+    const output = JSON.parse(await odf_delegation_seal.execute({
+      token: prepared.token,
+      change,
+      session_id: "ses_child",
+    }, { sessionID: "parent-session", [ODF_V2_SESSION]: session } as any) as string)
+
+    expect(output).toMatchObject({ status: "blocked", reason: "invalid-task-result", receipt: { status: "blocked" } })
+    const ledger = (await fs.readFile(path.join(tempHome, ".odf", `attempt-ledger-${change}.jsonl`), "utf8"))
+      .trim().split("\n").map(line => JSON.parse(line))
+    expect(ledger.filter(entry => entry.attempt_id === attemptId).at(-1)).toMatchObject({ status: "failed", result_status: "validation-failed" })
+    expect(readDelegationToken(tempHome, change, prepared.token).record).toMatchObject({ status: "sealed" })
   })
 
   it("keeps a native attempt running until session.wait confirms the child is idle, then makes recovery actionable", async () => {
@@ -796,7 +910,7 @@ describe("native prepare/seal delegation", () => {
     expect(latest).toMatchObject({ status: "failed" })
   })
 
-  it("seals a DESIGN delegation, materializes PLAN and consumes the token", async () => {
+  it("seals a DESIGN delegation, materializes PLAN and retains a replayable terminal result", async () => {
     const changeDir = await writeDesignBoundaryFixture(tempHome, "native-design")
     const prepared = await prepareDesignLegacy()
     const session = fakeChildSession({
@@ -825,7 +939,10 @@ describe("native prepare/seal delegation", () => {
       canonical_stage: "PLAN",
       completed_canonical_stages: ["DECIDE", "PLAN"],
     })
-    expect(readDelegationToken(tempHome, "native-design", prepared.token)).toMatchObject({ error: "delegation-token-unknown" })
+    expect(readDelegationToken(tempHome, "native-design", prepared.token).record).toMatchObject({
+      status: "sealed",
+      sealed_session_id: "ses_child",
+    })
   })
 
   it("fails closed when the child prompt was modified", async () => {
