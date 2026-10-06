@@ -68,6 +68,26 @@ import {
 } from "./odf-source-authority.js"
 import { authorityLookup } from "../scripts/odf-toolkit.js"
 
+const validOdfResult = (overrides: Record<string, unknown> = {}) => ({
+  status: "ok",
+  executive_summary: "Phase completed",
+  strategy: "custom",
+  artifacts_saved: [],
+  next_recommended: [],
+  risks: [],
+  odoo_version: 18,
+  modules_affected: [],
+  skill_resolution: "injected",
+  ...overrides,
+})
+
+const odfResultText = (overrides: Record<string, unknown> = {}) => {
+  const result = validOdfResult(overrides)
+  return ["## ODF Result", ...Object.entries(result).map(([key, value]) =>
+    `- **${key}**: ${typeof value === "string" ? value : JSON.stringify(value)}`,
+  )].join("\n")
+}
+
 // T6: these describes exercise post-gate gated-phase internals that predate the
 // strict_workflow default; they run under the sanctioned legacy opt-out flag.
 const writeRegistryFlags = async (home: string, flags: Record<string, boolean>): Promise<void> => {
@@ -362,7 +382,7 @@ function sdkPromptResult(result: Record<string, unknown>): Record<string, unknow
   return {
     data: {
       info: { role: "assistant" },
-      parts: [{ type: "text", text: JSON.stringify(result) }],
+      parts: [{ type: "text", text: JSON.stringify(validOdfResult(result)) }],
     },
     request: {},
     response: {},
@@ -2827,7 +2847,7 @@ describe("findTaskApi", () => {
     const taskFn = vi.fn().mockResolvedValue({
       title: "native task",
       metadata: {},
-      output: "<task_result>\n{\"status\":\"ok\",\"executive_summary\":\"done\"}\n</task_result>",
+      output: `<task_result>\n${JSON.stringify(validOdfResult({ executive_summary: "done" }))}\n</task_result>`,
     })
     const api = findTaskApi({ task: taskFn, sessionID: "s1" } as any)
 
@@ -2839,7 +2859,7 @@ describe("findTaskApi", () => {
       subagent_type: "odoo_backend_engineer",
       background: false,
     })
-    expect(result).toEqual({ status: "ok", executive_summary: "done" })
+    expect(result).toEqual(validOdfResult({ executive_summary: "done" }))
   })
 
   it("detects sdk.session without toolCtx.task or client.task", () => {
@@ -2886,6 +2906,11 @@ describe("findTaskApi", () => {
   })
 
   it("adapts V2 create, prompt, wait, context, and latest assistant text", async () => {
+    const latestResult = validOdfResult({ executive_summary: "latest" })
+    const latestResultLines = Object.entries(latestResult)
+      .filter(([key]) => key !== "status")
+      .map(([key, value]) => `- **${key}**: ${typeof value === "string" ? value : JSON.stringify(value)}`)
+      .join("\n")
     const session = {
       create: vi.fn().mockResolvedValue({ id: "v2-child" }),
       get: vi.fn(),
@@ -2897,7 +2922,7 @@ describe("findTaskApi", () => {
         { type: "assistant", content: [
           { type: "reasoning", text: "not the result" },
           { type: "text", text: "## ODF Result\n- **Status**: ok" },
-          { type: "text", text: "- **Executive Summary**: latest" },
+          { type: "text", text: latestResultLines },
         ] },
       ]),
       interrupt: vi.fn().mockResolvedValue(undefined),
@@ -2909,7 +2934,7 @@ describe("findTaskApi", () => {
     } as any, { v2: { session } } as any)
 
     await expect(api!.taskApi({ agent: "odoo_backend_engineer", prompt: "Build it", context_files: ["models/x.py"] }))
-      .resolves.toEqual({ status: "ok", executive_summary: "latest" })
+      .resolves.toEqual(latestResult)
     expect(session.create).toHaveBeenCalledWith({
       agent: "odoo_backend_engineer",
       model: { providerID: "opencode-go", id: "kimi-k2.6" },
@@ -2933,7 +2958,7 @@ describe("findTaskApi", () => {
       prompt: vi.fn().mockResolvedValue(undefined),
       wait: vi.fn().mockResolvedValue(undefined),
       context: vi.fn().mockResolvedValue([
-        { type: "assistant", content: [{ type: "text", text: "## ODF Result\n- **status**: ok" }] },
+        { type: "assistant", content: [{ type: "text", text: odfResultText() }] },
       ]),
       interrupt: vi.fn().mockResolvedValue(undefined),
     }
@@ -3019,6 +3044,13 @@ describe("sessionResultFromText", () => {
     const result = sessionResultFromText([
       "## ODF Result",
       "- **status**: ok",
+      "- **executive_summary**: Design complete",
+      "- **strategy**: custom",
+      "- **artifacts_saved**: []",
+      "- **next_recommended**: []",
+      "- **odoo_version**: 18",
+      "- **modules_affected**: []",
+      "- **skill_resolution**: injected",
       "- **design_closed**: true",
       "- **source_authority**:",
       "  - ok: true",
@@ -3042,6 +3074,13 @@ describe("sessionResultFromText", () => {
     const result = sessionResultFromText([
       "## ODF Result",
       "- **status**: ok",
+      "- **executive_summary**: Source authority verified",
+      "- **strategy**: custom",
+      "- **artifacts_saved**: []",
+      "- **next_recommended**: []",
+      "- **odoo_version**: 18",
+      "- **modules_affected**: []",
+      "- **skill_resolution**: injected",
       "- **source_authority**:",
       "  - ok: true",
       "  - verified: true",
@@ -3062,7 +3101,12 @@ describe("sessionResultFromText", () => {
     const result = sessionResultFromText([
       "## ODF Result",
       "**status**: ok",
+      "**executive_summary**: Design saved",
+      "**strategy**: custom",
       '- **artifacts_saved**: [{"name": "design", "artifact_ref": {"store": "openspec", "ref": "openspec/changes/x/design/design.md"}}]',
+      "- **next_recommended**: []",
+      "- **odoo_version**: 18",
+      "- **modules_affected**: []",
       "**skill_resolution**: injected",
     ].join("\n"))
 
@@ -3074,12 +3118,26 @@ describe("sessionResultFromText", () => {
   })
 
   it("still parses a pure JSON result when no ODF Result section exists", () => {
-    const result = sessionResultFromText('{"status":"ok","executive_summary":"json only"}')
-    expect(result).toEqual({ status: "ok", executive_summary: "json only" })
+    const result = sessionResultFromText(JSON.stringify({
+      status: "ok",
+      executive_summary: "json only",
+      strategy: "custom",
+      artifacts_saved: [],
+      next_recommended: [],
+      odoo_version: 18,
+      modules_affected: [],
+      skill_resolution: "none",
+    }))
+    expect(result).toMatchObject({ status: "ok", executive_summary: "json only", skill_resolution: "none" })
   })
 
   it("fails closed when the section has no status", () => {
     expect(() => sessionResultFromText("## ODF Result\n- **design_closed**: true")).toThrow(/invalid-task-result/)
+  })
+
+  it("rejects a supported status when required common fields are missing", () => {
+    expect(() => sessionResultFromText("## ODF Result\n- **status**: ok")).toThrow(/field executive_summary/)
+    expect(() => sessionResultFromText('{"status":"ok","executive_summary":"partial"}')).toThrow(/field strategy/)
   })
 
   it("rejects unresolved status templates and unsupported status values", () => {
@@ -3092,6 +3150,13 @@ describe("sessionResultFromText", () => {
     const result = sessionResultFromText([
       "## ODF Result",
       "- **status**: ok",
+      "- **executive_summary**: Safe result",
+      "- **strategy**: custom",
+      "- **artifacts_saved**: []",
+      "- **next_recommended**: []",
+      "- **odoo_version**: 18",
+      "- **modules_affected**: []",
+      "- **skill_resolution**: injected",
       "- **source_authority**:",
       "  - __proto__: polluted",
       "  - ok: true",
@@ -4684,7 +4749,7 @@ ${overrides}`
       prompt: vi.fn().mockResolvedValue(undefined),
       wait: vi.fn().mockResolvedValue(undefined),
       context: vi.fn().mockResolvedValue([
-        { type: "assistant", content: [{ type: "text", text: "## ODF Result\n- **status**: ok\n- **design_closed**: true" }] },
+        { type: "assistant", content: [{ type: "text", text: odfResultText({ design_closed: true }) }] },
       ]),
       interrupt: vi.fn().mockResolvedValue(undefined),
     }

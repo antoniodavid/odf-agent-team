@@ -73,7 +73,7 @@ The phase is DONE only when ALL hold (checkable, not vibes):
 
 ## Output Contract
 
-Return ODF Result envelope with: status (ok), executive_summary, strategy (standard|custom), artifacts_saved, next_recommended (["design"] or []), risks, odoo_version, modules_affected.
+Return the complete shared ODF Result envelope, including every required common field (especially `skill_resolution`), with `strategy` limited to `standard|custom`; set `next_recommended` to `["design"]` or `[]` as applicable.
 
 ## Changelog
 

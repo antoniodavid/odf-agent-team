@@ -43,7 +43,7 @@ Use BEFORE /odf-new when you need to understand how Odoo handles a feature, find
 
 ## Output Contract
 
-Return exploration report with: status (ok), executive_summary, relevant_modules (table: module, purpose, relevance), key_models (table: model, fields, methods), standard_coverage (Yes/No/Partial), recommendation (start /odf-new or use standard config), artifacts_saved, odoo_version, modules_affected.
+Return the complete shared ODF Result envelope, including every required common field (especially `strategy` and `skill_resolution`), plus an exploration report with relevant_modules (table: module, purpose, relevance), key_models (table: model, fields, methods), standard_coverage (Yes/No/Partial), and recommendation (start /odf-new or use standard config).
 
 ## References
 

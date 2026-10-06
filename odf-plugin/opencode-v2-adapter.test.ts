@@ -72,7 +72,19 @@ function taskContext() {
   }
 }
 
-function v2Session(contextResponse: unknown = [{ type: "assistant", content: [{ type: "text", text: '{"status":"ok"}' }] }]) {
+const validOdfResult = {
+  status: "ok",
+  executive_summary: "Phase completed",
+  strategy: "custom",
+  artifacts_saved: [],
+  next_recommended: [],
+  risks: [],
+  odoo_version: 18,
+  modules_affected: [],
+  skill_resolution: "injected",
+}
+
+function v2Session(contextResponse: unknown = [{ type: "assistant", content: [{ type: "text", text: JSON.stringify(validOdfResult) }] }]) {
   return {
     create: vi.fn(async () => ({ id: "child-session" })),
     get: vi.fn(async () => ({ model: { providerID: "provider", id: "model" } })),
@@ -280,7 +292,7 @@ describe("OpenCode V2 ODF adapter", () => {
       agent: "odoo_qa_engineer",
       prompt: "Return the requested ODF result.",
       context_files: ["README.md"],
-    })).resolves.toEqual({ status: "ok" })
+    })).resolves.toEqual(validOdfResult)
     expect(session.get).toHaveBeenCalledWith({ sessionID: "parent-session" })
     expect(session.create).toHaveBeenCalledWith({
       agent: "odoo_qa_engineer",

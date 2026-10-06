@@ -58,9 +58,9 @@ not add a separate QA delegation merely to produce an artifact.
 
 ## Output Contract
 
-Return the ODF Result envelope with status, executive_summary,
-`artifacts_saved`, `next_recommended`, risks, `odoo_version`, and
-`modules_affected`. `artifacts_saved` contains only QA artifacts actually
+Return the complete shared ODF Result envelope, including every required common
+field (especially `strategy` and `skill_resolution`), plus the QA summary.
+`artifacts_saved` contains only QA artifacts actually
 produced by the routed work (`qa-plan`, `qa-review`, `qa-aggregate`,
 `qa-report`); do not claim formal QA artifacts for an inline plan. When tests
 ran, report measured results and approved-expectation coverage; otherwise state

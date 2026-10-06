@@ -115,11 +115,10 @@ The design is DONE (closed) only when ALL hold:
 
 ## Output Contract
 
-Return ODF Result envelope with: status (ok), executive_summary ("N modules, M
+Return the complete shared ODF Result envelope, including every required common field (especially `strategy` and `skill_resolution`), with executive_summary ("N modules, M
 models, V views, K tasks in M phases — design closed"), **design_closed** (true|false),
 **design_path** (path of the persisted design.md), **design_meta** (structured summary
-for estimation — see `docs/design-contract.md`), artifacts_saved,
-next_recommended (["implement"]), risks, odoo_version, modules_affected. If
+for estimation — see `docs/design-contract.md`). If
 `design_closed: false`, do NOT return ok — iterate or return blocked.
 
 ## References
