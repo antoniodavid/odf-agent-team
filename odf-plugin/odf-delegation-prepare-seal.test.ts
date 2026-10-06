@@ -24,6 +24,24 @@ function restoreConfigDir(): void {
   else process.env.ODF_CONFIG_DIR = ORIGINAL_CONFIG_DIR
 }
 
+function odfResultText(fields: Record<string, unknown> = {}): string {
+  const result = {
+    status: "ok",
+    executive_summary: "Phase completed",
+    strategy: "custom",
+    artifacts_saved: [],
+    next_recommended: [],
+    risks: [],
+    odoo_version: 18,
+    modules_affected: [],
+    skill_resolution: "injected",
+    ...fields,
+  }
+  return ["## ODF Result", ...Object.entries(result).map(([key, value]) =>
+    `- **${key}**: ${typeof value === "string" ? value : JSON.stringify(value)}`,
+  )].join("\n")
+}
+
 function fakeChildSession(opts: {
   agent: string
   prompt: string
@@ -215,6 +233,8 @@ describe("native prepare/seal delegation", () => {
     expect(output.delegation.prompt).toContain("<!-- ODF-DELEGATION ")
     expect(output.delegation.prompt).toContain("Design the requested feature")
     expect(output.delegation.prompt).toContain("## Skill Resolution Status")
+    expect(output.delegation.prompt).toContain("## Required ODF Result contract")
+    expect(output.delegation.prompt).toContain("**skill_resolution**")
 
     const read = readDelegationToken(tempHome, "native-design", output.token)
     expect(read.error).toBeNull()
@@ -239,7 +259,7 @@ describe("native prepare/seal delegation", () => {
       wait: vi.fn().mockResolvedValue(undefined),
       context: vi.fn().mockResolvedValue([
         { type: "user", text: prepared.delegation.prompt },
-        { type: "assistant", content: [{ type: "text", text: "## ODF Result\n- **status**: ok\n- **design_closed**: true" }] },
+        { type: "assistant", content: [{ type: "text", text: odfResultText({ design_closed: true }) }] },
       ]),
       interrupt: vi.fn().mockResolvedValue(undefined),
     }
@@ -445,7 +465,7 @@ describe("native prepare/seal delegation", () => {
     }, toolContext) as string)
     expect(rewrite).toMatchObject({ status: "blocked", reason: "proposal-already-written" })
 
-    const resultText = `## ODF Result\n- **status**: ok\n- **artifacts_saved**: ${JSON.stringify([{ name: "proposal", artifact_ref: written.artifact_ref }])}`
+    const resultText = odfResultText({ artifacts_saved: [{ name: "proposal", artifact_ref: written.artifact_ref }] })
     const session = fakeChildSession({ agent: prepared.agent, prompt: prepared.delegation.prompt, resultText })
     const output = JSON.parse(await odf_delegation_seal.execute({
       token: prepared.token,
@@ -509,7 +529,7 @@ describe("native prepare/seal delegation", () => {
     const session = fakeChildSession({
       agent: prepared.agent,
       prompt: prepared.delegation.prompt,
-      resultText: `## ODF Result\n- **status**: ok\n- **artifacts_saved**: ${JSON.stringify([{ name: "proposal", artifact_ref: artifactRef }])}`,
+      resultText: odfResultText({ artifacts_saved: [{ name: "proposal", artifact_ref: artifactRef }] }),
     })
 
     const output = JSON.parse(await odf_delegation_seal.execute({
@@ -581,6 +601,31 @@ describe("native prepare/seal delegation", () => {
       .rejects.toMatchObject({ code: "ENOENT" })
   })
 
+  it("uses the shared receipt admission before acquiring a native attempt", async () => {
+    const { odf_delegation_prepare } = await tools()
+    const change = "native-implement-pending-receipt"
+    await writeImplementState(tempHome, change)
+    await fs.mkdir(path.join(tempHome, ".odf"), { recursive: true })
+    await fs.writeFile(path.join(tempHome, ".odf", `receipt-${change}.json`), JSON.stringify({
+      status: "failed",
+      action: null,
+    }), "utf8")
+
+    const output = JSON.parse(await odf_delegation_prepare.execute({
+      phase: "IMPLEMENT",
+      change,
+      prompt: "Implement the planned change",
+      context_files: [],
+      artifact_store: "openspec",
+      attempt_id: "native-pending-receipt-attempt",
+      workflow_advance: implementProof(),
+    }, { sessionID: "parent-session" } as any) as string)
+
+    expect(output).toMatchObject({ status: "blocked", reason: "workflow-receipt-pending" })
+    await expect(fs.readFile(path.join(tempHome, ".odf", `attempt-ledger-${change}.jsonl`), "utf8"))
+      .rejects.toMatchObject({ code: "ENOENT" })
+  })
+
   it("seals a proof-backed IMPLEMENT with maximum-length native session IDs", async () => {
     const { odf_delegation_prepare, odf_delegation_seal } = await legacyTools()
     const change = "native-implement"
@@ -606,13 +651,13 @@ describe("native prepare/seal delegation", () => {
     const session = fakeChildSession({
       agent: prepared.agent,
       prompt: prepared.delegation.prompt,
-      resultText: "## ODF Result\n- **status**: ok\n- **executive_summary**: implemented",
+      resultText: odfResultText({ executive_summary: "implemented" }),
       parentSessionId,
       childSessionId,
     })
     session.context.mockResolvedValue([
       { id: "msg_user", type: "user", text: prepared.delegation.prompt },
-      { id: "msg_assistant", type: "assistant", content: [{ type: "text", text: "## ODF Result\n- **status**: ok\n- **executive_summary**: implemented" }] },
+      { id: "msg_assistant", type: "assistant", content: [{ type: "text", text: odfResultText({ executive_summary: "implemented" }) }] },
     ])
 
     const output = JSON.parse(await odf_delegation_seal.execute({
@@ -670,13 +715,13 @@ describe("native prepare/seal delegation", () => {
     const session = fakeChildSession({
       agent: prepared.agent,
       prompt: prepared.delegation.prompt,
-      resultText: "## ODF Result\n- **status**: ok\n- **executive_summary**: implemented",
+      resultText: odfResultText({ executive_summary: "implemented" }),
       parentSessionId,
       childSessionId,
     })
     session.context.mockResolvedValue([
       { id: "msg_user", type: "user", text: prepared.delegation.prompt },
-      { id: "msg_assistant", type: "assistant", content: [{ type: "text", text: "## ODF Result\n- **status**: ok\n- **executive_summary**: implemented" }] },
+      { id: "msg_assistant", type: "assistant", content: [{ type: "text", text: odfResultText({ executive_summary: "implemented" }) }] },
     ])
 
     const output = JSON.parse(await odf_delegation_seal.execute({
@@ -743,7 +788,7 @@ describe("native prepare/seal delegation", () => {
     const session = fakeChildSession({
       agent: prepared.agent,
       prompt: prepared.delegation.prompt,
-      resultText: "## ODF Result\n- **status**: ok\n- **executive_summary**: implemented",
+      resultText: odfResultText({ executive_summary: "implemented" }),
     })
     session.wait.mockRejectedValueOnce(new Error("still busy"))
     const sealArgs = { token: prepared.token, change, session_id: "ses_child" }
@@ -793,7 +838,7 @@ describe("native prepare/seal delegation", () => {
     const session = fakeChildSession({
       agent: prepared.agent,
       prompt: prepared.delegation.prompt,
-      resultText: "## ODF Result\n- **status**: ok\n- **executive_summary**: implemented",
+      resultText: odfResultText({ executive_summary: "implemented" }),
     })
     session.context.mockResolvedValue({
       data: [
@@ -803,7 +848,7 @@ describe("native prepare/seal delegation", () => {
         },
         {
           info: { id: "msg_assistant", type: "assistant" },
-          parts: [{ type: "text", text: "## ODF Result\n- **status**: ok\n- **executive_summary**: implemented" }],
+          parts: [{ type: "text", text: odfResultText({ executive_summary: "implemented" }) }],
         },
       ],
     })
@@ -847,7 +892,7 @@ describe("native prepare/seal delegation", () => {
     const session = fakeChildSession({
       agent: prepared.agent,
       prompt: prepared.delegation.prompt,
-      resultText: "## ODF Result\n- **status**: ok",
+      resultText: odfResultText(),
     })
     session.context.mockRejectedValue(new Error("do not expose this context error"))
     const output = JSON.parse(await odf_delegation_seal.execute({
@@ -895,7 +940,7 @@ describe("native prepare/seal delegation", () => {
     const session = fakeChildSession({
       agent: prepared.agent,
       prompt: prepared.delegation.prompt,
-      resultText: "## ODF Result\n- **status**: ok\n- **executive_summary**: implemented without evidence",
+      resultText: odfResultText({ executive_summary: "implemented without evidence" }),
     })
     const output = JSON.parse(await odf_delegation_seal.execute({
       token: prepared.token,
@@ -916,7 +961,7 @@ describe("native prepare/seal delegation", () => {
     const session = fakeChildSession({
       agent: prepared.agent,
       prompt: prepared.delegation.prompt,
-      resultText: "## ODF Result\n- **status**: ok\n- **design_closed**: true\n- **executive_summary**: closed",
+      resultText: odfResultText({ design_closed: true, executive_summary: "closed" }),
     })
     const { odf_delegation_seal } = await tools()
 
@@ -950,7 +995,7 @@ describe("native prepare/seal delegation", () => {
     const session = fakeChildSession({
       agent: prepared.agent,
       prompt: `${prepared.delegation.prompt}\n(edited by the orchestrator)`,
-      resultText: "## ODF Result\n- **status**: ok\n- **design_closed**: true",
+      resultText: odfResultText({ design_closed: true }),
     })
     const { odf_delegation_seal } = await tools()
 
@@ -996,7 +1041,7 @@ describe("native prepare/seal delegation", () => {
     const session = fakeChildSession({
       agent: prepared.agent,
       prompt: `${prepared.delegation.prompt}\n(edited before launch)`,
-      resultText: "## ODF Result\n- **status**: ok\n- **executive_summary**: assessment saved",
+      resultText: odfResultText({ executive_summary: "assessment saved" }),
     })
 
     const seal = JSON.parse(await odf_delegation_seal.execute({
@@ -1025,7 +1070,7 @@ describe("native prepare/seal delegation", () => {
     const session = fakeChildSession({
       agent: "odoo_code_reviewer",
       prompt: prepared.delegation.prompt,
-      resultText: "## ODF Result\n- **status**: ok\n- **design_closed**: true",
+      resultText: odfResultText({ design_closed: true }),
     })
     const { odf_delegation_seal } = await tools()
 
@@ -1064,7 +1109,7 @@ describe("native prepare/seal delegation", () => {
       token: expired.token,
       change: "native-design",
       session_id: "ses_child",
-    }, { sessionID: "parent-session", [ODF_V2_SESSION]: fakeChildSession({ agent: prepared.agent, prompt: prepared.delegation.prompt, resultText: "## ODF Result\n- **status**: ok" }) } as any) as string)
+    }, { sessionID: "parent-session", [ODF_V2_SESSION]: fakeChildSession({ agent: prepared.agent, prompt: prepared.delegation.prompt, resultText: odfResultText() }) } as any) as string)
     expect(expiredOutput).toMatchObject({ status: "blocked", reason: "delegation-token-expired" })
   })
 
@@ -1072,9 +1117,6 @@ describe("native prepare/seal delegation", () => {
   // Parity matrix: the native path must produce the same envelope as the
   // legacy delegate for identical inputs and child results.
   // ------------------------------------------------------------------
-
-  const odfResultText = (fields: Record<string, unknown>): string =>
-    ["## ODF Result", ...Object.entries(fields).map(([key, value]) => `- **${key}**: ${String(value)}`)].join("\n")
 
   const stripPathFields = (envelope: Record<string, any>): Record<string, any> => {
     const copy = { ...envelope }
@@ -1097,7 +1139,20 @@ describe("native prepare/seal delegation", () => {
 
   const runDelegate = async (root: string, args: Record<string, unknown>, childResult: unknown) => {
     const { odf_delegate } = await tools(root)
-    const taskApi = vi.fn().mockResolvedValue(childResult)
+    const taskApi = vi.fn().mockResolvedValue({
+      status: "ok",
+      executive_summary: "Phase completed",
+      strategy: "custom",
+      artifacts_saved: [],
+      next_recommended: [],
+      risks: [],
+      odoo_version: 18,
+      modules_affected: [],
+      skill_resolution: "injected",
+      ...(childResult && typeof childResult === "object" && !Array.isArray(childResult)
+        ? childResult as Record<string, unknown>
+        : {}),
+    })
     return JSON.parse(await odf_delegate.execute(
       { ...args, workspace_dir: root } as any,
       { sessionID: "delegate-session", task: taskApi } as any,
@@ -1340,7 +1395,7 @@ describe("native prepare/seal delegation", () => {
     await writeParallelEvidence(root, change, branches.map(branch => branch.branch_id))
     const session = parallelSessionApi(
       prepared.branches.map((branch: any) => ({ branch_id: branch.branch_id, agent: branch.agent, prompt: branch.prompt })),
-      () => "## ODF Result\n- **status**: ok\n- **executive_summary**: branch implemented",
+      () => odfResultText({ executive_summary: "branch implemented" }),
     )
     let createIndex = 0
     const launchSession = {
@@ -1421,7 +1476,7 @@ describe("native prepare/seal delegation", () => {
     }, { sessionID: "prepare-session" } as any) as string)
     const session = parallelSessionApi(
       prepared.branches.map((branch: any) => ({ branch_id: branch.branch_id, agent: branch.agent, prompt: branch.prompt })),
-      () => "## ODF Result\n- **status**: ok\n- **executive_summary**: branch implemented",
+      () => odfResultText({ executive_summary: "branch implemented" }),
     )
     session.wait.mockRejectedValueOnce(new Error("still running"))
 
@@ -1472,7 +1527,7 @@ describe("native prepare/seal delegation", () => {
 
     const session = parallelSessionApi(
       prepared.branches.map((branch: any) => ({ branch_id: branch.branch_id, agent: branch.branch_id === "frontend-a" ? "odoo_qa_engineer" : branch.agent, prompt: branch.prompt })),
-      () => "## ODF Result\n- **status**: ok",
+      () => odfResultText(),
     )
     const output = JSON.parse(await odf_parallel_seal.execute({
       token: prepared.token,

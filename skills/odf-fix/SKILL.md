@@ -58,7 +58,7 @@ If the redacted output is insufficient to diagnose, say so and ask.
 
 ## Output Contract
 
-Return ODF Result envelope with: status (ok|blocked|failed), executive_summary, diagnosis (root cause + file:line), fix_summary (files changed + what changed), test_evidence (command output), risks.
+Return the complete shared ODF Result envelope, including every required common field (especially `strategy` and `skill_resolution`), plus: diagnosis (root cause + file:line), fix_summary (files changed + what changed), and test_evidence (command output). `risks` is optional in the shared envelope.
 
 ## References
 

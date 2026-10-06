@@ -18,6 +18,7 @@ import {
   type ODFRegistry,
 } from "./odf-delegation-shared.js"
 import type { DelegationMetricInput, DelegationMetrics } from "./odf-delegation-metrics.js"
+import { validateODFResult } from "./odf-result-contract.js"
 
 // READ-ONLY HEALTH
 // ==========================================
@@ -1123,10 +1124,11 @@ function resultKey(rawKey: string): string {
   return rawKey.trim().toLowerCase().replace(/[\s-]+/g, "_")
 }
 
-function resultValue(rawValue: string, _key: string): unknown {
+function resultValue(rawValue: string, key: string): unknown {
   if (rawValue === "null") return null
   if (rawValue === "true") return true
   if (rawValue === "false") return false
+  if (key === "odoo_version" && /^1[6-9]$/.test(rawValue)) return Number(rawValue)
   if (rawValue.startsWith("[") || rawValue.startsWith("{")) {
     try {
       return JSON.parse(rawValue)
@@ -1135,15 +1137,6 @@ function resultValue(rawValue: string, _key: string): unknown {
     }
   }
   return rawValue
-}
-
-const ODF_RESULT_STATUSES = new Set(["ok", "warning", "blocked", "failed"])
-
-function validateODFResult(result: Record<string, unknown>): Record<string, unknown> {
-  if (typeof result.status !== "string" || !ODF_RESULT_STATUSES.has(result.status)) {
-    throw new Error("invalid-task-result: ODF Result status must be exactly one of ok, warning, blocked, or failed")
-  }
-  return result
 }
 
 /**

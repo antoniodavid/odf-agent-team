@@ -52,16 +52,21 @@ as the LAST part of its response. The orchestrator uses it for phase decisions.
 
 ```markdown
 ## ODF Result
-- **status**: ok | warning | blocked | failed
-- **executive_summary**: {1-2 sentence decision-grade summary}
-- **strategy**: standard | custom | migration | integration
+- **status**: ok
+- **executive_summary**: One- or two-sentence decision-grade summary.
+- **strategy**: custom
 - **artifacts_saved**: [{"name": "design", "artifact_ref": {"store": "openspec", "ref": "openspec/changes/<change>/design/design.md"}}]
-- **next_recommended**: [{phase or agent to invoke next}]
-- **risks**: [{risk description}]
-- **odoo_version**: {16|17|18|19}
-- **modules_affected**: [{module_name}]
-- **skill_resolution**: injected | self-discovered | none
+- **next_recommended**: []
+- **risks**: []
+- **odoo_version**: 18
+- **modules_affected**: []
+- **skill_resolution**: injected
 ```
+
+These values are a valid example, not defaults: choose the actual phase status,
+strategy, version, artifact references, handoff, and skill-resolution value.
+Every common field except `risks` is required; phase-specific fields are
+additive. The delegation prompt repeats this contract from the runtime schema.
 
 | Field | Required | Description |
 |---|---|---|
@@ -93,7 +98,7 @@ part of the contract:
 - The `## ODF Result` section is authoritative when present: the parser reads it
   first and never replaces it with an unrelated fenced JSON block. Without that
   section, the first fenced JSON block or the whole message is parsed as JSON.
-- A section without a `status` line is an invalid task result.
+- An ODF Result missing any required common field is an invalid task result.
 - `status` must be exactly `ok`, `warning`, `blocked`, or `failed`; unresolved template text such as `ok | warning | blocked | failed` is invalid.
 - Do not add fenced code blocks to the final message unless the whole message is
   the JSON result.

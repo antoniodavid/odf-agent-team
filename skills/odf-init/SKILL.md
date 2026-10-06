@@ -82,7 +82,7 @@ Use when entering a new Odoo project, or when project tooling changes (new test 
 
 ## Output Contract
 
-Return ODF Result envelope with: status (ok|warning|blocked), executive_summary ("{project}: Odoo {ver}, {N} modules, {env}, {runner} tests"), artifacts_saved, risks (missing tooling warnings), odoo_version, modules_affected. For a non-isolated database, include its exact name, `database_isolation: non-isolated`, `database_authorization: current-user-approved`, and the warning that tests may mutate module, schema, and test data. Use `blocked` when the exact database or required current authorization is missing.
+Return the complete shared ODF Result envelope, including every required common field (especially `strategy` and `skill_resolution`), with executive_summary ("{project}: Odoo {ver}, {N} modules, {env}, {runner} tests"). Include risks for missing tooling warnings. For a non-isolated database, include its exact name, `database_isolation: non-isolated`, `database_authorization: current-user-approved`, and the warning that tests may mutate module, schema, and test data. Use `blocked` when the exact database or required current authorization is missing.
 
 ## References
 

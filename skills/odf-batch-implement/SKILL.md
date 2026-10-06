@@ -40,7 +40,7 @@ backend/frontend IMPLEMENT work stays with its domain specialist.
 
 ## Output Contract
 
-Return the shared `## ODF Result` with `status`, `executive_summary`, `strategy`, `batch_summary`, `artifacts_saved` using canonical `artifact_ref`, `validation_evidence`, `next_recommended`, `risks`, `odoo_version`, `modules_affected`, and `skill_resolution: injected | self-discovered | none`. Include `source_authority_required: true` plus `source_authority_refs: [{file, line, claim}]` for view work, or `false` plus `[]` otherwise. Use `blocked` for missing inputs, incomplete evidence, or timeouts.
+Return the complete shared `## ODF Result` envelope with all required common fields, plus `batch_summary` and `validation_evidence` (required for IMPLEMENT batches). Use canonical `artifact_ref` entries in `artifacts_saved`. Include `source_authority_required: true` plus `source_authority_refs: [{file, line, claim}]` for view work, or `false` plus `[]` otherwise. Use `blocked` for missing inputs, incomplete evidence, or timeouts.
 
 ## Changelog
 

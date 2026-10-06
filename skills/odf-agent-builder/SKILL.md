@@ -48,7 +48,7 @@ Use when user describes a specialized Odoo domain expert (accounting, inventory,
 
 ## Output Contract
 
-Return ODF Result envelope with: status (ok|warning|blocked|failed), executive_summary, artifacts_saved ({"name": "agent-{name}", ...}), next_recommended, risks, odoo_version, modules_affected.
+Return the complete shared ODF Result envelope, including every required common field (especially `strategy` and `skill_resolution`), plus any agent-builder findings. Use canonical `artifact_ref` entries in `artifacts_saved`.
 
 ## References
 

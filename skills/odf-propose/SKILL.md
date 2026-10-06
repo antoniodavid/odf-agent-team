@@ -126,7 +126,8 @@ Run ASSESS phase for functional analysis
 Keep the proposal semantics and summary above, then end the response with the
 shared `## ODF Result` envelope from `skills/_shared/result-contract.md`.
 Use `blocked` while awaiting interactive approval or user input, `ok` only after
-approval and handoff to ASSESS, and `failed` only for an execution error. Set `artifacts_saved` to the
+approval and handoff to ASSESS, and `failed` only for an execution error. Include every required common
+field from the shared result contract, including `strategy` and `skill_resolution`. Set `artifacts_saved` to the
 persisted proposal artifact and `next_recommended` to `["assess"]` after
 approval, or `[]` when cancelled.
 

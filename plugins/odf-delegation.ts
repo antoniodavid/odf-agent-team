@@ -129,6 +129,7 @@ import {
   type NativeChildLaunch,
   type NativeChildLaunchState,
 } from "../odf-plugin/odf-delegation-tokens.js"
+import { ODF_RESULT_CONTRACT_PROMPT } from "../odf-plugin/odf-result-contract.js"
 import {
   proposalContentDigest,
   verifyOpenSpecProposal,
@@ -1539,6 +1540,7 @@ function buildDelegationPrompt(opts: {
     opts.sourceAuthorityPrompt || "",
     opts.fastLanePrompt || "",
     opts.policyGate ? `## Policy Gate Decision (authoritative, do not recompute)\n${JSON.stringify(opts.policyGate, null, 2)}` : "",
+    ODF_RESULT_CONTRACT_PROMPT,
     EXECUTOR_BOUNDARY,
   ].filter(Boolean).join("\n\n")
 }
@@ -1866,7 +1868,6 @@ Use this instead of generic task() for ODF workflow delegation.`,
 
       let workflowResult: ReturnType<typeof advanceWorkflow> | null = executionOptions.workflow_result || null
       let effectiveWorkflowAdvance: ODFDelegateWorkflowAdvance | null = null
-      let selectedWorkflowSnapshot: SelectedWorkflowSnapshot | null = null
       let fastLanePolicy: FastLanePolicy | null = null
       let fastLanePolicyActive = false
       let fastLaneBuild = false
@@ -1906,6 +1907,7 @@ Use this instead of generic task() for ODF workflow delegation.`,
             callerResult,
           )
         }
+        effectiveWorkflowAdvance = args.workflow_advance
         if (gatedPhase && !changeName) {
           const message = `Missing change name for ${args.phase}: provide args.change or include "Change name: <name>" in the prompt.`
           metricsSink?.({
@@ -1944,47 +1946,6 @@ Use this instead of generic task() for ODF workflow delegation.`,
               ? "The change name must be a safe token of 1-64 letters, numbers, hyphens, or underscores."
               : "Gated IMPLEMENT/VERIFY delegation requires a fresh safe attempt_id.",
             callerResult,
-          )
-        }
-        const selected = await readSelectedWorkflowState(workspaceRoot, changeName!, args.artifact_store)
-        if (!selected.snapshot) {
-          return blockWorkflow(
-            selected.error || "workflow-state-unavailable",
-            "The selected workflow state could not be read before delegation.",
-            callerResult,
-            { safe_continuation: changeName ? `/odf-continue ${changeName}` : "/odf-continue" },
-          )
-        }
-        selectedWorkflowSnapshot = selected.snapshot
-        const canonical = canonicalizeWorkflowAdvance(selected.snapshot, args.workflow_advance, expectedStage)
-        if ("reason" in canonical) return blockWorkflow(canonical.reason, canonical.message, null)
-        effectiveWorkflowAdvance = canonical.proof
-        const { work_type, ...advanceInput } = effectiveWorkflowAdvance
-        workflowResult = advanceWorkflow({
-          route: resolveWorkflowRoute(work_type),
-          ...advanceInput,
-        })
-        if (args.phase !== "IMPLEMENT" && args.phase !== "VERIFY") {
-          return blockWorkflow(
-            "workflow-gate-unsupported-phase",
-            `workflow_advance is supported only for IMPLEMENT and VERIFY starts; ${args.phase} is a composite legacy adapter. Omit workflow_advance for this call.`,
-            workflowResult,
-          )
-        }
-
-        if (workflowResult.status !== "advanced") {
-          return blockWorkflow(
-            workflowResult.status === "complete" ? "workflow-complete" : "workflow-advance-blocked",
-            workflowResult.reason,
-            workflowResult,
-          )
-        }
-
-        if (workflowResult.next_stage !== expectedStage) {
-          return blockWorkflow(
-            "workflow-phase-mismatch",
-            `Workflow next_stage ${workflowResult.next_stage || "none"} does not match ${args.phase}; expected ${expectedStage}.`,
-            workflowResult,
           )
         }
       }
@@ -2038,24 +1999,32 @@ Use this instead of generic task() for ODF workflow delegation.`,
       }
 
       let transitionStart: TransitionInspection | null = null
-      if (gatedPhase && effectiveWorkflowAdvance && workflowResult) {
-        const expectedStage: "BUILD" | "VERIFY" = args.phase === "IMPLEMENT" ? "BUILD" : "VERIFY"
-        const selected = await readSelectedWorkflowState(workspaceRoot, changeName!, args.artifact_store!)
-        if (!selected.snapshot) {
-          return blockWorkflow(
-            selected.error || "workflow-state-unavailable",
-            "The selected workflow state could not be read before delegation.",
-            workflowResult,
-          )
-        }
-        transitionStart = inspectPersistedTransition({
-          snapshot: selected.snapshot,
-          proof: effectiveWorkflowAdvance,
-          expectedStage,
-          callerResult: workflowResult,
+      let proofAdmission: Extract<ProofBackedAdmission, { ok: true }> | null = null
+      if (gatedPhase && args.workflow_advance && workflowResult) {
+        const admission = await resolveProofBackedAdmission({
+          workspaceRoot,
+          changeName: changeName!,
+          artifactStore: args.artifact_store!,
+          phase: args.phase as "IMPLEMENT" | "VERIFY",
+          attemptId: args.attempt_id!,
+          proof: args.workflow_advance,
         })
-        if (!transitionStart.ok) return blockWorkflow(transitionStart.reason, transitionStart.message, workflowResult)
-        if (transitionStart.alreadyCommitted) {
+        if (!admission.ok) {
+          return blockWorkflow(admission.reason, admission.message, admission.workflowResult || workflowResult, {
+            ...(admission.reason === "expectations-not-approved" || admission.reason === "expectations-invalid" ||
+              admission.reason === "workflow-state-not-found" || admission.reason === "workflow-state-unavailable"
+              ? { safe_continuation: `/odf-continue ${changeName}` }
+              : {}),
+          })
+        }
+        proofAdmission = admission
+        workflowResult = admission.workflowResult
+        effectiveWorkflowAdvance = admission.proof
+        transitionStart = admission.transition
+        fastLanePolicy = admission.fastLanePolicy
+        fastLanePolicyActive = admission.fastLanePolicyActive
+        fastLaneBuild = admission.fastLaneBuild
+        if (admission.transition.alreadyCommitted) {
           metricsSink?.({
             timestamp: new Date().toISOString(),
             session_id: toolCtx.sessionID,
@@ -2090,34 +2059,6 @@ Use this instead of generic task() for ODF workflow delegation.`,
             },
           }, null, 2)
         }
-      }
-
-      if (gatedPhase && effectiveWorkflowAdvance && selectedWorkflowSnapshot) {
-    const storedFastLane = fastLanePolicyFromState(selectedWorkflowSnapshot.state, workspaceRoot, changeName!)
-        if (storedFastLane.reason) {
-          return blockWorkflow(
-            storedFastLane.reason,
-            "The persisted fast-lane policy is malformed and cannot authorize this delegation.",
-            workflowResult,
-          )
-        }
-        fastLanePolicy = storedFastLane.policy
-        const fastLaneFailure = fastLaneEligibilityFailure(
-          effectiveWorkflowAdvance.work_type,
-          fastLanePolicy,
-          selectedWorkflowSnapshot.state.entry_route_binding,
-        ) || (fastLanePolicy?.enabled && args.phase === "IMPLEMENT"
-           ? fastLaneCandidateFailure(workspaceRoot, changeName!, selectedWorkflowSnapshot.state.entry_route_binding)
-          : null)
-        if (fastLaneFailure) {
-          return blockWorkflow(
-            fastLaneFailure,
-            "The persisted fast-lane policy is enabled, but its small-change binding is not currently eligible.",
-            workflowResult,
-          )
-        }
-        fastLanePolicyActive = fastLanePolicy?.enabled === true
-        fastLaneBuild = fastLanePolicyActive && args.phase === "IMPLEMENT"
       }
 
       const contextValidation = validateContextFiles(workspaceRoot, args.context_files || [])
@@ -2292,26 +2233,8 @@ Use this instead of generic task() for ODF workflow delegation.`,
         })
       }
 
-      let expectationsIds: string[] = []
-      const phaseWarnings: string[] = []
-      if (args.phase === "VERIFY" && effectiveWorkflowAdvance && transitionStart) {
-        const expectations = validateExpectations({
-          change: changeName!,
-          artifacts: transitionStart.snapshot.artifacts,
-        })
-        expectationsIds = expectations.status === "approved" ? expectations.ids : []
-        if (expectations.status === "missing") phaseWarnings.push("missing-expectations")
-        if (expectations.status === "invalid" || expectations.status === "tampered") {
-          return blockWorkflow(
-            expectations.status === "invalid" ? "expectations-not-approved" : "expectations-invalid",
-            expectations.status === "invalid"
-              ? "Human Expectations are not approved; approve them before VERIFY."
-              : "The Expectations artifact is invalid or tampered; restore the approved human artifact before VERIFY.",
-            workflowResult,
-            { safe_continuation: `/odf-continue ${changeName}` },
-          )
-        }
-      }
+      const expectationsIds = proofAdmission?.expectationsIds || []
+      const phaseWarnings = proofAdmission?.phaseWarnings || []
 
       const taskApiInfo = findTaskApi(toolCtx, client)
       const profilePayload = profile
@@ -3582,6 +3505,7 @@ function createODFDelegationPrepare(canonicalDirectory?: string): ReturnType<typ
       // the attempt slot. Fast-lane stays on odf_delegate for now.
       let policyGate: PolicyGateDecision | null = null
       let acquiredAttempt: AcquiredAttempt | null = null
+      let admittedWorkflowAdvance: ODFDelegateWorkflowAdvance | null = null
       if (gatedPhase) {
         if (!args.artifact_store) {
           return blocked("artifact-store-required", "Proof-backed IMPLEMENT/VERIFY delegation requires an explicit artifact_store: openspec, engram, or hybrid.")
@@ -3592,41 +3516,32 @@ function createODFDelegationPrepare(canonicalDirectory?: string): ReturnType<typ
         if (!args.attempt_id || !SAFE_TOKEN_PATTERN.test(args.attempt_id)) {
           return blocked("attempt-id-required", "Proof-backed IMPLEMENT/VERIFY delegation requires a fresh opaque attempt_id.")
         }
-        const selected = await readSelectedWorkflowState(workspaceRoot, changeName, args.artifact_store)
-        if (!selected.snapshot) {
-          return blocked(selected.error || "workflow-state-unavailable", "The selected workflow state could not be read before native delegation.")
-        }
         const proof = {
           ...args.workflow_advance,
           ...(args.target ? { target: args.target } : {}),
           ...(args.governance_acknowledgment ? { governance_acknowledgment: args.governance_acknowledgment } : {}),
         } as ODFDelegateWorkflowAdvance
         const expectedStage: "BUILD" | "VERIFY" = args.phase === "IMPLEMENT" ? "BUILD" : "VERIFY"
-        const callerResult = advanceWorkflow({ route: resolveWorkflowRoute(proof.work_type), ...proof })
-        const transition = inspectPersistedTransition({
-          snapshot: selected.snapshot,
+        const admission = await resolveProofBackedAdmission({
+          workspaceRoot,
+          changeName,
+          artifactStore: args.artifact_store,
+          phase: args.phase as "IMPLEMENT" | "VERIFY",
+          attemptId: args.attempt_id,
           proof,
-          expectedStage,
-          callerResult,
         })
-        if (!transition.ok) return blocked(transition.reason, transition.message)
-        if (transition.alreadyCommitted) {
+        if (!admission.ok) return blocked(admission.reason, admission.message, {
+          ...(admission.workflowResult ? { workflow_advance: admission.workflowResult } : {}),
+          ...(admission.reason === "expectations-not-approved" || admission.reason === "expectations-invalid" ||
+            admission.reason === "workflow-state-not-found" || admission.reason === "workflow-state-unavailable"
+            ? { safe_continuation: `/odf-continue ${changeName}` }
+            : {}),
+        })
+        admittedWorkflowAdvance = admission.proof
+        if (admission.transition.alreadyCommitted) {
           return blocked("workflow-stage-already-complete", `The ${expectedStage} stage is already complete; native delegation will not launch another attempt.`)
         }
-        if (args.phase === "VERIFY") {
-          const expectations = validateExpectations({ change: changeName, artifacts: selected.snapshot.artifacts })
-          if (expectations.status === "invalid" || expectations.status === "tampered") {
-            return blocked(
-              expectations.status === "invalid" ? "expectations-not-approved" : "expectations-invalid",
-              expectations.status === "invalid"
-                ? "Human Expectations are not approved; approve them before VERIFY."
-                : "The Expectations artifact is invalid or tampered; restore the approved human artifact before VERIFY.",
-              { safe_continuation: `/odf-continue ${changeName}` },
-            )
-          }
-        }
-        const fastLaneState = selected.snapshot.state?.fast_lane_policy as Record<string, unknown> | undefined
-        if (fastLaneState?.enabled === true) {
+        if (admission.fastLanePolicyActive) {
           return blocked(
             "native-delegation-fast-lane-unsupported",
             "The persisted fast-lane policy is enabled; use odf_delegate for bounded fast-lane BUILD/VERIFY until the native path supports it.",
@@ -3728,6 +3643,7 @@ function createODFDelegationPrepare(canonicalDirectory?: string): ReturnType<typ
           { classes: safety.classes, matched_rules: safety.matched_rules, safe_continuation: safety.safe_continuation },
         )
       }
+      const workflowAdvance = admittedWorkflowAdvance || args.workflow_advance
       const record = createDelegationTokenRecord({
         change: changeName,
         phase: args.phase as DelegationPhase,
@@ -3745,7 +3661,7 @@ function createODFDelegationPrepare(canonicalDirectory?: string): ReturnType<typ
           : {}),
         ...(args.artifact_store ? { artifact_store: args.artifact_store } : {}),
         ...(args.attempt_id ? { attempt_id: args.attempt_id } : {}),
-        ...(args.workflow_advance ? { workflow_advance: args.workflow_advance } : {}),
+        ...(workflowAdvance ? { workflow_advance: workflowAdvance } : {}),
         ...(policyGate ? { policy_gate: policyGate as unknown as Record<string, unknown> } : {}),
         ...(args.target ? { target: args.target } : {}),
         ...(args.governance_acknowledgment ? { governance_acknowledgment: args.governance_acknowledgment } : {}),
@@ -6857,6 +6773,153 @@ function inspectPersistedTransition(opts: {
     return fail("workflow-advance-blocked", opts.callerResult.reason)
   }
   return { ok: true, alreadyCommitted: false, reason: "ready", message: "Persisted workflow transition is ready.", snapshot: opts.snapshot, route, completed }
+}
+
+type ProofBackedAdmission =
+  | { ok: false; reason: string; message: string; workflowResult: ReturnType<typeof advanceWorkflow> | null }
+  | {
+      ok: true
+      proof: ODFDelegateWorkflowAdvance
+      workflowResult: ReturnType<typeof advanceWorkflow>
+      transition: TransitionInspection
+      fastLanePolicy: FastLanePolicy | null
+      fastLanePolicyActive: boolean
+      fastLaneBuild: boolean
+      expectationsIds: string[]
+      phaseWarnings: string[]
+    }
+
+/**
+ * Resolve the authoritative persisted admission for proof-backed BUILD/VERIFY.
+ * Both public proof-backed admission paths call this before acquiring an
+ * attempt, so neither transport can launch a child against stale route, receipt,
+ * fast-lane, or Expectations state.
+ */
+async function resolveProofBackedAdmission(input: {
+  workspaceRoot: string
+  changeName: string
+  artifactStore: ArtifactStore
+  phase: "IMPLEMENT" | "VERIFY"
+  attemptId: string
+  proof: ODFDelegateWorkflowAdvance
+}): Promise<ProofBackedAdmission> {
+  const fail = (
+    reason: string,
+    message: string,
+    workflowResult: ReturnType<typeof advanceWorkflow> | null = null,
+  ): ProofBackedAdmission => ({ ok: false, reason, message, workflowResult })
+  const expectedStage = input.phase === "IMPLEMENT" ? "BUILD" : "VERIFY"
+  if (!isSafeToken(input.changeName)) {
+    return fail("unsafe-change-name", "The change name must be a safe token of 1-64 letters, numbers, hyphens, or underscores.")
+  }
+  if (!isSafeToken(input.attemptId)) {
+    return fail("attempt-id-required", "Gated IMPLEMENT/VERIFY delegation requires a fresh safe attempt_id.")
+  }
+
+  const { work_type: workType, ...callerInput } = input.proof
+  const callerResult = advanceWorkflow({
+    route: resolveWorkflowRoute(workType),
+    ...callerInput,
+    // Caller state is structural only. Persisted state and receipt are
+    // authoritative and are injected by canonicalizeWorkflowAdvance below.
+    receipt_state: "resolved",
+    resumable_state: true,
+    archived_state: false,
+  })
+  const selected = await readSelectedWorkflowState(input.workspaceRoot, input.changeName, input.artifactStore)
+  if (!selected.snapshot) {
+    return fail(selected.error || "workflow-state-unavailable", "The selected workflow state could not be read before delegation.", callerResult)
+  }
+  const persistedWorkType = selected.snapshot.status.work_type || selected.snapshot.state.work_type
+  if (persistedWorkType && persistedWorkType !== workType) {
+    return fail("workflow-work-type-mismatch", `Persisted work_type ${persistedWorkType} does not match ${workType}.`, callerResult)
+  }
+  if (callerResult.status !== "advanced") {
+    return fail("workflow-advance-blocked", callerResult.reason, callerResult)
+  }
+  if (callerResult.next_stage !== expectedStage &&
+    !isStageStartProof(resolveWorkflowRoute(workType), input.proof, expectedStage)) {
+    return fail(
+      "workflow-phase-mismatch",
+      `Workflow next_stage ${callerResult.next_stage || "none"} does not match ${input.phase}; expected ${expectedStage}. To start ${input.phase}, pass the stage that precedes ${expectedStage} as candidate_stage so next_stage is ${expectedStage}.`,
+      callerResult,
+    )
+  }
+  const canonical = canonicalizeWorkflowAdvance(selected.snapshot, input.proof, expectedStage)
+  if ("reason" in canonical) return fail(canonical.reason, canonical.message, callerResult)
+
+  const { work_type: canonicalWorkType, ...advanceInput } = canonical.proof
+  const workflowResult = advanceWorkflow({ route: resolveWorkflowRoute(canonicalWorkType), ...advanceInput })
+  if (workflowResult.status !== "advanced") {
+    return fail(
+      workflowResult.status === "complete" ? "workflow-complete" : "workflow-advance-blocked",
+      workflowResult.reason,
+      workflowResult,
+    )
+  }
+  if (workflowResult.next_stage !== expectedStage) {
+    return fail(
+      "workflow-phase-mismatch",
+      `Workflow next_stage ${workflowResult.next_stage || "none"} does not match ${input.phase}; expected ${expectedStage}.`,
+      workflowResult,
+    )
+  }
+
+  const transition = inspectPersistedTransition({
+    snapshot: selected.snapshot,
+    proof: canonical.proof,
+    expectedStage,
+    callerResult: workflowResult,
+  })
+  if (!transition.ok) return fail(transition.reason, transition.message, workflowResult)
+
+  const fastLane = fastLanePolicyFromState(selected.snapshot.state, input.workspaceRoot, input.changeName)
+  if (fastLane.reason) {
+    return fail(fastLane.reason, "The persisted fast-lane policy is malformed and cannot authorize this delegation.", workflowResult)
+  }
+  const fastLaneFailure = fastLaneEligibilityFailure(
+    canonicalWorkType,
+    fastLane.policy,
+    selected.snapshot.state.entry_route_binding,
+  ) || (fastLane.policy?.enabled && input.phase === "IMPLEMENT"
+    ? fastLaneCandidateFailure(input.workspaceRoot, input.changeName, selected.snapshot.state.entry_route_binding)
+    : null)
+  if (fastLaneFailure) {
+    return fail(
+      fastLaneFailure,
+      "The persisted fast-lane policy is enabled, but its small-change binding is not currently eligible.",
+      workflowResult,
+    )
+  }
+
+  const expectationsIds: string[] = []
+  const phaseWarnings: string[] = []
+  if (input.phase === "VERIFY") {
+    const expectations = validateExpectations({ change: input.changeName, artifacts: selected.snapshot.artifacts })
+    if (expectations.status === "approved") expectationsIds.push(...expectations.ids)
+    if (expectations.status === "missing") phaseWarnings.push("missing-expectations")
+    if (expectations.status === "invalid" || expectations.status === "tampered") {
+      return fail(
+        expectations.status === "invalid" ? "expectations-not-approved" : "expectations-invalid",
+        expectations.status === "invalid"
+          ? "Human Expectations are not approved; approve them before VERIFY."
+          : "The Expectations artifact is invalid or tampered; restore the approved human artifact before VERIFY.",
+        workflowResult,
+      )
+    }
+  }
+
+  return {
+    ok: true,
+    proof: canonical.proof,
+    workflowResult,
+    transition,
+    fastLanePolicy: fastLane.policy,
+    fastLanePolicyActive: fastLane.policy?.enabled === true,
+    fastLaneBuild: fastLane.policy?.enabled === true && input.phase === "IMPLEMENT",
+    expectationsIds,
+    phaseWarnings,
+  }
 }
 
 function workflowArtifactGate(snapshot: SelectedWorkflowSnapshot, expectedStage: "BUILD" | "VERIFY"): { reason: string; message: string } | null {

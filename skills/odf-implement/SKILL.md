@@ -108,7 +108,7 @@ A task is DONE only when ALL hold:
 
 ## Output Contract
 
-Return ODF Result envelope with: status (ok|warning|blocked), executive_summary ("N/M tasks done. Smoke: pass/warn."), batch_summary (completed tasks, files changed, deviations from the approved route plan, smoke test results), artifacts_saved, next_recommended (["implement"] or ["verify"]), risks, modules_affected, validation_evidence (path to the evidence file + command/exit_code summary — REQUIRED for IMPLEMENT batches).
+Return the complete shared ODF Result envelope, including every required common field (especially `strategy` and `skill_resolution`), plus: status (ok|warning|blocked), executive_summary ("N/M tasks done. Smoke: pass/warn."), batch_summary (completed tasks, files changed, deviations from the approved route plan, smoke test results), validation_evidence (path to the evidence file + command/exit_code summary — REQUIRED for IMPLEMENT batches). `artifacts_saved`, `next_recommended` (["implement"] or ["verify"]), risks, and `modules_affected` remain part of the shared envelope.
 
 ## References
 
