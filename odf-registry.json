@@ -978,7 +978,7 @@
         "coverage",
         "quality"
       ],
-      "compact_rules": "4 phases: QA-PLAN → QA-REVIEW → QA-AGGREGATE → QA-REPORT.\n- Read approved EXP-XX first, then map REQ-XX to tests\n- Choose the narrowest valid test class per behavior; never require TransactionCase universally\n- Run actual coverage tools, don't estimate\n- Quality gates: use project policy; do not invent universal percentages",
+      "compact_rules": "Every code-changing route needs a concise QA plan mapped from approved EXP-XX to focused checks. Keep it inline for small-change/bugfix; run formal QA-PLAN/QA-REVIEW/QA-AGGREGATE/QA-REPORT only when the resolved route or explicit risk escalation requires it.\n- EXP-XX is the primary acceptance criterion; map REQ-XX to tests\n- Choose the narrowest valid test class per behavior; never require TransactionCase universally\n- Run actual coverage tools, don't estimate\n- Quality gates: use project policy; do not invent universal percentages",
       "path": "skills/odf-qa/SKILL.md",
       "odoo_versions": [
         14,

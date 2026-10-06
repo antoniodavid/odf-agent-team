@@ -5923,7 +5923,7 @@ ${overrides}`
     expect(taskApi).not.toHaveBeenCalled()
   })
 
-  it("allows the next IMPLEMENT batch when the ledger shows a completed attempt but workflow BUILD is pending (issue #2)", async () => {
+  it("verifies a partial IMPLEMENT batch without closing BUILD, then commits after the final batch", async () => {
     const { createODFDelegate } = await import("./odf-delegation.js")
     const change = "batch-b2-continuation"
     // Simulate B1: attempt settled completed while canonical BUILD stays
@@ -5944,7 +5944,10 @@ ${overrides}`
       result_status: "delegated",
     })}\n`, "utf8")
     await prepareWorkflowState(change, "IMPLEMENT")
+    await fs.writeFile(path.join(tempHome, "openspec", "changes", change, "implement-progress.md"), "- [x] batch 1\n- [ ] batch 2\n", "utf8")
     await writeValidationEvidence(change)
+    const progressStatus = JSON.parse(await createODFWorkflowStatus().execute({ change_name: change, workspace_dir: tempHome }, {} as any) as string)
+    expect(progressStatus.progress).toMatchObject({ completed: 1, total: 2 })
     const taskApi = vi.fn().mockResolvedValue({ status: "ok" })
 
     const output = JSON.parse(await createODFDelegate(undefined, tempHome).execute({
@@ -5957,10 +5960,30 @@ ${overrides}`
       workflow_advance: workflowAdvance("IMPLEMENT"),
     }, { sessionID: "s-b2", task: taskApi } as any) as string)
 
-    expect(output).toMatchObject({ status: "delegated" })
+    expect(output).toMatchObject({
+      status: "delegated",
+      workflow_commit: { status: "batch-verified", reason: "build-batch-verified" },
+    })
     expect(taskApi).toHaveBeenCalledTimes(1)
     const records = (await fs.readFile(ledgerPath, "utf8")).trim().split("\n").map(line => JSON.parse(line))
     expect(records.map(record => record.status)).toEqual(["completed", "running", "completed"])
+
+    const progressPath = path.join(tempHome, "openspec", "changes", change, "implement-progress.md")
+    await fs.writeFile(progressPath, "- [x] implementation batch 1\n- [x] implementation batch 2\n", "utf8")
+    await writeValidationEvidence(change)
+    const finalBatch = JSON.parse(await createODFDelegate(undefined, tempHome).execute({
+      phase: "IMPLEMENT",
+      change,
+      artifact_store: "openspec",
+      attempt_id: "b3-attempt",
+      prompt: "Implement the final batch of the change",
+      context_files: [],
+      workflow_advance: workflowAdvance("IMPLEMENT"),
+    }, { sessionID: "s-b3", task: taskApi } as any) as string)
+    expect(finalBatch).toMatchObject({
+      status: "delegated",
+      workflow_commit: { status: "committed", canonical_stage: "BUILD" },
+    })
   })
 
   it("settles the attempt when pre-tool safety blocks IMPLEMENT so a fresh retry can run (issue #3)", async () => {
@@ -9315,6 +9338,28 @@ describe("validateValidationEvidence", () => {
     expect(verdict).toEqual({ status: "verified", reason: expect.stringContaining("2 command(s)"), commands_validated: 2 })
   })
 
+  it("rejects duplicate checks and VERIFY evidence labeled as IMPLEMENT", async () => {
+    await writeEvidence(validEvidence({
+      commands: [
+        { name: "git-diff-check", command: "git diff --check", exit_code: 0 },
+        { name: "whitespace-check", command: "  git diff --check  ", exit_code: 0 },
+      ],
+    }))
+    const duplicate = validateValidationEvidence({ workspaceDir: tmp, change: "ev-change", tier: "LOW", frozenDiffRef: null, now })
+    expect(duplicate).toMatchObject({ status: "invalid", reason: expect.stringContaining("duplicate validation command") })
+
+    await writeEvidence(validEvidence())
+    const wrongPhase = validateValidationEvidence({
+      workspaceDir: tmp,
+      change: "ev-change",
+      tier: "LOW",
+      frozenDiffRef: null,
+      expectedPhase: "VERIFY",
+      now,
+    })
+    expect(wrongPhase).toMatchObject({ status: "invalid", reason: expect.stringContaining('does not match "VERIFY"') })
+  })
+
   it("requires the expected phase and command kind for fast-lane evidence", async () => {
     const repo = path.join(tmp, "targeted-repo")
     initGitRepo(repo)
@@ -9568,6 +9613,18 @@ describe("validateValidationEvidence", () => {
     expect(verdict.reason).toContain("tier HIGH requires at least 3")
   })
 
+  it("does not let three non-test checks satisfy HIGH-risk evidence", async () => {
+    await writeEvidence(validEvidence({
+      commands: [
+        { name: "git-diff-check", command: "git diff --check", exit_code: 0 },
+        { name: "git-status-check", command: "git status --short", exit_code: 0 },
+        { name: "format-check", command: "ruff format --check", exit_code: 0 },
+      ],
+    }))
+    const verdict = validateValidationEvidence({ workspaceDir: tmp, change: "ev-change", tier: "HIGH", frozenDiffRef: null, now })
+    expect(verdict).toMatchObject({ status: "invalid", reason: expect.stringContaining("requires at least one identifiable test-suite command") })
+  })
+
   const validVerifyEvidence = (overrides: Record<string, unknown> = {}) => ({
     change: "ev-change",
     phase: "VERIFY",
@@ -9605,6 +9662,20 @@ describe("validateValidationEvidence", () => {
     const noOutput = validateValidationEvidence({ workspaceDir: tmp, change: "ev-change", tier: "LOW", frozenDiffRef: null, now })
     expect(noOutput.status).toBe("invalid")
     expect(noOutput.reason).toContain("missing output evidence")
+  })
+
+  it("verify-rejects-a-database-label-that-does-not-match-the-command target", async () => {
+    await writeEvidence(validVerifyEvidence({ commands: [
+      {
+        name: "odoo-tests",
+        command: "odoo-bin -d actual_database --test-enable --stop-after-init",
+        database: "authorized_database",
+        exit_code: 0,
+        output_tail: "12 passed, 0 failed",
+      },
+    ] }))
+    const verdict = validateValidationEvidence({ workspaceDir: tmp, change: "ev-change", tier: "LOW", frozenDiffRef: null, now })
+    expect(verdict).toMatchObject({ status: "invalid", reason: expect.stringContaining("does not match its -d target") })
   })
 
   it("verify-allows-non-Odoo commands without database context", async () => {
