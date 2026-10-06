@@ -1171,6 +1171,8 @@ const EVIDENCE_PATTERNS: Record<string, RegExp> = {
   "pylint-odoo": /\bYour code has been rated at \d+(?:\.\d+)?\/10\b/i,
   "pylint": /\bYour code has been rated at \d+(?:\.\d+)?\/10\b/i,
 }
+const TEST_SUITE_NAME_PATTERN = /(?:^|[-_\s])(?:test|tests|test-suite|unit-tests|odoo-test|odoo-tests|pytest(?:-odoo)?|vitest|jest|mocha|go-test|cargo-test)(?:$|[-_\s])/i
+const TEST_SUITE_COMMAND_PATTERN = /(?:^|[;&]\s*|\s)(?:npm\s+(?:run\s+)?test|pnpm\s+(?:run\s+)?test|yarn\s+test|pytest|vitest|jest|mocha|go\s+test|cargo\s+test)\b|odoo-bin\b[^\n]*--test-enable\b/i
 
 /**
  * Deterministic stop-validation seal. The sub-agent executes the commands and
@@ -1310,6 +1312,7 @@ export function validateValidationEvidence(opts: {
   }
 
   let checked = 0
+  const commandIdentities = new Set<string>()
   for (const cmd of commands) {
     if (!cmd || typeof cmd.name !== "string" || typeof cmd.exit_code !== "number") {
       return { status: "invalid", reason: "evidence command missing name or exit_code", commands_validated: checked }
@@ -1322,6 +1325,12 @@ export function validateValidationEvidence(opts: {
         return { status: "invalid", reason: `command "${cmd.name}" is missing output evidence`, commands_validated: checked }
       }
     }
+    const normalizedCommand = typeof cmd.command === "string" ? cmd.command.trim().replace(/\s+/g, " ") : ""
+    const identity = normalizedCommand || `name:${cmd.name.trim().toLowerCase()}`
+    if (commandIdentities.has(identity)) {
+      return { status: "invalid", reason: `duplicate validation command "${cmd.name}" does not count as an independent check`, commands_validated: checked }
+    }
+    commandIdentities.add(identity)
     if (cmd.exit_code !== 0) {
       return { status: "invalid", reason: `command "${cmd.name}" exited with ${cmd.exit_code}`, commands_validated: checked }
     }
@@ -1336,8 +1345,12 @@ export function validateValidationEvidence(opts: {
       if (typeof cmd.database !== "string" || !cmd.database.trim()) {
         return { status: "invalid", reason: `command "${cmd.name}" is missing an explicit database; use -d <test_db>`, commands_validated: checked }
       }
-      if (!/\s-d\s+\S+/.test(cmd.command)) {
+      const databaseArgument = cmd.command.match(/(?:^|\s)-d\s+(?:"([^"]+)"|'([^']+)'|(\S+))/)?.slice(1).find(Boolean)
+      if (!databaseArgument) {
         return { status: "invalid", reason: `command "${cmd.name}" is missing explicit -d <test_db>`, commands_validated: checked }
+      }
+      if (databaseArgument !== cmd.database.trim()) {
+        return { status: "invalid", reason: `command "${cmd.name}" database label does not match its -d target`, commands_validated: checked }
       }
     }
     const pattern = EVIDENCE_PATTERNS[cmd.name]
@@ -1345,6 +1358,16 @@ export function validateValidationEvidence(opts: {
       return { status: "invalid", reason: `command "${cmd.name}" output does not match expected success pattern`, commands_validated: checked }
     }
     checked += 1
+  }
+
+  if ((isVerify || opts.tier === "HIGH") && !commands.some(cmd =>
+    TEST_SUITE_NAME_PATTERN.test(cmd.name) ||
+    (typeof cmd.command === "string" && TEST_SUITE_COMMAND_PATTERN.test(cmd.command)))) {
+    return {
+      status: "invalid",
+      reason: `${isVerify ? "VERIFY" : "HIGH-risk"} evidence requires at least one identifiable test-suite command`,
+      commands_validated: checked,
+    }
   }
 
   const expectationsIds = opts.expectationsIds || evidence.expectations_ids
@@ -6225,7 +6248,7 @@ interface TransitionInspection {
 }
 
 export interface WorkflowCommitResult {
-  status: "committed" | "already-committed" | "blocked"
+  status: "committed" | "already-committed" | "batch-verified" | "blocked"
   reason: string
   message: string
   store: ArtifactStore
@@ -6808,9 +6831,9 @@ function verifyEvidenceVerdict(
     change: changeName,
     tier: gate.risk_tier ?? "MEDIUM",
     frozenDiffRef: gate.frozen_diff_ref ?? null,
+    expectedPhase: "VERIFY",
     ...(fastLane ? {
       evidencePath: fastLaneEvidenceRelativePath(changeName, "full"),
-      expectedPhase: "VERIFY" as const,
       requiredCommandKind: "full" as const,
     } : {}),
     expectationsIds,
@@ -7412,6 +7435,17 @@ export async function commitWorkflowTransition(opts: {
 
     const artifactFailure = workflowArtifactGate(read.snapshot, opts.expectedStage)
     if (artifactFailure) {
+      if (opts.expectedStage === "BUILD" && artifactFailure.reason === "workflow-implement-progress-not-terminal") {
+        return makeResult(
+          "batch-verified",
+          "build-batch-verified",
+          "This IMPLEMENT batch passed its evidence gate. BUILD remains pending because implementation progress is not terminal; continue with the next batch.",
+          read.snapshot,
+          inspection.completed,
+          opts.validation,
+          null,
+        )
+      }
       return makeResult(
         "blocked",
         artifactFailure.reason,

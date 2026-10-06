@@ -28,6 +28,7 @@ plugin does not invent or rewrite the inner result; the orchestrator reads both.
 | `status` | Delegation transport outcome, not the agent's phase verdict. `blocked` means no executable delegation occurred. |
 | `policy_gate` | Authoritative gate decision for IMPLEMENT/VERIFY, or `null` |
 | `validation` | Plugin seal for IMPLEMENT evidence: `verified`, `missing`, or `invalid`, or `null` |
+| `workflow_commit.status` | `batch-verified` means this IMPLEMENT batch passed validation but BUILD remains pending; continue with the next bounded batch. It is not a completed-stage commit. |
 | `receipt` | Optional receipt or receipt reference; failure persistence may also be on disk |
 | `result` | Raw return value from `task()`; the plugin does not synthesize its inner fields |
 | `task_session_id` | Child session id when the plugin created one (OpenCode V2 bridge); absent with the host native task API |
