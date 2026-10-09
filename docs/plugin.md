@@ -1,6 +1,6 @@
 # Plugin Reference — `odf-delegation`
 
-The ODF plugin injects **30 tools** into the orchestrator's tool list at runtime. They are **not MCP tools** — they are registered by the OpenCode plugin host from `plugins/odf-delegation.ts`.
+The ODF plugin injects **31 tools** into the orchestrator's tool list at runtime. They are **not MCP tools** — they are registered by the OpenCode plugin host from `plugins/odf-delegation.ts`.
 
 ## Tool inventory
 
@@ -21,6 +21,7 @@ The ODF plugin injects **30 tools** into the orchestrator's tool list at runtime
 | `odf_workflow_override` | write | Audited skip / re-enter / re-plan / settle-stale-attempt (BUILD & VERIFY can never be skipped) |
 | `odf_workflow_bind` | write | Start or bind workflow state in the selected store |
 | `odf_workflow_status` | read | Canonical status from OpenSpec / Engram / `.odf` |
+| `odf_feedback_submit` | write | Preview or submit one explicitly confirmed, privacy-bounded feedback aggregate |
 | `odf_entry_triage` | read | Classify micro / standard / full entry + pick work type |
 | `odf_context_manifest` | read | Bounded, reference-only context manifest for a candidate |
 | `odf_skill_inject` | read | Match and inject skill compact rules into a prompt |
@@ -45,6 +46,7 @@ The entrypoint stays a monolith for the delegation core; self-contained concerns
 |--------|----------------|
 | `odf-delegation-shared.ts` | Safe paths, registry type model, `ODF_REGISTERED_TOOLS` |
 | `odf-delegation-metrics.ts` | Telemetry records, flush loop, token estimation |
+| `odf-feedback.ts` | Local-session aggregate preview and opt-in HTTPS feedback submission |
 | `odf-delegation-health.ts` | Read-only health, native task adapter, SDK session fallback |
 | `odf-delegation-policy.ts` | Policy Gate resolution/persistence |
 | `odf-delegation-loopguard.ts` | Duplicate-launch and loop protection |
@@ -228,7 +230,20 @@ exercise prompt detection and bind authorization
 and redacted causal diagnostics (`odf-observability.test.ts`). These deterministic
 tests validate implementation boundaries; they do not simulate model judgment
 or claim conversational-quality improvements. Evaluation remains offline and
-provider-agnostic; optional online quality/cost feedback is not collected.
+provider-agnostic.
+
+### Explicit online feedback
+
+`/odf-feedback <change>` previews an aggregate from the current session's local
+metrics. It sends nothing until the user reviews the destination and values and
+confirms. The endpoint is operator-configured, HTTPS-only, and disabled by
+default. Only an explicit 1–5 rating and bounded aggregate counts, duration,
+latest phase status, and host-provided token/cost values are sent. Prompts,
+outputs, free text, identifiers, paths, model/provider names, and estimates are
+excluded. There is no durable outbox or retry. The endpoint owner must enforce
+the configured 1–30-day retention; ODF cannot verify remote retention. See
+[`metrics-and-engram-maintenance.md`](metrics-and-engram-maintenance.md) for the
+payload and configuration contract.
 
 **Visibility and interruptions:** programmatic launch returns child session IDs;
 the parent transcript need not contain a host `subagent` row. With legacy

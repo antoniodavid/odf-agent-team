@@ -42,6 +42,7 @@ import {
   type ODFSkill,
 } from "../odf-plugin/odf-delegation-shared.js"
 import { ODF_PLUGIN_ID } from "../odf-plugin/runtime-boundary.js"
+import { createODFFeedbackSubmit } from "../odf-plugin/odf-feedback.js"
 import {
   REGISTRY_PATH,
   computePermissionsFingerprint,
@@ -10525,6 +10526,7 @@ export function createODFRegisteredTools(
     odf_community_tool_install: createODFCommunityToolInstall(),
     odf_status: createODFStatus(canonicalDirectory),
     odf_workflow_status: createODFWorkflowStatus(canonicalDirectory),
+    odf_feedback_submit: createODFFeedbackSubmit(),
     odf_policy_gate: createODFPolicyGate(),
     odf_receipt: createODFReceipt(),
     odf_health: createODFHealth(client),

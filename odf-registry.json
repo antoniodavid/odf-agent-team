@@ -3026,6 +3026,14 @@
       "triggers": [
         "/odf-explore"
       ]
+    },
+    {
+      "name": "odf-feedback",
+      "description": "Preview and optionally submit explicit, privacy-bounded quality and cost feedback",
+      "path": "command/odf-feedback.md",
+      "triggers": [
+        "/odf-feedback"
+      ]
     }
   ]
 }

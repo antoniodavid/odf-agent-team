@@ -29,6 +29,7 @@ The route determines which stages and phase adapters apply; not every request ru
 | `/odf-registry-refresh` | Pick up skill/agent changes after install |
 | `/odf-tdd on/off` | Toggle strict test-before-code enforcement |
 | `/odf-health` | Verify installation and project detection |
+| `/odf-feedback <change>` | Preview and optionally submit explicitly confirmed, privacy-bounded feedback |
 
 ### Pipeline phases
 
@@ -77,7 +78,7 @@ escalation.
 
 ### Plugin tools (`odf-delegation.ts`)
 
-30 tools injected at runtime into the orchestrator's tool list:
+31 tools injected at runtime into the orchestrator's tool list:
 
 | Tool | Purpose |
 |------|---------|
@@ -106,6 +107,7 @@ escalation.
 | `odf_community_tool_install` | Install and wire a community tool |
 | `odf_status` | Resolve ODF change status from Engram observations |
 | `odf_workflow_status` | Read canonical workflow status (stages, receipts, resumability) |
+| `odf_feedback_submit` | Preview or submit one explicitly confirmed, privacy-bounded feedback aggregate |
 | `odf_policy_gate` | Resolve + persist the TDD/risk Policy Gate before IMPLEMENT/VERIFY |
 | `odf_receipt` | Persist a failure-disposition receipt for a change |
 | `odf_governance_provenance` | Record OCA AI provenance in `.odf/ai-provenance.json` |
@@ -213,7 +215,7 @@ These practices apply when changing the ODF harness repository. In customer Odoo
 
 ```
 agent/              — 11 agent instructions (orchestrator + 10 sub-agents)
-command/            — 22 slash command definitions (Markdown)
+command/            — 23 slash command definitions (Markdown)
 plugins/            — odf-delegation.ts (OpenCode plugin)
 scripts/            — test runner (1051 Vitest tests + 330 YAML scenarios), CLI wrapper, registry validator
 skills/              — 87 skills (OCA governance, ODF phases, patterns)
