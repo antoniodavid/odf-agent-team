@@ -293,9 +293,11 @@ function runOrchestratorSuite(suite) {
     }
 
     if (tc.input.states) {
-      test('resume selects expected active change', () => {
+      test(tc.expected.ambiguous ? 'resume requires explicit selection when multiple changes match' : 'resume selects expected active change', () => {
         const result = orchestrator.selectActiveChange(tc.input.states, tc.input.name || null);
-        return result.change === tc.expected.resume_change;
+        if (tc.expected.ambiguous !== undefined && Boolean(result.ambiguous) !== tc.expected.ambiguous) return false;
+        if (tc.expected.candidates !== undefined && JSON.stringify(result.candidates) !== JSON.stringify(tc.expected.candidates)) return false;
+        return tc.expected.resume_change === undefined || result.change === tc.expected.resume_change;
       });
     }
   }

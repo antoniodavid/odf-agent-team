@@ -126,14 +126,15 @@ describe('orchestrator state machine', () => {
       expect(result.change).toBe('newer');
     });
 
-    it('selects latest when no name provided', () => {
+    it('requires a name when multiple active changes match', () => {
       const result = selectActiveChange(states);
-      expect(result.change).toBe('newer');
+      expect(result).toEqual({ ambiguous: true, candidates: ['newer', 'older'] });
     });
 
-    it('reports ambiguity with multiple active changes', () => {
-      const result = selectActiveChange(states);
-      expect(result.change).toBe('newer');
+    it('selects the sole active change without requiring a name', () => {
+      const result = selectActiveChange([states[0]]);
+      expect(result.change).toBe('older');
+      expect(result.state).toBe(states[0].state);
     });
 
     it('errors when named change not found', () => {

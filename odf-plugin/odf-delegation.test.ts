@@ -56,7 +56,7 @@ import {
   type ODFAgent,
 } from "./odf-delegation.js"
 import { recordAiProvenance } from "./odf-governance.js"
-import { ODF_V2_SESSION, sessionResultFromText, taskSessionIdOf } from "./odf-delegation-health.js"
+import { ODF_V2_SESSION, hostTelemetryFromContext, sessionResultFromText, taskSessionIdOf } from "./odf-delegation-health.js"
 import { getOdfConfigDir } from "./odf-delegation-shared.js"
 import { advanceWorkflow, resolveWorkflowRoute, type CanonicalStage } from "./odf-workflow.js"
 import { buildCandidateManifest, computeCandidateDigest } from "./candidate-manifest.js"
@@ -355,6 +355,7 @@ function authorizedWorkflowBind(changeName: string, workspaceRoot: string) {
       messageID: context.messageID,
       generation,
       changeName,
+      entryKind: null,
       workspaceRoot: fsSync.realpathSync(workspaceRoot),
       claimed: false,
     }]]), new Map([[context.sessionID, generation]])),
@@ -785,6 +786,11 @@ describe("createODFWorkflowOverride", () => {
     expect(activeChild).toMatchObject({ status: "blocked", reason: "attempt-child-not-idle" })
     expect((await fs.readFile(ledgerPath, "utf8")).trim().split("\n")).toHaveLength(1)
 
+    session.wait.mockResolvedValueOnce({ error: "wait-timeout" })
+    const waitError = JSON.parse(await tool.execute({ ...args, child_session_id: "native-child" }, context) as string)
+    expect(waitError).toMatchObject({ status: "blocked", reason: "attempt-child-not-idle" })
+    expect((await fs.readFile(ledgerPath, "utf8")).trim().split("\n")).toHaveLength(1)
+
     session.wait.mockResolvedValueOnce(undefined)
     const settled = JSON.parse(await tool.execute({ ...args, child_session_id: "native-child" }, context) as string)
     expect(settled).toMatchObject({
@@ -801,7 +807,7 @@ describe("createODFWorkflowOverride", () => {
       native_child_session_id: "native-child",
     })
     expect(records.at(-1).native_child_idle_at).toBeTruthy()
-    expect(session.wait).toHaveBeenCalledTimes(2)
+    expect(session.wait).toHaveBeenCalledTimes(3)
   })
 
   it("settles an unlaunched native attempt only from exact parent safety evidence", async () => {
@@ -3411,6 +3417,21 @@ describe("recordMetrics", () => {
     expect(getMetricsBuffer()[1].tokens).toMatchObject({ input: 120, output: 45 })
   })
 
+  it("telemetry-cost-host-only: captures sanitized cost only when explicitly exposed by the host", () => {
+    const hostProvided = hostTelemetryFromContext({
+      usage: { input_tokens: 120, output_tokens: 45 },
+      cost_usd: 0.123456789,
+    } as never)
+    recordMetrics(makeMetric(hostProvided))
+    expect(getMetricsBuffer()[0]).toMatchObject({
+      tokens: { input: 120, output: 45 },
+      cost_usd: 0.12345679,
+    })
+
+    recordMetrics(makeMetric(hostTelemetryFromContext({} as never)))
+    expect(getMetricsBuffer()[1]).not.toHaveProperty("cost_usd")
+  })
+
   it("telemetry-no-secrets: prompt paths, absolute user paths and env values never appear in JSONL", () => {
     process.env.ODF_METRICS_BUFFER_CAP = "1"
     recordMetrics(makeMetric({
@@ -3658,6 +3679,164 @@ describe("loadEngramStatus", () => {
       expect(status).toMatchObject({ status: "found", change: "active-change", canonical_stage: "BUILD", resumable: true })
     } finally {
       await cleanup()
+    }
+  })
+
+  it("returns all active candidates instead of choosing the newest when discovery is ambiguous", async () => {
+    const workspace = path.join(tmp, "repo")
+    initGitRepo(workspace)
+    commitFile(workspace, "README.md", 1)
+    const activeState = JSON.stringify({
+      work_type: "feature",
+      artifact_store: "engram",
+      canonical_stage: "BUILD",
+      completed_canonical_stages: ["DECIDE", "PLAN"],
+      resumable: true,
+    })
+    const cleanup = await configureEngramExport([
+      { topic_key: "odf/first-change/state", content: activeState, created_at: "2026-09-29T10:00:00Z" },
+      { topic_key: "odf/second-change/state", content: activeState, created_at: "2026-09-30T10:00:00Z" },
+    ])
+
+    try {
+      const status = JSON.parse(await createODFWorkflowStatus().execute({}, { directory: workspace } as any) as string)
+      expect(status).toMatchObject({
+        status: "ambiguous",
+        reason: "multiple-active-changes",
+        active_change_resolution: {
+          status: "ambiguous",
+          candidate_count: 2,
+          candidates: [
+            { change: "first-change", canonical_stage: "BUILD", resumable: true },
+            { change: "second-change", canonical_stage: "BUILD", resumable: true },
+          ],
+        },
+      })
+      expect(status).not.toHaveProperty("change")
+    } finally {
+      await cleanup()
+    }
+  })
+
+  it("reuses the same Engram snapshot when an unnamed status has one candidate", async () => {
+    const workspace = path.join(tmp, "repo")
+    initGitRepo(workspace)
+    commitFile(workspace, "README.md", 1)
+    const fake = await configureFakeEngram()
+    await fake.setObservations([{
+      topic_key: "odf/single-active-change/state",
+      content: JSON.stringify({
+        work_type: "feature",
+        artifact_store: "engram",
+        canonical_stage: "BUILD",
+        completed_canonical_stages: ["DECIDE", "PLAN"],
+      }),
+      created_at: "2026-09-30T10:00:00Z",
+    }])
+
+    try {
+      const status = JSON.parse(await createODFWorkflowStatus().execute({}, { directory: workspace } as any) as string)
+      expect(status).toMatchObject({
+        status: "found",
+        change: "single-active-change",
+        active_change_resolution: { status: "unambiguous", candidate_count: 1 },
+      })
+      const calls = JSON.parse(await fs.readFile(fake.logPath, "utf8")) as string[][]
+      expect(calls.filter(call => call[0] === "export")).toHaveLength(1)
+    } finally {
+      await fake.cleanup()
+    }
+  })
+
+  it("does not claim a sole OpenSpec change is unambiguous when Engram discovery fails", async () => {
+    const workspace = await fs.mkdtemp(path.join(os.tmpdir(), "odf-incomplete-discovery-"))
+    const binDir = await fs.mkdtemp(path.join(os.tmpdir(), "odf-unavailable-engram-"))
+    const engramPath = path.join(binDir, "engram")
+    const change = "only-openspec-change"
+    const changeDir = path.join(workspace, "openspec", "changes", change)
+    const originalPath = process.env.PATH
+    await fs.mkdir(changeDir, { recursive: true })
+    await fs.writeFile(path.join(changeDir, "state.yaml"), [
+      "work_type: feature",
+      "artifact_store: openspec",
+      "canonical_stage: BUILD",
+      "completed_canonical_stages: [DECIDE, PLAN]",
+      "resumable: true",
+      "",
+    ].join("\n"), "utf8")
+    await fs.writeFile(engramPath, "#!/bin/sh\nexit 1\n", "utf8")
+    await fs.chmod(engramPath, 0o755)
+
+    try {
+      process.env.PATH = `${binDir}${path.delimiter}${originalPath || ""}`
+      const ambiguousDiscovery = JSON.parse(await createODFWorkflowStatus().execute({}, { directory: workspace } as any) as string)
+      expect(ambiguousDiscovery).toMatchObject({
+        status: "blocked",
+        reason: "active-change-discovery-incomplete",
+        active_change_resolution: { status: "incomplete", warnings: ["engram-export-failed"] },
+      })
+
+      const explicitStatus = JSON.parse(await createODFWorkflowStatus().execute({ change_name: change }, { directory: workspace } as any) as string)
+      expect(explicitStatus).toMatchObject({ status: "found", change, source: { state: "openspec" } })
+    } finally {
+      process.env.PATH = originalPath
+      await fs.rm(workspace, { recursive: true, force: true })
+      await fs.rm(binDir, { recursive: true, force: true })
+    }
+  })
+
+  it("marks malformed Engram observations incomplete instead of selecting a partial candidate", async () => {
+    const workspace = path.join(tmp, "repo")
+    initGitRepo(workspace)
+    commitFile(workspace, "README.md", 1)
+    const cleanup = await configureEngramExport([
+      {
+        topic_key: "odf/visible-change/state",
+        content: JSON.stringify({ work_type: "feature", artifact_store: "engram", canonical_stage: "BUILD", completed_canonical_stages: ["DECIDE", "PLAN"] }),
+      },
+      { content: "malformed-observation-without-topic-key" },
+    ])
+
+    try {
+      const status = JSON.parse(await createODFWorkflowStatus().execute({}, { directory: workspace } as any) as string)
+      expect(status).toMatchObject({
+        status: "blocked",
+        reason: "active-change-discovery-incomplete",
+        active_change_resolution: {
+          status: "incomplete",
+          candidate_count: null,
+          candidates: [{ change: "visible-change" }],
+          warnings: ["engram-export-invalid"],
+        },
+      })
+    } finally {
+      await cleanup()
+    }
+  })
+
+  it("blocks implicit selection when the exported Engram snapshot exceeds the byte cap", async () => {
+    const workspace = path.join(tmp, "repo")
+    initGitRepo(workspace)
+    commitFile(workspace, "README.md", 1)
+    const fake = await configureFakeEngram()
+    await fake.setObservations([{
+      topic_key: "odf/large-change/state",
+      content: "x".repeat(16 * 1024 * 1024 + 1),
+    }])
+
+    try {
+      const status = JSON.parse(await createODFWorkflowStatus().execute({}, { directory: workspace } as any) as string)
+      expect(status).toMatchObject({
+        status: "blocked",
+        reason: "active-change-discovery-incomplete",
+        active_change_resolution: {
+          status: "incomplete",
+          candidate_count: null,
+          warnings: ["engram-export-too-large"],
+        },
+      })
+    } finally {
+      await fake.cleanup()
     }
   })
 

@@ -12,6 +12,7 @@ import {
   isDelegationTokenExpired,
   markDelegationTokenSealed,
   readDelegationToken,
+  readDelegationTokenDiagnostics,
   writeDelegationToken,
 } from "./odf-delegation-tokens.js"
 
@@ -120,6 +121,109 @@ describe("delegation tokens", () => {
     expect(sealed.record).toMatchObject({ status: "sealed", sealed_at: "2026-09-28T12:05:00.000Z" })
 
     expect(markDelegationTokenSealed(workspace, sealed.record!)).toBe("delegation-token-already-sealed")
+  })
+
+  it("returns bounded token diagnostics without exposing tokens, prompts, seal output, or paths", async () => {
+    const record = createDelegationTokenRecord(validInput({
+      now: new Date("2026-09-28T12:00:00.000Z"),
+      parent_session_id: "parent-session",
+    }))!
+    const sealed = {
+      ...record,
+      launch_mode: "programmatic" as const,
+      launch: {
+        parent_session_id: "parent-session",
+        child_session_id: "child-session",
+        state: "submitted" as const,
+        dispatch_started_at: "2026-09-28T12:01:00.000Z",
+        dispatch_finished_at: "2026-09-28T12:01:01.000Z",
+        dispatched_prompt_digest_prefix: record.prompt_digest.slice(0, 12),
+        dispatched_prompt_byte_length: record.prompt_byte_length,
+      },
+      status: "sealed" as const,
+      seal_started_at: "2026-09-28T12:02:00.000Z",
+      child_result_observed_at: "2026-09-28T12:03:00.000Z",
+      prompt_verified_at: "2026-09-28T12:03:01.000Z",
+      workflow_commit_observed_at: "2026-09-28T12:04:00.000Z",
+      sealed_at: "2026-09-28T12:05:00.000Z",
+      sealed_session_id: "child-session",
+      sealed_result: JSON.stringify({
+        status: "blocked",
+        reason: "delegation-prompt-mismatch",
+        message: "PRIVATE SEAL OUTPUT SECRET_TOKEN=secret-value",
+        result: { task: "PRIVATE CHILD PROMPT" },
+        prompt_check: {
+          expected_utf8_bytes: 42,
+          actual_utf8_bytes: 43,
+          expected_sha256_prefix: "0123456789ab",
+          actual_sha256_prefix: "abcdef012345",
+          transcript_text_exact: false,
+        },
+        workflow_commit: {
+          status: "blocked",
+          reason: "workflow-state-locked",
+          canonical_stage: "BUILD",
+          state_ref: "/home/private/project/openspec/changes/demo-change/state.yaml",
+        },
+      }),
+    }
+    expect(writeDelegationToken(workspace, sealed)).toBeNull()
+
+    const diagnostics = readDelegationTokenDiagnostics(workspace, record.change)
+    expect(diagnostics).toMatchObject({ records_read: 1, warnings: [] })
+    expect(diagnostics.records[0]).toMatchObject({
+      phase: "IMPLEMENT",
+      attempt_id: "impl-r1",
+      prepared_prompt_digest_prefix: record.prompt_digest.slice(0, 12),
+      parent_session_id: "parent-session",
+      child_session_id: "child-session",
+      launch: {
+        state: "submitted",
+        parent_session_id: "parent-session",
+        child_session_id: "child-session",
+        dispatch_started_at: "2026-09-28T12:01:00.000Z",
+        dispatch_finished_at: "2026-09-28T12:01:01.000Z",
+        dispatched_prompt_digest_prefix: record.prompt_digest.slice(0, 12),
+        dispatched_prompt_byte_length: record.prompt_byte_length,
+      },
+      seal_started_at: "2026-09-28T12:02:00.000Z",
+      child_result_observed_at: "2026-09-28T12:03:00.000Z",
+      prompt_verified_at: "2026-09-28T12:03:01.000Z",
+      workflow_commit_observed_at: "2026-09-28T12:04:00.000Z",
+      seal_result: { status: "blocked", reason: "delegation-prompt-mismatch" },
+      workflow_commit: { status: "blocked", reason: "workflow-state-locked", canonical_stage: "BUILD" },
+      prompt_check: {
+        expected_sha256_prefix: "0123456789ab",
+        actual_sha256_prefix: "abcdef012345",
+        expected_utf8_bytes: 42,
+        actual_utf8_bytes: 43,
+        transcript_text_exact: false,
+      },
+    })
+    const serialized = JSON.stringify(diagnostics)
+    expect(serialized).not.toContain(record.token)
+    expect(serialized).not.toContain(record.task)
+    expect(serialized).not.toContain("PRIVATE SEAL OUTPUT")
+    expect(serialized).not.toContain("PRIVATE CHILD PROMPT")
+    expect(serialized).not.toContain("secret-value")
+    expect(serialized).not.toContain("/home/private/project")
+  })
+
+  it("omits unsafe session identifiers from diagnostics", () => {
+    const record = createDelegationTokenRecord(validInput({ parent_session_id: "/home/private/parent-session" }))!
+    const launched = {
+      ...record,
+      launch: {
+        parent_session_id: "/home/private/parent-session",
+        child_session_id: "/home/private/child-session",
+        state: "submitted" as const,
+      },
+    }
+    expect(writeDelegationToken(workspace, launched)).toBeNull()
+
+    const diagnostics = readDelegationTokenDiagnostics(workspace, record.change)
+    expect(diagnostics.records[0].launch).toEqual({ state: "submitted" })
+    expect(JSON.stringify(diagnostics)).not.toContain("/home/private")
   })
 
   it("deletes consumed tokens and keeps paths inside the workspace", async () => {

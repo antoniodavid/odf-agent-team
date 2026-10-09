@@ -1027,10 +1027,10 @@ export function findTaskApi(toolCtx: ToolContext, client?: OpencodeClient): { ta
 /**
  * T7: defensively read host runtime telemetry from toolCtx. The current
  * @opencode-ai/plugin ToolContext type exposes only sessionID/messageID/agent/
- * directory/worktree/abort/metadata/ask — no model, provider, or token usage.
+ * directory/worktree/abort/metadata/ask — no model, provider, usage, or cost.
  * A future host may extend it; we read those optional fields here when present
- * and honestly represent absence as null. The heuristic estimate is supplied
- * separately and never masquerades as a real token count.
+ * and honestly represent absence as null/omitted. The heuristic estimate is
+ * supplied separately and never masquerades as real usage or cost.
  */
 export function hostTelemetryFromContext(toolCtx: ToolContext): Partial<DelegationMetricInput> {
   const ctx = toolCtx as Record<string, any>
@@ -1040,6 +1040,7 @@ export function hostTelemetryFromContext(toolCtx: ToolContext): Partial<Delegati
   const usage = ctx?.usage ?? ctx?.tokens ?? ctx?.tokenUsage
   const inputTokens = usage?.input ?? usage?.input_tokens ?? usage?.prompt_tokens
   const outputTokens = usage?.output ?? usage?.output_tokens ?? usage?.completion_tokens
+  const costUsd = ctx?.cost_usd ?? ctx?.costUSD ?? usage?.cost_usd ?? usage?.costUSD
   return {
     model: typeof model === "string" ? model : typeof model?.id === "string" ? model.id : model?.modelID,
     provider: typeof provider === "string" ? provider : provider?.id ?? provider?.providerID,
@@ -1048,6 +1049,7 @@ export function hostTelemetryFromContext(toolCtx: ToolContext): Partial<Delegati
       input: typeof inputTokens === "number" ? inputTokens : null,
       output: typeof outputTokens === "number" ? outputTokens : null,
     },
+    ...(costUsd === undefined ? {} : { cost_usd: typeof costUsd === "number" ? costUsd : null }),
   }
 }
 

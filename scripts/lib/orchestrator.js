@@ -95,7 +95,7 @@ export function loadActiveChanges(baseDir = process.cwd()) {
  * Select the change to resume.
  *
  * Returns:
- *   { change: string, state: object } when unambiguous
+ *   { change: string, state: object } when exactly one candidate is active
  *   { ambiguous: true, candidates: string[] } when a name is needed
  */
 export function selectActiveChange(states, name = null) {
@@ -114,6 +114,9 @@ export function selectActiveChange(states, name = null) {
     const tb = b.last_updated ? new Date(b.last_updated).getTime() : b.state?.last_updated ? new Date(b.state.last_updated).getTime() : 0;
     return tb - ta;
   });
+  if (sorted.length > 1) {
+    return { ambiguous: true, candidates: sorted.map((candidate) => candidate.change) };
+  }
   return { change: sorted[0].change, state: sorted[0].state };
 }
 

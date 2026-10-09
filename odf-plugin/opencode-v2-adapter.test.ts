@@ -9,9 +9,19 @@ import {
   readV2ContextConversation,
 } from "./odf-delegation-health.js"
 import { ODF_ENTRY_HEALTH_REASON } from "./odf-delegation-loopguard.js"
-import { OdfDelegationPluginV2, createV2ToolContext, detectOdfNewEntry, loadOdfNewCommandBody, setupODFV2 } from "./opencode-v2-adapter.js"
+import {
+  OdfDelegationPluginV2,
+  createV2ToolContext,
+  detectNaturalWorkflowEntry,
+  detectOdfFixEntry,
+  detectOdfNewEntry,
+  loadOdfFixCommandBody,
+  loadOdfNewCommandBody,
+  setupODFV2,
+} from "./opencode-v2-adapter.js"
+import { readObservedSessionStatus } from "./odf-session-status.js"
 
-function testContext() {
+function testContext(events: unknown[] = []) {
   const tools: any[] = []
   const hooks: Array<{ domain: string; name: string; callback: (input: any) => Promise<void> }> = []
   const disposers: ReturnType<typeof vi.fn>[] = []
@@ -52,6 +62,8 @@ function testContext() {
         subscribedSignal = signal
         return {
           async *[Symbol.asyncIterator]() {
+            yield* events
+            if (signal.aborted) return
             await new Promise<void>(resolve => signal.addEventListener("abort", () => resolve(), { once: true }))
           },
         }
@@ -108,6 +120,16 @@ describe("OpenCode V2 ODF adapter", () => {
     expect(fixture.tools).toHaveLength(ODF_REGISTERED_TOOLS.length)
     expect(fixture.tools.map(tool => tool.name)).toEqual([...ODF_REGISTERED_TOOLS])
     await cleanup()
+  })
+
+  it("keeps the latest bounded child session.status observation for status reporting", async () => {
+    const fixture = testContext([{
+      type: "session.status",
+      data: { sessionID: "adapter-status-child", status: { type: "busy" } },
+    }])
+    const cleanup = await setupODFV2(fixture.context as any)
+    await cleanup()
+    expect(readObservedSessionStatus("adapter-status-child")).toMatchObject({ state: "busy" })
   })
 
   it("preserves transcript bytes and strips only one exact legacy host prefix", () => {
@@ -462,6 +484,23 @@ describe("OpenCode V2 /odf-new entry authorization", () => {
     expect(detectOdfNewEntry("odf-newer change", body)).toBeNull()
   })
 
+  it("recognizes direct feature and bugfix starts without treating questions or backchannels as starts", () => {
+    expect(detectNaturalWorkflowEntry("Please implement a discount approval flow")).toBe("new")
+    expect(detectNaturalWorkflowEntry("Agrega un campo de descuento a la cotización")).toBe("new")
+    expect(detectNaturalWorkflowEntry("Fix this tax rounding bug")).toBe("bugfix")
+    expect(detectNaturalWorkflowEntry("Hay un error al validar el pedido")).toBe("bugfix")
+    expect(detectNaturalWorkflowEntry("How do I fix tax rounding?")).toBeNull()
+    expect(detectNaturalWorkflowEntry("continue")).toBeNull()
+    expect(detectNaturalWorkflowEntry("`Please implement a feature`")).toBeNull()
+  })
+
+  it("detects the raw form and expanded body of /odf-fix", () => {
+    const body = loadOdfFixCommandBody()
+    expect(body && body.length).toBeGreaterThan(0)
+    expect(detectOdfFixEntry('/odf-fix tax-rounding "rounding error"', body)).toEqual({ args: 'tax-rounding "rounding error"' })
+    expect(detectOdfFixEntry(`${body}\n\ntax-rounding "rounding error"`, body)).toEqual({ args: 'tax-rounding "rounding error"' })
+  })
+
   it("blocks registered ODF tools before health when the command was expanded", async () => {
     const fixture = testContext()
     const cleanup = await setupODFV2(fixture.context as any)
@@ -527,6 +566,71 @@ describe("OpenCode V2 /odf-new entry authorization", () => {
 
       expect(result.content).not.toContain("workflow-start-unauthorized")
       expect(fsModule.existsSync(pathModule.join(tmpDir, "openspec", "changes", "v2-entry-probe", "state.yaml"))).toBe(true)
+    } finally {
+      fsModule.rmSync(tmpDir, { recursive: true, force: true })
+      await cleanup()
+    }
+  })
+
+  it("health-gates and authorizes a direct natural-language feature start for one bind", async () => {
+    const fsModule = await import("node:fs")
+    const osModule = await import("node:os")
+    const pathModule = await import("node:path")
+    const fixture = testContext()
+    const tmpDir = fsModule.realpathSync(fsModule.mkdtempSync(pathModule.join(osModule.tmpdir(), "odf-v2-natural-entry-")))
+    fixture.context.location.directory = tmpDir
+    const cleanup = await setupODFV2(fixture.context as any)
+    const sessionID = "session-natural-bind"
+    const messageID = "msg-natural-bind"
+
+    try {
+      await fixture.hooks.find(hook => hook.domain === "session" && hook.name === "prompt")!.callback({
+        sessionID,
+        messageID,
+        prompt: { text: "Please implement a discount approval flow" },
+      })
+      await expect(fixture.tools.find(tool => tool.name === "odf_workflow_route")!.execute({ work_type: "feature" }, {
+        sessionID,
+        messageID,
+        agent: "odoo_orchestrator",
+        signal: new AbortController().signal,
+        progress: vi.fn(async () => undefined),
+      })).rejects.toThrow(ODF_ENTRY_HEALTH_REASON)
+
+      await runHealthFlow(fixture, sessionID, messageID, "Please implement a discount approval flow")
+      const bind = fixture.tools.find(tool => tool.name === "odf_workflow_bind")!
+      const bindArgs = {
+        change_name: "discount-approval-flow",
+        work_type: "feature",
+        artifact_store: "openspec",
+        preflight: {
+          change: "discount-approval-flow",
+          execution_mode: "interactive",
+          artifact_store: "openspec",
+          delivery_strategy: "ask-on-risk",
+          review_budget_lines: 400,
+          odoo_version: 18,
+          tdd_mode: false,
+          solution_strategy: "custom",
+          chain_strategy: "none",
+        },
+      }
+      const toolContext = {
+        sessionID,
+        messageID,
+        agent: "odoo_orchestrator",
+        directory: tmpDir,
+        signal: new AbortController().signal,
+        progress: vi.fn(async () => undefined),
+      }
+      for (const work_type of ["bugfix", "investigation"] as const) {
+        const wrongRoute = await bind.execute({ ...bindArgs, work_type }, toolContext)
+        expect(JSON.parse(wrongRoute.content)).toMatchObject({ status: "blocked", reason: "workflow-start-unauthorized" })
+      }
+
+      const result = await bind.execute(bindArgs, toolContext)
+      expect(result.content).not.toContain("workflow-start-unauthorized")
+      expect(fsModule.existsSync(pathModule.join(tmpDir, "openspec", "changes", "discount-approval-flow", "state.yaml"))).toBe(true)
     } finally {
       fsModule.rmSync(tmpDir, { recursive: true, force: true })
       await cleanup()

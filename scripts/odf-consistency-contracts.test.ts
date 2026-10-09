@@ -128,6 +128,8 @@ describe("context wiring contract", () => {
 })
 
 const fixCommand = read("../command/odf-fix.md")
+const continueCommand = read("../command/odf-continue.md")
+const verifyCommand = read("../command/odf-verify.md")
 
 describe("supervised-auto contracts", () => {
   it("orchestrator runs fix/small-change in supervised auto with bounded retry", () => {
@@ -138,6 +140,20 @@ describe("supervised-auto contracts", () => {
   it("fix escalates bounded multi-file fixes instead of stopping", () => {
     expect(fix).toContain("Scope escalation")
     expect(fixCommand).toContain("supervised auto")
+  })
+})
+
+describe("ambiguity-safe continuation contracts", () => {
+  it("does not select the most recent workflow for unnamed continuation or verification", () => {
+    expect(continueCommand).toContain("never select by recency")
+    expect(continueCommand).toContain('active_change_resolution.status === "unambiguous"')
+    expect(continueCommand).toContain("For `ambiguous`, ask one grouped question")
+    expect(verifyCommand).toContain("Never choose by recency")
+  })
+
+  it("explains recovery evidence and reports persisted outcome before claiming completion", () => {
+    expect(orchestrator).toContain("explain the observed cause, the specific status/evidence references")
+    expect(orchestrator).toContain("capability issuance or attempt settlement is never phase completion")
   })
 })
 

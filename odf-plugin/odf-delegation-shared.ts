@@ -215,6 +215,7 @@ export const ODF_REGISTERED_TOOLS = [
   "odf_delegate",
   "odf_delegation_prepare",
   "odf_delegation_launch",
+  "odf_delegation_late_seal_prepare",
   "odf_proposal_write",
   "odf_delegation_seal",
   "odf_parallel_delegate",
@@ -244,12 +245,15 @@ export const ODF_REGISTERED_TOOLS = [
 ] as const
 
 export type OpencodeClient = ReturnType<typeof createOpencodeClient>
+export type ODFEntryKind = "new" | "bugfix"
 export interface ODFEntryAuthorization {
   nonce: string
   sessionID: string
   messageID: string
   generation: number
-  changeName: string
+  /** Null only for an explicitly recognized natural-language start; bind claims it to its first exact change name. */
+  changeName: string | null
+  entryKind: ODFEntryKind | null
   workspaceRoot: string
   claimed: boolean
 }
