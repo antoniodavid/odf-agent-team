@@ -544,7 +544,7 @@ describe("install.sh", { timeout: 30000 }, () => {
       expect(fs.existsSync(lockPath)).toBe(true)
 
       const lock = JSON.parse(fs.readFileSync(lockPath, "utf8"))
-      expect(lock.version).toBe("1.5.1")
+      expect(lock.version).toBe("1.6.0")
       expect(lock.source).toContain(`local:${REPO_ROOT}`)
       expect(lock.checksum).toMatch(/^[a-f0-9]{64}$/)
       expect(lock.config_dir).toBe(configDir)
