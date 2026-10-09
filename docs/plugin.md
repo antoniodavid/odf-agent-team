@@ -1,6 +1,6 @@
 # Plugin Reference — `odf-delegation`
 
-The ODF plugin injects **29 tools** into the orchestrator's tool list at runtime. They are **not MCP tools** — they are registered by the OpenCode plugin host from `plugins/odf-delegation.ts`.
+The ODF plugin injects **30 tools** into the orchestrator's tool list at runtime. They are **not MCP tools** — they are registered by the OpenCode plugin host from `plugins/odf-delegation.ts`.
 
 ## Tool inventory
 
@@ -9,6 +9,7 @@ The ODF plugin injects **29 tools** into the orchestrator's tool list at runtime
 | `odf_delegate` | write | Route a phase + prompt to the right sub-agent with skill injection |
 | `odf_delegation_prepare` | write | Resolve agent/skills/profile/prompt and mint a bounded delegation token |
 | `odf_delegation_launch` | write | Verify prepared prompt bytes against the token and submit them through the V2 session API |
+| `odf_delegation_late_seal_prepare` | write | Verify an expired original child and mint a token/attempt/parent/child-bound, single-use late-seal capability |
 | `odf_proposal_write` | write | Persist the token-bound PROPOSE artifact to its canonical OpenSpec path |
 | `odf_delegation_seal` | write | Bind the child session to the token, run the phase gates and return the standard envelope |
 | `odf_parallel_delegate` | write | Cross-domain BUILD as 2–3 parallel branches, one aggregate join |
@@ -47,6 +48,8 @@ The entrypoint stays a monolith for the delegation core; self-contained concerns
 | `odf-delegation-health.ts` | Read-only health, native task adapter, SDK session fallback |
 | `odf-delegation-policy.ts` | Policy Gate resolution/persistence |
 | `odf-delegation-loopguard.ts` | Duplicate-launch and loop protection |
+| `odf-late-seal-capability.ts` | One-time, short-TTL authority bound to an expired token/attempt/parent/child |
+| `odf-session-status.ts` | Bounded process-local cache of observed V2 child liveness |
 | `odf-delegation-receipts.ts` | Failure receipts |
 | `odf-workflow.ts` | Canonical stage state machine |
 | `odf-workflow-status.ts` | Read-only status merger (OpenSpec authority) |
@@ -136,6 +139,14 @@ plugin
 - IMPLEMENT/VERIFY also require `artifact_store`, the exact `workflow_advance`
   proof and a fresh `attempt_id`; the attempt is acquired at prepare time and
   settled by the seal. Fast-lane BUILD/VERIFY stays on `odf_delegate`.
+- If the original two-hour token expires after launch, call
+  `odf_delegation_late_seal_prepare` in the original parent session with the
+  original token and child ID. It verifies the still-running attempt, child
+  ancestry/agent/workspace, idle state, and exact prompt bytes without changing
+  the token or attempt. Pass the returned ten-minute capability to
+  `odf_delegation_seal`; ordinary evidence and workflow gates still apply. Only
+  an accepted seal consumes the capability; do not relaunch the child or edit
+  the original expiry.
 
 ### Native parallel BUILD (cross-domain)
 
@@ -146,6 +157,78 @@ prompt → `odf_parallel_seal` runs the same aggregate scheduler as
 receipt on failure. The aggregate envelope matches `odf_parallel_delegate` plus
 per-branch `task_session_id`. Branch context files must not overlap and branches
 range from two to three.
+
+### Causal workflow diagnostics
+
+`odf_workflow_status` includes a bounded `observability.causal_sequence` from
+native delegation token records: prepared, host-dispatch, seal-start,
+child-result-read, workflow-commit-observed, and seal-result milestones. These
+timestamps represent when ODF persisted or observed each boundary, not inferred
+provider timestamps. `causal_gaps` and partial source coverage identify
+timestamps or milestones that were not persisted; the status
+does not invent times or expose the token, full prompt, or raw seal envelope.
+Each event carries the change and sanitized stage artifact references. The
+child-result event compares prepared, dispatched, and received digest prefixes
+and UTF-8 lengths, with a bounded difference summary. Only safe session IDs are
+included for correlation. Reads are capped at 1,000 `.odf/` directory entries
+and 100 token records per change.
+`observability.delegation_status` keeps stage-artifact presence, latest observed
+child liveness/result, handoff integrity, seal, and canonical commit distinct.
+Liveness is `unknown` until a V2 `session.status` event has been observed; the
+reported next action is advisory and never performs recovery.
+
+### Active-change discovery and recovery
+
+When `odf_workflow_status` is called without `change_name`,
+`active_change_resolution.status` is one of `none`, `unambiguous`, `ambiguous`,
+or `incomplete`; an explicitly named query reports `explicit`. Candidate
+projections and source scanning are bounded and read-only; `candidate_count` is
+`null` when a source is missing, malformed, or truncated. Continuation
+may use the returned snapshot only for `unambiguous` with one resumable
+candidate; multiple candidates require a user choice, and any discovery warning
+blocks implicit selection. OpenSpec and Engram are both enumerated because a
+single OpenSpec-authoritative change does not prove that no Engram-only change
+also exists. The selected workflow state remains authoritative, and the same
+snapshot used to establish uniqueness is used to render the selected status.
+Passing an exact `change_name` can resolve candidate ambiguity, but does not
+clear receipts, make a non-resumable change resumable, or bypass any gate.
+
+Recovery remains separate from diagnosis. `busy` or `retry` child liveness means
+wait for that exact child; missing liveness is `unknown`, never idle. An idle
+child still requires the original prompt-integrity and seal/evidence checks.
+Stale attempts use the audited `odf_workflow_override` recovery path only after
+the parent/child bindings and idle state are proven. An expired native token
+requires `odf_delegation_late_seal_prepare` to mint a different ten-minute,
+single-use capability bound to the original token, attempt, parent, and child;
+the original expiry is unchanged, and the resulting seal reruns normal gates.
+These recommendations do not automatically launch, settle, or mutate work.
+Before a recovery mutation, the orchestrator reports its observed cause,
+evidence references, bounded action, and possible effects. Afterward it reports
+the persisted change and remaining pending gates. Recovery outcomes and elapsed
+time are local bounded metric spans; host-provided `cost_usd` and real token
+counts are captured only when present, never synthesized.
+
+### Conversational routing and offline evidence
+
+Explicit slash commands override natural-language routing. Read-only
+investigation stays in EXPLORE; implementation after exploration requires an
+explicit user request and a fresh authorized workflow. Direct feature and
+bugfix starts are recognized narrowly by the V2 adapter and receive the same
+first-operation `odf_health` gate and same-session bind capability as command
+starts. The natural entry capability is bound to a compatible work type and a
+single chosen change name; ambiguous or unsupported text does not mint it.
+
+Deterministic offline journeys (`scripts/odf-issue-122-journeys.test.ts`) cover
+exploration-to-feature, bugfix-to-verified-fix, follow-up/resume, ambiguous
+intent, active-child wait timeout, and scope escalation. Focused regressions also
+exercise prompt detection and bind authorization
+(`opencode-v2-adapter.test.ts`), active-change selection and store failures
+(`odf-delegation.test.ts`, `orchestrator.test.ts`), child timeout/settlement
+(`odf-delegation-prepare-seal.test.ts`, `odf-native-attempt-recovery.test.ts`),
+and redacted causal diagnostics (`odf-observability.test.ts`). These deterministic
+tests validate implementation boundaries; they do not simulate model judgment
+or claim conversational-quality improvements. Evaluation remains offline and
+provider-agnostic; optional online quality/cost feedback is not collected.
 
 **Visibility and interruptions:** programmatic launch returns child session IDs;
 the parent transcript need not contain a host `subagent` row. With legacy

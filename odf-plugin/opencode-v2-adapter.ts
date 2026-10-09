@@ -21,6 +21,7 @@ import {
   type TaskApi,
   type V2SessionApi,
 } from "./odf-delegation-health.js"
+import { observeOpenCodeSessionEvent } from "./odf-session-status.js"
 import { ODF_PLUGIN_ID } from "./runtime-boundary.js"
 import { loadRegistry } from "./odf-registry-io.js"
 
@@ -145,11 +146,11 @@ function stripCommandFrontmatter(raw: string): string {
  * into a prompt (trimmed Markdown body, arguments appended after a blank line).
  * The command files ship beside this module in every installed layout.
  */
-export function loadOdfNewCommandBody(): string | null {
+function loadOdfCommandBody(command: "odf-new" | "odf-fix"): string | null {
   const here = path.dirname(fileURLToPath(import.meta.url))
   const candidates = [
-    path.join(here, "..", "command", "odf-new.md"),
-    path.join(here, "..", "commands", "odf-new.md"),
+    path.join(here, "..", "command", `${command}.md`),
+    path.join(here, "..", "commands", `${command}.md`),
   ]
   for (const candidate of candidates) {
     try {
@@ -159,6 +160,14 @@ export function loadOdfNewCommandBody(): string | null {
     }
   }
   return null
+}
+
+export function loadOdfNewCommandBody(): string | null {
+  return loadOdfCommandBody("odf-new")
+}
+
+export function loadOdfFixCommandBody(): string | null {
+  return loadOdfCommandBody("odf-fix")
 }
 
 /**
@@ -172,6 +181,29 @@ export function detectOdfNewEntry(text: string, commandBody: string | null): { a
   if (!commandBody) return null
   if (text === commandBody) return { args: "" }
   if (text.startsWith(`${commandBody}\n\n`)) return { args: text.slice(commandBody.length + 2).trim() }
+  return null
+}
+
+export function detectOdfFixEntry(text: string, commandBody: string | null): { args: string } | null {
+  const raw = text.match(/^\/?odf-fix(?:\s|$)/)
+  if (raw) return { args: text.slice(raw[0].length).trim() }
+  if (!commandBody) return null
+  if (text === commandBody) return { args: "" }
+  if (text.startsWith(`${commandBody}\n\n`)) return { args: text.slice(commandBody.length + 2).trim() }
+  return null
+}
+
+/**
+ * Narrow admission detector for direct natural-language work starts. Questions,
+ * quoted requests, and generic continuation/backchannel text are not starts.
+ */
+export function detectNaturalWorkflowEntry(text: string): "new" | "bugfix" | null {
+  const firstLine = text.trim().split(/\r?\n/, 1)[0]?.trim() || ""
+  if (!firstLine || firstLine.length > 1_000 || /[?`]$/.test(firstLine) || /^["'“‘>]/.test(firstLine)) return null
+  const bugfix = /^(?:(?:please|can you|could you)\s+)?(?:fix|repair|resolve)\b|^(?:there(?:'s| is)\s+(?:an?\s+)?(?:bug|error|failure)\b|this is broken\b|(?:arregla|corrige|soluciona|repara)\b|(?:hay|tengo)\s+(?:un|una)\s+(?:error|fallo|bug)\b)/i
+  if (bugfix.test(firstLine)) return "bugfix"
+  const feature = /^(?:(?:please|can you|could you|i want you to|i need you to)\s+)?(?:implement|add|build|create|develop)\b|^(?:(?:por favor|puedes|podrías|quiero que|necesito que)\s+)?(?:implementa|agrega|añade|construye|crea|desarrolla)\b/i
+  if (feature.test(firstLine)) return "new"
   return null
 }
 
@@ -197,6 +229,7 @@ async function registerV2Hooks(
   registrations: V2Registration[],
   systemRules: string,
   odfNewCommandBody: string | null,
+  odfFixCommandBody: string | null,
 ): Promise<void> {
   registrations.push(await context.tool.hook("execute.before", async (input) => {
     // ODF custom-tool executors apply the same guard internally. Code Mode can
@@ -259,12 +292,26 @@ async function registerV2Hooks(
     const agent = typeof session.agent === "string" ? session.agent : undefined
     if (!agent) return
     const parts = [{ type: "text", text: input.prompt.text }] as never
-    const entry = detectOdfNewEntry(input.prompt.text, odfNewCommandBody)
-    if (entry) {
+    const newEntry = detectOdfNewEntry(input.prompt.text, odfNewCommandBody)
+    const fixEntry = detectOdfFixEntry(input.prompt.text, odfFixCommandBody)
+    const naturalEntry = newEntry || fixEntry ? null : detectNaturalWorkflowEntry(input.prompt.text)
+    if (newEntry) {
       await guard["command.execute.before"]?.({
         command: "odf-new",
         sessionID: input.sessionID,
-        arguments: entry.args,
+        arguments: newEntry.args,
+      }, { parts } as never)
+    } else if (fixEntry) {
+      await guard["command.execute.before"]?.({
+        command: "odf-fix",
+        sessionID: input.sessionID,
+        arguments: fixEntry.args,
+      }, { parts } as never)
+    } else if (naturalEntry) {
+      await guard["command.execute.before"]?.({
+        command: "odf-natural-entry",
+        sessionID: input.sessionID,
+        arguments: naturalEntry,
       }, { parts } as never)
     }
     await guard["chat.message"]?.({ sessionID: input.sessionID, agent, messageID: input.messageID } as never, {
@@ -277,6 +324,7 @@ async function registerV2Hooks(
   const eventTask = (async () => {
     try {
       for await (const event of context.event.subscribe({ signal: eventAbort.signal })) {
+        observeOpenCodeSessionEvent(event)
         await guard.event?.({ event: eventForV1Guard(event) as never })
       }
     } catch (error) {
@@ -354,7 +402,7 @@ export async function setupODFV2(context: V2Context): Promise<V2Cleanup> {
         })
       }
     }))
-    await registerV2Hooks(context, guard, registrations, ODF_SYSTEM_RULES, loadOdfNewCommandBody())
+    await registerV2Hooks(context, guard, registrations, ODF_SYSTEM_RULES, loadOdfNewCommandBody(), loadOdfFixCommandBody())
     return async () => {
       await Promise.allSettled(registrations.splice(0).map(registration => registration.dispose()))
       await guard.dispose?.()

@@ -79,15 +79,19 @@ user disposition.
 
 ### ODF Entry Health Gate
 
-- For every exact `/odf-new ...` invocation, `odf_health` MUST be the first ODF operation. Call it before `question`, Engram writes, artifact/state creation, route/triage/status tools, or delegation.
+- For exact `/odf-new ...` and `/odf-fix ...` invocations, and for a clearly explicit natural-language request to start a new feature or bugfix, `odf_health` MUST be the first ODF operation. Call it before `question`, Engram writes, artifact/state creation, route/triage/status tools, or delegation.
 - Continue only when `odf_health` returns `status: warning` with the required static/runtime checks present, or a future `status: ok`. A missing tool, thrown/malformed result, `failed`, or `blocked` result stops the command immediately with no subsequent question, write, artifact creation, or delegation.
-- Never simulate health from file reads and never bypass this gate because project configuration or prior session health exists. The runtime hook also enforces this order for `/odf-new` sessions.
+- Never simulate health from file reads and never bypass this gate because project configuration or prior session health exists. The runtime hook enforces this order for slash-command starts and recognized direct natural-language feature/bugfix starts.
 
 ### Continuation Intent
 
-- `/odf-continue [name]` activates standalone ODF workflow continuation. A clear `continue existing` answer to the duplicate-change question inside an active `/odf-new` invocation is scoped authorization to continue that named change directly; do not require the user to repeat `/odf-continue`.
-- Conversational messages such as `continue`, `continúa`, `dale`, or equivalents MUST NOT be reinterpreted as standalone `/odf-continue` outside an explicit pending ODF question.
-- After an abort or interruption, such a message resumes the pending user request from the context already obtained; it does not start ODF state discovery.
+- Explicit slash commands always override conversational routing. Route a direct read-only investigation request to EXPLORE; route an explicit bug report/fix request through the `/odf-fix` FIX → BUILD → VERIFY contract; route an explicit feature/small-change request through the same health, triage, Expectations, bind, Policy Gate, BUILD, and VERIFY gates as `/odf-new`.
+- Exploration stays read-only with respect to source and workflow state unless the user explicitly asks to implement the finding. On that explicit request, carry forward only the relevant findings and safe artifact references into a fresh, authorized workflow; do not treat exploration as approval to edit code.
+- `/odf-continue [name]` and a clear natural-language request to continue/resume ODF work use `odf_workflow_status` once. Continue only when discovery is complete and exactly one active candidate is resumable; advance to its next persisted canonical gate, never replay completed stages or infer a new route.
+- If status reports multiple candidates or incomplete discovery, remain read-only and ask one grouped clarification. A pending receipt or non-resumable state requires its existing disposition/recovery path. If child liveness is `busy` or `retry`, report the attempt as pending and wait for that exact child; never relaunch, settle, or call unknown/missing liveness idle. Never choose the newest change to break a tie. An explicit change name may resolve candidate ambiguity, but does not clear receipts or bypass a gate.
+- Bare backchannels such as `continue`, `continúa`, or `dale` are not standalone ODF starts/continuations outside an explicit pending ODF question or a known interrupted ODF request. After an abort, resume only the pending request using already obtained context; do not restart stable discovery.
+- When scope, Expectations, work type, or a business decision changes, stop for user disposition. Require explicit consent for destructive actions; auto-run only verified safe, idempotent recovery. Same-session health/bind authorization and every downstream gate remain mandatory.
+- Before any recovery that mutates an attempt, receipt, capability, or join, explain the observed cause, the specific status/evidence references, the proposed bounded action, and its possible effects. Missing or contradictory evidence means stop, not infer. Afterward, report exactly what was persisted, what remains pending, and the next safe action; capability issuance or attempt settlement is never phase completion.
 - For one user intent, run discovery or state lookup at most once while its results remain stable. If the result is sufficient or unchanged, synthesize the response or stop. Never repeat the same tool and arguments in a later turn for that intent.
 
 ### Fast Mode

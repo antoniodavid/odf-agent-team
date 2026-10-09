@@ -29,7 +29,7 @@ export const LOOP_GUARD_MAX_TOOLS = 64
 export const LOOP_GUARD_MAX_CALLS = 128
 export const LOOP_GUARD_STOP_REASON = "ODF runtime loop guard stopped this session: the same stable discovery call returned the same result twice for one user intent. Review the existing result or send a new request."
 export const LOOP_GUARD_WRITE_REASON = "ODF runtime loop guard blocked a duplicate write-capable or unclassified tool call in the same user intent. Send a new explicit request to retry it."
-export const ODF_ENTRY_HEALTH_REASON = "ODF entry health gate blocked this session: /odf-new requires a successful odf_health call as its first ODF operation, before questions, writes, or delegation."
+export const ODF_ENTRY_HEALTH_REASON = "ODF entry health gate blocked this session: a new ODF feature/bugfix start requires a successful odf_health call as its first ODF operation, before questions, writes, or delegation."
 export const ENGRAM_READ_ONLY_TOOLS = new Set([
   "engram_mem_context", "engram_mem_search", "engram_mem_get_observation",
   "engram_mem_current_project", "engram_mem_doctor",
@@ -80,6 +80,8 @@ export type LoopGuardState = {
   generation: number
   workspaceRoot: string
   entryChange: string | null
+  entryKind: "new" | "bugfix" | null
+  entryStartPending: boolean
   stopped: boolean
   stopReason?: string
   entryHealth: "not-required" | "not-run" | "running" | "passed" | "failed"
@@ -143,7 +145,12 @@ export function createStableDiscoveryGuard(
   workspaceDir = process.cwd(),
 ): LoopGuardRuntime {
   const sessions = new Map<string, LoopGuardState>()
-  const pendingCommands = new Map<string, { partsDigest: string; changeName: string; generation: number }>()
+  const pendingCommands = new Map<string, {
+    partsDigest: string
+    changeName: string | null
+    entryKind: "new" | "bugfix" | null
+    generation: number
+  }>()
   const workspaceRoot = canonicalWorkspaceRoot(workspaceDir)
   const abortSession = async (sessionID: string): Promise<void> => {
     try {
@@ -265,11 +272,17 @@ export function createStableDiscoveryGuard(
       // after its first argument (for example `my-change.`). Remove that
       // terminal punctuation before applying the strict path-segment validator.
       const rawChangeName = input.arguments.trim().split(/\s+/, 1)[0]
-      const changeName = canonicalChangeName(rawChangeName.replace(/\.$/, ""))
-      if (/^\/?odf-new$/.test(input.command) && changeName) {
+      const naturalStart = input.command === "odf-natural-entry"
+      const entryKind = input.command === "odf-fix" || (naturalStart && input.arguments.trim() === "bugfix")
+        ? "bugfix"
+        : naturalStart && input.arguments.trim() === "new" ? "new" : null
+      const supportedCommand = input.command === "odf-new" || input.command === "odf-fix" || naturalStart
+      const changeName = naturalStart ? null : canonicalChangeName(rawChangeName.replace(/\.$/, ""))
+      if (supportedCommand && (naturalStart || changeName)) {
         boundedSet(pendingCommands, input.sessionID, {
           partsDigest: expandedCommandDigest(output.parts),
           changeName,
+          entryKind,
           generation,
         }, LOOP_GUARD_MAX_SESSIONS)
       }
@@ -287,10 +300,11 @@ export function createStableDiscoveryGuard(
       // Keep an un-armed entry (change + pending health) across intervening messages too:
       // an interrupted odf_health must stay retryable within the same /odf-new entry.
       const carryEntry = !pendingCommand && !!previous &&
-        previous.entryChange !== null && !previous.stopped &&
+        previous.entryStartPending && !previous.stopped &&
         (previous.entryHealth === "not-run" || previous.entryHealth === "running") &&
         entryGenerations.get(input.sessionID) === previous.generation
       const carriedChange = carryEntry ? previous?.entryChange ?? null : null
+      const carriedEntryKind = carryEntry ? previous?.entryKind ?? null : null
       const generation = pendingCommand?.generation ?? nextGeneration(input.sessionID)
       const agent = input.agent ?? output.message.agent
       if (agent !== "odoo_orchestrator") {
@@ -304,10 +318,12 @@ export function createStableDiscoveryGuard(
         generation,
         workspaceRoot,
         entryChange: pendingCommand?.changeName || carriedChange,
+        entryKind: pendingCommand?.entryKind ?? carriedEntryKind,
+        entryStartPending: Boolean(pendingCommand || carryEntry),
         stopped: false,
         entryHealth: pendingCommand
           ? (pendingCommand.partsDigest === expandedCommandDigest(output.parts) ? "not-run" : "not-required")
-          : (carriedChange ? "not-run" : "not-required"),
+          : (carryEntry ? "not-run" : "not-required"),
         tools: new Map(),
         calls: new Map(),
       }, LOOP_GUARD_MAX_SESSIONS)
@@ -367,13 +383,14 @@ export function createStableDiscoveryGuard(
           ("schema_version" in (result as Record<string, unknown>) || "status" in (result as Record<string, unknown>))
         if (isSuccessfulODFEntryHealth(result)) {
           state.entryHealth = "passed"
-          if (state.entryChange) {
+          if (state.entryStartPending) {
             boundedSet(entryAuthorizations, input.sessionID, {
               nonce: nodeCrypto.randomUUID(),
               sessionID: input.sessionID,
               messageID: state.intentID,
               generation: state.generation,
               changeName: state.entryChange,
+              entryKind: state.entryKind,
               workspaceRoot: state.workspaceRoot,
               claimed: false,
             }, LOOP_GUARD_MAX_SESSIONS)

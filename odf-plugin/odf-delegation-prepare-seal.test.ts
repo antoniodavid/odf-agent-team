@@ -11,6 +11,7 @@ import {
   readDelegationToken,
   writeDelegationToken,
 } from "./odf-delegation-tokens.js"
+import { readLateSealCapability } from "./odf-late-seal-capability.js"
 
 // The pack resolver is env-driven, and this repository ships a registry of its
 // own, so tests that need their own pack must set ODF_CONFIG_DIR explicitly.
@@ -291,6 +292,10 @@ describe("native prepare/seal delegation", () => {
       parent_session_id: "prepare-session",
       child_session_id: "ses_programmatic",
       state: "submitted",
+      dispatch_started_at: expect.any(String),
+      dispatch_finished_at: expect.any(String),
+      dispatched_prompt_digest_prefix: delegationPromptDigest(prepared.delegation.prompt).slice(0, 12),
+      dispatched_prompt_byte_length: delegationPromptByteLength(prepared.delegation.prompt),
     })
 
     const sealed = JSON.parse(await odf_delegation_seal.execute({
@@ -300,6 +305,12 @@ describe("native prepare/seal delegation", () => {
     }, { sessionID: "prepare-session", [ODF_V2_SESSION]: session } as any) as string)
     expect(sealed).toMatchObject({ status: "delegated", task_api_source: "sdk.v2", task_session_id: "ses_programmatic" })
     expect(session.wait).toHaveBeenCalledWith({ sessionID: "ses_programmatic" })
+    expect(readDelegationToken(tempHome, prepared.change, prepared.token).record).toMatchObject({
+      seal_started_at: expect.any(String),
+      child_result_observed_at: expect.any(String),
+      prompt_verified_at: expect.any(String),
+      sealed_at: expect.any(String),
+    })
   })
 
   it("rejects byte-different prompts before creating a child and does not leak prompt text", async () => {
@@ -322,7 +333,7 @@ describe("native prepare/seal delegation", () => {
       actual_utf8_bytes: delegationPromptByteLength(alteredPrompt),
       expected_sha256_prefix: delegationPromptDigest(prepared.delegation.prompt).slice(0, 12),
       actual_sha256_prefix: delegationPromptDigest(alteredPrompt).slice(0, 12),
-      transcript_text_exact: true,
+      transcript_text_exact: false,
     })
     expect(outputText).not.toContain(prepared.delegation.prompt)
     expect(outputText).not.toContain(alteredPrompt)
@@ -691,8 +702,10 @@ describe("native prepare/seal delegation", () => {
     expect(Buffer.byteLength(JSON.stringify(latest)) + 1).toBeLessThanOrEqual(1024)
   })
 
-  it("keeps an expired launched child fail-closed pending an approved recovery capability", async () => {
-    const { odf_delegation_prepare, odf_delegation_seal } = await tools()
+  it("late-seals an expired original child through a bound capability without changing original expiry", async () => {
+    const { odf_delegation_prepare, odf_delegation_late_seal_prepare, odf_delegation_seal } = await tools()
+    const metrics = await import("./odf-delegation-metrics.js")
+    const metricOffset = metrics.metricsBuffer.length
     const change = "native-expired-launched-child"
     const parentSessionId = "expired-parent"
     const childSessionId = "expired-child"
@@ -706,10 +719,11 @@ describe("native prepare/seal delegation", () => {
       attempt_id: "expired-launched-attempt",
       workflow_advance: implementProof(),
     }, { sessionID: parentSessionId } as any) as string)
-    const token = readDelegationToken(tempHome, change, prepared.token).record!
+    const originalToken = readDelegationToken(tempHome, change, prepared.token).record!
+    const originalExpiry = new Date(Date.now() - 60_000).toISOString()
     expect(writeDelegationToken(tempHome, {
-      ...token,
-      expires_at: new Date(Date.now() - 60_000).toISOString(),
+      ...originalToken,
+      expires_at: originalExpiry,
       launch: { parent_session_id: parentSessionId, state: "submitted", child_session_id: childSessionId },
     })).toBeNull()
     const session = fakeChildSession({
@@ -719,23 +733,146 @@ describe("native prepare/seal delegation", () => {
       parentSessionId,
       childSessionId,
     })
+    session.get.mockResolvedValue({
+      id: childSessionId,
+      agent: prepared.agent,
+      parentID: parentSessionId,
+      location: { directory: tempHome },
+    })
     session.context.mockResolvedValue([
       { id: "msg_user", type: "user", text: prepared.delegation.prompt },
       { id: "msg_assistant", type: "assistant", content: [{ type: "text", text: odfResultText({ executive_summary: "implemented" }) }] },
     ])
 
-    const output = JSON.parse(await odf_delegation_seal.execute({
+    session.get.mockResolvedValueOnce({
+      id: childSessionId,
+      agent: prepared.agent,
+      parentID: "different-parent",
+      location: { directory: tempHome },
+    })
+    const rejected = JSON.parse(await odf_delegation_late_seal_prepare.execute({
       token: prepared.token,
       change,
       session_id: childSessionId,
     }, { sessionID: parentSessionId, [ODF_V2_SESSION]: session } as any) as string)
-    expect(output).toMatchObject({ status: "blocked", reason: "delegation-token-expired" })
-    expect(session.get).not.toHaveBeenCalled()
-    expect(session.context).not.toHaveBeenCalled()
-    expect(readDelegationToken(tempHome, change, prepared.token).record).toMatchObject({ status: "prepared" })
+    expect(rejected).toMatchObject({ status: "blocked", reason: "delegation-child-mismatch" })
+    expect(session.wait).not.toHaveBeenCalled()
+    expect(readDelegationToken(tempHome, change, prepared.token).record)
+      .toMatchObject({ status: "prepared", expires_at: originalExpiry })
+    const stillRunning = (await fs.readFile(path.join(tempHome, ".odf", `attempt-ledger-${change}.jsonl`), "utf8"))
+      .trim().split("\n").map(line => JSON.parse(line)).at(-1)
+    expect(stillRunning).toMatchObject({ status: "running", attempt_id: "expired-launched-attempt" })
+
+    const capabilityOutput = JSON.parse(await odf_delegation_late_seal_prepare.execute({
+      token: prepared.token,
+      change,
+      session_id: childSessionId,
+    }, { sessionID: parentSessionId, [ODF_V2_SESSION]: session } as any) as string)
+    expect(capabilityOutput).toMatchObject({
+      status: "recovery-capability-issued",
+      change,
+      attempt_id: "expired-launched-attempt",
+      task_session_id: childSessionId,
+    })
+    expect(capabilityOutput.late_seal_capability).toMatch(/^odf-late-[a-f0-9]{64}$/)
+    const recoveryMetrics = metrics.metricsBuffer.slice(metricOffset).filter(metric => metric.task === "recovery:late-seal-prepare")
+    expect(recoveryMetrics.map(metric => metric.status)).toEqual(["blocked", "ok"])
+    expect(JSON.stringify(recoveryMetrics)).not.toContain(prepared.token)
+    expect(JSON.stringify(recoveryMetrics)).not.toContain(childSessionId)
+    expect(session.get).toHaveBeenCalledTimes(2)
+    expect(session.wait).toHaveBeenCalledOnce()
+    expect(session.context).toHaveBeenCalledOnce()
+    const beforeSeal = readDelegationToken(tempHome, change, prepared.token).record!
+    expect(beforeSeal).toMatchObject({ status: "prepared", expires_at: originalExpiry })
+    const attemptBeforeSeal = (await fs.readFile(path.join(tempHome, ".odf", `attempt-ledger-${change}.jsonl`), "utf8"))
+      .trim().split("\n").map(line => JSON.parse(line)).at(-1)
+    expect(attemptBeforeSeal).toMatchObject({ status: "running", attempt_id: "expired-launched-attempt" })
+    await writeValidationEvidence(tempHome, change)
+
+    const output = JSON.parse(await odf_delegation_seal.execute({
+      token: prepared.token,
+      change,
+      session_id: childSessionId,
+      late_seal_capability: capabilityOutput.late_seal_capability,
+    }, { sessionID: parentSessionId, [ODF_V2_SESSION]: session } as any) as string)
+    expect(output).toMatchObject({ status: "delegated", validation: { status: "verified" } })
+    const sealedToken = readDelegationToken(tempHome, change, prepared.token).record!
+    expect(sealedToken).toMatchObject({ status: "sealed", expires_at: originalExpiry, sealed_session_id: childSessionId })
+    expect(readLateSealCapability(tempHome, capabilityOutput.late_seal_capability, {
+      change,
+      token: prepared.token,
+      attempt_id: "expired-launched-attempt",
+      parent_session_id: parentSessionId,
+      child_session_id: childSessionId,
+    })).toMatchObject({ valid: false, reason: "late-seal-capability-already-used" })
     const ledger = (await fs.readFile(path.join(tempHome, ".odf", `attempt-ledger-${change}.jsonl`), "utf8"))
       .trim().split("\n").map(line => JSON.parse(line))
-    expect(ledger.at(-1)).toMatchObject({ status: "running", attempt_id: "expired-launched-attempt" })
+    expect(ledger.at(-1)).toMatchObject({ status: "completed", attempt_id: "expired-launched-attempt" })
+  })
+
+  it("does not consume late-seal authority or advance workflow when normal validation fails", async () => {
+    const { odf_delegation_prepare, odf_delegation_late_seal_prepare, odf_delegation_seal } = await tools()
+    const change = "native-expired-child-missing-evidence"
+    const parentSessionId = "expired-parent"
+    const childSessionId = "expired-child"
+    await writeImplementState(tempHome, change)
+    const prepared = JSON.parse(await odf_delegation_prepare.execute({
+      phase: "IMPLEMENT",
+      change,
+      prompt: "Implement the planned change",
+      context_files: [],
+      artifact_store: "openspec",
+      attempt_id: "expired-missing-evidence-attempt",
+      workflow_advance: implementProof(),
+    }, { sessionID: parentSessionId } as any) as string)
+    const originalToken = readDelegationToken(tempHome, change, prepared.token).record!
+    const originalExpiry = new Date(Date.now() - 60_000).toISOString()
+    expect(writeDelegationToken(tempHome, {
+      ...originalToken,
+      expires_at: originalExpiry,
+      launch: { parent_session_id: parentSessionId, state: "submitted", child_session_id: childSessionId },
+    })).toBeNull()
+    const session = fakeChildSession({
+      agent: prepared.agent,
+      prompt: prepared.delegation.prompt,
+      resultText: odfResultText({ executive_summary: "implemented" }),
+      parentSessionId,
+      childSessionId,
+    })
+    session.get.mockResolvedValue({
+      id: childSessionId,
+      agent: prepared.agent,
+      parentID: parentSessionId,
+      location: { directory: tempHome },
+    })
+    session.context.mockResolvedValue([
+      { id: "msg_user", type: "user", text: prepared.delegation.prompt },
+      { id: "msg_assistant", type: "assistant", content: [{ type: "text", text: odfResultText({ executive_summary: "implemented" }) }] },
+    ])
+    const context = { sessionID: parentSessionId, [ODF_V2_SESSION]: session } as any
+    const issued = JSON.parse(await odf_delegation_late_seal_prepare.execute({
+      token: prepared.token,
+      change,
+      session_id: childSessionId,
+    }, context) as string)
+    expect(issued.status).toBe("recovery-capability-issued")
+
+    const output = JSON.parse(await odf_delegation_seal.execute({
+      token: prepared.token,
+      change,
+      session_id: childSessionId,
+      late_seal_capability: issued.late_seal_capability,
+    }, context) as string)
+    expect(output).toMatchObject({ status: "blocked", validation: { status: "missing" } })
+    expect(readDelegationToken(tempHome, change, prepared.token).record)
+      .toMatchObject({ status: "prepared", expires_at: originalExpiry })
+    expect(readLateSealCapability(tempHome, issued.late_seal_capability, {
+      change,
+      token: prepared.token,
+      attempt_id: "expired-missing-evidence-attempt",
+      parent_session_id: parentSessionId,
+      child_session_id: childSessionId,
+    })).toMatchObject({ valid: true })
   })
 
   it("settles an idle native attempt and persists a receipt when its ODF Result is invalid", async () => {

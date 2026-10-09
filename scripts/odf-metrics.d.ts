@@ -29,6 +29,9 @@ export interface DelegationRecord {
   model?: string | null
   provider?: string | null
   tokens?: { input?: number | null; output?: number | null; estimated?: number | null }
+  cost_usd?: number | null
+  task?: string
+  tool?: string
   candidate_digest?: string
   trace_id?: string
   span_id?: string
@@ -185,7 +188,16 @@ export interface DashboardData {
     model: { records: number; available: number; coverage: number | null }
     provider: { records: number; available: number; coverage: number | null }
     real_tokens: { records: number; available: number; coverage: number | null }
+    host_cost_usd: { records: number; available: number; coverage: number | null }
   }
+  recovery: {
+    attempts: number
+    succeeded: number
+    blocked: number
+    avg_duration_ms: number | null
+    by_action: Record<string, { attempts: number; succeeded: number; blocked: number; duration_ms: number; avg_duration_ms: number | null }>
+  }
+  host_cost_usd: number | null
   avgDurationMs: number
   avgTokens: number
   selfDiscoveredPct: number | null

@@ -7,6 +7,7 @@ import {
   readTelemetry,
   type ObservabilityAttemptRecord,
 } from "./odf-observability.js"
+import type { DelegationTokenDiagnostic } from "./odf-delegation-tokens.js"
 import { readParallelJoinArtifact, writeParallelJoinArtifact } from "./odf-parallel-join.js"
 import { deriveWorkflowStatus } from "./odf-workflow-status.js"
 
@@ -271,6 +272,188 @@ describe("O2 observability timeline", () => {
     expect(timeline.source_coverage["parallel-join"].status).toBe("no_data")
     expect(timeline.data_status).toBe("partial")
     expect(timeline.warnings).toContain("runtime-evidence-missing")
+  })
+
+  it("builds an ordered causal sequence from sanitized token evidence and names missing timestamps", () => {
+    const delegation: DelegationTokenDiagnostic = {
+      change: "target-change",
+      phase: "IMPLEMENT",
+      agent: "odoo_backend_engineer",
+      attempt_id: "attempt-causal",
+      created_at: "2026-08-24T10:00:00.000Z",
+      expires_at: "2026-08-24T12:00:00.000Z",
+      status: "sealed",
+      prepared_prompt_digest_prefix: "0123456789ab",
+      prepared_prompt_byte_length: 128,
+      parent_session_id: "parent-session",
+      launch: {
+        state: "submitted",
+        parent_session_id: "parent-session",
+        child_session_id: "child-session",
+        dispatch_started_at: "2026-08-24T10:00:30.000Z",
+        dispatch_finished_at: "2026-08-24T10:00:35.000Z",
+        dispatched_prompt_digest_prefix: "0123456789ab",
+        dispatched_prompt_byte_length: 128,
+      },
+      child_session_id: "child-session",
+      seal_started_at: "2026-08-24T10:03:00.000Z",
+      child_result_observed_at: "2026-08-24T10:04:00.000Z",
+      prompt_verified_at: "2026-08-24T10:04:05.000Z",
+      workflow_commit_observed_at: "2026-08-24T10:04:59.000Z",
+      sealed_at: "2026-08-24T10:05:00.000Z",
+      seal_result: { status: "delegated", reason: null },
+      workflow_commit: { status: "committed", reason: null, canonical_stage: "VERIFY" },
+      prompt_check: {
+        expected_sha256_prefix: "0123456789ab",
+        actual_sha256_prefix: "0123456789ab",
+        expected_utf8_bytes: 128,
+        actual_utf8_bytes: 128,
+        transcript_text_exact: true,
+      },
+    }
+    const laterPreparedOnly: DelegationTokenDiagnostic = {
+      ...delegation,
+      attempt_id: undefined,
+      created_at: "2026-08-24T11:00:00.000Z",
+      launch: undefined,
+      child_session_id: undefined,
+      seal_started_at: undefined,
+      child_result_observed_at: undefined,
+      prompt_verified_at: undefined,
+      workflow_commit_observed_at: undefined,
+      sealed_at: undefined,
+      seal_result: undefined,
+      workflow_commit: undefined,
+      prompt_check: undefined,
+    }
+    const timeline = buildObservabilityTimeline({
+      change: "target-change",
+      workflow: workflow("target-change"),
+      telemetry: { records: [], warnings: [], files_read: 0, records_read: 0 },
+      attempts: [],
+      delegation_tokens: { records: [delegation, laterPreparedOnly], warnings: [], records_read: 2 },
+    })
+
+    expect(timeline.causal_sequence.map(event => event.milestone)).toEqual([
+      "prepared", "host-dispatch", "seal-start", "child-result", "workflow-commit", "seal-result", "prepared",
+    ])
+    expect(timeline.causal_sequence[0]).toMatchObject({
+      timestamp: "2026-08-24T10:00:00.000Z",
+      attempt_id: "attempt-causal",
+      parent_session_id: "parent-session",
+    })
+    expect(timeline.causal_sequence[3]).toMatchObject({
+      timestamp: "2026-08-24T10:04:00.000Z",
+      change: "target-change",
+      child_session_id: "child-session",
+      artifact_refs: [],
+      prompt_check: { expected_sha256_prefix: "0123456789ab", actual_sha256_prefix: "0123456789ab" },
+      handoff_digest_check: {
+        prepared_dispatched_match: true,
+        prepared_received_match: true,
+        difference_summary: "match",
+      },
+    })
+    expect(timeline.causal_sequence[4]).toMatchObject({ stage: "VERIFY", status: "committed", timestamp: "2026-08-24T10:04:59.000Z" })
+    expect(timeline.delegation_status[0]).toMatchObject({
+      phase: "IMPLEMENT",
+      child_session: { liveness: "unknown", result: "recorded-with-seal" },
+      handoff_integrity: "verified",
+      seal_status: "accepted",
+      canonical_commit: { status: "committed", stage: "VERIFY" },
+      blocker: null,
+    })
+    expect(timeline.causal_gaps).toEqual(["host-dispatch-not-recorded"])
+    expect(timeline.data_status).toBe("partial")
+    expect(timeline.source_coverage["delegation-tokens"]).toEqual({ status: "partial", records_read: 2 })
+  })
+
+  it("does not equate a build artifact with a sealed phase while its child remains active", () => {
+    const baseWorkflow = workflow("target-change")
+    const delegation: DelegationTokenDiagnostic = {
+      change: "target-change",
+      phase: "IMPLEMENT",
+      agent: "odoo_backend_engineer",
+      attempt_id: "attempt-running",
+      created_at: "2026-08-24T10:00:00.000Z",
+      expires_at: "2026-08-24T12:00:00.000Z",
+      status: "prepared",
+      prepared_prompt_digest_prefix: "0123456789ab",
+      launch: { state: "submitted", parent_session_id: "parent-session", child_session_id: "child-session" },
+      child_session_id: "child-session",
+      child_session_status: { state: "busy", observed_at: "2026-08-24T10:04:00.000Z" },
+    }
+    const timeline = buildObservabilityTimeline({
+      change: "target-change",
+      workflow: {
+        ...baseWorkflow,
+        artifact_refs: {
+          ...baseWorkflow.artifact_refs,
+          BUILD: ["openspec/changes/target-change/build.md", "/home/private/build.md"],
+        },
+      },
+      telemetry: { records: [], warnings: [], files_read: 0, records_read: 0 },
+      attempts: [],
+      delegation_tokens: { records: [delegation], warnings: [], records_read: 1 },
+    })
+
+    expect(timeline.delegation_status[0]).toMatchObject({
+      stage: "BUILD",
+      stage_artifacts: ["openspec/changes/target-change/build.md"],
+      child_session: {
+        id: "child-session",
+        liveness: "busy",
+        observed_at: "2026-08-24T10:04:00.000Z",
+        result: "not-recorded",
+      },
+      seal_status: "not-recorded",
+      canonical_commit: { status: "pending" },
+      blocker: "child-session-running",
+      next_safe_action: "wait-for-child",
+    })
+  })
+
+  it("reports bounded prepared/dispatched/received prompt differences without prompt text", () => {
+    const delegation: DelegationTokenDiagnostic = {
+      change: "target-change",
+      phase: "IMPLEMENT",
+      agent: "odoo_backend_engineer",
+      created_at: "2026-08-24T10:00:00.000Z",
+      expires_at: "2026-08-24T12:00:00.000Z",
+      status: "sealed",
+      prepared_prompt_digest_prefix: "0123456789ab",
+      prepared_prompt_byte_length: 128,
+      launch: {
+        state: "submitted",
+        child_session_id: "child-session",
+        dispatched_prompt_digest_prefix: "fedcba987654",
+        dispatched_prompt_byte_length: 129,
+      },
+      child_session_id: "child-session",
+      child_result_observed_at: "2026-08-24T10:03:00.000Z",
+      seal_result: { status: "blocked", reason: "delegation-prompt-mismatch" },
+      prompt_check: {
+        expected_sha256_prefix: "0123456789ab",
+        actual_sha256_prefix: "abcdef012345",
+        expected_utf8_bytes: 128,
+        actual_utf8_bytes: 130,
+        transcript_text_exact: false,
+      },
+    }
+    const timeline = buildObservabilityTimeline({
+      change: "target-change",
+      workflow: workflow("target-change"),
+      telemetry: { records: [], warnings: [], files_read: 0, records_read: 0 },
+      attempts: [],
+      delegation_tokens: { records: [delegation], warnings: [], records_read: 1 },
+    })
+    const childResult = timeline.causal_sequence.find(event => event.milestone === "child-result")
+    expect(childResult?.handoff_digest_check).toMatchObject({
+      prepared_dispatched_match: false,
+      prepared_received_match: false,
+      difference_summary: "dispatch-and-receipt-mismatch",
+    })
+    expect(JSON.stringify(timeline)).not.toContain("PRIVATE PROMPT")
   })
 
   it("keeps the bounded output private and capped", async () => {

@@ -274,7 +274,9 @@ Regression runner. It:
 
 1. `command/odf-continue.md` parses optional change name.
 2. Orchestrator consults `odf_workflow_status` for the canonical stage, pending stage, resumable flag, and receipt.
-3. If no name is given, picks the most recently updated active change.
+3. If no name is given, continues only when discovery is complete and exactly
+   one active change exists; otherwise it asks the user to choose or reports
+   the discovery blocker. It never selects by recency.
 4. If the receipt is pending, it re-presents the failure disposition with evidence and stops.
 5. Determines the next pending canonical stage from status.
 6. Calls `odf_delegate` for that stage (via legacy adapters where needed).

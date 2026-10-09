@@ -84,6 +84,8 @@ export interface DelegationMetrics {
   model_version?: string | null
   model_available?: boolean
   tokens?: TelemetryTokens
+  /** Actual host-provided cost in USD; never estimated by ODF. */
+  cost_usd?: number | null
   retry_count?: number
   candidate_digest?: string
   receipt_ref?: string
@@ -235,6 +237,14 @@ export function sanitizeMetricTokenCount(value: unknown): number | null | undefi
   return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : null
 }
 
+export function sanitizeMetricCostUsd(value: unknown): number | null | undefined {
+  if (value === undefined) return undefined
+  if (value === null) return null
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= 1_000_000_000
+    ? Number(value.toFixed(8))
+    : null
+}
+
 /**
  * Token counts are always honest: host-provided counts are used verbatim;
  * otherwise input/output stay null and only `estimated` (the len/4 heuristic)
@@ -360,6 +370,7 @@ export function recordMetrics(metric: DelegationMetricInput): void {
     provider,
     model_version,
     tokens,
+    cost_usd,
     retry_count,
     candidate_digest,
     receipt_ref,
@@ -420,6 +431,7 @@ export function recordMetrics(metric: DelegationMetricInput): void {
       (tokens as any)?.output,
       (tokens as any)?.estimated ?? (rest as any).token_estimate,
     ),
+    ...(sanitizeMetricCostUsd(cost_usd) !== undefined ? { cost_usd: sanitizeMetricCostUsd(cost_usd) } : {}),
     ...(sanitizeMetricRetryCount(retry_count) !== undefined ? { retry_count: sanitizeMetricRetryCount(retry_count) } : {}),
     ...(sanitizeMetricDigest(candidate_digest) ? { candidate_digest: sanitizeMetricDigest(candidate_digest) } : {}),
     ...(sanitizeMetricSafeToken(receipt_ref) ? { receipt_ref: sanitizeMetricSafeToken(receipt_ref) } : {}),

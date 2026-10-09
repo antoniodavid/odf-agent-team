@@ -6,14 +6,14 @@ agent: odoo_orchestrator
 
 # /odf-continue — Continue ODF change
 
-Resumes the ODF flow from the last completed stage of the most recent active change or of a named change. The canonical route is `DECIDE -> optional PLAN -> BUILD -> VERIFY`; legacy phases are only read through their adapter.
+Resumes the ODF flow from the last completed stage of a named change or the only active change when discovery is complete. If several changes match or discovery is incomplete, ask the user to choose or resolve the blocker; never select by recency. The canonical route is `DECIDE -> optional PLAN -> BUILD -> VERIFY`; legacy phases are only read through their adapter.
 
 When the user intentionally changes scope (skipping PLAN, repeating a stage, or re-planning with new Expectations), use `odf_workflow_override` (skip/re-enter/re-plan) after explicit user approval; never alter state by hand. For a stale running attempt left by a pre-fix interruption (visible as `active_attempts` with `status: running` in `odf_workflow_status` and no live task), settle it with `odf_workflow_override action=settle-attempt`, the `attempt_id`, `confirm_no_active_run: true`, and a human-approved reason. Native prepare/seal attempts additionally require the exact child session ID already persisted by a seal that verified the prepared prompt and idle state; the tool matches that ID, verifies its parent, and awaits V2 `session.wait` again. If the child binding is absent, retry the original seal with its prepared token and exact child session instead of settling. Never settle a native attempt when its child session ID is unavailable or its idle state cannot be confirmed. For a persisted parallel join left `running` by a host restart, settle every running branch attempt with `settle-attempt` and then the join with `odf_workflow_override action=settle-join` plus `confirm_no_active_run: true`; the join becomes blocked with a failure receipt, so commit a retry receipt before resuming.
 
 ## Usage
 
 ```
-/odf-continue                         — Resume the most recent active change
+/odf-continue                         — Resume only when exactly one active change is discoverable
 /odf-continue <change-name>           — Resume a specific change
 /odf-continue <change-name> --work-type <type> — Explicit recovery without binding
 ```
@@ -22,7 +22,7 @@ When the user intentionally changes scope (skipping PLAN, repeating a stage, or 
 
 | Parameter | Required | Type | Description |
 |-----------|----------|------|-------------|
-| `change-name` | No | string | Name of the change to continue. If omitted, the most recent one is used |
+| `change-name` | No | string | Exact change to continue. If omitted, discovery must be complete and return exactly one active change; ambiguity is read-only and requires a choice |
 | `--work-type` | No | canonical work type | Explicit choice required when the legacy state has no binding |
 
 ## Examples
@@ -33,7 +33,7 @@ When the user intentionally changes scope (skipping PLAN, repeating a stage, or 
 ## Orchestrator Instructions
 
 1. **Query `odf_workflow_status` once**, passing `change_name` when provided. It uses the current session workspace by default; do not shell-scan the project or call a second status tool to reconstruct the same state.
-2. **Select the returned change**: with a name, require an exact match; without one, use the most recently updated active change returned by the tool. An explicitly named `canonical_stage: ARCHIVED` change is already complete, not continuable; report that and do not use Engram to reinterpret it as active.
+2. **Resolve the returned change**: with a name, require an exact match. Without one, continue only when `active_change_resolution.status === "unambiguous"` and its sole candidate is resumable. For `ambiguous`, ask one grouped question listing candidates; for `incomplete` or `blocked`, report the warnings and stop; for `none`, report no active changes. Never choose by recency. An explicitly named `canonical_stage: ARCHIVED` change is already complete, not continuable; report that and do not use Engram to reinterpret it as active.
 3. **Verify preflight**: if it is incomplete, run the preflight gate first.
 4. Read the returned `work_type`. If a valid value exists, use it as the authority; never infer it from `legacy_phase`, artifacts, or `solution_strategy`.
 5. Apply `state_kind` without losing legacy recovery: `expectations-only` blocks and refers to `/odf-new {change}`; `none` blocks due to total absence; `legacy-artifacts` preserves `resumable: true` and requires `--work-type <type>` when `recovery_work_type_required` is `true`, then resolves that explicit route without creating or binding state; `canonical` uses the normal state. `/odf-continue` never creates workflows, never passes `preflight`/`expectations` to `odf_workflow_bind`, and never infers `work_type`. If a canonical state exists but the binding is missing, require `--work-type` and bind only that existing state with its explicit store.
@@ -56,17 +56,19 @@ For a cross-domain BUILD continuation, read the supplemental `.odf/parallel-join
 
 ## Routing Contract
 
-- Input: `/odf-continue` command with optional name and `--work-type`.
+- Input: `/odf-continue` command with optional exact name and `--work-type`.
 - Output: conversational prompt with:
   - `command: odf-continue`
-  - `change: <change-name|latest>`
+  - `change: <change-name|sole-unambiguous-active>`
   - `work_type: <canonical type>` only when explicit recovery is provided
 
 ## Error Handling
 
 - **Named change archived**: report that it is complete and do not reinterpret Engram or legacy artifacts as active state.
 - **Named change not found**: report that it is unavailable and suggest `/odf-new <name>` only if the user intends to start a new change.
-- **No active changes**: report and suggest `/odf-new <name>`.
+- **Multiple active changes**: list the bounded candidates and ask the user to choose; do not continue any of them yet.
+- **Incomplete active-change discovery**: report the blocker/warnings and stop, or ask for an exact name if that resolves the missing store; do not infer uniqueness.
+- **No active changes**: report and suggest `/odf-new <name>` only if the user intends to start a new change.
 - **Native prepare/subagent/seal or `odf_delegate` error**: show the message, keep state, offer to retry.
 
 ## Output Format

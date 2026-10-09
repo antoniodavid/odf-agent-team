@@ -122,6 +122,8 @@ import {
   markDelegationTokenSealed,
   newDelegationToken,
   readDelegationToken,
+  readDelegationTokenDiagnostics,
+  recordDelegationTokenTimestamp,
   writeDelegationToken,
   type DelegationPhase,
   type DelegationTokenBranch,
@@ -129,6 +131,13 @@ import {
   type NativeChildLaunch,
   type NativeChildLaunchState,
 } from "../odf-plugin/odf-delegation-tokens.js"
+import { readObservedSessionStatus } from "../odf-plugin/odf-session-status.js"
+import {
+  consumeLateSealCapability,
+  createLateSealCapability,
+  readLateSealCapability,
+  type LateSealCapabilityBinding,
+} from "../odf-plugin/odf-late-seal-capability.js"
 import { ODF_RESULT_CONTRACT_PROMPT } from "../odf-plugin/odf-result-contract.js"
 import {
   proposalContentDigest,
@@ -3153,18 +3162,37 @@ function persistNativeChildLaunchLocked(opts: {
     if (!branches) return "delegation-branch-unknown"
     const current = branches.find(branch => branch.branch_id === opts.branchId)
     if (!current) return "delegation-branch-unknown"
-    if (!isValidNativeLaunchTransition(current.launch, opts.launch)) return "delegation-launch-state-conflict"
+    const launch = withNativeLaunchTimestamps(current.launch, opts.launch)
+    if (!isValidNativeLaunchTransition(current.launch, launch)) return "delegation-launch-state-conflict"
     updated = {
       ...read.record,
       launch_mode: "programmatic",
-      branches: branches.map(branch => branch.branch_id === opts.branchId ? { ...branch, launch: opts.launch } : branch),
+      branches: branches.map(branch => branch.branch_id === opts.branchId ? { ...branch, launch } : branch),
     }
   } else {
     if (read.record.branches) return "delegation-branch-required"
-    if (!isValidNativeLaunchTransition(read.record.launch, opts.launch)) return "delegation-launch-state-conflict"
-    updated = { ...read.record, launch_mode: "programmatic", launch: opts.launch }
+    const launch = withNativeLaunchTimestamps(read.record.launch, opts.launch)
+    if (!isValidNativeLaunchTransition(read.record.launch, launch)) return "delegation-launch-state-conflict"
+    updated = { ...read.record, launch_mode: "programmatic", launch }
   }
   return writeDelegationToken(opts.workspaceRoot, updated)
+}
+
+function withNativeLaunchTimestamps(current: NativeChildLaunch | undefined, next: NativeChildLaunch): NativeChildLaunch {
+  const timestamp = new Date().toISOString()
+  const dispatchStartedAt = next.dispatch_started_at || current?.dispatch_started_at ||
+    (next.state === "sending" ? timestamp : undefined)
+  const dispatchFinishedAt = next.dispatch_finished_at || current?.dispatch_finished_at ||
+    (current?.state === "sending" && next.state !== "sending" ? timestamp : undefined)
+  const dispatchedPromptDigestPrefix = next.dispatched_prompt_digest_prefix || current?.dispatched_prompt_digest_prefix
+  const dispatchedPromptByteLength = next.dispatched_prompt_byte_length ?? current?.dispatched_prompt_byte_length
+  return {
+    ...next,
+    ...(dispatchStartedAt ? { dispatch_started_at: dispatchStartedAt } : {}),
+    ...(dispatchFinishedAt ? { dispatch_finished_at: dispatchFinishedAt } : {}),
+    ...(dispatchedPromptDigestPrefix ? { dispatched_prompt_digest_prefix: dispatchedPromptDigestPrefix } : {}),
+    ...(dispatchedPromptByteLength !== undefined ? { dispatched_prompt_byte_length: dispatchedPromptByteLength } : {}),
+  }
 }
 
 function isValidNativeLaunchTransition(current: NativeChildLaunch | undefined, next: NativeChildLaunch): boolean {
@@ -3204,12 +3232,15 @@ function safeLaunchErrorType(error: unknown): string {
 }
 
 function promptCheckDiagnostics(expectedDigest: string, expectedBytes: number | undefined, actual: string | null): Record<string, unknown> {
+  const actualBytes = actual === null ? null : delegationPromptByteLength(actual)
+  const actualDigest = actual === null ? null : delegationPromptDigest(actual)
   return {
     expected_utf8_bytes: expectedBytes ?? null,
-    actual_utf8_bytes: actual === null ? null : delegationPromptByteLength(actual),
+    actual_utf8_bytes: actualBytes,
     expected_sha256_prefix: expectedDigest.slice(0, 12),
-    actual_sha256_prefix: actual === null ? null : delegationPromptDigest(actual).slice(0, 12),
-    transcript_text_exact: actual !== null,
+    actual_sha256_prefix: actualDigest?.slice(0, 12) ?? null,
+    transcript_text_exact: actual !== null && actualDigest === expectedDigest &&
+      (expectedBytes === undefined || actualBytes === expectedBytes),
   }
 }
 
@@ -3357,7 +3388,13 @@ function createODFDelegationLaunch(canonicalDirectory?: string): ReturnType<type
             return { branch_id: request.branchId ?? null, session_id: childId, status: launch.state, prompt_resent: false }
           }
 
-          const sending: NativeChildLaunch = { parent_session_id: toolCtx.sessionID, child_session_id: childId, state: "sending" }
+          const sending: NativeChildLaunch = {
+            parent_session_id: toolCtx.sessionID,
+            child_session_id: childId,
+            state: "sending",
+            dispatched_prompt_digest_prefix: request.digest.slice(0, 12),
+            dispatched_prompt_byte_length: delegationPromptByteLength(request.prompt),
+          }
           const sendingError = persistNativeChildLaunch({ workspaceRoot, change, token: args.token, branchId: request.branchId, launch: sending })
           if (sendingError) return { branch_id: request.branchId ?? null, session_id: childId, status: "blocked", reason: sendingError }
           let aborted = false
@@ -3828,19 +3865,202 @@ function createODFProposalWrite(canonicalDirectory?: string): ReturnType<typeof 
   })
 }
 
-function createODFDelegationSeal(canonicalDirectory?: string): ReturnType<typeof tool> {
+function recordRecoveryMetric(input: {
+  toolCtx: ToolContext
+  action: string
+  tool: string
+  change: string
+  attempt_id?: string
+  status: "ok" | "blocked" | "error" | "timeout"
+  started_at: number
+  reason?: string
+}): void {
+  if (!input.toolCtx.sessionID) return
+  const traceId = createTelemetryTraceId()
+  recordMetrics({
+    timestamp: new Date().toISOString(),
+    session_id: input.toolCtx.sessionID,
+    phase: "RECOVERY",
+    agent: "odf_orchestrator",
+    skills_injected: [],
+    skill_resolution: "none",
+    duration_ms: Math.max(0, Date.now() - input.started_at),
+    token_estimate: 0,
+    status: input.status,
+    task_api_source: "unavailable",
+    event: "span",
+    lifecycle: "finished",
+    span_kind: "task",
+    trace_id: traceId,
+    span_id: createTelemetrySpanId(),
+    parent_span_id: createTelemetrySpanId(),
+    task: `recovery:${input.action}`,
+    tool: input.tool,
+    change: input.change,
+    attempt_id: input.attempt_id,
+    error: input.reason,
+  })
+}
+
+function createODFLateSealCapabilityPrepare(canonicalDirectory?: string): ReturnType<typeof tool> {
   return tool({
-    description: `Seal a native ODF delegation started with odf_delegation_prepare: verify the child session against the token, wait until its V2 session loop is idle, read its ODF Result, run the phase gates (source authority, design closure, artifact refs and PLAN materialization; proof revalidation, validation-evidence seal, workflow commit and attempt settlement for IMPLEMENT/VERIFY) and return the standard delegation envelope.`,
+    description: `Prepare (without sealing or changing workflow state) a single-use, ten-minute late-seal capability for one expired native IMPLEMENT/VERIFY token. Requires the original running attempt and independently verifies the exact parent, child, agent, workspace, idle state, and prepared prompt. Then call odf_delegation_seal with the same token/change/session_id and the returned late_seal_capability. Never relaunch the child or edit the original token expiry.`,
     args: {
-      token: tool.schema.string().describe("Delegation token returned by odf_delegation_prepare."),
-      change: tool.schema.string().describe("Change name (kebab-case) the token belongs to."),
-      session_id: tool.schema.string().describe("Child session id returned by odf_delegation_launch."),
+      token: tool.schema.string().describe("Original delegation token; it is not refreshed or modified."),
+      change: tool.schema.string().describe("Change name (kebab-case) the original token belongs to."),
+      session_id: tool.schema.string().describe("Exact child session ID persisted by the original launch."),
       workspace_dir: tool.schema.string().optional().describe("Absolute project root; omit it to use the current session's project directory."),
     },
     async execute(args: {
       token: string
       change: string
       session_id: string
+      workspace_dir?: string
+    }, toolCtx: ToolContext): Promise<string> {
+      const startedAt = Date.now()
+      let attemptId: string | undefined
+      const blocked = (reason: string, message: string): string => JSON.stringify({
+        status: "blocked",
+        reason,
+        change: args.change,
+        task_session_id: args.session_id,
+        message,
+      }, null, 2)
+      const recordBlocked = (reason: string, message: string): string => {
+        recordRecoveryMetric({
+          toolCtx,
+          action: "late-seal-prepare",
+          tool: "odf_delegation_late_seal_prepare",
+          change: args.change,
+          attempt_id: attemptId,
+          status: "blocked",
+          started_at: startedAt,
+          reason,
+        })
+        return blocked(reason, message)
+      }
+      if (!toolCtx?.sessionID) return blocked("late-seal-parent-required", "Capability preparation must run in the original parent session.")
+      const workspaceRoot = resolveSelectedWorkspaceRoot(args.workspace_dir, canonicalDirectory)
+      if (!workspaceRoot) return recordBlocked("unsafe-workspace-path", "The workspace directory does not resolve to a safe existing root.")
+      const change = args.change?.trim()
+      const tokenRead = change ? readDelegationToken(workspaceRoot, change, args.token) : { record: null, error: "delegation-token-invalid" }
+      if (!tokenRead.record) return recordBlocked(tokenRead.error || "delegation-token-invalid", "The original delegation token could not be read safely.")
+      const record = tokenRead.record
+      attemptId = record.attempt_id
+      if (record.status !== "prepared") return recordBlocked("delegation-token-already-sealed", "Late-seal recovery is only available for an unsealed original token.")
+      if (!isDelegationTokenExpired(record)) return recordBlocked("late-seal-not-required", "The original delegation token has not expired; use the normal seal flow.")
+      if ((record.phase !== "IMPLEMENT" && record.phase !== "VERIFY") || !record.attempt_id || record.launch_mode !== "programmatic") {
+        return recordBlocked("late-seal-token-not-recoverable", "Late-seal recovery requires an expired native proof-backed IMPLEMENT/VERIFY token with its original attempt.")
+      }
+      if (record.parent_session_id !== toolCtx.sessionID || record.launch?.parent_session_id !== toolCtx.sessionID) {
+        return recordBlocked("delegation-parent-mismatch", "Late-seal capability preparation must run in the original parent session.")
+      }
+      if (!record.launch?.child_session_id || record.launch.child_session_id !== args.session_id ||
+        ["reserved", "created", "sending"].includes(record.launch.state)) {
+        return recordBlocked("delegation-child-mismatch", "The supplied child must exactly match a submitted original launch; an observed ID alone is insufficient.")
+      }
+
+      const ledger = readAttemptLedger(workspaceRoot, attemptLedgerPath(workspaceRoot, record.change))
+      if (ledger.error) return recordBlocked(ledger.error, "The original attempt ledger could not be read safely.")
+      const attempt = [...ledger.records].reverse().find(entry =>
+        entry.attempt_id === record.attempt_id && attemptBranchId(entry) === (record.branch_id || "default"))
+      if (!attempt || attempt.status !== "running" || attempt.native_parent_session_id !== toolCtx.sessionID) {
+        return recordBlocked("delegation-attempt-unavailable", "Late-seal recovery requires the exact original attempt to remain running under the original parent.")
+      }
+
+      const session = (toolCtx as unknown as Record<PropertyKey, unknown>)[ODF_V2_SESSION] as V2SessionApi | undefined
+      if (!session || typeof session.get !== "function" || typeof session.wait !== "function" || typeof session.context !== "function") {
+        return recordBlocked("delegation-session-api-unavailable", "Late-seal capability preparation requires the V2 session.get, session.wait, and session.context APIs.")
+      }
+      let child: Record<string, unknown>
+      try {
+        const info = await session.get({ sessionID: args.session_id })
+        child = info && typeof info === "object" && !Array.isArray(info) ? info as unknown as Record<string, unknown> : {}
+      } catch {
+        return recordBlocked("delegation-child-unknown", "The original child session could not be read; no recovery capability was issued.")
+      }
+      if (child.id !== args.session_id || child.agent !== record.agent || child.parentID !== toolCtx.sessionID) {
+        return recordBlocked("delegation-child-mismatch", "The child ID, agent, or parent ancestry does not match the original delegation.")
+      }
+      const location = child.location && typeof child.location === "object" && !Array.isArray(child.location)
+        ? child.location as Record<string, unknown>
+        : null
+      if (typeof location?.directory !== "string") {
+        return recordBlocked("delegation-child-workspace-unverified", "The child session did not report a workspace directory, so late-seal authority cannot be issued.")
+      }
+      let childWorkspace: string
+      try { childWorkspace = canonicalWorkspaceRoot(location.directory) } catch {
+        return recordBlocked("delegation-child-workspace-unverified", "The child session workspace could not be resolved safely.")
+      }
+      if (childWorkspace !== record.workspace || childWorkspace !== workspaceRoot) {
+        return recordBlocked("delegation-child-mismatch", "The child session workspace differs from the original delegation workspace.")
+      }
+
+      try {
+        const waited: unknown = await session.wait({ sessionID: args.session_id })
+        if (waited && typeof waited === "object" && !Array.isArray(waited) &&
+          (waited as Record<string, unknown>).error != null) {
+          return recordBlocked("delegation-child-not-idle", "OpenCode could not confirm the original child is idle; no recovery capability was issued.")
+        }
+      } catch {
+        return recordBlocked("delegation-child-not-idle", "OpenCode could not confirm the original child is idle; no recovery capability was issued.")
+      }
+      const conversationRead = await readV2SessionConversation({ session, sessionID: args.session_id })
+      const observedPrompt = conversationRead.conversation
+        ? preparedPromptFromV2Conversation(conversationRead.conversation, false)
+        : null
+      if (observedPrompt === null || delegationPromptDigest(observedPrompt) !== record.prompt_digest ||
+        (record.prompt_byte_length !== undefined && delegationPromptByteLength(observedPrompt) !== record.prompt_byte_length)) {
+        return recordBlocked("delegation-prompt-mismatch", "The child transcript does not prove receipt of the exact original prepared prompt; no recovery capability was issued.")
+      }
+
+      const binding: LateSealCapabilityBinding = {
+        change: record.change,
+        token: record.token,
+        attempt_id: record.attempt_id,
+        parent_session_id: toolCtx.sessionID,
+        child_session_id: args.session_id,
+      }
+      const issued = createLateSealCapability(workspaceRoot, binding)
+      if ("error" in issued) return recordBlocked(issued.error, "A late-seal capability could not be issued safely.")
+      recordRecoveryMetric({
+        toolCtx,
+        action: "late-seal-prepare",
+        tool: "odf_delegation_late_seal_prepare",
+        change: record.change,
+        attempt_id: record.attempt_id,
+        status: "ok",
+        started_at: startedAt,
+      })
+      return JSON.stringify({
+        status: "recovery-capability-issued",
+        change: record.change,
+        phase: record.phase,
+        attempt_id: record.attempt_id,
+        task_session_id: args.session_id,
+        late_seal_capability: issued.capability,
+        expires_at: issued.expires_at,
+        message: "Capability issued without changing the original token or attempt. Use it once with odf_delegation_seal before expires_at; normal seal and evidence gates still apply.",
+      }, null, 2)
+    },
+  })
+}
+
+function createODFDelegationSeal(canonicalDirectory?: string): ReturnType<typeof tool> {
+  return tool({
+    description: `Seal a native ODF delegation started with odf_delegation_prepare: verify the child session against the token, wait until its V2 session loop is idle, read its ODF Result, run the phase gates (source authority, design closure, artifact refs and PLAN materialization; proof revalidation, validation-evidence seal, workflow commit and attempt settlement for IMPLEMENT/VERIFY) and return the standard delegation envelope. If the original token expired after launch, first call odf_delegation_late_seal_prepare for the same token and child, then pass its late_seal_capability here; the original expiry is never changed.`,
+    args: {
+      token: tool.schema.string().describe("Delegation token returned by odf_delegation_prepare."),
+      change: tool.schema.string().describe("Change name (kebab-case) the token belongs to."),
+      session_id: tool.schema.string().describe("Child session id returned by odf_delegation_launch."),
+      late_seal_capability: tool.schema.string().optional().describe("Single-use, short-TTL capability returned by odf_delegation_late_seal_prepare for this exact token, attempt, parent, and child."),
+      workspace_dir: tool.schema.string().optional().describe("Absolute project root; omit it to use the current session's project directory."),
+    },
+    async execute(args: {
+      token: string
+      change: string
+      session_id: string
+      late_seal_capability?: string
       workspace_dir?: string
     }, toolCtx: ToolContext): Promise<string> {
       if (!toolCtx?.sessionID) return "❌ odf_delegation_seal requires sessionID"
@@ -3872,9 +4092,12 @@ function createODFDelegationSeal(canonicalDirectory?: string): ReturnType<typeof
         return blocked(read.error || "delegation-token-unknown", `The delegation token could not be read: ${read.error}.`)
       }
       const record = read.record
+      let lateSealBinding: LateSealCapabilityBinding | null = null
+      let lateSealAuthorizedAt: Date | null = null
       let childIdleConfirmedAt: string | null = null
       let childIdentityBound = false
       let childIdentityObserved = false
+      let causalTimestampWarning: string | null = null
       if (record.launch_mode === "programmatic" && record.parent_session_id !== toolCtx.sessionID) {
         return blocked("delegation-parent-mismatch", "The seal must run in the parent session that prepared this programmatic delegation.", {
           phase: record.phase,
@@ -3915,8 +4138,11 @@ function createODFDelegationSeal(canonicalDirectory?: string): ReturnType<typeof
         ...(childIdentityBound
           ? { child_session_identity: "verified-and-bound" }
           : childIdentityObserved ? { child_session_identity: "observed-unverified" } : {}),
+        ...(causalTimestampWarning ? { causal_timestamp_warning: causalTimestampWarning } : {}),
         ...(record.attempt_id ? {
-          next_step: childIdentityBound
+          next_step: isDelegationTokenExpired(record) && record.launch?.child_session_id === args.session_id
+            ? "The original token expired after launch. Do not relaunch or edit expiry; call odf_delegation_late_seal_prepare with this token and exact child, then pass its capability to odf_delegation_seal."
+            : childIdentityBound
             ? `The prepared prompt and exact child are verified idle. Retry odf_delegation_seal with the same token and session_id; if sealing remains impossible, recover attempt ${record.attempt_id} with odf_workflow_override action=settle-attempt, child_session_id=${args.session_id}, and confirm_no_active_run=true.`
             : childIdleConfirmedAt
               ? "The child is idle, but its identity is not yet durably bound to this attempt. Retry odf_delegation_seal with the same token and session_id; manual settlement remains blocked until the prepared prompt is verified and the child binding is persisted."
@@ -3929,7 +4155,70 @@ function createODFDelegationSeal(canonicalDirectory?: string): ReturnType<typeof
         if (record.sealed_session_id === args.session_id && record.sealed_result) return record.sealed_result
         return blocked("delegation-token-already-sealed", "The delegation token was already sealed for a different or unrecoverable child result.", withRecord())
       }
+      if (!isDelegationTokenExpired(record) && args.late_seal_capability) {
+        return blocked("late-seal-capability-not-needed", "The original token has not expired; use the normal seal flow without a recovery capability.", withRecord())
+      }
+      if (isDelegationTokenExpired(record)) {
+        if (!record.launch?.child_session_id || record.launch.child_session_id !== args.session_id) {
+          return blocked("delegation-token-expired", "The token expired without a matching durable child launch; prepare a fresh delegation.", withRecord())
+        }
+        if (!args.late_seal_capability) {
+          return blocked("delegation-token-expired", "The token expired after launch. Do not relaunch or edit its expiry; first obtain the separate late-seal recovery capability for this exact child.", withRecord())
+        }
+        if (!record.attempt_id || (record.phase !== "IMPLEMENT" && record.phase !== "VERIFY")) {
+          return blocked("late-seal-token-not-recoverable", "Late-seal recovery is limited to proof-backed IMPLEMENT/VERIFY attempts.", withRecord())
+        }
+        lateSealBinding = {
+          change: record.change,
+          token: record.token,
+          attempt_id: record.attempt_id,
+          parent_session_id: toolCtx.sessionID,
+          child_session_id: args.session_id,
+        }
+        lateSealAuthorizedAt = new Date()
+        const capability = readLateSealCapability(workspaceRoot, args.late_seal_capability, lateSealBinding, lateSealAuthorizedAt)
+        if (!capability.valid) {
+          return blocked(capability.reason || "late-seal-capability-invalid", "The late-seal capability is invalid, expired, consumed, or bound to a different original delegation.", withRecord())
+        }
+      }
+      const persistLifecycleTimestamp = (
+        field: "seal_started_at" | "child_result_observed_at" | "prompt_verified_at" | "workflow_commit_observed_at",
+        timestamp = new Date().toISOString(),
+      ): void => {
+        const error = recordDelegationTokenTimestamp(workspaceRoot, record.change, record.token, field, timestamp)
+        if (error) causalTimestampWarning = error
+      }
+      persistLifecycleTimestamp("seal_started_at")
       const persistSealResult = (result: string): string => {
+        let envelope: Record<string, unknown> | null = null
+        try { envelope = JSON.parse(result) as Record<string, unknown> } catch { envelope = null }
+        const validation = envelope?.validation && typeof envelope.validation === "object"
+          ? envelope.validation as Record<string, unknown>
+          : null
+        const commit = envelope?.workflow_commit && typeof envelope.workflow_commit === "object"
+          ? envelope.workflow_commit as Record<string, unknown>
+          : null
+        const accepted = envelope?.status === "delegated" && validation?.status === "verified" &&
+          (commit?.status === "committed" || commit?.status === "already-committed" || commit?.status === "batch-verified")
+        if (commit?.status === "committed" || commit?.status === "already-committed" || commit?.status === "batch-verified") {
+          persistLifecycleTimestamp("workflow_commit_observed_at")
+        }
+        if (lateSealBinding && lateSealAuthorizedAt) {
+          if (accepted) {
+            const consumed = consumeLateSealCapability(workspaceRoot, args.late_seal_capability!, lateSealBinding, lateSealAuthorizedAt)
+            if (!consumed.valid) {
+              const existing = readDelegationToken(workspaceRoot, record.change, record.token).record
+              if (existing?.status === "sealed" && existing.sealed_session_id === args.session_id && existing.sealed_result) {
+                return existing.sealed_result
+              }
+              return blocked(consumed.reason || "late-seal-capability-consume-failed", "The result passed normal gates but the one-time recovery capability could not be consumed; inspect canonical status before retrying.", withRecord())
+            }
+          } else {
+            // A rejected late seal must not burn its recovery authority or cache a
+            // terminal blocked envelope; callers can correct evidence and retry.
+            return result
+          }
+        }
         const error = markDelegationTokenSealed(workspaceRoot, record, new Date(), {
           sessionId: args.session_id,
           result,
@@ -3938,11 +4227,8 @@ function createODFDelegationSeal(canonicalDirectory?: string): ReturnType<typeof
           ? blocked("delegation-seal-result-not-persisted", "The seal completed but its replayable result could not be persisted. Keep this token and do not relaunch the child.", withRecord({ seal_result_persist_error: error }))
           : result
       }
-      if (isDelegationTokenExpired(record)) {
-        const message = record.launch?.child_session_id
-          ? "The delegation token expired after launch. Do not relaunch the child; sealing requires the separate, explicitly approved late-seal recovery capability."
-          : "The delegation token expired before launch; prepare a fresh delegation."
-        return blocked("delegation-token-expired", message, withRecord())
+      if (isDelegationTokenExpired(record) && !lateSealBinding) {
+        return blocked("delegation-token-expired", "The token expired; a matching late-seal recovery capability is required for an already-launched child.", withRecord())
       }
       let preparedAttempt: AttemptLedgerRecord | null = null
       if (record.attempt_id) {
@@ -4039,6 +4325,7 @@ function createODFDelegationSeal(canonicalDirectory?: string): ReturnType<typeof
           withRecord({ conversation_read: conversationRead.diagnostic }),
         )
       }
+      persistLifecycleTimestamp("child_result_observed_at")
       const observedPrompt = preparedPromptFromV2Conversation(conversation, record.launch_mode === undefined)
       if (observedPrompt === null ||
         delegationPromptDigest(observedPrompt) !== record.prompt_digest ||
@@ -4049,6 +4336,7 @@ function createODFDelegationSeal(canonicalDirectory?: string): ReturnType<typeof
           withRecord({ prompt_check: promptCheckDiagnostics(record.prompt_digest, record.prompt_byte_length, observedPrompt) }),
         )
       }
+      persistLifecycleTimestamp("prompt_verified_at")
 
       if (record.attempt_id && preparedAttempt?.native_parent_session_id) {
         const bound = bindNativeAttemptChild({
@@ -5792,7 +6080,7 @@ interface EngramObservation {
 
 interface EngramObservationRead {
   observations: EngramObservation[] | null
-  error: "engram-cli-unavailable" | "engram-export-timeout" | "engram-export-failed" | "engram-export-invalid" | null
+  error: "engram-cli-unavailable" | "engram-export-timeout" | "engram-export-failed" | "engram-export-invalid" | "engram-export-too-large" | null
 }
 
 const execFileAsync = promisify(execFile)
@@ -5846,6 +6134,9 @@ async function readEngramObservationsWithError(workspaceRoot: string): Promise<E
   }
 
   try {
+    if (fsSync.statSync(tmpFile).size > MAX_ENGRAM_STATUS_EXPORT_BYTES) {
+      return { observations: null, error: "engram-export-too-large" }
+    }
     const raw = fsSync.readFileSync(tmpFile, "utf8")
     const parsed: unknown = JSON.parse(raw)
     // `engram export` emits { version, exported_at, sessions, observations, prompts };
@@ -8021,6 +8312,7 @@ function attachRuntimeStatus(status: Omit<ODFChangeStatus, "observability">, wor
     status.workflowStatus.parallel_join = loaded.artifact
   }
   const ledger = readAttemptLedger(workspaceRoot, attemptLedgerPath(workspaceRoot, status.change))
+  const tokenDiagnostics = readDelegationTokenDiagnostics(workspaceRoot, status.change)
   const observability = buildObservabilityTimeline({
     change: status.change,
     workflow: status.workflowStatus,
@@ -8029,6 +8321,14 @@ function attachRuntimeStatus(status: Omit<ODFChangeStatus, "observability">, wor
     attempt_error: ledger.error,
     parallel_join: loaded.artifact,
     parallel_join_warning: loaded.warning,
+    delegation_tokens: {
+      ...tokenDiagnostics,
+      records: tokenDiagnostics.records.map(record => {
+        if (!record.child_session_id) return record
+        const childSessionStatus = readObservedSessionStatus(record.child_session_id)
+        return childSessionStatus ? { ...record, child_session_status: childSessionStatus } : record
+      }),
+    },
   })
   return { ...status, observability }
 }
@@ -8083,6 +8383,162 @@ async function loadCombinedWorkflowStatus(workspaceRoot: string, changeName?: st
     : null
 }
 
+const MAX_ACTIVE_CHANGE_DISCOVERY_ENTRIES = 1_000
+const MAX_ACTIVE_CHANGE_DISCOVERY_OBSERVATIONS = 20_000
+const MAX_ACTIVE_CHANGE_DISCOVERY_NAMES = 1_000
+const MAX_ACTIVE_CHANGE_CANDIDATES = 20
+const MAX_ENGRAM_STATUS_EXPORT_BYTES = 16 * 1024 * 1024
+
+interface ActiveWorkflowCandidate {
+  change: string
+  canonical_stage: WorkflowStatus["canonical_stage"]
+  pending_stage: WorkflowStatus["pending_stage"]
+  state_kind: WorkflowStatus["state_kind"]
+  work_type: WorkflowStatus["work_type"]
+  resumable: boolean
+  blocker: "workflow-state-unreadable" | null
+  receipt: Pick<WorkflowStatus["receipt"], "state" | "status" | "action">
+}
+
+interface ActiveWorkflowDiscovery {
+  status: "none" | "unambiguous" | "ambiguous" | "incomplete"
+  candidates: ActiveWorkflowCandidate[]
+  candidate_count: number | null
+  warnings: string[]
+  selected_status?: Omit<ODFChangeStatus, "observability">
+}
+
+function projectActiveWorkflowCandidate(
+  status: Omit<ODFChangeStatus, "observability">,
+  unreadableState = false,
+): ActiveWorkflowCandidate | null {
+  const workflow = status.workflowStatus
+  const rawStateExists = workflow.state_present || workflow.source.artifacts.length > 0
+  if (workflow.canonical_stage === "ARCHIVED" || (!rawStateExists && !unreadableState) || workflow.state_kind === "expectations-only") return null
+  return {
+    change: status.change,
+    canonical_stage: workflow.canonical_stage,
+    pending_stage: workflow.pending_stage,
+    state_kind: workflow.state_kind,
+    work_type: workflow.work_type,
+    resumable: workflow.resumable,
+    blocker: unreadableState ? "workflow-state-unreadable" : null,
+    receipt: {
+      state: workflow.receipt.state,
+      status: workflow.receipt.status,
+      action: workflow.receipt.action,
+    },
+  }
+}
+
+/** Discover bounded active changes without choosing one by recency. */
+async function discoverActiveWorkflowCandidates(workspaceRoot: string): Promise<ActiveWorkflowDiscovery> {
+  const warnings: string[] = []
+  const localSnapshots = new Map<string, OpenSpecSnapshot>()
+  const unreadableLocalStates = new Set<string>()
+  const changesDir = path.join(workspaceRoot, "openspec", "changes")
+  let entries: Dirent[] = []
+  try {
+    entries = await fs.readdir(changesDir, { withFileTypes: true })
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") warnings.push("openspec-change-discovery-unavailable")
+  }
+  if (entries.length > MAX_ACTIVE_CHANGE_DISCOVERY_ENTRIES) {
+    entries = entries.slice(0, MAX_ACTIVE_CHANGE_DISCOVERY_ENTRIES)
+    warnings.push("openspec-change-discovery-truncated")
+  }
+  for (const entry of entries) {
+    if (!entry.isDirectory() || !CHANGE_NAME_PATTERN.test(entry.name)) continue
+    const snapshot = await loadOpenSpecStatus(workspaceRoot, entry.name)
+    if (snapshot) {
+      localSnapshots.set(entry.name, snapshot)
+      if (!snapshot.state) {
+        try {
+          const state = await fs.lstat(path.join(changesDir, entry.name, "state.yaml"))
+          if (state.isFile() || state.isSymbolicLink()) unreadableLocalStates.add(entry.name)
+        } catch {
+          // No state file is normal for legacy artifact-only changes.
+        }
+      }
+    }
+  }
+
+  const engramRead = await readEngramObservationsWithError(workspaceRoot)
+  const observations = engramRead.observations
+  if (engramRead.error) warnings.push(engramRead.error)
+  const names = new Set(localSnapshots.keys())
+  const engramSnapshots = new Map<string, EngramSnapshot>()
+  if (observations) {
+    const boundedObservations = observations.slice(0, MAX_ACTIVE_CHANGE_DISCOVERY_OBSERVATIONS)
+    if (observations.length > boundedObservations.length) warnings.push("engram-change-discovery-truncated")
+    for (const observation of boundedObservations) {
+      if (!observation || typeof observation !== "object" || Array.isArray(observation)) {
+        warnings.push("engram-export-invalid")
+        continue
+      }
+      if (typeof observation.topic_key !== "string") {
+        warnings.push("engram-export-invalid")
+        continue
+      }
+      const match = observation.topic_key.match(/^odf\/([^/]+)\/(.+)$/)
+      if (!match || !CHANGE_NAME_PATTERN.test(match[1])) continue
+      const [, change, artifactType] = match
+      if (typeof observation.content !== "string") {
+        warnings.push("engram-export-invalid")
+        names.add(change)
+        continue
+      }
+      let snapshot = engramSnapshots.get(change)
+      if (!snapshot) {
+        if (engramSnapshots.size >= MAX_ACTIVE_CHANGE_DISCOVERY_NAMES) {
+          warnings.push("engram-change-discovery-truncated")
+          break
+        }
+        snapshot = { change, artifacts: new Map() }
+        engramSnapshots.set(change, snapshot)
+      }
+      names.add(change)
+      snapshot.artifacts.set(artifactType, {
+        content: observation.content,
+        created: typeof observation.created_at === "string" ? observation.created_at : null,
+      })
+    }
+  }
+
+  const boundedNames = Array.from(names).sort((left, right) => left.localeCompare(right))
+  if (boundedNames.length > MAX_ACTIVE_CHANGE_DISCOVERY_NAMES) {
+    warnings.push("active-change-discovery-truncated")
+    boundedNames.splice(MAX_ACTIVE_CHANGE_DISCOVERY_NAMES)
+  }
+
+  const activeStatuses: Array<{ candidate: ActiveWorkflowCandidate; status: Omit<ODFChangeStatus, "observability"> }> = []
+  for (const change of boundedNames) {
+    const local = localSnapshots.get(change) || null
+    const engram = engramSnapshots.get(change) || null
+    const store = stateArtifactStoreValue(local?.state?.content)
+    const status = local
+      ? buildMergedStatus(workspaceRoot, local, store === "openspec" ? null : engram)
+      : engram ? buildEngramStatus(workspaceRoot, engram) : null
+    if (!status) continue
+    const candidate = projectActiveWorkflowCandidate(status, unreadableLocalStates.has(change))
+    if (candidate) activeStatuses.push({ candidate, status })
+  }
+  activeStatuses.sort((left, right) => left.candidate.change.localeCompare(right.candidate.change))
+  const candidates = activeStatuses.map(item => item.candidate)
+
+  const incomplete = warnings.length > 0
+  const status: ActiveWorkflowDiscovery["status"] = incomplete || candidates.length > MAX_ACTIVE_CHANGE_CANDIDATES
+    ? "incomplete"
+    : candidates.length === 0 ? "none" : candidates.length === 1 ? "unambiguous" : "ambiguous"
+  return {
+    status,
+    candidates: candidates.slice(0, MAX_ACTIVE_CHANGE_CANDIDATES),
+    candidate_count: warnings.length ? null : candidates.length,
+    warnings: Array.from(new Set(warnings)),
+    ...(status === "unambiguous" ? { selected_status: activeStatuses[0]?.status } : {}),
+  }
+}
+
 function createODFStatus(canonicalDirectory?: string): ReturnType<typeof tool> {
   return tool({
     description: `Show ODF change status by resolving from Engram observations.
@@ -8124,13 +8580,16 @@ Use this first for a current-state or continuation question. One call returns
 canonical stages, resumability, pending receipt/join information, and legacy
 compatibility fields. Reuse this result instead of separately probing files or
 calling status tools again. Explicitly named archived changes are resolved from
-their dated OpenSpec archive directory; latest-change discovery remains active-only.
-The workspace defaults to the current session directory. This tool never writes state or receipts.`,
+their dated OpenSpec archive directory. When no change is named, bounded discovery
+returns one unambiguous active change, a read-only list when several match, or
+an incomplete-discovery blocker; it never selects by recency when multiple
+changes exist. The workspace defaults to the current session directory. This
+tool never writes state or receipts.`,
     args: {
       change_name: tool.schema
         .string()
         .optional()
-        .describe("Change name to inspect (omit for latest active change)"),
+        .describe("Exact change name to inspect; omit to discover active changes without choosing among ambiguous candidates."),
       workspace_dir: tool.schema
         .string()
         .optional()
@@ -8141,7 +8600,57 @@ The workspace defaults to the current session directory. This tool never writes 
       if (!workspace) {
         return JSON.stringify({ status: "blocked", reason: "unsafe-workspace-path", message: "The session workspace does not resolve to a safe existing project root." }, null, 2)
       }
-      const status = await loadCombinedWorkflowStatus(workspace, args.change_name)
+      const requestedChange = args.change_name?.trim() || undefined
+      let activeChangeResolution: { status: string; candidates: ActiveWorkflowCandidate[]; candidate_count?: number | null; warnings?: string[] } | undefined
+      let selectedChange = requestedChange
+      let discoveredStatus: Omit<ODFChangeStatus, "observability"> | null = null
+      if (!requestedChange) {
+        const discovery = await discoverActiveWorkflowCandidates(workspace)
+        activeChangeResolution = {
+          status: discovery.status,
+          candidates: discovery.candidates,
+          candidate_count: discovery.candidate_count,
+          ...(discovery.warnings.length ? { warnings: discovery.warnings } : {}),
+        }
+        if (discovery.status === "incomplete") {
+          return JSON.stringify({
+            status: "blocked",
+            reason: "active-change-discovery-incomplete",
+            active_change_resolution: activeChangeResolution,
+            message: "Active changes could not be enumerated completely. No continuation was selected; name the exact change or resolve the discovery warning first.",
+          }, null, 2)
+        }
+        if (discovery.status === "ambiguous") {
+          return JSON.stringify({
+            status: "ambiguous",
+            reason: "multiple-active-changes",
+            active_change_resolution: activeChangeResolution,
+            message: "Several active ODF changes match. Ask the user to choose one before continuing; do not select the newest automatically.",
+          }, null, 2)
+        }
+        if (discovery.status === "none") {
+          return JSON.stringify({
+            status: "not-found",
+            reason: "no-active-change",
+            active_change_resolution: activeChangeResolution,
+            message: "No active ODF change was found. Do not create or bind workflow state from a continuation request.",
+          }, null, 2)
+        }
+        selectedChange = discovery.candidates[0]?.change
+        discoveredStatus = discovery.selected_status || null
+        if (!selectedChange || !discoveredStatus) {
+          return JSON.stringify({
+            status: "blocked",
+            reason: "active-change-discovery-inconsistent",
+            message: "Discovery returned no complete status snapshot despite an unambiguous result; no continuation was selected.",
+          }, null, 2)
+        }
+      } else {
+        activeChangeResolution = { status: "explicit", candidates: [] }
+      }
+      const status = discoveredStatus
+        ? attachRuntimeStatus(discoveredStatus, workspace)
+        : await loadCombinedWorkflowStatus(workspace, selectedChange)
       if (!status) {
         return JSON.stringify({ status: "not-found", message: "No ODF changes found in Engram" }, null, 2)
       }
@@ -8153,6 +8662,7 @@ The workspace defaults to the current session directory. This tool never writes 
         applyProgress: status.applyProgress,
         lastUpdated: status.lastUpdated,
         observability: status.observability,
+        ...(activeChangeResolution ? { active_change_resolution: activeChangeResolution } : {}),
       }, null, 2)
     },
   })
@@ -8603,12 +9113,20 @@ only after canonical state exists. Existing state and Expectations are reused on
       // tolerant of message/generation drift so a rate-limit abort, an intervening user message,
       // or a retried bind in the same session does not dead-end a legitimate /odf-new flow.
       const capabilityMatches = Boolean(authorization && !authorization.claimed &&
-        authorization.sessionID === sessionID && authorization.changeName === changeName &&
+        authorization.sessionID === sessionID && (authorization.changeName === null || authorization.changeName === changeName) &&
+        (!authorization.entryKind || (authorization.entryKind === "bugfix"
+          ? args.work_type === "bugfix"
+          : ["standard-config", "small-change", "feature", "cross-domain", "migration", "security"].includes(args.work_type))) &&
         authorization.workspaceRoot === workspaceRoot)
       if (authorization && !capabilityMatches) {
         return blocked("workflow-start-unauthorized", "Workflow initialization authorization does not match this session, change, or workspace. Recovery: re-run the clean slash command `/odf-new <change>` in this workspace and let odf_health run first, then retry the bind.")
       }
-      if (capabilityMatches) authorization!.claimed = true
+      if (capabilityMatches) {
+        authorization!.claimed = true
+        // A natural-language entry has no user-supplied slug. Bind its one-time
+        // session capability to the first exact name selected after health and triage.
+        if (authorization!.changeName === null) authorization!.changeName = changeName
+      }
       const claimedCapability = capabilityMatches ? authorization! : null
       const prepareState = (content: string, existed: boolean, expectationsPending: boolean): {
         document?: ReturnType<typeof parseDocument>
@@ -9094,7 +9612,22 @@ Actions:
       expectations_revision?: Record<string, unknown>
       workspace_dir?: string
     }, toolCtx: ToolContext): Promise<string> {
-      const blocked = (reason: string, message: string): string => JSON.stringify({ status: "blocked", reason, message }, null, 2)
+      const recoveryStartedAt = Date.now()
+      const blocked = (reason: string, message: string): string => {
+        if (args.action.startsWith("settle-")) {
+          recordRecoveryMetric({
+            toolCtx,
+            action: args.action,
+            tool: "odf_workflow_override",
+            change: args.change_name,
+            attempt_id: args.attempt_id,
+            status: "blocked",
+            started_at: recoveryStartedAt,
+            reason,
+          })
+        }
+        return JSON.stringify({ status: "blocked", reason, message }, null, 2)
+      }
       const changeName = canonicalChangeName(args.change_name)
       if (!changeName) return blocked("unsafe-change-path", "The change name is not a safe OpenSpec path segment.")
       let workspaceRoot: string
@@ -9348,7 +9881,14 @@ Actions:
             )
           }
           try {
-            await session.wait({ sessionID: childSessionId })
+            const waited: unknown = await session.wait({ sessionID: childSessionId })
+            if (waited && typeof waited === "object" && !Array.isArray(waited) &&
+              (waited as Record<string, unknown>).error != null) {
+              return blocked(
+                "attempt-child-not-idle",
+                `session.wait could not confirm child ${childSessionId} is idle; do not settle this attempt while the child may still be active. Retry after it ends.`,
+              )
+            }
           } catch {
             return blocked(
               "attempt-child-not-idle",
@@ -9445,6 +9985,15 @@ Actions:
             fsSync.appendFileSync(path.join(workspaceRoot, ".odf", `override-${changeName}.jsonl`), JSON.stringify(audit) + "\n")
           } catch { /* audit is best-effort */ }
         }
+        recordRecoveryMetric({
+          toolCtx,
+          action: args.action,
+          tool: "odf_workflow_override",
+          change: changeName,
+          attempt_id: attemptId,
+          status: "ok",
+          started_at: recoveryStartedAt,
+        })
         return JSON.stringify({
           status: "settled",
           change_name: changeName,
@@ -9576,6 +10125,14 @@ Actions:
         try {
           fsSync.appendFileSync(path.join(workspaceRoot, ".odf", `override-${changeName}.jsonl`), JSON.stringify(audit) + "\n")
         } catch { /* audit is best-effort */ }
+        recordRecoveryMetric({
+          toolCtx,
+          action: "settle-join",
+          tool: "odf_workflow_override",
+          change: changeName,
+          status: "ok",
+          started_at: recoveryStartedAt,
+        })
         return JSON.stringify({
           status: "settled",
           change_name: changeName,
@@ -9919,6 +10476,7 @@ ODF is a control-plane API, not a codebase to reverse-engineer during customer-p
 - Use \`odf_delegate\` for ODF phase work; inject at most five matching compact skill blocks.
 - Resolve and persist the authoritative Policy Gate before IMPLEMENT/VERIFY; never recompute it.
 - IMPLEMENT closes only when the plugin seal has \`validation.status === "verified"\` from fresh bound evidence; prose never counts.
+- An expired native delegation token is never refreshed or edited: verify the exact original child with \`odf_delegation_late_seal_prepare\`, then pass its single-use capability to \`odf_delegation_seal\`; canonical progress remains pending until normal seal evidence passes.
 - VERIFY uses evidence-based risk tier, frozen ref, and one correction budget; an inconclusive frozen-byte inspection does not consume the attempt and there is no auto-loop.
 - On VERIFY FAIL, persist the receipt before the single user disposition question; \`/odf-continue\` re-discovers pending receipts.
 - Metrics remain bounded, session-hashed, and canonical JSONL data for the metrics command. Content signals may escalate risk to HIGH, never downgrade it.
@@ -9945,6 +10503,7 @@ export function createODFRegisteredTools(
     odf_delegate: createODFDelegate(client, canonicalDirectory),
     odf_delegation_prepare: createODFDelegationPrepare(canonicalDirectory),
     odf_delegation_launch: createODFDelegationLaunch(canonicalDirectory),
+    odf_delegation_late_seal_prepare: createODFLateSealCapabilityPrepare(canonicalDirectory),
     odf_proposal_write: createODFProposalWrite(canonicalDirectory),
     odf_delegation_seal: createODFDelegationSeal(canonicalDirectory),
     odf_parallel_delegate: createODFParallelDelegate(client, canonicalDirectory),

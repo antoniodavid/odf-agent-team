@@ -14,6 +14,7 @@ import * as fsSync from "node:fs"
 import * as path from "node:path"
 import * as nodeCrypto from "node:crypto"
 import { CHANGE_NAME_PATTERN, canonicalWorkspaceRoot, isWithinRoot } from "./odf-delegation-shared.js"
+import type { ObservedSessionStatus } from "./odf-session-status.js"
 
 export const DELEGATION_TOKEN_SCHEMA_VERSION = 1 as const
 export const DELEGATION_TOKEN_TTL_MS = 2 * 60 * 60 * 1000
@@ -25,6 +26,8 @@ const MAX_TASK_CHARS = 8192
 const MAX_ROOT_CHARS = 2048
 const MAX_JSON_FIELD_CHARS = 4096
 const MAX_ACK_CHARS = 1024
+const MAX_DIAGNOSTIC_TOKEN_RECORDS = 100
+const MAX_DIAGNOSTIC_DIRECTORY_ENTRIES = 1_000
 const SAFE_LABEL_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/
 const PROMPT_DIGEST_PATTERN = /^[a-f0-9]{64}$/
 
@@ -62,6 +65,10 @@ export interface NativeChildLaunch {
   parent_session_id: string
   state: NativeChildLaunchState
   child_session_id?: string
+  dispatch_started_at?: string
+  dispatch_finished_at?: string
+  dispatched_prompt_digest_prefix?: string
+  dispatched_prompt_byte_length?: number
 }
 
 export interface DelegationTokenInput {
@@ -147,6 +154,10 @@ export interface DelegationTokenRecord {
   created_at: string
   expires_at: string
   status: DelegationTokenStatus
+  seal_started_at?: string
+  child_result_observed_at?: string
+  prompt_verified_at?: string
+  workflow_commit_observed_at?: string
   sealed_at?: string
   /** Exact terminal seal envelope, retained so a lost response can be replayed safely. */
   sealed_result?: string
@@ -157,6 +168,51 @@ export interface DelegationTokenRecord {
 export type DelegationTokenReadResult =
   | { record: DelegationTokenRecord; error: null }
   | { record: null; error: string }
+
+export interface DelegationTokenDiagnostic {
+  change: string
+  phase: DelegationPhase
+  agent: string
+  attempt_id?: string
+  branch_id?: string
+  created_at: string
+  expires_at: string
+  status: DelegationTokenStatus
+  prepared_prompt_digest_prefix: string
+  prepared_prompt_byte_length?: number
+  parent_session_id?: string
+  launch?: {
+    state: NativeChildLaunchState
+    parent_session_id?: string
+    child_session_id?: string
+    dispatch_started_at?: string
+    dispatch_finished_at?: string
+    dispatched_prompt_digest_prefix?: string
+    dispatched_prompt_byte_length?: number
+  }
+  child_session_id?: string
+  child_session_status?: ObservedSessionStatus
+  seal_started_at?: string
+  child_result_observed_at?: string
+  prompt_verified_at?: string
+  workflow_commit_observed_at?: string
+  sealed_at?: string
+  seal_result?: { status: string | null; reason: string | null }
+  workflow_commit?: { status: string | null; reason: string | null; canonical_stage: string | null }
+  prompt_check?: {
+    expected_sha256_prefix: string
+    actual_sha256_prefix: string | null
+    expected_utf8_bytes: number | null
+    actual_utf8_bytes: number | null
+    transcript_text_exact: boolean
+  }
+}
+
+export interface DelegationTokenDiagnosticsReadResult {
+  records: DelegationTokenDiagnostic[]
+  warnings: string[]
+  records_read: number
+}
 
 function safeLabel(value: unknown): string | null {
   return typeof value === "string" && SAFE_LABEL_PATTERN.test(value) ? value : null
@@ -386,6 +442,10 @@ function isDelegationTokenRecord(value: unknown): value is DelegationTokenRecord
     safeTimestamp(record.created_at) !== null &&
     safeTimestamp(record.expires_at) !== null &&
     (record.status === "prepared" || record.status === "sealed") &&
+    (record.seal_started_at === undefined || safeTimestamp(record.seal_started_at) !== null) &&
+    (record.child_result_observed_at === undefined || safeTimestamp(record.child_result_observed_at) !== null) &&
+    (record.prompt_verified_at === undefined || safeTimestamp(record.prompt_verified_at) !== null) &&
+    (record.workflow_commit_observed_at === undefined || safeTimestamp(record.workflow_commit_observed_at) !== null) &&
     (record.sealed_at === undefined || safeTimestamp(record.sealed_at) !== null) &&
     proposalEvidenceValid
 }
@@ -396,6 +456,12 @@ function isNativeChildLaunch(value: unknown): value is NativeChildLaunch {
   return safeSessionId(launch.parent_session_id) &&
     ["reserved", "created", "sending", "submitted", "uncertain", "interrupted"].includes(String(launch.state)) &&
     (launch.child_session_id === undefined || safeSessionId(launch.child_session_id)) &&
+    (launch.dispatch_started_at === undefined || safeTimestamp(launch.dispatch_started_at) !== null) &&
+    (launch.dispatch_finished_at === undefined || safeTimestamp(launch.dispatch_finished_at) !== null) &&
+    (launch.dispatched_prompt_digest_prefix === undefined || /^[a-f0-9]{12}$/.test(String(launch.dispatched_prompt_digest_prefix))) &&
+    (launch.dispatched_prompt_byte_length === undefined ||
+      (typeof launch.dispatched_prompt_byte_length === "number" && Number.isSafeInteger(launch.dispatched_prompt_byte_length) &&
+        launch.dispatched_prompt_byte_length >= 0)) &&
     (launch.state === "reserved" ? launch.child_session_id === undefined : safeSessionId(launch.child_session_id))
 }
 
@@ -480,19 +546,199 @@ export function readDelegationToken(workspace: string, change: string, token: st
   return { record: parsed, error: null }
 }
 
+function diagnosticStatus(value: unknown, allowed: readonly string[]): string | null {
+  return typeof value === "string" && allowed.includes(value) ? value : null
+}
+
+function diagnosticSessionId(value: unknown): string | null {
+  return safeLabel(value)
+}
+
+function diagnosticPromptCheck(value: unknown): DelegationTokenDiagnostic["prompt_check"] | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined
+  const check = value as Record<string, unknown>
+  const expected = typeof check.expected_sha256_prefix === "string" && /^[a-f0-9]{12}$/.test(check.expected_sha256_prefix)
+    ? check.expected_sha256_prefix
+    : null
+  if (!expected || typeof check.transcript_text_exact !== "boolean") return undefined
+  const actual = typeof check.actual_sha256_prefix === "string" && /^[a-f0-9]{12}$/.test(check.actual_sha256_prefix)
+    ? check.actual_sha256_prefix
+    : null
+  const expectedBytes = Number.isSafeInteger(check.expected_utf8_bytes) && (check.expected_utf8_bytes as number) >= 0
+    ? check.expected_utf8_bytes as number
+    : null
+  const actualBytes = Number.isSafeInteger(check.actual_utf8_bytes) && (check.actual_utf8_bytes as number) >= 0
+    ? check.actual_utf8_bytes as number
+    : null
+  return {
+    expected_sha256_prefix: expected,
+    actual_sha256_prefix: actual,
+    expected_utf8_bytes: expectedBytes,
+    actual_utf8_bytes: actualBytes,
+    transcript_text_exact: check.transcript_text_exact,
+  }
+}
+
+function diagnosticForToken(record: DelegationTokenRecord): DelegationTokenDiagnostic {
+  let envelope: Record<string, unknown> | null = null
+  if (record.sealed_result) {
+    try {
+      const parsed: unknown = JSON.parse(record.sealed_result)
+      envelope = parsed && typeof parsed === "object" && !Array.isArray(parsed)
+        ? parsed as Record<string, unknown>
+        : null
+    } catch {
+      envelope = null
+    }
+  }
+  const rawCommit = envelope?.workflow_commit
+  const commit = rawCommit && typeof rawCommit === "object" && !Array.isArray(rawCommit)
+    ? rawCommit as Record<string, unknown>
+    : null
+  const canonicalStages = ["INIT", "DECIDE", "PLAN", "BUILD", "VERIFY", "EXPLORE", "FIX", "ARCHIVED"]
+  const launch = record.launch
+  const parentSessionId = diagnosticSessionId(record.parent_session_id)
+  const launchParentSessionId = diagnosticSessionId(launch?.parent_session_id)
+  const launchChildSessionId = diagnosticSessionId(launch?.child_session_id)
+  const sealedSessionId = diagnosticSessionId(record.sealed_session_id)
+  const childSessionId = launchChildSessionId || sealedSessionId
+
+  return {
+    change: record.change,
+    phase: record.phase,
+    agent: record.agent,
+    ...(record.attempt_id ? { attempt_id: record.attempt_id } : {}),
+    ...(record.branch_id ? { branch_id: record.branch_id } : {}),
+    created_at: record.created_at,
+    expires_at: record.expires_at,
+    status: record.status,
+    prepared_prompt_digest_prefix: record.prompt_digest.slice(0, 12),
+    ...(record.prompt_byte_length !== undefined ? { prepared_prompt_byte_length: record.prompt_byte_length } : {}),
+    ...(parentSessionId ? { parent_session_id: parentSessionId } : {}),
+    ...(launch ? {
+      launch: {
+        state: launch.state,
+        ...(launchParentSessionId ? { parent_session_id: launchParentSessionId } : {}),
+        ...(launchChildSessionId ? { child_session_id: launchChildSessionId } : {}),
+        ...(safeTimestamp(launch.dispatch_started_at) ? { dispatch_started_at: launch.dispatch_started_at } : {}),
+        ...(safeTimestamp(launch.dispatch_finished_at) ? { dispatch_finished_at: launch.dispatch_finished_at } : {}),
+        ...(typeof launch.dispatched_prompt_digest_prefix === "string" ? { dispatched_prompt_digest_prefix: launch.dispatched_prompt_digest_prefix } : {}),
+        ...(Number.isSafeInteger(launch.dispatched_prompt_byte_length) ? { dispatched_prompt_byte_length: launch.dispatched_prompt_byte_length } : {}),
+      },
+    } : {}),
+    ...(childSessionId ? { child_session_id: childSessionId } : {}),
+    ...(safeTimestamp(record.seal_started_at) ? { seal_started_at: record.seal_started_at } : {}),
+    ...(safeTimestamp(record.child_result_observed_at) ? { child_result_observed_at: record.child_result_observed_at } : {}),
+    ...(safeTimestamp(record.prompt_verified_at) ? { prompt_verified_at: record.prompt_verified_at } : {}),
+    ...(safeTimestamp(record.workflow_commit_observed_at) ? { workflow_commit_observed_at: record.workflow_commit_observed_at } : {}),
+    ...(record.sealed_at ? { sealed_at: record.sealed_at } : {}),
+    ...(record.sealed_result ? {
+      seal_result: {
+        status: diagnosticStatus(envelope?.status, ["delegated", "ok", "warning", "blocked", "error", "timeout"]),
+        reason: safeLabel(envelope?.reason),
+      },
+    } : {}),
+    ...(commit ? {
+      workflow_commit: {
+        status: diagnosticStatus(commit.status, ["committed", "already-committed", "batch-verified", "blocked"]),
+        reason: safeLabel(commit.reason),
+        canonical_stage: diagnosticStatus(commit.canonical_stage, canonicalStages),
+      },
+    } : {}),
+    ...(envelope?.prompt_check ? { prompt_check: diagnosticPromptCheck(envelope.prompt_check) } : {}),
+  }
+}
+
+/**
+ * Read a bounded, sanitized projection of a change's native delegation tokens.
+ * The token, full prompt, raw seal envelope, and workspace path are never
+ * returned; malformed files contribute only a generic warning.
+ */
+export function readDelegationTokenDiagnostics(workspace: string, change: string): DelegationTokenDiagnosticsReadResult {
+  const result: DelegationTokenDiagnosticsReadResult = { records: [], warnings: [], records_read: 0 }
+  if (!CHANGE_NAME_PATTERN.test(change)) {
+    result.warnings.push("delegation-token-change-invalid")
+    return result
+  }
+  const root = canonicalWorkspace(workspace)
+  if (!root) {
+    result.warnings.push("delegation-token-workspace-unavailable")
+    return result
+  }
+
+  const directory = path.join(root, ".odf")
+  let entries: fsSync.Dirent[]
+  try {
+    const stat = fsSync.lstatSync(directory)
+    if (!stat.isDirectory() || stat.isSymbolicLink() || !isWithinRoot(fsSync.realpathSync(directory), root)) {
+      result.warnings.push("delegation-token-directory-unsafe")
+      return result
+    }
+    entries = fsSync.readdirSync(directory, { withFileTypes: true })
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") result.warnings.push("delegation-token-directory-unreadable")
+    return result
+  }
+
+  if (entries.length > MAX_DIAGNOSTIC_DIRECTORY_ENTRIES) {
+    result.warnings.push("delegation-token-directory-limit")
+    entries = entries.slice(0, MAX_DIAGNOSTIC_DIRECTORY_ENTRIES)
+  }
+  const prefix = `delegation-${change}-`
+  const candidates = entries
+    .filter(entry => entry.isFile() && entry.name.startsWith(prefix) && entry.name.endsWith(".json"))
+    .map(entry => entry.name.slice(prefix.length, -".json".length))
+    .filter(token => DELEGATION_TOKEN_PATTERN.test(token))
+    .sort()
+  if (candidates.length > MAX_DIAGNOSTIC_TOKEN_RECORDS) {
+    result.warnings.push("delegation-token-record-limit")
+  }
+
+  for (const token of candidates.slice(-MAX_DIAGNOSTIC_TOKEN_RECORDS)) {
+    const read = readDelegationToken(root, change, token)
+    if (!read.record || read.error) {
+      if (read.error !== "delegation-token-unknown") result.warnings.push("delegation-token-record-unavailable")
+      continue
+    }
+    result.records.push(diagnosticForToken(read.record))
+    result.records_read++
+  }
+  result.records.sort((left, right) => left.created_at.localeCompare(right.created_at))
+  return result
+}
+
 /** Mark a prepared token as sealed (or return an error code). */
+export type DelegationTokenLifecycleTimestamp = "seal_started_at" | "child_result_observed_at" | "prompt_verified_at" | "workflow_commit_observed_at"
+
+/** Record one observed causal timestamp without overwriting concurrent launch or seal fields. */
+export function recordDelegationTokenTimestamp(
+  workspace: string,
+  change: string,
+  token: string,
+  field: DelegationTokenLifecycleTimestamp,
+  timestamp: string,
+): string | null {
+  if (!safeTimestamp(timestamp)) return "delegation-token-timestamp-invalid"
+  const current = readDelegationToken(workspace, change, token)
+  if (!current.record) return current.error
+  if (current.record.status !== "prepared") return "delegation-token-already-sealed"
+  return writeDelegationToken(workspace, { ...current.record, [field]: timestamp })
+}
+
 export function markDelegationTokenSealed(
   workspace: string,
   record: DelegationTokenRecord,
   now: Date = new Date(),
   sealedOutcome?: { sessionId: string; result: string },
 ): string | null {
-  if (record.status !== "prepared") return "delegation-token-already-sealed"
+  const current = readDelegationToken(workspace, record.change, record.token)
+  if (!current.record) return current.error
+  if (current.record.status !== "prepared") return "delegation-token-already-sealed"
   if (sealedOutcome && (!safeSessionId(sealedOutcome.sessionId) || typeof sealedOutcome.result !== "string" || !sealedOutcome.result.trim())) {
     return "delegation-seal-result-invalid"
   }
   const sealed: DelegationTokenRecord = {
-    ...record,
+    ...current.record,
     status: "sealed",
     sealed_at: (Number.isFinite(now.getTime()) ? now : new Date()).toISOString(),
     ...(sealedOutcome ? {

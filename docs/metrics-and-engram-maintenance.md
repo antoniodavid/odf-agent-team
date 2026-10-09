@@ -6,6 +6,13 @@ bounded and sanitized, and the in-memory writer flushes synchronously at its
 configured cap (`ODF_METRICS_BUFFER_CAP`). Daily files are naturally bounded
 by `collectDelegations(metricsDir, days)`; consumers should choose a retention
 window rather than treating the directory as an unbounded query source.
+Recovery attempts emit bounded local spans (`task` values such as
+`recovery:settle-attempt` and `recovery:late-seal-prepare`) with elapsed time and
+outcome. Actual input/output tokens and `cost_usd` are recorded only when the
+host supplies them; ODF never estimates cost, and token-length estimates remain
+separately labelled as estimates. The local metrics summary reports recovery
+counts/outcomes and host-reported USD cost with an explicit coverage count; no
+online quality or cost-feedback service is called.
 
 Evaluation is provider-agnostic:
 

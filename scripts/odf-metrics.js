@@ -769,6 +769,37 @@ export function buildDashboard(records, days, library = null) {
     available: fieldRecords.filter(predicate).length,
     coverage: fieldRecords.length > 0 ? fieldRecords.filter(predicate).length / fieldRecords.length : null,
   })
+  const recoveryRecords = records.filter(record => isSpanRecord(record) &&
+    typeof record.task === "string" && record.task.startsWith("recovery:"))
+  const recoveryByAction = new Map()
+  for (const record of recoveryRecords) {
+    const action = safeToken(record.task.slice("recovery:".length)) || "other"
+    const bucket = recoveryByAction.get(action) || { attempts: 0, succeeded: 0, blocked: 0, duration_ms: 0 }
+    bucket.attempts += 1
+    if (record.status === "ok") bucket.succeeded += 1
+    if (record.status === "blocked") bucket.blocked += 1
+    if (typeof record.duration_ms === "number" && Number.isFinite(record.duration_ms) && record.duration_ms >= 0) {
+      bucket.duration_ms += record.duration_ms
+    }
+    recoveryByAction.set(action, bucket)
+  }
+  const recovery = {
+    attempts: recoveryRecords.length,
+    succeeded: recoveryRecords.filter(record => record.status === "ok").length,
+    blocked: recoveryRecords.filter(record => record.status === "blocked").length,
+    avg_duration_ms: recoveryRecords.length > 0
+      ? recoveryRecords.reduce((sum, record) => sum + (typeof record.duration_ms === "number" && Number.isFinite(record.duration_ms) && record.duration_ms >= 0 ? record.duration_ms : 0), 0) / recoveryRecords.length
+      : null,
+    by_action: Object.fromEntries([...recoveryByAction.entries()].map(([action, value]) => [action, {
+      ...value,
+      avg_duration_ms: value.attempts > 0 ? value.duration_ms / value.attempts : null,
+    }])),
+  }
+  const reportedCostRecords = coverageRecords.filter(record =>
+    typeof record.cost_usd === "number" && Number.isFinite(record.cost_usd) && record.cost_usd >= 0)
+  const hostCostUsd = reportedCostRecords.length > 0
+    ? reportedCostRecords.reduce((sum, record) => sum + record.cost_usd, 0)
+    : null
   const telemetryCoverage = {
     runs: {
       records: coverageRecords.length,
@@ -791,6 +822,11 @@ export function buildDashboard(records, days, library = null) {
       const tokens = record.tokens
       return !!tokens && (typeof tokens.input === "number" || typeof tokens.output === "number")
     }),
+    host_cost_usd: {
+      records: coverageRecords.length,
+      available: reportedCostRecords.length,
+      coverage: coverageRecords.length > 0 ? reportedCostRecords.length / coverageRecords.length : null,
+    },
   }
   const partial = lifecycle.unfinishedCount > 0 || coverageRecords.length > 0 && withTelemetry < coverageRecords.length
   const data_status = total === 0 ? lifecycle.unfinishedCount > 0 ? "partial" : "no_data" : partial ? "partial" : "complete"
@@ -807,6 +843,8 @@ export function buildDashboard(records, days, library = null) {
     branch_records: branchRecords.length,
     records_with_branch_telemetry: branchesWithTelemetry,
     telemetry_coverage: telemetryCoverage,
+    recovery,
+    host_cost_usd: hostCostUsd,
     startedCount: lifecycle.startedCount,
     unfinishedCount: lifecycle.unfinishedCount,
     unfinishedRunIds: lifecycle.unfinishedRunIds,
@@ -846,6 +884,7 @@ export function renderDashboard(d) {
     `  Baseline p50/p95: ${d.baseline.duration.p50_ms === null ? "N/A" : `${Math.round(d.baseline.duration.p50_ms)}ms`} / ${d.baseline.duration.p95_ms === null ? "N/A" : `${Math.round(d.baseline.duration.p95_ms)}ms`}`,
     `  Entry to final gate: ${d.baseline.entry_to_final_gate.status === "available" ? `p50 ${Math.round(d.baseline.entry_to_final_gate.p50_ms)}ms / p95 ${Math.round(d.baseline.entry_to_final_gate.p95_ms)}ms (n=${d.baseline.entry_to_final_gate.sample_count})` : "N/A"}`,
     `  Avg tokens: ${d.total > 0 ? `${Math.round(d.avgTokens)}` : "N/A"}`,
+    `  Host-reported cost (USD): ${d.host_cost_usd === null ? "N/A" : d.host_cost_usd.toFixed(8)}`,
     `  Skill resolution rate: ${d.skillInjectionPctLabel} injected`,
     `  Validation ratio: ${d.validationRatio === null ? "n/a" : `${Math.round(d.validationRatio * 100)}%`}`,
     `  Errors: ${d.errorsCount} (${d.errorPctLabel})`,
@@ -868,6 +907,7 @@ export function renderDashboard(d) {
   lines.push(...(d.branchRows.length > 0 ? d.branchRows : ["  (none)"]))
   lines.push("", "=== Scheduler Joins ===", `  ${"Status".padEnd(10)} ${"Events".padStart(6)} ${"Expected".padStart(8)} ${"Completed".padStart(9)} ${"Failed".padStart(7)} ${"Running".padStart(8)} ${"Validation".padStart(10)}`)
   lines.push(...(d.joinRows.length > 0 ? d.joinRows : ["  (none)"]))
+  lines.push("", "=== Recovery ===", `  Attempts: ${d.recovery.attempts} (${d.recovery.succeeded} succeeded, ${d.recovery.blocked} blocked); avg ${d.recovery.avg_duration_ms === null ? "N/A" : `${Math.round(d.recovery.avg_duration_ms)}ms`}`)
   lines.push("", "=== Top Skills (by injection count) ===")
   if (d.skillRows.length > 0) {
     lines.push(...d.skillRows)

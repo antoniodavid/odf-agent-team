@@ -77,13 +77,14 @@ escalation.
 
 ### Plugin tools (`odf-delegation.ts`)
 
-29 tools injected at runtime into the orchestrator's tool list:
+30 tools injected at runtime into the orchestrator's tool list:
 
 | Tool | Purpose |
 |------|---------|
 | `odf_delegate` | Route phase + prompt to the right sub-agent with skill injection |
 | `odf_delegation_prepare` | Resolve agent/skills/profile/prompt and mint a bounded delegation token |
 | `odf_delegation_launch` | Digest-check and submit prepared prompts through the V2 session API |
+| `odf_delegation_late_seal_prepare` | Verify an expired native child and issue a bound, single-use late-seal capability |
 | `odf_proposal_write` | Persist the token-bound PROPOSE artifact to its canonical OpenSpec path |
 | `odf_delegation_seal` | Seal a native delegation: verify the child session, run the phase gates, return the standard envelope |
 | `odf_parallel_delegate` | Run a cross-domain BUILD as 2-3 parallel branches with one aggregate join |

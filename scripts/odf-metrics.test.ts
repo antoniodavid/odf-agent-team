@@ -88,6 +88,24 @@ describe("buildDashboard + render", () => {
     expect(out).toContain("Avg duration: 1s")
   })
 
+  it("reports host cost only when present and counts bounded recovery spans", () => {
+    const d = buildDashboard([
+      { event: "run", lifecycle: "finished", run_id: "run-1", agent: "backend", duration_ms: 20, token_estimate: 10, status: "ok", cost_usd: 0.25 },
+      { event: "span", span_kind: "task", lifecycle: "finished", schema_version: 1, trace_id: "trace-1", span_id: "span-rec1", parent_span_id: "span-run", task: "recovery:settle-attempt", status: "ok", duration_ms: 45 },
+      { event: "span", span_kind: "task", lifecycle: "finished", schema_version: 1, trace_id: "trace-1", span_id: "span-rec2", parent_span_id: "span-run", task: "recovery:late-seal-prepare", status: "blocked", duration_ms: 55 },
+    ], 1)
+
+    expect(d.host_cost_usd).toBe(0.25)
+    expect(d.telemetry_coverage.host_cost_usd).toMatchObject({ records: 1, available: 1, coverage: 1 })
+    expect(d.recovery).toMatchObject({ attempts: 2, succeeded: 1, blocked: 1, avg_duration_ms: 50 })
+    expect(d.recovery.by_action).toMatchObject({
+      "settle-attempt": { attempts: 1, succeeded: 1, blocked: 0 },
+      "late-seal-prepare": { attempts: 1, succeeded: 0, blocked: 1 },
+    })
+    expect(renderDashboard(d)).toContain("Host-reported cost (USD): 0.25000000")
+    expect(renderDashboard(d)).toContain("Attempts: 2 (1 succeeded, 1 blocked)")
+  })
+
   it("dashboard-no-data: zero lines give N/A percentages, no 100%, data_status no_data", () => {
     const d = buildDashboard([], 1)
     expect(d.total).toBe(0)

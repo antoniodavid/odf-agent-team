@@ -9,13 +9,13 @@ Run the quality gate: pre-commit, tests, OCA compliance, spec compliance matrix,
 ## Parse Arguments
 
 ```
-/odf-verify              — Verify the most recent active change
+/odf-verify              — Verify only when exactly one active change is discoverable
 /odf-verify sale-discount — Verify a specific change by name
 ```
 
 ## Orchestrator Instructions
 
-1. **Recover state** from the selected artifact store (OpenSpec `state.yaml`, Engram `odf/{change}/state`, or both in hybrid mode)
+1. **Recover state** from the selected artifact store (OpenSpec `state.yaml`, Engram `odf/{change}/state`, or both in hybrid mode). With no name, continue only when `odf_workflow_status` reports complete discovery with exactly one active candidate; ask the user to choose when multiple candidates match and stop when discovery is incomplete. Never choose by recency.
 2. **Verify IMPLEMENT has progress** — if no tasks completed, warn
 3. **Load all artifacts**: assess (for requirements), design (for decisions), implement-progress
 4. **Freeze the candidate diff**: record the base tree/reference and `original_changed_lines`; compute the correction budget (`min(200, ceil(original_changed_lines / 2))` lines)
