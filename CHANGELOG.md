@@ -1,5 +1,19 @@
 # Changelog — ODF Agent Team
 
+## 1.6.0 (2026-10-09)
+
+### Added
+- **Diagnostics and safe recovery**: bounded causal timelines, truthful canonical workflow status, fail-closed recovery guidance, and conversational exploration/continuation routing (#136).
+- **Opt-in online feedback**: `/odf-feedback` submits only an explicit 1–5 rating and aggregates with host-supplied usage after preview and confirmation; HTTPS endpoint, 1–30-day receiver-retention contract, and no prompts, free text, durable queue, or retries (#137).
+- Repeatable offline evaluation journeys for diagnostics, recovery, and conversational workflows (#136).
+
+### Changed
+- Expanded the plugin to 31 tools and the command set to 23; documented the online feedback privacy and retention boundary.
+
+### Verification boundary
+- CI on Node 22 passed for PR #137. Release-candidate validation passed 1,182 Vitest tests, 331 YAML scenarios, 18 harness checks, typecheck, and registry validation.
+- Online feedback is user-rated telemetry, not benchmark evidence. This release makes no efficacy claim and does not include an ODF-hosted collection service or npm publication.
+
 ## 1.5.1 (2026-10-03)
 
 ### Fixed
