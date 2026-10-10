@@ -253,7 +253,11 @@ describe("native prepare/seal delegation", () => {
       prompt: vi.fn().mockResolvedValue(undefined),
       get: vi.fn().mockImplementation(({ sessionID }: { sessionID: string }) => Promise.resolve(
         sessionID === "prepare-session"
-          ? { id: "prepare-session", location: { directory: tempHome } }
+          ? {
+            id: "prepare-session",
+            model: { providerID: "openai", id: "gpt-6-luna" },
+            location: { directory: tempHome },
+          }
           : {
             id: "ses_programmatic",
             agent: prepared.agent,
@@ -290,7 +294,12 @@ describe("native prepare/seal delegation", () => {
     } as any) as string)
 
     expect(output).toMatchObject({ status: "launched", task_api_source: "sdk.v2", sessions: [{ session_id: "ses_programmatic", status: "submitted" }] })
-    expect(session.create).toHaveBeenCalledWith(expect.objectContaining({ agent: prepared.agent, parentID: "prepare-session" }))
+    expect(session.get).toHaveBeenCalledWith({ sessionID: "prepare-session" })
+    expect(session.create).toHaveBeenCalledWith(expect.objectContaining({
+      agent: prepared.agent,
+      model: { providerID: "openai", id: "gpt-6-luna" },
+      parentID: "prepare-session",
+    }))
     expect(session.create).not.toHaveBeenCalledWith(expect.objectContaining({ location: expect.anything() }))
     expect(session.prompt).toHaveBeenCalledTimes(1)
     expect(session.prompt).toHaveBeenCalledWith({ sessionID: "ses_programmatic", text: prepared.delegation.prompt })

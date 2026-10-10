@@ -3331,20 +3331,24 @@ function createODFDelegationLaunch(canonicalDirectory?: string): ReturnType<type
           }
         }
 
-        const model = resolveTaskModel(toolCtx as unknown as Record<string, unknown>)
+        // The V2 tool context may omit its active model, so inherit the one
+        // selected by the preparing session when OpenCode exposes it.
+        let model = resolveTaskModel(toolCtx as unknown as Record<string, unknown>)
         let parentSessionDirectory: string | undefined
         const proofBackedLaunch = requests.some(request => request.attemptId)
         try {
           const parent = sessionResponseData(await session.get({ sessionID: toolCtx.sessionID }))
           if (parent && typeof parent === "object" && !Array.isArray(parent)) {
-            const location = (parent as Record<string, unknown>).location
+            const parentRecord = parent as Record<string, unknown>
+            model = resolveTaskModel({ model: parentRecord.model }) ?? model
+            const location = parentRecord.location
             if (location && typeof location === "object" && !Array.isArray(location)) {
               const directory = (location as Record<string, unknown>).directory
               if (typeof directory === "string" && directory.trim()) parentSessionDirectory = directory
             }
           }
         } catch {
-          // Proof-backed launches fail closed below if the parent location is unknown.
+          // Proof-backed launches fail closed below without a confirmed parent location.
         }
         if (proofBackedLaunch) {
           if (!parentSessionDirectory) {
