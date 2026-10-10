@@ -716,6 +716,15 @@ function errorType(error: unknown): string {
   return typeof name === "string" && /^[A-Za-z][A-Za-z0-9_.-]{0,63}$/.test(name) ? name : "Error"
 }
 
+function diagnosticErrorType(error: unknown): string | undefined {
+  if (!error || typeof error !== "object") return undefined
+  const value = error as Record<string, unknown>
+  for (const candidate of [value.type, value.name]) {
+    if (typeof candidate === "string" && /^[A-Za-z][A-Za-z0-9_.-]{0,63}$/.test(candidate)) return candidate
+  }
+  return undefined
+}
+
 function contextMessages(response: unknown): unknown[] | null {
   let value = response
   for (let depth = 0; depth < 4; depth += 1) {
@@ -735,14 +744,33 @@ function completeConversation(messages: unknown[]): V2ContextConversation | null
     : null
 }
 
-function contextFailureStatus(response: unknown): string {
+function contextFailureStatus(response: unknown): V2ConversationReadDiagnostic["context"] {
   const messages = contextMessages(response)
-  if (messages?.length === 0) return "empty-response"
-  if (!messages) return "invalid-response"
+  if (messages?.length === 0) return { status: "empty-response" }
+  if (!messages) return { status: "invalid-response" }
   const conversation = readV2ContextConversation(messages)
-  if (!conversation) return "assistant-message-missing"
-  if (conversation.userTexts.length === 0) return "prompt-missing"
-  return "conversation-incomplete"
+  if (conversation) {
+    return { status: conversation.userTexts.length === 0 ? "prompt-missing" : "conversation-incomplete" }
+  }
+
+  let terminalAssistant: { value: Record<string, unknown>; info: Record<string, unknown> } | null = null
+  for (const message of messages) {
+    if (!message || typeof message !== "object" || Array.isArray(message)) continue
+    const value = message as Record<string, unknown>
+    const info = value.info && typeof value.info === "object" && !Array.isArray(value.info)
+      ? value.info as Record<string, unknown>
+      : value
+    const role = typeof info.type === "string" ? info.type : typeof info.role === "string" ? info.role : null
+    if (role === "assistant") terminalAssistant = { value, info }
+  }
+  if (!terminalAssistant) return { status: "assistant-message-missing" }
+
+  const error = terminalAssistant.info.error || terminalAssistant.value.error
+  if (error) {
+    const errorType = diagnosticErrorType(error)
+    return { status: "assistant-error", ...(errorType ? { error_type: errorType } : {}) }
+  }
+  return { status: "assistant-text-missing" }
 }
 
 /**
@@ -761,7 +789,7 @@ export async function readV2SessionConversation(input: {
     return {
       conversation,
       diagnostic: {
-        context: { status: conversation ? "readable" : contextFailureStatus(response) },
+        context: conversation ? { status: "readable" } : contextFailureStatus(response),
       },
     }
   } catch (error) {

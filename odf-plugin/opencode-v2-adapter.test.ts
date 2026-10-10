@@ -7,6 +7,7 @@ import {
   findTaskApi,
   preparedPromptFromV2Conversation,
   readV2ContextConversation,
+  readV2SessionConversation,
 } from "./odf-delegation-health.js"
 import { ODF_ENTRY_HEALTH_REASON } from "./odf-delegation-loopguard.js"
 import {
@@ -177,6 +178,43 @@ describe("OpenCode V2 ODF adapter", () => {
       success,
       { type: "assistant", content: [] },
     ])).toBeNull()
+  })
+
+  it("reports terminal assistant errors without exposing their message text", async () => {
+    const result = await readV2SessionConversation({
+      session: v2Session([
+        { type: "user", text: "prepared prompt" },
+        {
+          type: "assistant",
+          error: { type: "provider.auth", message: "private provider response" },
+          content: [],
+        },
+      ]),
+      sessionID: "child-session",
+    } as any)
+
+    expect(result).toEqual({
+      conversation: null,
+      diagnostic: { context: { status: "assistant-error", error_type: "provider.auth" } },
+    })
+    expect(JSON.stringify(result)).not.toContain("private provider response")
+  })
+
+  it("distinguishes a missing assistant message from an empty assistant response", async () => {
+    const missing = await readV2SessionConversation({
+      session: v2Session([{ type: "user", text: "prepared prompt" }]),
+      sessionID: "child-session",
+    } as any)
+    const empty = await readV2SessionConversation({
+      session: v2Session([
+        { type: "user", text: "prepared prompt" },
+        { type: "assistant", content: [] },
+      ]),
+      sessionID: "child-session",
+    } as any)
+
+    expect(missing.diagnostic.context).toEqual({ status: "assistant-message-missing" })
+    expect(empty.diagnostic.context).toEqual({ status: "assistant-text-missing" })
   })
 
   it("uses JSON Schema and preserves V1 validation plus result output", async () => {
