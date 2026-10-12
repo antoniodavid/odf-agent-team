@@ -6,6 +6,19 @@ import {
   type WorkType,
 } from "./odf-workflow.js"
 import type { ParallelJoinArtifact } from "./odf-parallel-join.js"
+import {
+  ARTIFACT_GROUPS,
+  ARTIFACT_STORES,
+  ARTIFACT_TYPE_PRIORITY,
+  CANONICAL_ARTIFACT_TYPES,
+  LEGACY_ARTIFACT_PHASES,
+  PROGRESS_ARTIFACT_TYPES,
+  STAGE_ARTIFACT_REQUIREMENTS,
+  artifactTypeFromKey,
+  createCanonicalWorkflowHandoff,
+  type ArtifactStore,
+  type CanonicalWorkflowHandoff,
+} from "./odf-artifact-contract.js"
 import { isMap, parseDocument } from "yaml"
 
 export type CanonicalStage = RouteCanonicalStage | "ARCHIVED"
@@ -37,6 +50,7 @@ export interface WorkflowStatus {
   artifact_refs: Record<Exclude<CanonicalStage, "ARCHIVED">, string[]>
   progress: ProgressState; receipt: ReceiptStatus; state_present: boolean; state_kind: WorkflowStateKind
   recovery_work_type_required: boolean; resumable: boolean; work_type: WorkType | null
+  artifact_store: ArtifactStore | null; next_handoff: CanonicalWorkflowHandoff | null
   parallel_join?: ParallelJoinArtifact
   source: { state: "openspec" | "engram" | "inferred" | "none"; artifacts: string[] }; warnings: string[]
 }
@@ -47,23 +61,6 @@ const DEFAULT_LEGACY_PHASES: LegacyPhase[] = ["PROPOSE", "ASSESS", "QA-PLAN", "D
 const LEGACY_PHASES = new Set<LegacyPhase>([
   ...DEFAULT_LEGACY_PHASES, "EXPLORE", "FIX", "ARCHIVED",
 ])
-const ARTIFACT_GROUPS: Record<string, WorkflowStage> = {
-  decision: "DECIDE", propose: "DECIDE", assess: "DECIDE",
-  plan: "PLAN", design: "PLAN", "qa-plan": "PLAN",
-  build: "BUILD", "implement-progress": "BUILD", implement: "BUILD", "apply-progress": "BUILD", tasks: "BUILD",
-  verify: "VERIFY", "verify-report": "VERIFY",
-  explore: "EXPLORE", "explore-progress": "EXPLORE",
-  fix: "FIX", "fix-progress": "FIX",
-  archive: "ARCHIVED", "archive-report": "ARCHIVED", retrospective: "ARCHIVED",
-}
-const CANONICAL_TYPES: Record<ActiveCanonicalStage, Set<string>> = {
-  DECIDE: new Set(["decision"]),
-  PLAN: new Set(["plan"]),
-  BUILD: new Set(["build", "implement-progress"]),
-  VERIFY: new Set(["verify"]),
-  EXPLORE: new Set(["explore"]),
-  FIX: new Set(["fix"]),
-}
 const STAGE_LEGACY: Record<WorkflowStage, LegacyPhase | null> = {
   INIT: null, DECIDE: "ASSESS", PLAN: "DESIGN", BUILD: "IMPLEMENT", VERIFY: "VERIFY", EXPLORE: "EXPLORE", FIX: "FIX", ARCHIVED: "ARCHIVED",
 }
@@ -71,20 +68,11 @@ const LEGACY_STAGE: Record<LegacyPhase, CanonicalStage | null> = {
   PROPOSE: "DECIDE", ASSESS: "DECIDE", "QA-PLAN": "PLAN", DESIGN: "PLAN",
   IMPLEMENT: "BUILD", VERIFY: "VERIFY", EXPLORE: "EXPLORE", FIX: "FIX", ARCHIVED: "ARCHIVED",
 }
-const LEGACY_ARTIFACT_PHASES: Array<[LegacyPhase, Set<string>]> = [
-  ["VERIFY", new Set(["verify", "verify-report"])],
-  ["IMPLEMENT", new Set(["build", "implement-progress", "implement", "apply-progress", "tasks"])],
-  ["FIX", new Set(["fix", "fix-progress"])],
-  ["EXPLORE", new Set(["explore", "explore-progress"])],
-  ["DESIGN", new Set(["plan", "design"])],
-  ["QA-PLAN", new Set(["qa-plan"])],
-  ["ASSESS", new Set(["decision", "assess"])],
-  ["PROPOSE", new Set(["propose"])],
-]
-const TYPE_PRIORITY = new Map([
-  "decision", "plan", "build", "verify", "implement-progress", "propose", "assess", "design", "qa-plan",
-  "implement", "apply-progress", "tasks", "verify-report", "explore", "explore-progress", "fix", "fix-progress",
-].map((type, index) => [type, index]))
+const CANONICAL_TYPES = Object.fromEntries(
+  Object.entries(CANONICAL_ARTIFACT_TYPES).map(([stage, types]) => [stage, new Set(types)]),
+) as Record<ActiveCanonicalStage, Set<string>>
+const LEGACY_ARTIFACT_PHASE_SET = LEGACY_ARTIFACT_PHASES.map(([phase, types]) => [phase as LegacyPhase, new Set(types)] as const)
+const TYPE_PRIORITY = new Map(ARTIFACT_TYPE_PRIORITY.map((type, index) => [type, index]))
 const SUCCESS_STATUSES = new Set(["ok", "pass", "passed", "success", "successful", "verified", "complete", "completed", "archived"])
 const PENDING_STATUSES = new Set(["failed", "blocked", "pending", "timeout", "validation-failed"])
 const RECEIPT_ACTIONS = new Set(["scope-change", "re-plan", "abandon", "retry", "none"])
@@ -96,15 +84,6 @@ function asString(value: unknown): string | null { return typeof value === "stri
 function normalizeName(value: string): string {
   return value.trim().toLowerCase().replace(/_/g, "-")
 }
-function artifactType(key: string): string {
-  const raw = key.trim().split(/[\\/]/).filter(Boolean).pop() || ""
-  const type = normalizeName(raw.replace(/\.(json|ya?ml|md)$/i, ""))
-  if (type === "proposal") return "propose"
-  if (type === "spec") return "assess"
-  if (type === "assessment") return "assess"
-  if (type.startsWith("verify-report-")) return "verify-report"
-  return type
-}
 function isQaLens(key: string, type: string): boolean {
   const parts = key.trim().toLowerCase().split(/[\\/]/).filter(Boolean)
   const prefix = parts.at(-2) || ""
@@ -112,7 +91,7 @@ function isQaLens(key: string, type: string): boolean {
     (prefix === "qa" && ["review", "aggregate", "report"].includes(type))
 }
 export function normalizeArtifactKey(key: string): NormalizedArtifactKey {
-  const type = artifactType(key)
+  const type = artifactTypeFromKey(key)
   return { original: key, group: isQaLens(key, type) ? null : ARTIFACT_GROUPS[type] || null, type }
 }
 export function parseProgress(content?: string | null): ProgressState {
@@ -517,7 +496,7 @@ function sourceState(source: WorkflowStatusInput["source"], hasEvidence: boolean
   return value === "openspec" || value === "engram" || value === "inferred" || value === "none" ? value : hasEvidence ? "inferred" : "none"
 }
 function artifactLegacyPhase(artifacts: InternalArtifact[]): LegacyPhase | null {
-  for (const [phase, types] of LEGACY_ARTIFACT_PHASES) {
+  for (const [phase, types] of LEGACY_ARTIFACT_PHASE_SET) {
     if (artifacts.some((artifact) => (phase === "IMPLEMENT" ? artifact.normalized.group === "BUILD" : types.has(artifact.normalized.type)))) return phase
   }
   return null
@@ -538,22 +517,14 @@ function legacyCompletedStages(
 function canonicalCompletion(stage: ActiveCanonicalStage, artifacts: InternalArtifact[]): boolean {
   const candidates = orderedArtifacts(artifacts, stage)
   const canonical = candidates.filter((artifact) => CANONICAL_TYPES[stage].has(artifact.normalized.type))
-  const selected = canonical.length ? canonical : candidates
-  if (!canonical.length && stage === "DECIDE") {
-    const propose = selected.find((artifact) => artifact.normalized.type === "propose")
-    const assess = selected.find((artifact) => artifact.normalized.type === "assess")
-    return Boolean(propose && assess && isTerminal(propose) && isTerminal(assess))
-  }
-  if (!canonical.length && stage === "PLAN") {
-    const design = selected.find((artifact) => artifact.normalized.type === "design")
-    return Boolean(design && isTerminal(design))
-  }
-  if (!canonical.length && stage === "VERIFY") {
-    const report = selected.find((artifact) => artifact.normalized.type === "verify-report")
-    return Boolean(report && successful(report))
-  }
-  const primary = selected.find((artifact) => artifact.normalized.type !== "qa-plan")
-  return Boolean(primary && isTerminal(primary))
+  if (canonical.length) return isTerminal(canonical[0]!)
+  const preferredTypes = CANONICAL_TYPES[stage]
+  return STAGE_ARTIFACT_REQUIREMENTS[stage]
+    .filter((required) => !required.some((type) => preferredTypes.has(type)))
+    .some((required) => {
+      const selected = required.map((type) => candidates.find((artifact) => artifact.normalized.type === type))
+      return selected.every((artifact) => Boolean(artifact && isTerminal(artifact)))
+    })
 }
 export function deriveWorkflowStatus(input: WorkflowStatusInput): WorkflowStatus {
   const rawArtifacts = normalizeArtifacts(input.artifacts)
@@ -625,7 +596,7 @@ export function deriveWorkflowStatus(input: WorkflowStatusInput): WorkflowStatus
   const archived = signals.archived || (!explicitActiveStage && Boolean(archiveReport && successful(archiveReport)))
   if (archived) completed.push(...routeStages.filter((stage) => !completed.includes(stage)))
 
-  const progressArtifact = ["implement-progress", "apply-progress", "tasks"]
+  const progressArtifact = [...PROGRESS_ARTIFACT_TYPES]
     .map((type) => artifacts.find((artifact) => artifact.normalized.type === type)).find(Boolean)
   let progress: ProgressState = { completed: 0, total: 0, known: false, source: null }
   if (progressArtifact) {
@@ -659,6 +630,28 @@ export function deriveWorkflowStatus(input: WorkflowStatusInput): WorkflowStatus
     : null
   const bindingPending = parsedState.state?.binding_pending === true
   if (bindingPending) warnings.push("Workflow binding is pending: approved Expectations are not fully persisted. Re-run the bind with the exact approved Expectations.")
+  const resumable = (stateKind === "canonical" || stateKind === "legacy-artifacts") && !bindingPending && !archived && !signals.abandoned &&
+    receipt.state !== "pending" && (receipt.action === null || receipt.action === "retry") && pendingStage !== null
+  const stateStore = parsedState.state?.artifact_store
+  const artifactStore: ArtifactStore | null = ARTIFACT_STORES.includes(stateStore as ArtifactStore)
+    ? stateStore as ArtifactStore
+    : null
+  const nextHandoff = resumable && workType && artifactStore
+    ? createCanonicalWorkflowHandoff({
+      change: input.change,
+      work_type: workType,
+      artifact_store: artifactStore,
+      completed_stages: completed,
+      pending_stage: pendingStage,
+      artifact_refs: artifactRefs,
+      shared_artifact_refs: artifacts
+        .filter((artifact) => artifact.normalized.type === "expectations")
+        .map((artifact) => artifact.normalized.original),
+    })
+    : null
+  if (resumable && pendingStage && !nextHandoff) {
+    warnings.push(`Canonical handoff to ${pendingStage} is unavailable: the selected store or required previous-stage artifact references could not be validated.`)
+  }
   return {
     change: input.change,
     canonical_stage: stateKind === "none" || expectationsOnly ? "INIT" : canonicalStage,
@@ -671,9 +664,10 @@ export function deriveWorkflowStatus(input: WorkflowStatusInput): WorkflowStatus
     state_present: statePresent,
     state_kind: stateKind,
     recovery_work_type_required: (stateKind === "legacy-artifacts" || statePresent) && workType === null,
-    resumable: (stateKind === "canonical" || stateKind === "legacy-artifacts") && !bindingPending && !archived && !signals.abandoned &&
-      receipt.state !== "pending" && (receipt.action === null || receipt.action === "retry") && pendingStage !== null,
+    resumable,
     work_type: workType,
+    artifact_store: artifactStore,
+    next_handoff: nextHandoff,
     source: { state: source, artifacts: declaredArtifacts || Object.values(artifactRefs).flat() },
     warnings: Array.from(new Set(warnings)),
   }

@@ -64,7 +64,11 @@ as the LAST part of its response. The orchestrator uses it for phase decisions.
 ```
 
 These values are a valid example, not defaults: choose the actual phase status,
-strategy, version, artifact references, handoff, and skill-resolution value.
+strategy, version, artifact references, and skill-resolution value. The
+canonical stage handoff is produced separately by `odf_workflow_status` from
+persisted state and refs; agents must not synthesize or guess it from prose.
+Forward its `required_gates` unchanged; the handoff is routing context, never
+authorization to skip safety, receipt, Policy Gate, or validation-evidence seals.
 Every common field except `risks` is required; phase-specific fields are
 additive. The delegation prompt repeats this contract from the runtime schema.
 

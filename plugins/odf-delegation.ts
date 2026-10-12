@@ -8617,7 +8617,8 @@ function createODFWorkflowStatus(canonicalDirectory?: string): ReturnType<typeof
 
 Use this first for a current-state or continuation question. One call returns
 canonical stages, resumability, pending receipt/join information, and legacy
-compatibility fields. Reuse this result instead of separately probing files or
+compatibility fields, plus a typed next_handoff assembled from the selected
+state, persisted artifact refs, and mandatory gates. Reuse this result instead of separately probing files or
 calling status tools again. Explicitly named archived changes are resolved from
 their dated OpenSpec archive directory. When no change is named, bounded discovery
 returns one unambiguous active change, a read-only list when several match, or

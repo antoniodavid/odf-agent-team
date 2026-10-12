@@ -16,9 +16,9 @@ Legacy phases remain as compatible adapters. This is the single vocabulary table
 
 | Canonical stage | Legacy phases | Applies when | Phase artifacts |
 |-----------------|---------------|--------------|-----------------|
-| `DECIDE` | `PROPOSE` + `ASSESS` | routes that include DECIDE; terminal for standard config | `proposal`, `assess`, `expectations` when delegated |
-| `PLAN` | `QA-PLAN` + `DESIGN` | only when the resolved route or risk requires formal planning | `qa-plan`, `design` when routed |
-| `BUILD` | `IMPLEMENT` | the plan is closed | `implement-progress` |
+| `DECIDE` | `PROPOSE` + `ASSESS` | routes that include DECIDE; terminal for standard config | canonical `decision`, or legacy `propose` + `assess`; `expectations` when delegated |
+| `PLAN` | `QA-PLAN` + `DESIGN` | only when the resolved route or risk requires formal planning | canonical `plan`, or legacy `design`; `qa-plan` when routed |
+| `BUILD` | `IMPLEMENT` | the route's required plan is closed | canonical `build`/`implement-progress`, with documented legacy progress aliases |
 | `VERIFY` | `VERIFY` | verification is required | `verify-report` |
 | `FIX` | `FIX` | bugfix route (terminal FIX, then BUILD/VERIFY) | `fix` |
 | `EXPLORE` | `EXPLORE` | investigation | `explore` |
@@ -27,6 +27,14 @@ Rules: `state.yaml` (or `odf/{change}/state`) persists the canonical stage; lega
 names are adapter-facing (commands, prompts, agent names) and are normalized by
 `odf_workflow_status`. A legacy name in a result or prompt is an alias, never a
 separate stage — when both appear, the canonical stage wins.
+
+The executable artifact names, aliases, route completion alternatives, and
+OpenSpec discovery stems are centralized in `odf-plugin/odf-artifact-contract.ts`;
+the store values and their supported subsets live in `odf-plugin/odf-artifact-stores.js`.
+`odf_workflow_status` exposes a typed
+`next_handoff` built from that route, selected store, and persisted artifact
+references; the orchestrator forwards it unchanged instead of reconstructing
+the next phase's inputs from result prose.
 
 The user sees one route selected by `work_type`; triage level (`micro`,
 `standard`, `full`), canonical stages, and legacy phases are internal mappings,
@@ -86,21 +94,25 @@ gates are never removed by inline QA.
 
 ## Persistence Roles
 
-Three stores cooperate:
+The workflow selects one authoritative artifact store:
 
-- **OpenSpec** (`openspec/changes/{change}/`): authoritative, versioned state
-  (`state.yaml`) and canonical artifacts (`decision`, `plan`, `build`,
-  `verify-report-*`). Wins on conflicts.
-- **Engram**: semantic recovery/learning and legacy observations
-  (`odf/{change}/{artifact-type}`). Fills groups missing from OpenSpec;
-  conflicts are surfaced as warnings, never silently overwritten.
-- **`.odf/*.json`**: runtime seals — Policy Gate (`gate-{change}.json`),
+- **OpenSpec** (`openspec/changes/{change}/`): versioned workflow state
+  (`state.yaml`) and artifacts. It is authoritative when selected, and is the
+  canonical authority for Hybrid.
+- **Engram**: artifacts at deterministic `odf/{change}/{artifact-type}` refs.
+  It is authoritative for Engram-only changes and a recovery mirror for
+  Hybrid.
+- **Hybrid**: OpenSpec is authoritative; matching Engram state/artifacts are
+  mirrored on commits. A commit must not report success if either write fails.
+- **`.odf/*.json`**: runtime seals — Policy Gate (`policy-gate-{change}.json`),
   validation evidence (`validation-evidence-{change}.json`), and failure
   receipts (`receipt-{change}.json`).
 
-The status adapter (`odf_workflow_status`) reads all three read-only and
-merges conservatively. Legacy state/artifacts remain dual-read for
-migration; old changes are never rewritten automatically.
+The status adapter (`odf_workflow_status`) reads the bound authority and runtime
+sidecars read-only. Hybrid reads prefer OpenSpec and may recover missing state
+from its Engram mirror; legacy unbound changes retain a compatibility read
+path. Old changes are never rewritten automatically, and status never changes
+the bound store.
 
 ## Component Responsibilities
 
@@ -296,7 +308,12 @@ Regression runner. It:
 
 ## State Shape
 
-Runtime state for a change is stored in `openspec/changes/{change}/state.yaml`. OpenSpec is the authoritative state source; Engram keeps legacy observations and semantic recovery data. Canonical artifacts live in the same change folder (`decision`, `plan`, `build`, `verify-report-*`), and runtime seals live in `.odf/*.json`.
+Runtime state and phase artifacts live in the selected authoritative store:
+`openspec/changes/{change}/state.yaml` for OpenSpec, deterministic
+`odf/{change}/{artifact-type}` refs for Engram, or synchronized representations
+for Hybrid. Hybrid reads prefer OpenSpec and may recover missing state from the
+Engram mirror, but do not merge conflicting artifact content. Runtime seals
+remain in `.odf/*.json`.
 
 When `completed_canonical_stages` is present, it is the completion record used
 by workflow status. A stage omitted from the list stays pending even if a fresh
