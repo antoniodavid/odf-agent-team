@@ -3,15 +3,15 @@
 ## Selected Store
 
 Preflight selects `artifact_store: openspec | engram | hybrid`. Every phase MUST
-read and write artifacts through that selected store. `mem_*` is an Engram
-implementation detail, not a phase requirement, and phases MUST NOT silently
-fall back to another store.
+read and write change-scoped workflow state and phase artifacts through that
+selected store. `mem_*` is an Engram implementation detail, not a phase
+requirement. OpenSpec and Engram are never silently merged as equal authorities.
 
 | Store | Read/write branch |
 |---|---|
 | `openspec` | Use the OpenSpec change files, normally `openspec/changes/{change}/` (including `state.yaml`, proposal, specs, design, and tasks). |
 | `engram` | Use the Engram artifact identified by its deterministic topic/ref; `mem_save`, `mem_search`, and `mem_get_observation` are valid adapters for that store. |
-| `hybrid` | Keep the OpenSpec change files and the matching Engram artifact synchronized; neither side may be omitted or treated as an implicit fallback. |
+| `hybrid` | OpenSpec is canonical; mirror matching state/artifacts to Engram on commit. Both writes must succeed. Status prefers OpenSpec and may recover missing state from its Engram mirror, but does not merge conflicting artifact content. |
 
 The canonical reference for every persisted artifact is:
 
@@ -28,10 +28,12 @@ must fail closed without advancing.
 
 ## Artifact Classes
 
-The selected store applies equally to all ODF artifacts: immutable human
+The selected store applies to change-scoped artifacts such as immutable human
 `Expectations` (`EXP-XX`), proposals/specs/design/implementation/verification,
-the design library, learning/retrospectives, receipts, and `artifacts_saved`.
-Preserve their semantics and references when moving between stores.
+and `artifacts_saved`. Project context and learning retain their explicit
+Engram-canonical refs below. Policy Gate, validation evidence, and failure
+receipts remain runtime seals under `.odf/*.json`, independent of the artifact
+store. Preserve each class's semantics and canonical reference.
 
 ## Project-Level Context (Engram-canonical)
 

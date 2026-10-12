@@ -144,12 +144,18 @@ ODF can install and detect optional tools:
 
 ### Persistence
 
-Two backends:
+The preflight `artifact_store` selects the authoritative workflow state and
+phase-artifact store:
 
-- **Engram**: phase artifacts and status observations use `odf/{change}/{artifact-type}` topic keys.
-- **OpenSpec**: current state-machine helpers use `openspec/changes/{change}/` files for runtime state and team sharing.
+- **OpenSpec**: `openspec/changes/{change}/` state and artifact files.
+- **Engram**: deterministic `odf/{change}/{artifact-type}` state/artifact refs.
+- **Hybrid**: OpenSpec is canonical; matching Engram state/artifacts are
+  mirrored on commits, which must fail if either write fails. Status can recover
+  missing OpenSpec state from the mirror without merging conflicting content.
 
-Configurable via preflight `artifact_store` field (engram | openspec | hybrid).
+Runtime Policy Gate, validation evidence, and failure receipts remain in
+`.odf/*.json` regardless of the selected artifact store. Legacy dual-read is
+for migration only; old changes are not rewritten automatically.
 
 ### Preflight gate
 
