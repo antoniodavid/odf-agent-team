@@ -63,6 +63,18 @@ export function canonicalWorkspaceRoot(cwd = process.cwd()): string {
   return fsSync.realpathSync(resolveWorkspaceRoot(cwd))
 }
 
+export function sameCanonicalDirectory(first: string, second: string): boolean {
+  if (!first || !second) return false
+  const canonical = (directory: string): string => {
+    try {
+      return fsSync.realpathSync(directory)
+    } catch {
+      return path.resolve(directory)
+    }
+  }
+  return canonical(first) === canonical(second)
+}
+
 // Debug logging: silent by default; enable with ODF_DEBUG=1 to restore the
 // informational [odf-delegation] lines (warnings always print).
 export const ODF_DEBUG = process.env.ODF_DEBUG === "1" || process.env.ODF_DEBUG === "true"

@@ -35,6 +35,7 @@ import {
   ODF_REGISTERED_TOOLS,
   resolvePath,
   resolveWorkspaceRoot,
+  sameCanonicalDirectory,
   workspaceProjectName,
   type ODFAgent,
   type ODFCommunityTool,
@@ -3331,6 +3332,34 @@ function createODFDelegationLaunch(canonicalDirectory?: string): ReturnType<type
         }
 
         const model = resolveTaskModel(toolCtx as unknown as Record<string, unknown>)
+        let parentSessionDirectory: string | undefined
+        const proofBackedLaunch = requests.some(request => request.attemptId)
+        try {
+          const parent = sessionResponseData(await session.get({ sessionID: toolCtx.sessionID }))
+          if (parent && typeof parent === "object" && !Array.isArray(parent)) {
+            const location = (parent as Record<string, unknown>).location
+            if (location && typeof location === "object" && !Array.isArray(location)) {
+              const directory = (location as Record<string, unknown>).directory
+              if (typeof directory === "string" && directory.trim()) parentSessionDirectory = directory
+            }
+          }
+        } catch {
+          // Proof-backed launches fail closed below if the parent location is unknown.
+        }
+        if (proofBackedLaunch) {
+          if (!parentSessionDirectory) {
+            return blocked(
+              "delegation-parent-location-unavailable",
+              "The proof-backed child cannot be launched until OpenCode confirms the preparing session's location.",
+            )
+          }
+          if (!sameCanonicalDirectory(workspaceRoot, parentSessionDirectory)) {
+            return blocked(
+              "delegation-parent-location-mismatch",
+              "Proof-backed V2 children inherit the preparing session's directory; start the parent in the selected workspace before launching this attempt.",
+            )
+          }
+        }
         const launchOne = async (request: typeof requests[number]): Promise<Record<string, unknown>> => {
           let launch = request.launch
           if (!launch) {
@@ -3342,12 +3371,17 @@ function createODFDelegationLaunch(canonicalDirectory?: string): ReturnType<type
           if (!childId) {
             let created: unknown
             try {
-              created = await session.create({
+              // OpenCode's V2 host accepts parentID at runtime, but current plugin types omit it.
+              // parentID and location are exclusive; a linked child inherits its parent's location.
+              const createInput = {
                 agent: request.agent,
                 ...(model ? { model: { providerID: model.providerID, id: model.modelID } } : {}),
                 title: `ODF delegation: ${request.agent}`,
-                location: { directory: workspaceRoot },
-              })
+                ...(parentSessionDirectory && sameCanonicalDirectory(workspaceRoot, parentSessionDirectory)
+                  ? { parentID: toolCtx.sessionID }
+                  : { location: { directory: workspaceRoot } }),
+              }
+              created = await session.create(createInput)
               childId = sessionIdFromCreate(created) ?? undefined
             } catch (error) {
               return { branch_id: request.branchId ?? null, status: "blocked", reason: "delegation-launch-outcome-unknown", error_type: safeLaunchErrorType(error) }
