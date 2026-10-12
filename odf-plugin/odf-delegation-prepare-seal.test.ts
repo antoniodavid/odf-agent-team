@@ -251,12 +251,16 @@ describe("native prepare/seal delegation", () => {
     const session = {
       create: vi.fn().mockResolvedValue({ id: "ses_programmatic", agent: prepared.agent }),
       prompt: vi.fn().mockResolvedValue(undefined),
-      get: vi.fn().mockResolvedValue({
-        id: "ses_programmatic",
-        agent: prepared.agent,
-        parentID: "prepare-session",
-        location: { directory: tempHome },
-      }),
+      get: vi.fn().mockImplementation(({ sessionID }: { sessionID: string }) => Promise.resolve(
+        sessionID === "prepare-session"
+          ? { id: "prepare-session", location: { directory: tempHome } }
+          : {
+            id: "ses_programmatic",
+            agent: prepared.agent,
+            parentID: "prepare-session",
+            location: { directory: tempHome },
+          },
+      )),
       wait: vi.fn().mockResolvedValue(undefined),
       context: vi.fn().mockResolvedValue([
         { type: "user", text: prepared.delegation.prompt },
@@ -280,12 +284,14 @@ describe("native prepare/seal delegation", () => {
       prompt: prepared.delegation.prompt,
     }, {
       sessionID: "prepare-session",
+      directory: path.join(tempHome, "plugin-instance"),
       abort: new AbortController().signal,
       [ODF_V2_SESSION]: session,
     } as any) as string)
 
     expect(output).toMatchObject({ status: "launched", task_api_source: "sdk.v2", sessions: [{ session_id: "ses_programmatic", status: "submitted" }] })
-    expect(session.create).toHaveBeenCalledWith(expect.objectContaining({ agent: prepared.agent, location: { directory: tempHome } }))
+    expect(session.create).toHaveBeenCalledWith(expect.objectContaining({ agent: prepared.agent, parentID: "prepare-session" }))
+    expect(session.create).not.toHaveBeenCalledWith(expect.objectContaining({ location: expect.anything() }))
     expect(session.prompt).toHaveBeenCalledTimes(1)
     expect(session.prompt).toHaveBeenCalledWith({ sessionID: "ses_programmatic", text: prepared.delegation.prompt })
     expect(readDelegationToken(tempHome, prepared.change, prepared.token).record?.launch).toMatchObject({
@@ -311,6 +317,48 @@ describe("native prepare/seal delegation", () => {
       prompt_verified_at: expect.any(String),
       sealed_at: expect.any(String),
     })
+  })
+
+  it.each([
+    { scenario: "unavailable", location: undefined, reason: "delegation-parent-location-unavailable" },
+    { scenario: "different", location: { directory: "temp-home" }, reason: "delegation-parent-location-mismatch" },
+  ])("blocks proof-backed launch when the parent location is $scenario", async ({ scenario, location, reason }) => {
+    const change = `native-parent-location-${scenario}`
+    const workspace = path.join(tempHome, "selected-workspace")
+    await fs.mkdir(workspace, { recursive: true })
+    await writeImplementState(workspace, change)
+    const { odf_delegation_prepare, odf_delegation_launch } = await tools(workspace)
+    const prepared = JSON.parse(await odf_delegation_prepare.execute({
+      phase: "IMPLEMENT",
+      change,
+      prompt: "Implement the planned change",
+      context_files: [],
+      artifact_store: "openspec",
+      attempt_id: "native-parent-location-attempt",
+      workflow_advance: implementProof(),
+    }, { sessionID: "parent-session" } as any) as string)
+    const session = {
+      get: vi.fn().mockResolvedValue({ id: "parent-session", ...(location ? { location } : {}) }),
+      create: vi.fn(),
+      prompt: vi.fn(),
+      interrupt: vi.fn(),
+    }
+
+    const output = JSON.parse(await odf_delegation_launch.execute({
+      token: prepared.token,
+      change,
+      prompt: prepared.delegation.prompt,
+      workspace_dir: workspace,
+    }, {
+      sessionID: "parent-session",
+      directory: workspace,
+      abort: new AbortController().signal,
+      [ODF_V2_SESSION]: session,
+    } as any) as string)
+
+    expect(output).toMatchObject({ status: "blocked", reason })
+    expect(session.create).not.toHaveBeenCalled()
+    expect(session.prompt).not.toHaveBeenCalled()
   })
 
   it("rejects byte-different prompts before creating a child and does not leak prompt text", async () => {
@@ -1537,6 +1585,7 @@ describe("native prepare/seal delegation", () => {
     let createIndex = 0
     const launchSession = {
       create: vi.fn().mockImplementation(() => Promise.resolve({ id: `ses_${prepared.branches[createIndex++].branch_id}` })),
+      get: vi.fn().mockResolvedValue({ id: "prepare-session", location: { directory: root } }),
       prompt: vi.fn().mockResolvedValue(undefined),
       interrupt: vi.fn().mockResolvedValue(undefined),
     }
@@ -1558,7 +1607,7 @@ describe("native prepare/seal delegation", () => {
       token: prepared.token,
       change,
       branches: prepared.branches.map((branch: any) => ({ branch_id: branch.branch_id, prompt: branch.prompt })),
-    }, { sessionID: "prepare-session", abort: new AbortController().signal, [ODF_V2_SESSION]: launchSession } as any) as string)
+    }, { sessionID: "prepare-session", directory: root, abort: new AbortController().signal, [ODF_V2_SESSION]: launchSession } as any) as string)
     expect(launched.status).toBe("launched")
     expect(launched.sessions.map(({ branch_id, session_id, status }: Record<string, unknown>) => ({ branch_id, session_id, status }))).toEqual([
       { branch_id: "backend-native", session_id: "ses_backend-native", status: "submitted" },
