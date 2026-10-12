@@ -428,6 +428,7 @@ describe("workflow status adapter", () => {
   it("does not warn about valid nested block lists in route state", () => {
     const state = [
       "work_type: small-change",
+      "artifact_store: openspec",
       "route:",
       "  stages:",
       "    - DECIDE",
@@ -447,6 +448,7 @@ describe("workflow status adapter", () => {
     expect(parsed.warnings).toEqual([])
     expect(parsed.state).toMatchObject({
       work_type: "small-change",
+      artifact_store: "openspec",
       route: {
         stages: ["DECIDE", "BUILD", "VERIFY"],
         legacy_phases: ["PROPOSE", "ASSESS", "IMPLEMENT", "VERIFY"],
@@ -455,13 +457,28 @@ describe("workflow status adapter", () => {
       completed_canonical_stages: ["DECIDE"],
     })
 
-    expect(deriveWorkflowStatus({ change: "nested-route-lists", state })).toMatchObject({
+    expect(deriveWorkflowStatus({
+      change: "nested-route-lists",
+      state,
+      artifacts: { "decision.md": { status: "success" } },
+    })).toMatchObject({
       work_type: "small-change",
       canonical_stage: "DECIDE",
       completed_canonical_stages: ["DECIDE"],
       pending_stage: "BUILD",
       warnings: [],
     })
+  })
+
+  it("retains the selected artifact store in scalar fallback state parsing", () => {
+    const parsed = parseWorkflowState([
+      "work_type: small-change",
+      "artifact_store: openspec",
+      "unsupported: {malformed",
+    ].join("\n"))
+
+    expect(parsed.state).toMatchObject({ work_type: "small-change", artifact_store: "openspec" })
+    expect(parsed.warnings).toContain("Complex YAML state value ignored: unsupported")
   })
 
   it("warns about orphan block list items without a list key", () => {

@@ -141,7 +141,7 @@ export function deriveReceiptState(receipt?: WorkflowReceipt | null): ReceiptSta
 }
 const STATE_SCALAR_KEYS = new Set([
   "canonical_stage", "canonicalStage", "current_stage", "currentStage", "stage", "phase", "status", "archived", "abandoned",
-  "work_type",
+  "work_type", "artifact_store",
   "decide_completed", "decision_completed", "decide_done", "decision_done", "plan_completed", "plan_done",
   "build_completed", "build_done", "implement_completed", "implement_done", "implement_progress", "verify_completed", "verify_done",
   "explore_completed", "explore_done", "fix_completed", "fix_done",
