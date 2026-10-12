@@ -14,8 +14,10 @@ import { deriveWorkflowStatus } from "./odf-workflow-status.js"
 function workflow(change: string, warnings: string[] = [], receipt?: Record<string, unknown>) {
   return deriveWorkflowStatus({
     change,
-    state: "canonical_stage: BUILD\nwork_type: feature\n",
+    state: "canonical_stage: BUILD\nwork_type: feature\nartifact_store: openspec\n",
+    artifacts: { "plan.md": { status: "success" } },
     receipt,
+    source: { state: "openspec", artifacts: ["state.yaml", "plan.md"] },
     warnings,
   })
 }

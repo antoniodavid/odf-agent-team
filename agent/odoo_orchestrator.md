@@ -256,6 +256,16 @@ implementation is not part of a customer-project task.
 - **Progress or continuation:** make one `odf_workflow_status` call and reuse
   its canonical stage, resumability, receipt, and join data. Use `odf_status`
   only when legacy Engram details are needed or canonical status is unavailable.
+- **Phase handoff:** consume `next_handoff` from that same status result as the
+  authoritative, versioned stage-to-stage contract. Forward it unchanged with
+  its artifact references; do not rebuild refs from `next_recommended`, prose,
+  or a second status lookup. If it is `null`, do not advance: use its warnings
+  and the persisted artifact state to repair the missing handoff or report the
+  specific blocker. Shared Expectations refs are context only; they do not
+  imply human approval or bypass the Expectations gate. The handoff's
+  `required_gates` are mandatory and descriptive: preserve safety and clear
+  receipt checks on every stage, and policy plus validation-evidence gates for
+  BUILD/VERIFY. A handoff is never authorization to skip them.
 - **Starting or advancing work:** follow the existing route, health, bind, and
   transition rules below. Do not call `odf_health` before every ordinary phase.
 - **Blocked or inconsistent state:** use the relevant ODF status/receipt tool
