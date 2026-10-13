@@ -17,6 +17,7 @@ plugin does not invent or rewrite the inner result; the orchestrator reads both.
   "profile": null,
   "policy_gate": null,
   "validation": null,
+  "stop_disposition": null,
   "receipt": null,
   "task_api_source": "toolCtx.task",
   "result": {}
@@ -29,6 +30,7 @@ plugin does not invent or rewrite the inner result; the orchestrator reads both.
 | `policy_gate` | Authoritative gate decision for IMPLEMENT/VERIFY, or `null` |
 | `validation` | Plugin seal for IMPLEMENT evidence: `verified`, `missing`, or `invalid`, or `null` |
 | `workflow_commit.status` | `batch-verified` means this IMPLEMENT batch passed validation but BUILD remains pending; continue with the next bounded batch. It is not a completed-stage commit. |
+| `stop_disposition` | Structured classification for a blocked/failed result; advisory recovery never overrides safety, receipt, policy, or validation gates |
 | `receipt` | Optional receipt or receipt reference; failure persistence may also be on disk |
 | `result` | Raw return value from `task()`; the plugin does not synthesize its inner fields |
 | `task_session_id` | Child session id when the plugin created one (OpenCode V2 bridge); absent with the host native task API |
@@ -83,6 +85,7 @@ additive. The delegation prompt repeats this contract from the runtime schema.
 | `odoo_version` | YES | Target Odoo version |
 | `modules_affected` | YES | Affected technical module names |
 | `skill_resolution` | YES | Whether compact rules were `injected`, `self-discovered`, or `none` |
+| `stop_disposition` | For blocked/failed | `kind`, `user_action_required`, `automatic_recovery`, `reason`, and `next_action`; unknown stops must be unclassified and require user disposition |
 | `phase` | Phase agents | The phase executed (`DESIGN`, `IMPLEMENT`, `ASSESS`, ...) when the agent serves multiple phases |
 | `validation_evidence` | NO (IMPLEMENT) | Path to `.odf/validation-evidence-{change}.json` plus command/exit-code summary. The plugin validates the artifact; prose never counts. |
 | `receipt` | NO (FAIL/blocked) | Reference to `.odf/receipt-{change}.json`; `action: null` means pending disposition. |
@@ -138,8 +141,8 @@ receipt whose `action` is still `null` before resuming.
 |---|---|
 | `ok` | Show summary and continue to the next gate |
 | `warning` | Show summary and warnings, then continue to the next gate |
-| `blocked` | Pause and ask the user for clarification or disposition |
-| `failed` | Stop, report the error, and suggest recovery |
+| `blocked` | Follow `stop_disposition`; perform at most one explicitly allowed in-scope repair/retry, otherwise pause for the named dependency or user disposition |
+| `failed` | Follow `stop_disposition`; never infer a retry from prose or unknown reasons |
 
 The outer status answers "did delegation run?"; the inner status answers "what
 did the phase produce?". A successful outer `delegated` status is not proof of

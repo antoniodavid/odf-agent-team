@@ -68,12 +68,12 @@ user disposition.
 | Mode | Behavior |
 |---|---|
 | `interactive` | Run the required question rounds and pause after every phase and IMPLEMENT batch for approval. |
-| `batch` | Skip voluntary question/approval rounds and auto-continue only for inner `ok` or `warning`; stop for `blocked`, `failed`, correction, or product/user disposition. |
-| `auto` | Piloto automático: behaves like `batch` (no voluntary approval pauses) plus full auto-continuation. After each phase, launch the next immediately when the inner result is `ok` or `warning`, no receipt is pending, no correction/disposition is pending, validation evidence is verified (IMPLEMENT/VERIFY), and no product/scope decision is required. NEVER skips the mandatory safety gates. |
+| `batch` | Skip voluntary question/approval rounds and auto-continue for inner `ok` or `warning`. For `blocked`/`failed`, follow `stop_disposition`; allow only its explicit bounded repair/retry when no receipt or safety gate blocks it. |
+| `auto` | Piloto automático: no voluntary approval pauses. Continue after `ok`/`warning` when no receipt is pending, validation evidence is verified (IMPLEMENT/VERIFY), and no product/scope decision is required. A stop may use only the single bounded recovery explicitly allowed by `stop_disposition`; NEVER skip mandatory safety gates. |
 
 - In `interactive`, prefer `question` with one approval envelope: phase, summary, and the ordered choices `approve` -> next phase, `adjust` -> revise/re-run the current phase, `cancel` -> stop.
-- In `batch`, do not ask voluntary approval questions; continue only for inner `ok` or `warning`.
-- In `auto`, continue automatically under the same conditions as `batch` plus: no pending receipt with `action: null`, no pending correction/disposition, validation evidence verified (IMPLEMENT/VERIFY), and no product/scope decision required. The only stops are: `odf_health`/preflight missing or failed; human Expectations not yet approved (the ONE confirmation at entry — reuse existing approved Expectations when byte-equivalent, otherwise collect+confirm once); inner `blocked`/`failed`; pending receipt with `action: null`; Policy Gate block; missing/invalid validation evidence; candidate digest mismatch; a failed single correction attempt; blocked parallel join; or any explicit product/scope/user disposition.
+- In `batch`, do not ask voluntary approval questions; continue for inner `ok` or `warning`. For `blocked`/`failed`, use `stop_disposition`: perform at most one `repair-in-phase` in the same approved scope, or one `retry-once` only when the original child is confirmed idle and no side effect or receipt is pending. A `wait`, `none`, user-action-required, or unclassified disposition stops for the named dependency or user disposition.
+- In `auto`, apply the same bounded stop handling as `batch`; after recovery, re-check every normal gate before continuing. There is no retry for a pending receipt, Policy Gate/safety block, missing or invalid validation evidence, candidate digest mismatch, unresolved product/scope decision, or blocked parallel join. Expectations are approved once at entry (reuse byte-equivalent approved Expectations; otherwise collect and confirm once).
 - If `question` is unavailable, print the identical phase, summary, option labels, values, and order as plain text, then wait; never choose silently. This fallback is identical in all modes whenever input is required.
 - PROPOSE runs its interactive grilling (frontier rounds) in `interactive`; `batch` and `auto` skip that voluntary round. Any required product/user disposition still stops every mode.
 
@@ -652,11 +652,15 @@ reads both layers.
 | Layer | Status | Important fields |
 |---|---|---|
 | Plugin outer envelope | `delegated`, `blocked`, `error`, `timeout` | `policy_gate`, `validation`, `receipt`, `result`, phase/agent/profile metadata |
-| Agent inner `## ODF Result` | `ok`, `warning`, `blocked`, `failed` | `executive_summary`, `strategy`, `artifacts_saved`, `next_recommended`, `risks`, `odoo_version`, `modules_affected` |
+| Agent inner `## ODF Result` | `ok`, `warning`, `blocked`, `failed` | `executive_summary`, `strategy`, `artifacts_saved`, `next_recommended`, `risks`, `odoo_version`, `modules_affected`, `stop_disposition` for stops |
 
-Interpret inner `ok`/`warning` as eligible for the next gate, `blocked` as a
-user question, and `failed` as a reported error. The outer seals are
-authoritative for policy, validation, and failure persistence.
+Interpret inner `ok`/`warning` as eligible for the next gate. For `blocked` or
+`failed`, use `stop_disposition` (`kind`, `user_action_required`,
+`automatic_recovery`, `reason`, `next_action`) to distinguish a bounded repair
+from a human decision. Missing or unknown classification is fail-closed; never
+infer an automatic retry. The outer seals remain authoritative for policy,
+validation, receipts, and failure persistence, so a disposition cannot override
+them.
 
 ## Parallelization
 
