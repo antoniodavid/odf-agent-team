@@ -484,12 +484,25 @@ export function delegationTokenPath(workspace: string, change: string, token: st
   return isWithinRoot(filePath, root) ? filePath : null
 }
 
+function hasSafeOdfDirectory(root: string): boolean {
+  const directory = path.join(root, ".odf")
+  if (!isWithinRoot(directory, root)) return false
+  try {
+    const stat = fsSync.lstatSync(directory)
+    if (!stat.isDirectory() || stat.isSymbolicLink()) return false
+    const realDirectory = fsSync.realpathSync(directory)
+    return isWithinRoot(realDirectory, root) && realDirectory === directory
+  } catch {
+    return false
+  }
+}
+
 function ensureOdfDirectory(root: string): string | null {
   const directory = path.join(root, ".odf")
   if (!isWithinRoot(directory, root)) return null
   try {
     fsSync.mkdirSync(directory, { recursive: true })
-    return directory
+    return hasSafeOdfDirectory(root) ? directory : null
   } catch {
     return null
   }
@@ -526,9 +539,19 @@ export function writeDelegationToken(workspace: string, record: DelegationTokenR
 export function readDelegationToken(workspace: string, change: string, token: string): DelegationTokenReadResult {
   const filePath = delegationTokenPath(workspace, change, token)
   if (!filePath) return { record: null, error: "delegation-token-invalid" }
+  const root = canonicalWorkspace(workspace)
+  if (!root) return { record: null, error: "delegation-token-invalid" }
+  try {
+    fsSync.lstatSync(path.join(root, ".odf"))
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return { record: null, error: "delegation-token-unknown" }
+    return { record: null, error: "delegation-token-read-failed" }
+  }
+  if (!hasSafeOdfDirectory(root)) return { record: null, error: "delegation-token-unsafe-path" }
   let raw: string
   try {
-    const stat = fsSync.statSync(filePath)
+    const stat = fsSync.lstatSync(filePath)
+    if (stat.isSymbolicLink()) return { record: null, error: "delegation-token-unsafe-path" }
     if (!stat.isFile() || stat.size > MAX_TOKEN_FILE_BYTES) return { record: null, error: "delegation-token-malformed" }
     raw = fsSync.readFileSync(filePath, "utf8")
   } catch (error) {
@@ -752,8 +775,10 @@ export function markDelegationTokenSealed(
 /** Remove a consumed token file. Best-effort: a missing file is success. */
 export function deleteDelegationToken(workspace: string, change: string, token: string): void {
   const filePath = delegationTokenPath(workspace, change, token)
-  if (!filePath) return
+  const root = canonicalWorkspace(workspace)
+  if (!filePath || !root || !hasSafeOdfDirectory(root)) return
   try {
+    if (fsSync.lstatSync(filePath).isSymbolicLink()) return
     fsSync.unlinkSync(filePath)
   } catch {
     // Best-effort cleanup.
