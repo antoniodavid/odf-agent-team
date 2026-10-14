@@ -15,6 +15,7 @@ import * as path from "node:path"
 import * as nodeCrypto from "node:crypto"
 import { CHANGE_NAME_PATTERN, canonicalWorkspaceRoot, isWithinRoot } from "./odf-delegation-shared.js"
 import type { ObservedSessionStatus } from "./odf-session-status.js"
+import { ARTIFACT_STORES, type ArtifactStore } from "./odf-artifact-contract.js"
 
 export const DELEGATION_TOKEN_SCHEMA_VERSION = 1 as const
 export const DELEGATION_TOKEN_TTL_MS = 2 * 60 * 60 * 1000
@@ -34,7 +35,7 @@ const PROMPT_DIGEST_PATTERN = /^[a-f0-9]{64}$/
 export const DELEGATION_PHASES = ["PROPOSE", "ASSESS", "QA-PLAN", "DESIGN", "IMPLEMENT", "VERIFY", "EXPLORE", "FIX"] as const
 export type DelegationPhase = (typeof DELEGATION_PHASES)[number]
 export type DelegationTokenStatus = "prepared" | "sealed"
-export type DelegationArtifactStore = "openspec" | "engram" | "hybrid"
+export type DelegationArtifactStore = ArtifactStore
 
 export interface DelegationTokenBranchInput {
   branch_id: string
@@ -312,7 +313,7 @@ export function createDelegationTokenRecord(input: DelegationTokenInput): Delega
   if (!policyGate.ok) return null
   const acknowledgment = safeJsonObject(input.governance_acknowledgment, MAX_ACK_CHARS)
   if (!acknowledgment.ok) return null
-  if (input.artifact_store !== undefined && !["openspec", "engram", "hybrid"].includes(input.artifact_store)) return null
+  if (input.artifact_store !== undefined && !ARTIFACT_STORES.includes(input.artifact_store)) return null
   if (input.attempt_id !== undefined && !safeLabel(input.attempt_id)) return null
   if (input.branch_id !== undefined && !safeLabel(input.branch_id)) return null
   const contextFiles = Array.isArray(input.context_files)
@@ -423,7 +424,7 @@ function isDelegationTokenRecord(value: unknown): value is DelegationTokenRecord
     typeof record.change === "string" && CHANGE_NAME_PATTERN.test(record.change) &&
     typeof record.phase === "string" && (DELEGATION_PHASES as readonly string[]).includes(record.phase) &&
     safeLabel(record.agent) !== null &&
-    (record.artifact_store === undefined || ["openspec", "engram", "hybrid"].includes(record.artifact_store as string)) &&
+    (record.artifact_store === undefined || typeof record.artifact_store === "string" && ARTIFACT_STORES.includes(record.artifact_store as ArtifactStore)) &&
     typeof record.workspace === "string" && record.workspace.length > 0 &&
     typeof record.prompt_digest === "string" && PROMPT_DIGEST_PATTERN.test(record.prompt_digest) &&
     promptByteLengthValid && launchModeValid && parentSessionValid && launchValid && sealedResultValid && sealedSessionValid &&

@@ -140,7 +140,12 @@ import {
   readLateSealCapability,
   type LateSealCapabilityBinding,
 } from "../odf-plugin/odf-late-seal-capability.js"
-import { ODF_RESULT_CONTRACT_PROMPT } from "../odf-plugin/odf-result-contract.js"
+import {
+  ODF_RESULT_CONTRACT_PROMPT,
+  classifyODFStop,
+  resultStopDisposition,
+  type ODFStopDisposition,
+} from "../odf-plugin/odf-result-contract.js"
 import {
   proposalContentDigest,
   verifyOpenSpecProposal,
@@ -368,6 +373,7 @@ function innerPhaseResultStatus(result: unknown): WorkflowPhaseResultStatus | nu
 interface InnerResultDisposition {
   resultStatus: WorkflowPhaseResultStatus | null
   metricStatus: DelegationMetrics["status"]
+  stopDisposition: ODFStopDisposition | null
   accepted: boolean
   failureReceiptStatus: ODFReceipt["status"]
   failureReason: "task-error" | null
@@ -381,6 +387,7 @@ function innerResultDisposition(result: unknown): InnerResultDisposition {
     return {
       resultStatus,
       metricStatus: "ok",
+      stopDisposition: null,
       accepted: true,
       failureReceiptStatus: "failed",
       failureReason: null,
@@ -393,6 +400,7 @@ function innerResultDisposition(result: unknown): InnerResultDisposition {
     return {
       resultStatus,
       metricStatus: "blocked",
+      stopDisposition: resultStopDisposition(result),
       accepted: false,
       failureReceiptStatus: "blocked",
       failureReason: "task-error",
@@ -404,6 +412,7 @@ function innerResultDisposition(result: unknown): InnerResultDisposition {
   return {
     resultStatus,
     metricStatus: "error",
+    stopDisposition: resultStopDisposition(result) || classifyODFStop("invalid-task-result"),
     accepted: false,
     failureReceiptStatus: "failed",
     failureReason: "task-error",
@@ -1823,6 +1832,7 @@ Use this instead of generic task() for ODF workflow delegation.`,
         return JSON.stringify({
           status: "blocked",
           reason,
+          stop_disposition: classifyODFStop(reason),
           phase: args.phase,
           agent: null,
           skills_injected: [],
@@ -1938,6 +1948,8 @@ Use this instead of generic task() for ODF workflow delegation.`,
           })
           return JSON.stringify({
             status: "error",
+            reason: "change-name-required",
+            stop_disposition: classifyODFStop("change-name-required"),
             phase: args.phase,
             agent: null,
             skills_injected: [],
@@ -1979,6 +1991,8 @@ Use this instead of generic task() for ODF workflow delegation.`,
         })
         return JSON.stringify({
           status: "error",
+          reason: "change-name-required",
+          stop_disposition: classifyODFStop("change-name-required"),
           phase: args.phase,
           agent: null,
           skills_injected: [],
@@ -2411,9 +2425,16 @@ Use this instead of generic task() for ODF workflow delegation.`,
               warnings: phaseWarnings.length ? phaseWarnings : undefined,
               error: reason,
             })
+            const classifiedStop = classifyODFStop(reason)
+            const stopDisposition = reason.startsWith("inner-result-status-")
+              ? disposition?.stopDisposition || classifiedStop
+              : classifiedStop.user_action_required
+                ? classifiedStop
+                : disposition?.stopDisposition || classifiedStop
             return JSON.stringify({
               status: "blocked",
               reason,
+              stop_disposition: stopDisposition,
               phase: args.phase,
               agent: agentName,
               skills_injected: skills.map(s => s.name),
@@ -2517,6 +2538,7 @@ Use this instead of generic task() for ODF workflow delegation.`,
               return JSON.stringify({
                 status: "error",
                 reason: "attempt-settlement-failed",
+                stop_disposition: classifyODFStop("attempt-settlement-failed"),
                 phase: args.phase,
                 agent: agentName,
                 policy_gate: policyGate,
@@ -2546,6 +2568,7 @@ Use this instead of generic task() for ODF workflow delegation.`,
              validation,
              task_api_source: taskApiInfo.source,
               result: resultForOutput,
+              ...(innerDisposition.stopDisposition ? { stop_disposition: innerDisposition.stopDisposition } : {}),
               ...(taskSessionId ? { task_session_id: taskSessionId } : {}),
                ...(workflowResult ? { workflow_advance: workflowResult } : {}),
                ...(workflowMaterialization ? { workflow_materialization: workflowMaterialization } : {}),
@@ -2612,6 +2635,7 @@ Use this instead of generic task() for ODF workflow delegation.`,
           return JSON.stringify({
             status: isTimeout ? "timeout" : isCancelled || isEmpty ? "blocked" : "error",
             reason,
+            stop_disposition: classifyODFStop(isTimeout ? "task-timeout" : reason || "task-error"),
             phase: args.phase,
             agent: agentName,
             skills_injected: skills.map(s => s.name),
@@ -2638,6 +2662,7 @@ Use this instead of generic task() for ODF workflow delegation.`,
       return JSON.stringify({
         status: "blocked",
         reason: "task-api-unavailable",
+        stop_disposition: classifyODFStop("task-api-unavailable"),
         phase: args.phase,
         agent: agentName,
         skills_injected: skills.map(s => s.name),
@@ -3000,6 +3025,7 @@ async function sealProofBackedDelegation(opts: {
   const blocked = (reason: string, message: string, extra: Record<string, unknown> = {}): string => JSON.stringify({
     status: "blocked",
     reason,
+    stop_disposition: classifyODFStop(reason),
     phase: opts.record.phase,
     agent: opts.record.agent,
     token: opts.record.token,
@@ -3266,7 +3292,7 @@ function createODFDelegationLaunch(canonicalDirectory?: string): ReturnType<type
       workspace_dir?: string
     }, toolCtx: ToolContext): Promise<string> {
       const blocked = (reason: string, message: string, extra: Record<string, unknown> = {}): string => JSON.stringify({
-        status: "blocked", reason, token: args.token, task_api_source: "sdk.v2", message, ...extra,
+        status: "blocked", reason, stop_disposition: classifyODFStop(reason), token: args.token, task_api_source: "sdk.v2", message, ...extra,
       }, null, 2)
       if (!toolCtx?.sessionID) return blocked("delegation-launch-parent-required", "Launch requires the preparing parent session.")
       const workspaceRoot = resolveSelectedWorkspaceRoot(args.workspace_dir, canonicalDirectory)
@@ -3524,6 +3550,7 @@ function createODFDelegationPrepare(canonicalDirectory?: string): ReturnType<typ
       const blocked = (reason: string, message: string, extra: Record<string, unknown> = {}): string => JSON.stringify({
         status: "blocked",
         reason,
+        stop_disposition: classifyODFStop(reason),
         phase: args.phase,
         agent: null,
         token: null,
@@ -3854,7 +3881,7 @@ function createODFProposalWrite(canonicalDirectory?: string): ReturnType<typeof 
       content: tool.schema.string().describe("Complete proposal.md content (under 300 words)."),
     },
     async execute(args: { token: string; change: string; artifact_store: "openspec" | "hybrid"; content: string }, toolCtx: ToolContext): Promise<string> {
-      const blocked = (reason: string, message: string): string => JSON.stringify({ status: "blocked", reason, message }, null, 2)
+      const blocked = (reason: string, message: string): string => JSON.stringify({ status: "blocked", reason, stop_disposition: classifyODFStop(reason), message }, null, 2)
       if (!toolCtx?.sessionID || !toolCtx.agent) {
         return blocked("proposal-writer-session-required", "odf_proposal_write requires the active child session and agent identity.")
       }
@@ -3962,6 +3989,7 @@ function createODFLateSealCapabilityPrepare(canonicalDirectory?: string): Return
       const blocked = (reason: string, message: string): string => JSON.stringify({
         status: "blocked",
         reason,
+        stop_disposition: classifyODFStop(reason),
         change: args.change,
         task_session_id: args.session_id,
         message,
@@ -4107,6 +4135,7 @@ function createODFDelegationSeal(canonicalDirectory?: string): ReturnType<typeof
       const blocked = (reason: string, message: string, extra: Record<string, unknown> = {}): string => JSON.stringify({
         status: "blocked",
         reason,
+        stop_disposition: classifyODFStop(reason),
         token: args.token,
         policy_gate: null,
         validation: null,
@@ -4596,6 +4625,7 @@ function createODFParallelPrepare(canonicalDirectory?: string): ReturnType<typeo
       const blocked = (reason: string, message: string, extra: Record<string, unknown> = {}): string => JSON.stringify({
         status: "blocked",
         reason,
+        stop_disposition: classifyODFStop(reason),
         work_type: "cross-domain",
         phase: "IMPLEMENT",
         agent: "scheduler",
@@ -4850,6 +4880,7 @@ function createODFParallelSeal(canonicalDirectory?: string): ReturnType<typeof t
       const blocked = (reason: string, message: string, extra: Record<string, unknown> = {}): string => JSON.stringify({
         status: "blocked",
         reason,
+        stop_disposition: classifyODFStop(reason),
         token: args.token,
         policy_gate: null,
         validation: null,
@@ -8704,7 +8735,8 @@ function createODFWorkflowStatus(canonicalDirectory?: string): ReturnType<typeof
 
 Use this first for a current-state or continuation question. One call returns
 canonical stages, resumability, pending receipt/join information, and legacy
-compatibility fields. Reuse this result instead of separately probing files or
+compatibility fields, plus a typed next_handoff assembled from the selected
+state, persisted artifact refs, and mandatory gates. Reuse this result instead of separately probing files or
 calling status tools again. Explicitly named archived changes are resolved from
 their dated OpenSpec archive directory. When no change is named, bounded discovery
 returns one unambiguous active change, a read-only list when several match, or
@@ -8811,7 +8843,7 @@ function createODFWorkflowArchive(canonicalDirectory?: string): ReturnType<typeo
       target?: WorkflowTarget
       governance_acknowledgment?: GovernanceAcknowledgment
     }, toolCtx: ToolContext): Promise<string> {
-      const blocked = (reason: string, message: string): string => JSON.stringify({ status: "blocked", reason, message }, null, 2)
+      const blocked = (reason: string, message: string): string => JSON.stringify({ status: "blocked", reason, stop_disposition: classifyODFStop(reason), message }, null, 2)
       const changeName = args.change_name?.trim()
       if (!changeName || changeName !== args.change_name || !CHANGE_NAME_PATTERN.test(changeName)) {
         return blocked("unsafe-change-name", "The archive tool requires an exact kebab-case change name.")
@@ -9160,7 +9192,7 @@ only after canonical state exists. Existing state and Expectations are reused on
       regression: tool.schema.string().optional().describe("Minimal regression for a terminal FIX"),
     },
     async execute(args: WorkflowBindArgs, toolCtx: ToolContext): Promise<string> {
-      const blocked = (reason: string, message: string): string => JSON.stringify({ status: "blocked", reason, message }, null, 2)
+      const blocked = (reason: string, message: string): string => JSON.stringify({ status: "blocked", reason, stop_disposition: classifyODFStop(reason), message }, null, 2)
       const changeName = canonicalChangeName(args.change_name)
       if (!changeName) {
         return blocked("unsafe-change-path", "The change name is not a safe OpenSpec path segment.")
@@ -9752,7 +9784,7 @@ Actions:
             reason,
           })
         }
-        return JSON.stringify({ status: "blocked", reason, message }, null, 2)
+        return JSON.stringify({ status: "blocked", reason, stop_disposition: classifyODFStop(reason), message }, null, 2)
       }
       const changeName = canonicalChangeName(args.change_name)
       if (!changeName) return blocked("unsafe-change-path", "The change name is not a safe OpenSpec path segment.")

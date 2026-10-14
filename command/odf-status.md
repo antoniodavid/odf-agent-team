@@ -28,8 +28,8 @@ Shows all active ODF changes or the detail of a specific change.
 
 ## Orchestrator Instructions
 
-1. **Query `odf_workflow_status` in read-only mode**. For a named change, first read `openspec/changes/{change}/state.yaml` and its artifacts; Engram fills in missing groups and keeps conflicts as warnings.
-2. If no valid OpenSpec `state.yaml` exists, use Engram as a fallback, show `source.state: engram` and its warning, without presenting it as OpenSpec authority. Without a name, keep the existing Engram selection and query OpenSpec only for that selected change.
+1. **Query `odf_workflow_status` once in read-only mode**; do not reconstruct status by separately probing stores. It resolves the bound store and reports its state/artifact references.
+2. OpenSpec-only and Engram-only changes use their selected store. Hybrid treats OpenSpec as canonical and may recover missing state from its Engram mirror; legacy unbound changes may use the compatibility read path. Report `source`, warnings, and the selected `artifact_store` without merging conflicting artifact content.
 3. If a name is given, render the **change detail** using `renderStatusDetail(change, state)`.
 4. If there is no name, render the **summary table** using `renderStatusTable(states)`.
 5. Include the suggested command to continue each change.
@@ -46,6 +46,8 @@ In the detail, show these fields in addition to the legacy ones (`phase`, `artif
 - `artifact_refs`
 - `receipt` (`state`, `status`, `action`, `ref`)
 - `resumable`
+- `artifact_store`
+- `next_handoff` (versioned stage transition, artifact refs, and required gates; forward unchanged and never treat it as gate authorization)
 - `source` (`state`, `artifacts`)
 - `warnings`
 

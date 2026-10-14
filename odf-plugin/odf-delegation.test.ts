@@ -5534,7 +5534,18 @@ ${overrides}`
   it.each([
     ["ok", { status: "ok", executive_summary: "implemented" }, "ok", "delegated", "delegated"],
     ["warning", { status: "warning", executive_summary: "implemented with warnings" }, "ok", "delegated", "delegated"],
-    ["blocked", { status: "blocked", message: "blocked by a check" }, "blocked", "error", "blocked"],
+    ["blocked", {
+      status: "blocked",
+      reason: "workflow-implement-progress-not-terminal",
+      message: "progress is incomplete",
+      stop_disposition: {
+        kind: "repairable",
+        user_action_required: false,
+        automatic_recovery: "retry-once",
+        reason: "workflow-implement-progress-not-terminal",
+        next_action: "Retry the phase",
+      },
+    }, "blocked", "error", "blocked"],
     ["failed", { status: "failed", message: "checks failed" }, "error", "error", "blocked"],
     ["missing", { message: "no result status" }, "error", "error", "blocked"],
     ["invalid", { status: "unexpected" }, "error", "error", "blocked"],
@@ -5557,6 +5568,27 @@ ${overrides}`
 
     const envelope = JSON.parse(output as string)
     expect(envelope.status).toBe(envelopeStatus)
+    if (label === "blocked") {
+      expect(envelope.stop_disposition).toMatchObject({
+        kind: "repairable",
+        user_action_required: false,
+        automatic_recovery: "repair-in-phase",
+      })
+    }
+    if (label === "failed") {
+      expect(envelope.stop_disposition).toMatchObject({
+        kind: "unclassified",
+        user_action_required: true,
+        automatic_recovery: "none",
+      })
+    }
+    if (label === "missing" || label === "invalid") {
+      expect(envelope.stop_disposition).toMatchObject({
+        kind: "repairable",
+        user_action_required: false,
+        automatic_recovery: "repair-in-phase",
+      })
+    }
     expect(getMetricsBuffer().at(-1)).toMatchObject({ status: metricStatus })
     const ledger = (await fs.readFile(path.join(tempHome, ".odf", `attempt-ledger-${change}.jsonl`), "utf8"))
       .trim().split("\n").map(line => JSON.parse(line))
@@ -5603,6 +5635,11 @@ ${overrides}`
     const envelope = JSON.parse(output as string)
     expect(envelope.status).toBe("blocked")
     expect(envelope.reason).toBe("pre-tool-safety")
+    expect(envelope.stop_disposition).toMatchObject({
+      kind: "safety",
+      user_action_required: true,
+      automatic_recovery: "none",
+    })
     expect(envelope.classes).toContain("destructive")
     expect(String(envelope.safe_continuation || "").length).toBeGreaterThan(0)
     expect(taskApi).not.toHaveBeenCalled()

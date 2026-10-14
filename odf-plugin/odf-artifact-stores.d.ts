@@ -1,0 +1,6 @@
+export declare const ARTIFACT_STORES: readonly ["openspec", "engram", "hybrid"]
+export type ArtifactStore = (typeof ARTIFACT_STORES)[number]
+export declare const PROPOSAL_ARTIFACT_STORES: readonly ["openspec", "hybrid"]
+export type ProposalArtifactStore = (typeof PROPOSAL_ARTIFACT_STORES)[number]
+export declare const WORKFLOW_BIND_STORES: readonly ["openspec", "engram"]
+export type WorkflowBindStore = (typeof WORKFLOW_BIND_STORES)[number]
