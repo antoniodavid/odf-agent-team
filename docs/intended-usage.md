@@ -64,33 +64,35 @@ conditional lenses, not universal handoffs. Legacy phase names remain adapters
 
 Ask for a human decision only at a required approval or when scope/Expectations
 are unresolved; adapter transitions do not add approval pauses. The selected
-artifact store is `openspec`, `engram`, or `hybrid`; the current
-state-machine helpers persist runtime state to
-`openspec/changes/{change}/state.yaml`, while Engram stores phase artifacts
-and status observations.
+artifact store is `openspec`, `engram`, or `hybrid`; state-machine helpers
+persist workflow state and phase artifacts to that selected store. In `hybrid`,
+OpenSpec remains canonical and matching Engram references are mirrored;
+conflicting artifacts are never silently merged.
 
 ## State Persistence
 
-With an `openspec`/`hybrid` store, each change gets a folder under
+With an `openspec` store, each change gets a folder under
 `openspec/changes/{change-name}/` containing:
 
-- `state.yaml` — runtime preflight and canonical stage state (authoritative)
+- `state.yaml` — runtime preflight and canonical stage state (authoritative
+  when OpenSpec is selected)
 - `decision.yaml` — business scope + standard/custom decision (DECIDE)
 - `plan.yaml` — design/architecture + tasks when PLAN is used
 - `build.yaml` — implementation progress when BUILD is used
 - `verify-report-slice*.yaml` — verification evidence
 
-Engram keeps legacy observations (`odf/{change}/{artifact-type}`) and
-semantic recovery data; it completes groups missing from OpenSpec and
-surfaces conflicts as warnings. Runtime seals live in `.odf/*.json`:
+With an `engram` store, state and phase artifacts use deterministic
+`odf/{change}/{artifact-type}` refs and Engram is authoritative. With `hybrid`,
+OpenSpec is canonical and matching Engram state/artifacts are mirrored on
+commits; both writes must succeed. Status prefers OpenSpec and can recover
+missing state from the Engram mirror without merging conflicting artifact
+content. Runtime seals live in `.odf/*.json`:
 
-- `gate-{change}.json` — Policy Gate result
+- `policy-gate-{change}.json` — Policy Gate result
 - `validation-evidence-{change}.json` — stop-validation evidence seal
 - `receipt-{change}.json` — failure disposition receipt
 
-Use `engram` for Engram-backed artifacts/status only, or `hybrid` to retain
-both representations where the runtime supports mirroring. Old changes keep
-their legacy state/artifacts dual-read for migration; they are never
+Legacy state/artifacts remain readable for migration, but old changes are never
 rewritten automatically.
 
 ## Backward Compatibility
