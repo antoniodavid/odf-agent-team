@@ -18,7 +18,7 @@ Scope: implement verified integrity and security fixes from audit issue #143; pr
 - T1 — S4-S5 — Inline — Commit `bfbdbf9` (`fix(delegation): validate archive and receipts`); verification recorded in L34-L37 and L63-L66.
 - T2 — S6-S7 — Inline — Commits `a0b0cde` (token state) and `3f9b62a` (loopback/CORS). User accepted the concurrent TOCTOU residual; disclose it in the PR and do not claim race-free coverage.
 - T3 — S8-S9 — Inline — Commits `9132b8d` (S8 installer) and `0408f5f` (S9 parallel seal). S9's pre-scheduler consume, stale-read rejection, shared mutation lock, and replay regression were independently reviewed; preserve the power-loss/fsync follow-up.
-- T4 — S10 — Parent — Delivery is authorized. Integrate current `origin/main` and run applicable quick checks before the PR; disclose the latest unit-suite exit 1 (1193/1193 tests passed plus Vitest `onTaskUpdate` timeout), the user-accepted S6 concurrent TOCTOU residual, and the PR #49 installer caveat. Follow normal target CI/branch-protection gates. Native ASSESS remains unassessable (binary missing).
+- T4 — S10 — Parent — Integrated `origin/main` 9f52f53 via merge commit `686f540`; post-merge diff check, typecheck, archive (12/12), token (12/12), and prepare/seal (39/39) passed. Do not retry the unit suite. Before PR, disclose the unit-suite exit 1 (1193/1193 tests plus Vitest `onTaskUpdate` timeout), the user-accepted S6 concurrent TOCTOU residual, and PR #49's installer caveat. Use `Closes #143` and follow normal target CI/branch-protection gates. Native ASSESS remains unassessable (binary missing).
 
 ## Log
 - L1: “crear un nuevo worktree y haz las correcciones de las mejoras, luego hacerle un PR al repositorio de odf-agent-team y hacer la propuesta para mezclarlo a main”
@@ -95,3 +95,4 @@ Scope: implement verified integrity and security fixes from audit issue #143; pr
 - L72: Created T2's timesheet commit `3f9b62a` (`fix(timesheet): bind server to loopback`), including loopback binding/CORS changes and the new focused Go test.
 - L73: Created S8 installer work-unit commit `9132b8d` (`fix(installer): safely rewrite configured paths`), including shell-metacharacter and newline-path regressions.
 - L74: Created S9 parallel-seal work-unit commit `0408f5f` (`fix(delegation): serialize parallel token sealing`), covering the shared mutation lock, stale token reads, consume-before-scheduler behavior, and replay/failure regressions.
+- L75: Merged `origin/main` 9f52f53 into the feature branch as `686f540` with no conflicts. Post-merge `git diff --check origin/main HEAD` and `npm run typecheck` passed; focused archive tests passed 12/12, token tests 12/12, and prepare/seal tests 39/39. The failed full-unit result at L63 was not rerun.
