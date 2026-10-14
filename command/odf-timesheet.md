@@ -38,7 +38,7 @@ No additional processing needed. The binary produces:
 
 ### 3. Web Dashboard Mode (--serve)
 
-Starts an HTTP server with:
+Starts a local-only HTTP server bound to loopback (`127.0.0.1`) with:
 - **Web UI** at http://localhost:8080 — visual dashboard with charts, heatmap, timelines
 - **API** at `/api/timesheet?days=30&project=NAME` — JSON data with full prompt details
 - **API** at `/api/projects` — list of available projects

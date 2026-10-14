@@ -3135,6 +3135,12 @@ async function sealProofBackedDelegation(opts: {
  */
 const activeNativeLaunches = new Set<string>()
 
+function delegationTokenMutationLockPath(workspaceRoot: string, token: string): string | null {
+  const odfDirectory = ensureSafeOdfDirectory(workspaceRoot)
+  if (!odfDirectory) return null
+  return safeWorkspaceStatePath(workspaceRoot, path.join(odfDirectory, `launch-${token}.lock`))
+}
+
 function persistNativeChildLaunch(opts: {
   workspaceRoot: string
   change: string
@@ -3142,12 +3148,7 @@ function persistNativeChildLaunch(opts: {
   branchId?: string
   launch: NativeChildLaunch
 }): string | null {
-  const odfDirectory = ensureSafeOdfDirectory(opts.workspaceRoot)
-  if (!odfDirectory) return "delegation-launch-state-unsafe-path"
-  const lockPath = safeWorkspaceStatePath(
-    opts.workspaceRoot,
-    path.join(odfDirectory, `launch-${opts.token}.lock`),
-  )
+  const lockPath = delegationTokenMutationLockPath(opts.workspaceRoot, opts.token)
   if (!lockPath) return "delegation-launch-state-unsafe-path"
   let lockFd = -1
   try {
@@ -4115,7 +4116,7 @@ function createODFLateSealCapabilityPrepare(canonicalDirectory?: string): Return
 
 function createODFDelegationSeal(canonicalDirectory?: string): ReturnType<typeof tool> {
   return tool({
-    description: `Seal a native ODF delegation started with odf_delegation_prepare: verify the child session against the token, wait until its V2 session loop is idle, read its ODF Result, run the phase gates (source authority, design closure, artifact refs and PLAN materialization; proof revalidation, validation-evidence seal, workflow commit and attempt settlement for IMPLEMENT/VERIFY) and return the standard delegation envelope. If the original token expired after launch, first call odf_delegation_late_seal_prepare for the same token and child, then pass its late_seal_capability here; the original expiry is never changed.`,
+    description: `Seal a native ODF delegation started with odf_delegation_prepare: parallel branch tokens must use odf_parallel_seal instead. Verify the child session against the token, wait until its V2 session loop is idle, read its ODF Result, run the phase gates (source authority, design closure, artifact refs and PLAN materialization; proof revalidation, validation-evidence seal, workflow commit and attempt settlement for IMPLEMENT/VERIFY) and return the standard delegation envelope. If the original token expired after launch, first call odf_delegation_late_seal_prepare for the same token and child, then pass its late_seal_capability here; the original expiry is never changed.`,
     args: {
       token: tool.schema.string().describe("Delegation token returned by odf_delegation_prepare."),
       change: tool.schema.string().describe("Change name (kebab-case) the token belongs to."),
@@ -4160,6 +4161,13 @@ function createODFDelegationSeal(canonicalDirectory?: string): ReturnType<typeof
         return blocked(read.error || "delegation-token-unknown", `The delegation token could not be read: ${read.error}.`)
       }
       const record = read.record
+      if (record.branches) {
+        return blocked(
+          "delegation-parallel-token-requires-parallel-seal",
+          "Parallel delegation tokens must be sealed through odf_parallel_seal so every branch and the aggregate join are validated together.",
+          { phase: record.phase, change: record.change, task_session_id: args.session_id },
+        )
+      }
       let lateSealBinding: LateSealCapabilityBinding | null = null
       let lateSealAuthorizedAt: Date | null = null
       let childIdleConfirmedAt: string | null = null
@@ -4855,7 +4863,7 @@ function createODFParallelPrepare(canonicalDirectory?: string): ReturnType<typeo
  */
 function createODFParallelSeal(canonicalDirectory?: string): ReturnType<typeof tool> {
   return tool({
-    description: `Seal a native parallel BUILD started with odf_parallel_prepare: verify each child session against the token, wait until every V2 session loop is idle, collect the branch results and run the authoritative parallel scheduler (per-branch validation evidence, aggregate join and one workflow commit for BUILD).`,
+    description: `Seal a native parallel BUILD started with odf_parallel_prepare: verify each child session against the token, wait until every V2 session loop is idle, collect the branch results and run the authoritative parallel scheduler (per-branch validation evidence, aggregate join and one workflow commit for BUILD). The token is consumed under the exclusive lock before scheduler invocation so a process crash cannot make the scheduler replayable; concurrent duplicate seals are rejected.`,
     args: {
       token: tool.schema.string().describe("Parallel delegation token returned by odf_parallel_prepare."),
       change: tool.schema.string().describe("Shared change name the token belongs to."),
@@ -5096,34 +5104,108 @@ function createODFParallelSeal(canonicalDirectory?: string): ReturnType<typeof t
 
       const activeAttemptKeys = [...handles.values()].map(handle =>
         attemptLivenessKey(handle.record.change, handle.record.attempt_id))
-      activeAttemptKeys.forEach(key => inFlightAttempts.add(key))
-      let envelopeRaw: string
+      const inProgress = (): string => blocked(
+        "delegation-seal-in-progress",
+        "A token mutation lock already exists; a launch or seal may be in progress, or a previous process may have stopped before cleanup.",
+        withRecord({ next_step: "Do not relaunch branches or settle attempts. Inspect token and launch state, then resolve any stale token lock before retrying." }),
+      )
+      if (activeAttemptKeys.some(key => inFlightAttempts.has(key))) return inProgress()
+
+      const parallelSealLockPath = delegationTokenMutationLockPath(workspaceRoot, record.token)
+      if (!parallelSealLockPath) {
+        return blocked("delegation-seal-lock-failed", "The parallel seal could not safely create its token mutation lock.", withRecord())
+      }
+      let parallelSealLockFd: number
       try {
-        envelopeRaw = await createODFParallelDelegate(undefined, canonicalDirectory, {
-          pre_acquired_attempts: handles,
-          suppress_metrics: true,
-        }).execute({
-          work_type: "cross-domain",
-          phase: "IMPLEMENT",
-          change: changeName,
-          artifact_store: record.artifact_store,
-          workflow_advance: record.workflow_advance,
-          branches: descriptors,
-          ...(record.target ? { target: record.target } : {}),
-          ...(record.governance_acknowledgment ? { governance_acknowledgment: record.governance_acknowledgment } : {}),
-          ...(record.source_root ? { odoo_source_root: record.source_root } : {}),
-          ...(record.source_repos ? { odoo_source_repos: record.source_repos } : {}),
-          workspace_dir: workspaceRoot,
-        } as never, { ...(toolCtx as unknown as Record<string, unknown>), task: stubTask } as never) as string
+        parallelSealLockFd = fsSync.openSync(parallelSealLockPath, "wx", 0o600)
       } catch (error) {
-        for (const handle of handles.values()) settleIfStillRunning(handle)
-        return blocked("delegation-seal-error", `The parallel seal could not complete: ${error instanceof Error ? error.message : String(error)}.`)
+        return (error as NodeJS.ErrnoException).code === "EEXIST"
+          ? inProgress()
+          : blocked("delegation-seal-lock-failed", "The parallel seal could not acquire its exclusive workspace lock.", withRecord())
+      }
+      activeAttemptKeys.forEach(key => inFlightAttempts.add(key))
+      let preserveParallelSealLock = false
+      let envelopeRaw: string | null = null
+      const consumeParallelSealToken = (): string | null => {
+        try {
+          const error = markDelegationTokenSealed(workspaceRoot, record)
+          if (error) return error
+          deleteDelegationToken(workspaceRoot, record.change, record.token)
+          return null
+        } catch {
+          return "delegation-token-seal-failed"
+        }
+      }
+      try {
+        const currentToken = readDelegationToken(workspaceRoot, changeName, args.token)
+        if (!currentToken.record) {
+          return blocked(
+            currentToken.error || "delegation-token-unknown",
+            "The parallel token is no longer available after acquiring its exclusive seal lock.",
+            withRecord(),
+          )
+        }
+        if (currentToken.record.status !== "prepared") {
+          return blocked("delegation-token-already-sealed", "The parallel token was consumed by another seal before this process acquired the lock.", withRecord())
+        }
+        if (JSON.stringify(currentToken.record) !== JSON.stringify(record)) {
+          return blocked("delegation-token-changed", "The token changed while child sessions were being verified; retry the seal with fresh token state.", withRecord())
+        }
+
+        // Consume before scheduler entry: a crash during scheduler work must not leave a replayable prepared token.
+        const consumeError = consumeParallelSealToken()
+        if (consumeError) {
+          preserveParallelSealLock = true
+          return blocked(
+            "delegation-token-consume-failed",
+            `The parallel token could not be consumed (${consumeError}); the scheduler was not invoked and the lock is retained. Inspect token and attempt state before resolving the stale lock manually.`,
+            withRecord({ next_step: "The scheduler has not run. Do not relaunch branches; inspect token/attempt state and resolve the retained lock only after token storage is healthy." }),
+          )
+        }
+
+        let executionFailed = false
+        let executionError: unknown
+        try {
+          envelopeRaw = await createODFParallelDelegate(undefined, canonicalDirectory, {
+            pre_acquired_attempts: handles,
+            suppress_metrics: true,
+          }).execute({
+            work_type: "cross-domain",
+            phase: "IMPLEMENT",
+            change: changeName,
+            artifact_store: record.artifact_store,
+            workflow_advance: record.workflow_advance,
+            branches: descriptors,
+            ...(record.target ? { target: record.target } : {}),
+            ...(record.governance_acknowledgment ? { governance_acknowledgment: record.governance_acknowledgment } : {}),
+            ...(record.source_root ? { odoo_source_root: record.source_root } : {}),
+            ...(record.source_repos ? { odoo_source_repos: record.source_repos } : {}),
+            workspace_dir: workspaceRoot,
+          } as never, { ...(toolCtx as unknown as Record<string, unknown>), task: stubTask } as never) as string
+        } catch (error) {
+          executionFailed = true
+          executionError = error
+        }
+
+        if (executionFailed) {
+          for (const handle of handles.values()) settleIfStillRunning(handle)
+          return blocked("delegation-seal-error", `The parallel seal could not complete: ${executionError instanceof Error ? executionError.message : String(executionError)}.`)
+        }
       } finally {
+        try { fsSync.closeSync(parallelSealLockFd) } catch { /* best-effort cleanup */ }
+        if (!preserveParallelSealLock) {
+          try {
+            fsSync.unlinkSync(parallelSealLockPath)
+          } catch (error) {
+            if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+              console.warn("[odf-delegation] Failed to clean up parallel seal lock.")
+            }
+          }
+        }
         activeAttemptKeys.forEach(key => inFlightAttempts.delete(key))
       }
 
-      // The delegation is processed either way: the token seals exactly once.
-      deleteDelegationToken(workspaceRoot, record.change, record.token)
+      if (envelopeRaw === null) return blocked("invalid-task-result", "The parallel seal returned an empty envelope.")
 
       let envelope: Record<string, unknown>
       try {
@@ -7843,10 +7925,15 @@ export async function commitWorkflowTransition(opts: {
       if (fastLaneState.reason) {
         return makeResult("blocked", fastLaneState.reason, "The persisted fast-lane policy is malformed and cannot authorize archive.", read.snapshot, completed, opts.validation, null)
       }
-      const archiveValidation = governance.active
-        ? verifyEvidenceVerdict(opts.workspaceRoot, opts.changeName, opts.expectationsIds, fastLaneState.policy?.enabled === true)
-        : opts.validation
-      if (governance.active && archiveValidation?.status !== "verified") {
+      // Archive must independently revalidate the persisted VERIFY artifact;
+      // caller-supplied validation is only an input hint, never authorization.
+      const archiveValidation = verifyEvidenceVerdict(
+        opts.workspaceRoot,
+        opts.changeName,
+        opts.expectationsIds,
+        fastLaneState.policy?.enabled === true,
+      )
+      if (archiveValidation.status !== "verified") {
         const reason = archiveValidation?.status === "missing" ? "verification-evidence-missing" : "verification-evidence-invalid"
         return makeResult("blocked", reason, archiveValidation?.reason || "Valid VERIFY evidence is required before archiving.", read.snapshot, completed, archiveValidation, null)
       }

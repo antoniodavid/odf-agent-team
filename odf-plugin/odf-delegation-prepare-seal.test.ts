@@ -1,14 +1,18 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"
 import * as path from "node:path"
 import * as fs from "node:fs/promises"
+import fsSync from "node:fs"
+import { syncBuiltinESMExports } from "node:module"
 import * as os from "node:os"
 import YAML from "yaml"
 import { ODF_V2_SESSION } from "./odf-delegation-health.js"
 import {
   createDelegationTokenRecord,
+  delegationTokenPath,
   delegationPromptByteLength,
   delegationPromptDigest,
   readDelegationToken,
+  recordDelegationTokenTimestamp,
   writeDelegationToken,
 } from "./odf-delegation-tokens.js"
 import { readLateSealCapability } from "./odf-late-seal-capability.js"
@@ -1561,7 +1565,7 @@ describe("native prepare/seal delegation", () => {
     }
   }
 
-  it("prepares and seals a native parallel BUILD end to end", async () => {
+  it("seals a native parallel BUILD once under concurrent replay", async () => {
     const change = "native-parallel"
     const root = path.join(tempHome, "parallel-root")
     await fs.mkdir(root, { recursive: true })
@@ -1570,7 +1574,7 @@ describe("native prepare/seal delegation", () => {
       { branch_id: "backend-native", attempt_id: "backend-native-attempt", prompt: "Implement the backend branch", context_files: ["backend-native.py"] },
       { branch_id: "frontend-native", attempt_id: "frontend-native-attempt", prompt: "Implement the frontend branch", context_files: ["frontend-native.py"] },
     ]
-    const { odf_parallel_prepare, odf_delegation_launch, odf_parallel_seal } = await tools(root)
+    const { odf_parallel_prepare, odf_delegation_launch, odf_delegation_seal, odf_parallel_seal } = await tools(root)
 
     const prepared = JSON.parse(await odf_parallel_prepare.execute({
       work_type: "cross-domain",
@@ -1585,6 +1589,17 @@ describe("native prepare/seal delegation", () => {
     expect(prepared.branches.map((branch: any) => branch.branch_id)).toEqual(["backend-native", "frontend-native"])
     expect(prepared.branches.every((branch: any) => branch.prompt.includes("<!-- ODF-DELEGATION "))).toBe(true)
     expect(prepared.branches.every((branch: any) => branch.prompt.includes(`validation-evidence-${change}-`))).toBe(true)
+
+    const ordinarySealTokenPath = delegationTokenPath(root, change, prepared.token)
+    if (!ordinarySealTokenPath) throw new Error("parallel token path did not resolve")
+    const tokenBytesBeforeOrdinarySeal = await fs.readFile(ordinarySealTokenPath, "utf8")
+    const ordinarySeal = JSON.parse(await odf_delegation_seal.execute({
+      token: prepared.token,
+      change,
+      session_id: "ses_backend-native",
+    }, { sessionID: "prepare-session" } as any) as string)
+    expect(ordinarySeal).toMatchObject({ status: "blocked", reason: "delegation-parallel-token-requires-parallel-seal" })
+    expect(await fs.readFile(ordinarySealTokenPath, "utf8")).toBe(tokenBytesBeforeOrdinarySeal)
 
     await writeParallelEvidence(root, change, branches.map(branch => branch.branch_id))
     const session = parallelSessionApi(
@@ -1626,11 +1641,100 @@ describe("native prepare/seal delegation", () => {
       expect(launchSession.prompt).toHaveBeenCalledWith({ sessionID: `ses_${branch.branch_id}`, text: branch.prompt })
     }
 
-    const output = JSON.parse(await odf_parallel_seal.execute({
+    const sealArgs = {
       token: prepared.token,
       change,
       branches: prepared.branches.map((branch: any) => ({ branch_id: branch.branch_id, session_id: `ses_${branch.branch_id}` })),
-    }, { sessionID: "prepare-session", [ODF_V2_SESSION]: session } as any) as string)
+    }
+    const sealContext = { sessionID: "prepare-session", [ODF_V2_SESSION]: session } as any
+    const otherProcessLock = path.join(root, ".odf", `launch-${prepared.token}.lock`)
+    const statePath = path.join(root, "openspec", "changes", change, "state.yaml")
+    const stateBeforeSeal = await fs.readFile(statePath, "utf8")
+    const originalSessionGet = session.get.getMockImplementation()
+    if (!originalSessionGet) throw new Error("parallel session.get mock was not configured")
+    let tokenMutatedDuringRead = false
+    let staleTokenResult: Record<string, unknown> | null = null
+    try {
+      session.get.mockImplementation(async ({ sessionID }) => {
+        if (!tokenMutatedDuringRead) {
+          const error = recordDelegationTokenTimestamp(root, change, prepared.token, "seal_started_at", new Date().toISOString())
+          if (error) throw new Error(`could not mutate token for stale-read test: ${error}`)
+          tokenMutatedDuringRead = true
+        }
+        return originalSessionGet({ sessionID })
+      })
+      staleTokenResult = JSON.parse(await odf_parallel_seal.execute(sealArgs, sealContext) as string)
+    } finally {
+      session.get.mockImplementation(originalSessionGet)
+    }
+    expect(tokenMutatedDuringRead).toBe(true)
+    expect(staleTokenResult).toMatchObject({ status: "blocked", reason: "delegation-token-changed" })
+    expect(await fs.readFile(statePath, "utf8")).toBe(stateBeforeSeal)
+    expect(fsSync.existsSync(otherProcessLock)).toBe(false)
+    expect(readDelegationToken(root, change, prepared.token)).toMatchObject({ record: { status: "prepared", seal_started_at: expect.any(String) } })
+
+    const tokenPath = delegationTokenPath(root, change, prepared.token)
+    if (!tokenPath) throw new Error("prepared token path did not resolve")
+    const tokenContentsBeforeConsumeFailure = await fs.readFile(tokenPath, "utf8")
+    const originalRenameSync = fsSync.renameSync
+    let consumeFailure: Record<string, unknown> | null = null
+    try {
+      fsSync.renameSync = (from, to) => {
+        if (to.toString() === tokenPath) throw Object.assign(new Error("simulated token persistence failure"), { code: "EIO" })
+        return originalRenameSync(from, to)
+      }
+      syncBuiltinESMExports()
+      consumeFailure = JSON.parse(await odf_parallel_seal.execute(sealArgs, sealContext) as string)
+    } finally {
+      fsSync.renameSync = originalRenameSync
+      syncBuiltinESMExports()
+    }
+    expect(consumeFailure).toMatchObject({ status: "blocked", reason: "delegation-token-consume-failed" })
+    expect(await fs.readFile(statePath, "utf8")).toBe(stateBeforeSeal)
+    expect(fsSync.existsSync(otherProcessLock)).toBe(true)
+    expect(fsSync.existsSync(path.join(root, ".odf", `parallel-join-${change}.json`))).toBe(false)
+    const failedAttemptLedger = (await fs.readFile(path.join(root, ".odf", `attempt-ledger-${change}.jsonl`), "utf8"))
+      .trim().split("\n").map(line => JSON.parse(line) as { attempt_id: string; status: string })
+    const latestFailedAttempts = new Map(failedAttemptLedger.map(entry => [entry.attempt_id, entry]))
+    expect(latestFailedAttempts.size).toBe(2)
+    expect([...latestFailedAttempts.values()].every(entry => entry.status === "running")).toBe(true)
+    expect(readDelegationToken(root, change, prepared.token)).toMatchObject({ record: { status: "prepared" } })
+    expect(await fs.readFile(tokenPath, "utf8")).toBe(tokenContentsBeforeConsumeFailure)
+    const tokenTempFiles = (await fs.readdir(path.dirname(tokenPath)))
+      .filter(fileName => fileName.startsWith(`${path.basename(tokenPath)}.`) && fileName.endsWith(".tmp"))
+    expect(tokenTempFiles).toEqual([])
+    await fs.unlink(otherProcessLock)
+
+    await fs.writeFile(otherProcessLock, "held by another process", { flag: "wx" })
+    const whileLocked = JSON.parse(await odf_parallel_seal.execute(sealArgs, sealContext) as string)
+    expect(whileLocked).toMatchObject({ status: "blocked", reason: "delegation-seal-in-progress" })
+    await fs.unlink(otherProcessLock)
+
+    const originalUnlinkSync = fsSync.unlinkSync
+    let tokenAtLockRelease: ReturnType<typeof readDelegationToken> | undefined
+    fsSync.unlinkSync = (filePath: Parameters<typeof originalUnlinkSync>[0]) => {
+      const result = originalUnlinkSync(filePath)
+      if (filePath.toString() === otherProcessLock) {
+        tokenAtLockRelease = readDelegationToken(root, change, prepared.token)
+      }
+      return result
+    }
+    syncBuiltinESMExports()
+    const sealResults = await Promise.all([
+      odf_parallel_seal.execute(sealArgs, sealContext) as Promise<string>,
+      odf_parallel_seal.execute(sealArgs, sealContext) as Promise<string>,
+    ]).finally(() => {
+      fsSync.unlinkSync = originalUnlinkSync
+      syncBuiltinESMExports()
+    })
+    expect(tokenAtLockRelease).toBeDefined()
+    expect(tokenAtLockRelease?.record?.status).not.toBe("prepared")
+    const sealEnvelopes = sealResults.map(result => JSON.parse(result))
+    const successfulSeals = sealEnvelopes.filter((result: any) => result.status === "parallel-delegated")
+    const duplicateSeal = sealEnvelopes.find((result: any) => result.reason === "delegation-seal-in-progress")!
+    expect(successfulSeals).toHaveLength(1)
+    expect(duplicateSeal).toMatchObject({ status: "blocked", reason: "delegation-seal-in-progress" })
+    const output = successfulSeals[0]
 
     expect(output).toMatchObject({
       status: "parallel-delegated",
@@ -1638,7 +1742,8 @@ describe("native prepare/seal delegation", () => {
       join: { status: "complete", expected: 2, completed: 2, failed: 0, validation_verified: true },
     })
     expect(output.branches.every((branch: any) => branch.task_session_id?.startsWith("ses_"))).toBe(true)
-    expect(session.wait).toHaveBeenCalledTimes(2)
+    expect(session.wait).toHaveBeenCalledWith({ sessionID: "ses_backend-native" })
+    expect(session.wait).toHaveBeenCalledWith({ sessionID: "ses_frontend-native" })
 
     const state = YAML.parse(await fs.readFile(path.join(root, "openspec", "changes", change, "state.yaml"), "utf8"))
     expect(state).toMatchObject({ canonical_stage: "BUILD", completed_canonical_stages: ["DECIDE", "PLAN", "BUILD"] })
@@ -1648,8 +1753,12 @@ describe("native prepare/seal delegation", () => {
     expect(completed).toHaveLength(2)
     expect(completed.every((entry: any) => entry.native_parent_session_id === "prepare-session" &&
       typeof entry.native_child_session_id === "string" && typeof entry.native_child_idle_at === "string")).toBe(true)
+    await fs.writeFile(otherProcessLock, "lock cleanup check", { flag: "wx" })
+    await fs.unlink(otherProcessLock)
+    const replay = JSON.parse(await odf_parallel_seal.execute(sealArgs, sealContext) as string)
+    expect(replay).toMatchObject({ status: "blocked", reason: "delegation-token-unknown" })
     expect(readDelegationToken(root, change, prepared.token)).toMatchObject({ error: "delegation-token-unknown" })
-  })
+  }, 15_000)
 
   it("keeps native parallel attempts running when a child has not reached idle", async () => {
     const change = "native-parallel-not-idle"

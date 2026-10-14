@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"io/fs"
 	"log"
+	"net"
 	"net/http"
+	"strconv"
 	"time"
 )
 
@@ -132,12 +134,11 @@ func toAPIResponse(totals []ProjectTotal, since, until time.Time, humanRatio flo
 	return resp
 }
 
-func startServer(cfg Config) error {
+func newServerHandler(cfg Config) (http.Handler, error) {
 	mux := http.NewServeMux()
 
 	// API: timesheet data
 	mux.HandleFunc("/api/timesheet", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
 		w.Header().Set("Content-Type", "application/json")
 
 		days := cfg.Days
@@ -198,7 +199,6 @@ func startServer(cfg Config) error {
 
 	// API: list projects
 	mux.HandleFunc("/api/projects", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
 		w.Header().Set("Content-Type", "application/json")
 
 		projects, err := getAvailableProjects(cfg.DBPath)
@@ -212,12 +212,26 @@ func startServer(cfg Config) error {
 	// Serve embedded frontend
 	subFS, err := fs.Sub(webFS, "web/dist")
 	if err != nil {
-		return fmt.Errorf("embedded web dist not found (run 'npm run build' in web/): %w", err)
+		return nil, fmt.Errorf("embedded web dist not found (run 'npm run build' in web/): %w", err)
 	}
 	fileServer := http.FileServer(http.FS(subFS))
 	mux.Handle("/", fileServer)
+	return mux, nil
+}
 
-	addr := fmt.Sprintf(":%d", cfg.Port)
-	log.Printf("Timesheet web UI at http://localhost%s", addr)
-	return http.ListenAndServe(addr, mux)
+func serverListenAddress(port int) string {
+	if port <= 0 {
+		port = 8080
+	}
+	return net.JoinHostPort("127.0.0.1", strconv.Itoa(port))
+}
+
+func startServer(cfg Config) error {
+	handler, err := newServerHandler(cfg)
+	if err != nil {
+		return err
+	}
+	addr := serverListenAddress(cfg.Port)
+	log.Printf("Timesheet web UI at http://%s", addr)
+	return http.ListenAndServe(addr, handler)
 }

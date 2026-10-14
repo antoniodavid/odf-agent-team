@@ -41,6 +41,7 @@ import {
   validateValidationEvidence,
   type GovernanceAcknowledgment,
   mergeReceipt,
+  saveReceiptJson,
   createODFWorkflowAdvance,
   createODFWorkflowBind,
   evaluateExpectations,
@@ -4472,6 +4473,36 @@ describe("createODFDelegate", () => {
     }), "utf8")
   }
 
+  const writeArchiveVerifyEvidence = async (workspace: string, change: string) => {
+    if (!gitHead(workspace)) {
+      initGitRepo(workspace)
+      commitFile(workspace, "README.md", 1)
+    }
+    const head = gitHead(workspace)
+    if (!head) throw new Error("archive fixture requires a Git HEAD")
+    const candidateDigest = computeCandidateDigest(buildCandidateManifest(workspace))
+    const odfDirectory = path.join(workspace, ".odf")
+    await fs.mkdir(odfDirectory, { recursive: true })
+    await fs.writeFile(path.join(odfDirectory, `policy-gate-${change}.json`), JSON.stringify({
+      change, phase: "VERIFY", risk_tier: "MEDIUM", frozen_diff_ref: head,
+    }), "utf8")
+    await fs.writeFile(path.join(odfDirectory, `validation-evidence-${change}.json`), JSON.stringify({
+      change,
+      phase: "VERIFY",
+      batch: 1,
+      risk_tier: "MEDIUM",
+      frozen_diff_ref: head,
+      candidate_digest: candidateDigest,
+      executor: "odoo_qa_engineer",
+      test_identity: "test_module test suite",
+      resolved_at: new Date().toISOString(),
+      commands: [
+        { name: "git-diff-check", command: "git diff --check", exit_code: 0, output_tail: "no whitespace errors" },
+        { name: "odoo-tests", command: "odoo-bin -d odf_test_db -i test_module --test-enable --stop-after-init", database: "odf_test_db", exit_code: 0, output_tail: "12 passed, 0 failed" },
+      ],
+    }), "utf8")
+  }
+
   const writeParallelEvidenceAt = (workspace: string, change: string, branchIds: string[]) =>
     Promise.all(branchIds.map(branchId => writeEvidenceAt(
       workspace,
@@ -7087,14 +7118,15 @@ ${overrides}`
     await fs.rm(repo, { recursive: true, force: true })
   })
 
-  it("preserves non-OCA ARCHIVE compatibility without OCA VERIFY evidence", async () => {
+  it("blocks non-OCA ARCHIVE without persisted VERIFY evidence", async () => {
     const repo = await fs.mkdtemp(path.join(os.tmpdir(), "odf-non-oca-archive-"))
     initGitRepo(repo)
     commitFile(repo, "README.md", 1)
     const change = "non-oca-archive"
     const changeDir = path.join(repo, "openspec", "changes", change)
     await fs.mkdir(changeDir, { recursive: true })
-    await fs.writeFile(path.join(changeDir, "state.yaml"), "work_type: feature\ncanonical_stage: VERIFY\ncompleted_canonical_stages: [DECIDE, PLAN, BUILD, VERIFY]\nresumable: true\n", "utf8")
+    const before = "work_type: feature\ncanonical_stage: VERIFY\ncompleted_canonical_stages: [DECIDE, PLAN, BUILD, VERIFY]\nresumable: true\n"
+    await fs.writeFile(path.join(changeDir, "state.yaml"), before, "utf8")
 
     const proof = archiveProof
     const result = await commitWorkflowTransition({
@@ -7109,22 +7141,50 @@ ${overrides}`
       validation: null,
     })
 
-    expect(result).toMatchObject({ status: "committed", canonical_stage: "ARCHIVED", validation: null })
-    expect(YAML.parse(await fs.readFile(path.join(changeDir, "state.yaml"), "utf8"))).toMatchObject({
-      canonical_stage: "ARCHIVED",
-      archived: true,
-    })
+    expect(result).toMatchObject({ status: "blocked", reason: "verification-evidence-missing", validation: { status: "missing" } })
+    expect(await fs.readFile(path.join(changeDir, "state.yaml"), "utf8")).toBe(before)
     await fs.rm(repo, { recursive: true, force: true })
   })
 
-  it("preserves non-OCA ARCHIVE behavior with a malformed optional fast-lane policy", async () => {
+  it("blocks non-OCA ARCHIVE when persisted VERIFY evidence is stale", async () => {
+    const repo = await fs.mkdtemp(path.join(os.tmpdir(), "odf-non-oca-archive-stale-"))
+    initGitRepo(repo)
+    await fs.writeFile(path.join(repo, ".gitignore"), ".odf/\n", "utf8")
+    commitFile(repo, "README.md", 1)
+    const change = "non-oca-archive-stale"
+    const changeDir = path.join(repo, "openspec", "changes", change)
+    await fs.mkdir(changeDir, { recursive: true })
+    const before = "work_type: feature\ncanonical_stage: VERIFY\ncompleted_canonical_stages: [DECIDE, PLAN, BUILD, VERIFY]\nresumable: true\n"
+    await fs.writeFile(path.join(changeDir, "state.yaml"), before, "utf8")
+    await writeArchiveVerifyEvidence(repo, change)
+    const evidencePath = path.join(repo, ".odf", `validation-evidence-${change}.json`)
+    const staleEvidence = JSON.parse(await fs.readFile(evidencePath, "utf8"))
+    staleEvidence.resolved_at = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString()
+    await fs.writeFile(evidencePath, JSON.stringify(staleEvidence), "utf8")
+
+    const proof = archiveProof
+    const result = await commitWorkflowTransition({
+      workspaceRoot: repo, changeName: change, artifactStore: "openspec", proof, expectedStage: "ARCHIVE",
+      callerResult: advanceWorkflow({ route: resolveWorkflowRoute(proof.work_type), ...proof }),
+      phaseResultStatus: "ok", validationStatus: "verified", validation: null,
+    })
+
+    expect(result).toMatchObject({ status: "blocked", reason: "verification-evidence-invalid", validation: { status: "invalid" } })
+    expect(result.validation?.reason).toContain("stale")
+    expect(await fs.readFile(path.join(changeDir, "state.yaml"), "utf8")).toBe(before)
+    await fs.rm(repo, { recursive: true, force: true })
+  })
+
+  it("ignores malformed optional fast-lane policy for non-OCA ARCHIVE with verified evidence", async () => {
     const repo = await fs.mkdtemp(path.join(os.tmpdir(), "odf-non-oca-archive-fast-lane-"))
     initGitRepo(repo)
+    await fs.writeFile(path.join(repo, ".gitignore"), ".odf/\n", "utf8")
     commitFile(repo, "README.md", 1)
     const change = "non-oca-archive-fast-lane"
     const changeDir = path.join(repo, "openspec", "changes", change)
     await fs.mkdir(changeDir, { recursive: true })
     await fs.writeFile(path.join(changeDir, "state.yaml"), "work_type: feature\ncanonical_stage: VERIFY\ncompleted_canonical_stages: [DECIDE, PLAN, BUILD, VERIFY]\nresumable: true\nfast_lane_policy:\n  malformed: true\n", "utf8")
+    await writeArchiveVerifyEvidence(repo, change)
 
     const proof = archiveProof
     const result = await commitWorkflowTransition({
@@ -7133,7 +7193,7 @@ ${overrides}`
       phaseResultStatus: "ok", validationStatus: "not-required", validation: null,
     })
 
-    expect(result).toMatchObject({ status: "committed", canonical_stage: "ARCHIVED", validation: null })
+    expect(result).toMatchObject({ status: "committed", canonical_stage: "ARCHIVED", validation: { status: "verified" } })
     expect(YAML.parse(await fs.readFile(path.join(changeDir, "state.yaml"), "utf8"))).toMatchObject({ archived: true })
     await fs.rm(repo, { recursive: true, force: true })
   })
@@ -7713,6 +7773,7 @@ ${overrides}`
     await fs.mkdir(changeDir, { recursive: true })
     await fs.writeFile(path.join(changeDir, "state.yaml"), "work_type: feature\ncanonical_stage: VERIFY\ncompleted_canonical_stages: [DECIDE, PLAN, BUILD, VERIFY]\n", "utf8")
     await fs.writeFile(path.join(changeDir, "verify-report.yaml"), "status: passed\n", "utf8")
+    await writeArchiveVerifyEvidence(tempHome, change)
     const input = {
       workspaceRoot: tempHome, changeName: change, artifactStore: "openspec" as const,
       proof: archiveProof, expectedStage: "ARCHIVE" as const, callerResult: advanceWorkflow({ route: resolveWorkflowRoute("feature"), ...archiveProof }),
@@ -7742,6 +7803,7 @@ ${overrides}`
       "",
     ].join("\n"), "utf8")
     await fs.writeFile(path.join(changeDir, "verify-report.md"), "status: passed\n", "utf8")
+    await writeArchiveVerifyEvidence(root, change)
 
     try {
       const archive = createODFWorkflowArchive()
@@ -7779,6 +7841,7 @@ ${overrides}`
       "",
     ].join("\n"), "utf8")
     await fs.writeFile(path.join(changeDir, "verify-report.yaml"), "status: warning\n", "utf8")
+    await writeArchiveVerifyEvidence(root, change)
 
     try {
       const output = JSON.parse(await createODFWorkflowArchive().execute({
@@ -7846,6 +7909,7 @@ ${overrides}`
       { topic_key: `odf/${change}/state`, content: JSON.stringify({ work_type: "feature", canonical_stage: "VERIFY", completed_canonical_stages: ["DECIDE", "PLAN", "BUILD", "VERIFY"] }), created_at: new Date().toISOString() },
       { topic_key: `odf/${change}/verify-report`, content: "status: passed\n", created_at: new Date().toISOString() },
     ])
+    await writeArchiveVerifyEvidence(tempHome, change)
     try {
       const result = await commitWorkflowTransition({
         workspaceRoot: tempHome, changeName: change, artifactStore: "engram", proof: archiveProof,
@@ -7871,6 +7935,7 @@ ${overrides}`
     await fs.mkdir(changeDir, { recursive: true })
     await fs.writeFile(path.join(changeDir, "state.yaml"), "work_type: feature\ncanonical_stage: VERIFY\ncompleted_canonical_stages: [DECIDE, PLAN, BUILD, VERIFY]\n", "utf8")
     await fs.writeFile(path.join(changeDir, "verify-report.yaml"), "status: passed\n", "utf8")
+    await writeArchiveVerifyEvidence(tempHome, change)
     try {
       const input = {
         workspaceRoot: tempHome, changeName: change, artifactStore: "hybrid" as const, proof: archiveProof,
@@ -7910,6 +7975,7 @@ ${overrides}`
       await fs.unlink(statePath)
       await fs.symlink(externalState, statePath)
     }
+    await writeArchiveVerifyEvidence(tempHome, change)
 
     try {
       const first = await commitWorkflowTransition(archiveTransitionInput(tempHome, change, "openspec"))
@@ -7922,6 +7988,7 @@ ${overrides}`
         await fs.unlink(statePath)
         await fs.writeFile(statePath, state, "utf8")
       }
+      await writeArchiveVerifyEvidence(tempHome, change)
 
       const retry = await commitWorkflowTransition(archiveTransitionInput(tempHome, change, "openspec"))
       expect(retry).toMatchObject({ status: "committed", canonical_stage: "ARCHIVED" })
@@ -7948,6 +8015,7 @@ ${overrides}`
       project: path.basename(tempHome),
     }])
     fake.setFailureTopic(`odf/${change}/${failurePoint}`)
+    await writeArchiveVerifyEvidence(tempHome, change)
 
     try {
       const first = await commitWorkflowTransition(archiveTransitionInput(tempHome, change, "engram"))
@@ -7986,6 +8054,7 @@ ${overrides}`
       project: path.basename(tempHome),
     }])
     fake.setFailureTopic(`odf/${change}/${failurePoint}`)
+    await writeArchiveVerifyEvidence(tempHome, change)
 
     try {
       const first = await commitWorkflowTransition(archiveTransitionInput(tempHome, change, "hybrid"))
@@ -10156,6 +10225,20 @@ describe("mergeReceipt", () => {
     expect(saved.status).toBe("failed")
     const onDisk = JSON.parse(fsSync.readFileSync(path.join(tmp, ".odf", "receipt-rc-test.json"), "utf8"))
     expect(onDisk.cause).toBe("validation-failed")
+  })
+
+  it("fails closed when receipt persistence fails", () => {
+    const odfPath = path.join(tmp, ".odf")
+    fsSync.writeFileSync(odfPath, "not a directory", "utf8")
+    expect(() => saveReceiptJson(tmp, receipt() as any)).toThrow("receipt persistence failed")
+    expect(fsSync.readFileSync(odfPath, "utf8")).toBe("not a directory")
+  })
+
+  it("does not replace an unreadable receipt after a read error", () => {
+    const odfPath = path.join(tmp, ".odf")
+    fsSync.writeFileSync(odfPath, "not a directory", "utf8")
+    expect(() => mergeReceipt(tmp, receipt() as any)).toThrow("receipt read failed")
+    expect(fsSync.readFileSync(odfPath, "utf8")).toBe("not a directory")
   })
 
   it("does not clobber an existing action with an action-less update", () => {

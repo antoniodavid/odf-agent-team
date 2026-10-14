@@ -81,6 +81,37 @@ describe("delegation tokens", () => {
     expect(createDelegationTokenRecord(validInput({ source_root: "/bad\nroot" }))).toBeNull()
   })
 
+  it("rejects a symlinked .odf directory", async () => {
+    const outside = await fs.mkdtemp(path.join(os.tmpdir(), "odf-token-outside-"))
+    try {
+      await fs.symlink(outside, path.join(workspace, ".odf"), "dir")
+      const record = createDelegationTokenRecord(validInput())!
+      expect(writeDelegationToken(workspace, record)).toBe("delegation-token-unsafe-path")
+    } finally {
+      await fs.rm(outside, { recursive: true, force: true })
+    }
+  })
+
+  it("rejects a symlinked token file for reads and deletion", async () => {
+    const outside = path.join(os.tmpdir(), `odf-token-target-${process.pid}-${Date.now()}`)
+    const record = createDelegationTokenRecord(validInput())!
+    const directory = path.join(workspace, ".odf")
+    await fs.mkdir(directory)
+    await fs.writeFile(outside, "outside data", "utf8")
+    const tokenFile = path.join(directory, `delegation-${record.change}-${record.token}.json`)
+    try {
+      await fs.symlink(outside, tokenFile)
+      expect(readDelegationToken(workspace, record.change, record.token)).toEqual({
+        record: null,
+        error: "delegation-token-unsafe-path",
+      })
+      deleteDelegationToken(workspace, record.change, record.token)
+      await expect(fs.readFile(outside, "utf8")).resolves.toBe("outside data")
+    } finally {
+      await fs.rm(outside, { force: true })
+    }
+  })
+
   it("round-trips a token through the workspace .odf directory", async () => {
     const record = createDelegationTokenRecord(validInput())!
     expect(writeDelegationToken(workspace, record)).toBeNull()
