@@ -183,6 +183,13 @@ die() {
   exit 1
 }
 
+escape_sed_replacement() {
+  local value="${1//\\/\\\\}"
+  value="${value//&/\\&}"
+  value="${value//|/\\|}"
+  printf '%s' "$value"
+}
+
 # Portable config dir resolution for ANY OpenCode environment:
 #   ODF_DIR -> ODF_CONFIG_DIR -> $XDG_CONFIG_HOME/opencode -> ~/.config/opencode
 #   (falls back to %USERPROFILE%/.config/opencode on Windows/Git Bash)
@@ -214,6 +221,10 @@ else
   else
     ODF_DIR="${HOME}/.config/opencode"
   fi
+fi
+
+if [[ "$ODF_DIR" == *$'\n'* || "$ODF_DIR" == *$'\r'* ]]; then
+  die "❌ ODF_DIR must not contain line breaks."
 fi
 
 BACKUP_DIR="${ODF_DIR}/backups/install-$(date +%Y%m%d_%H%M%S)"
@@ -391,11 +402,13 @@ install_files() {
   # Rewrite the author's absolute config path to THIS environment's ODF_DIR so
   # the installed pack works on any machine. The repo keeps its original paths.
   rewrite_config_paths() {
-    local old_path="/home/adruban/.config/opencode"
+    local old_path="/home/adruban/\\.config/opencode"
     local f
+    local escaped_odf_dir
+    escaped_odf_dir="$(escape_sed_replacement "$ODF_DIR")"
     # Do not traverse dependency trees or historical/non-runtime artifacts.
     while IFS= read -r -d '' f; do
-      sed -i "s|${old_path}|${ODF_DIR}|g" "$f"
+      sed -i "s|${old_path}|${escaped_odf_dir}|g" "$f"
     done < <(
       find "$ODF_DIR" \
         \( -type d \( -name backups -o -name node_modules -o -name .git -o -name .hg -o -name .svn -o -name .cache -o -name coverage -o -name dist -o -name tmp -o -name logs \) -prune \) -o \

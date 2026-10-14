@@ -489,6 +489,59 @@ describe("install.sh", { timeout: 30000 }, () => {
     }
   })
 
+  it("rewrites config paths when ODF_DIR contains sed replacement metacharacters", () => {
+    const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), "odf-installer-special-path-"))
+    const configDir = path.join(tempHome, "config &pipe|back\\slash")
+    const oldPath = "/home/adruban/.config/opencode"
+    const fixture = path.join(configDir, "docs", "config-path.md")
+    fs.mkdirSync(path.dirname(fixture), { recursive: true })
+    fs.writeFileSync(fixture, `config: ${oldPath}\n`, "utf8")
+    const result = spawnSync("bash", [INSTALL_SCRIPT, "--yes"], {
+      env: {
+        ...process.env,
+        HOME: tempHome,
+        ODF_DIR: configDir,
+        ODF_CONFIG_DIR: path.join(tempHome, ".config", "opencode"),
+        ODF_SOURCE_DIR: REPO_ROOT,
+        ODF_SKIP_NPM: "1",
+        ODF_SKIP_SELFTEST: "1",
+      },
+      encoding: "utf8",
+      cwd: REPO_ROOT,
+    })
+    try {
+      expect(result.status, `${result.stdout}\n${result.stderr}`).toBe(0)
+      expect(fs.readFileSync(fixture, "utf8")).toBe(`config: ${configDir}\n`)
+    } finally {
+      cleanup(tempHome)
+    }
+  })
+
+  it("rejects ODF_DIR values containing line breaks before writing", () => {
+    const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), "odf-installer-linebreak-path-"))
+    const configDir = path.join(tempHome, "config\ninvalid")
+    const result = spawnSync("bash", [INSTALL_SCRIPT, "--yes"], {
+      env: {
+        ...process.env,
+        HOME: tempHome,
+        ODF_DIR: configDir,
+        ODF_CONFIG_DIR: path.join(tempHome, ".config", "opencode"),
+        ODF_SOURCE_DIR: REPO_ROOT,
+        ODF_SKIP_NPM: "1",
+        ODF_SKIP_SELFTEST: "1",
+      },
+      encoding: "utf8",
+      cwd: REPO_ROOT,
+    })
+    try {
+      expect(result.status).not.toBe(0)
+      expect(`${result.stdout}\n${result.stderr}`).toContain("ODF_DIR must not contain line breaks")
+      expect(fs.existsSync(configDir)).toBe(false)
+    } finally {
+      cleanup(tempHome)
+    }
+  })
+
   it("installs an entrypoint whose relative imports resolve", () => {
     const { result, tempHome } = runInstaller(["--yes"])
     try {
