@@ -7812,10 +7812,15 @@ export async function commitWorkflowTransition(opts: {
       if (fastLaneState.reason) {
         return makeResult("blocked", fastLaneState.reason, "The persisted fast-lane policy is malformed and cannot authorize archive.", read.snapshot, completed, opts.validation, null)
       }
-      const archiveValidation = governance.active
-        ? verifyEvidenceVerdict(opts.workspaceRoot, opts.changeName, opts.expectationsIds, fastLaneState.policy?.enabled === true)
-        : opts.validation
-      if (governance.active && archiveValidation?.status !== "verified") {
+      // Archive must independently revalidate the persisted VERIFY artifact;
+      // caller-supplied validation is only an input hint, never authorization.
+      const archiveValidation = verifyEvidenceVerdict(
+        opts.workspaceRoot,
+        opts.changeName,
+        opts.expectationsIds,
+        fastLaneState.policy?.enabled === true,
+      )
+      if (archiveValidation.status !== "verified") {
         const reason = archiveValidation?.status === "missing" ? "verification-evidence-missing" : "verification-evidence-invalid"
         return makeResult("blocked", reason, archiveValidation?.reason || "Valid VERIFY evidence is required before archiving.", read.snapshot, completed, archiveValidation, null)
       }

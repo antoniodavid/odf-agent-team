@@ -53,8 +53,8 @@ export function candidateDigestOrNull(workspaceDir: string, change?: string): st
 }
 
 export function saveReceiptJson(workspaceDir: string, receipt: ODFReceipt): void {
+  const dir = path.join(workspaceDir, ".odf")
   try {
-    const dir = path.join(workspaceDir, ".odf")
     fsSync.mkdirSync(dir, { recursive: true })
     fsSync.writeFileSync(
       path.join(dir, `receipt-${receipt.change}.json`),
@@ -62,7 +62,7 @@ export function saveReceiptJson(workspaceDir: string, receipt: ODFReceipt): void
       "utf8"
     )
   } catch (err) {
-    console.warn(`[odf-delegation] Failed to persist receipt for ${receipt.change}: ${err}`)
+    throw new Error(`receipt persistence failed for ${receipt.change}`, { cause: err })
   }
 }
 
@@ -79,18 +79,28 @@ export function mergeReceipt(
   workspaceDir: string,
   incoming: ODFReceipt
 ): ODFReceipt {
+  const receiptPath = path.join(workspaceDir, ".odf", `receipt-${incoming.change}.json`)
+  let existingContent: string | null = null
   try {
-    const existing = JSON.parse(
-      fsSync.readFileSync(path.join(workspaceDir, ".odf", `receipt-${incoming.change}.json`), "utf8")
-    ) as ODFReceipt
+    existingContent = fsSync.readFileSync(receiptPath, "utf8")
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
+      throw new Error(`receipt read failed for ${incoming.change}`, { cause: err })
+    }
+  }
+  if (existingContent !== null) {
+    let existing: ODFReceipt
+    try {
+      existing = JSON.parse(existingContent) as ODFReceipt
+    } catch (err) {
+      throw new Error(`receipt is malformed for ${incoming.change}`, { cause: err })
+    }
     if (existing.action && !incoming.action) {
       return existing
     }
     if (existing.action && incoming.action && incoming.action.committed !== "retry") {
       return existing
     }
-  } catch {
-    // No prior receipt or unreadable → write incoming.
   }
   incoming.candidate_digest = candidateDigestOrNull(workspaceDir, incoming.change)
   saveReceiptJson(workspaceDir, incoming)
@@ -104,7 +114,7 @@ Writes/merges <worktree>/.odf/receipt-{change}.json. Use after a phase fails or
 blocked: record the cause, evidence refs, and the committed action
 (scope-change | re-plan | abandon | retry). A receipt with an action set is
 terminal until a deliberate transition — an update without action never
-overwrites it. Best-effort like the policy gate: never blocks the flow.`,
+overwrites it. Persistence failures are returned as tool errors so the workflow cannot continue without a durable failure disposition.`,
     args: {
       change: tool.schema
         .string()
