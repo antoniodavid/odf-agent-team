@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest"
 import {
   inspectNativePretoolSafetyBlock,
   inspectNativeChildBindFailure,
+  inspectNativePreparedNotLaunched,
   inspectNativeSubagentLaunchNotExecuted,
 } from "./odf-native-attempt-recovery.js"
 
@@ -402,5 +403,171 @@ describe("inspectNativeChildBindFailure", () => {
     const context = bindFailureContext()
     mutate(context)
     expect(inspectNativeChildBindFailure(context, attempt, childSessionId)).toBeNull()
+  })
+})
+
+describe("inspectNativePreparedNotLaunched", () => {
+  const token = "odf-tok-prepared-not-launched-1"
+  const startedMs = Date.parse(attempt.startedAt)
+
+  function probeCode(): string {
+    return `function j(x){ if (x == null) return null; if (typeof x === "string") { try { return JSON.parse(x); } catch { return x; } } return x; }
+const out = {};
+try {
+  out.probe = j(await tools.odf_delegation_prepare({
+    phase: "${attempt.phase}",
+    change: "${attempt.change}",
+    prompt: "PROBE — do not launch.",
+    attempt_id: "${attempt.attemptId}"
+  }));
+} catch(e) { out.probe = "ERR: " + String(e); }
+return JSON.stringify(out);`
+  }
+
+  const preparedEnvelope = {
+    status: "prepared",
+    change: attempt.change,
+    phase: attempt.phase,
+    agent: "odoo_batch_implementer",
+    token,
+    delegation: {
+      agent: "odoo_batch_implementer",
+      description: `ODF IMPLEMENT → odoo_batch_implementer · ${attempt.change}`,
+      prompt: `<!-- ODF-DELEGATION {"change":"${attempt.change}","phase":"${attempt.phase}","agent":"odoo_batch_implementer","token":"${token}"} -->\nTask body`,
+    },
+    attempt_id: attempt.attemptId,
+  }
+
+  function truncatedNestedOutput(): string {
+    const text = JSON.stringify({ probe: preparedEnvelope }, null, 1)
+    const cut = text.indexOf('"delegation"')
+    return `${text.slice(0, cut + 20)}\n...[truncated]`
+  }
+
+  function probeContext(output = truncatedNestedOutput()): any[] {
+    return [{
+      id: "msg-parent-prepare",
+      type: "assistant",
+      time: { created: startedMs - 4_000, completed: startedMs + 1_000 },
+      content: [{
+        type: "tool",
+        id: "call-probe",
+        name: "execute",
+        state: {
+          status: "completed",
+          input: { code: probeCode() },
+          content: [{ type: "text", text: output }],
+        },
+      }],
+    }]
+  }
+
+  it("accepts the real nested truncated probe shape and hashes the token", () => {
+    const evidence = inspectNativePreparedNotLaunched(probeContext(), attempt)
+    expect(evidence).toMatchObject({
+      schema_version: 1,
+      evidence_type: "native-prepared-not-launched",
+      parent_session_id: attempt.parentSessionId,
+      attempt_id: attempt.attemptId,
+      prepare_message_id: "msg-parent-prepare",
+      prepare_call_id: "call-probe",
+      prepared_agent: "odoo_batch_implementer",
+      prepare_output_truncated: true,
+      launch_calls_after_prepare: 0,
+    })
+    expect(evidence?.prepared_token_sha256).toMatch(/^[0-9a-f]{64}$/)
+    expect(JSON.stringify(evidence)).not.toContain(token)
+  })
+
+  it("accepts a parseable prepared envelope and ignores later non-launch activity", () => {
+    const context = probeContext(JSON.stringify({ probe: preparedEnvelope }))
+    context.push({
+      id: "msg-parent-recheck",
+      type: "assistant",
+      time: { created: startedMs + 2_000, completed: startedMs + 3_000 },
+      content: [{
+        type: "tool",
+        id: "call-recheck",
+        name: "execute",
+        state: {
+          status: "completed",
+          input: {
+            code: `let probe = null;
+try { probe = j(await tools.odf_delegation_prepare({ phase: "${attempt.phase}", change: "${attempt.change}", attempt_id: "${attempt.attemptId}" })); } catch(e) {}
+return JSON.stringify({ probe });`,
+          },
+          content: [{ type: "text", text: JSON.stringify({ probe: { status: "blocked", reason: "attempt-id-reused" } }) }],
+        },
+      }],
+    })
+    context.push({
+      id: "msg-parent-settle",
+      type: "assistant",
+      time: { created: startedMs + 4_000, completed: startedMs + 5_000 },
+      content: [
+        {
+          type: "tool",
+          id: "call-override",
+          name: "execute",
+          state: {
+            status: "completed",
+            input: { code: `return await tools.odf_workflow_override({ change_name: "${attempt.change}", artifact_store: "openspec", action: "settle-attempt", attempt_id: "${attempt.attemptId}", confirm_no_active_run: true, reason: "Recovery retry for the stale probe attempt." })` },
+            content: [{ type: "text", text: JSON.stringify({ status: "blocked", reason: "attempt-not-found" }) }],
+          },
+        },
+        { type: "tool", id: "call-shell", name: "shell", state: { status: "completed", input: { command: "cat .odf/attempt-ledger-barcode-fix.jsonl" }, content: [{ type: "text", text: "{}" }] } },
+      ],
+    })
+    expect(inspectNativePreparedNotLaunched(context, attempt)).toMatchObject({
+      evidence_type: "native-prepared-not-launched",
+      prepare_output_truncated: false,
+    })
+  })
+
+  it.each([
+    ["a later host subagent launch", (context: any[]) => {
+      context.push({
+        id: "msg-parent-launch", type: "assistant", time: { created: startedMs + 2_000, completed: startedMs + 3_000 },
+        content: [{ type: "tool", id: "call-subagent", name: "subagent", executed: true, state: { status: "completed", input: {}, content: [{ type: "text", text: "child-session" }] } }],
+      })
+    }],
+    ["a later host task part", (context: any[]) => {
+      context.push({
+        id: "msg-parent-task", type: "assistant", time: { created: startedMs + 2_000, completed: startedMs + 3_000 },
+        content: [{ type: "tool", id: "call-task", name: "task", state: { status: "running", input: {} } }],
+      })
+    }],
+    ["a later odf_delegation_launch call", (context: any[]) => {
+      context.push({
+        id: "msg-parent-launch-call", type: "assistant", time: { created: startedMs + 2_000, completed: startedMs + 3_000 },
+        content: [{ type: "tool", id: "call-launch", name: "execute", state: { status: "completed", input: { code: `return await tools.odf_delegation_launch({ token: "${token}", change: "${attempt.change}", prompt: "x" })` }, content: [{ type: "text", text: "{}" }] } }],
+      })
+    }],
+    ["a later odf_delegate call", (context: any[]) => {
+      context.push({
+        id: "msg-parent-delegate", type: "assistant", time: { created: startedMs + 2_000, completed: startedMs + 3_000 },
+        content: [{ type: "tool", id: "call-delegate", name: "execute", state: { status: "completed", input: { code: `return await tools.odf_delegate({ phase: "IMPLEMENT", prompt: "x", attempt_id: "${attempt.attemptId}" })` }, content: [{ type: "text", text: "{}" }] } }],
+      })
+    }],
+    ["a duplicated prepared envelope", (context: any[]) => {
+      context.push(structuredClone(context[0]))
+    }],
+    ["a prepare call without a prepared envelope", (context: any[]) => {
+      context[0].content[0].state.content[0].text = JSON.stringify({ probe: { status: "blocked", reason: "attempt-id-reused" } })
+    }],
+    ["a dynamically composed prepare call", (context: any[]) => {
+      context[0].content[0].state.input.code = probeCode().replace(`attempt_id: "${attempt.attemptId}"`, "...extra")
+    }],
+    ["a prepare message outside the attempt interval", (context: any[]) => {
+      context[0].time = { created: startedMs + 2_000, completed: startedMs + 3_000 }
+    }],
+  ])("fails closed for %s", (_label, mutate) => {
+    const context = probeContext()
+    mutate(context)
+    expect(inspectNativePreparedNotLaunched(context, attempt)).toBeNull()
+  })
+
+  it("fails closed for an empty transcript", () => {
+    expect(inspectNativePreparedNotLaunched([], attempt)).toBeNull()
   })
 })
