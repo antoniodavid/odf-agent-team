@@ -1,4 +1,7 @@
-import { afterEach, describe, expect, it, vi } from "vitest"
+import { afterAll, afterEach, describe, expect, it, vi } from "vitest"
+import * as fs from "node:fs"
+import * as os from "node:os"
+import * as path from "node:path"
 import { ODF_REGISTERED_TOOLS } from "./odf-delegation-shared.js"
 import { ODF_SYSTEM_RULES } from "../plugins/odf-delegation.js"
 import {
@@ -26,8 +29,14 @@ import {
   setupODFV2,
 } from "./opencode-v2-adapter.js"
 import { readObservedSessionStatus } from "./odf-session-status.js"
+import { writeProjectActivation } from "../scripts/lib/odf-project-activation.js"
 
-function testContext(events: unknown[] = []) {
+const activeTestRoot = fs.mkdtempSync(path.join(os.tmpdir(), "odf-v2-project-"))
+writeProjectActivation({ directory: activeTestRoot, project: "odf-v2-project" })
+
+afterAll(() => { fs.rmSync(activeTestRoot, { recursive: true, force: true }) })
+
+function testContext(events: unknown[] = [], directory = activeTestRoot) {
   const tools: any[] = []
   const hooks: Array<{ domain: string; name: string; callback: (input: any) => Promise<void> }> = []
   const disposers: ReturnType<typeof vi.fn>[] = []
@@ -40,7 +49,7 @@ function testContext(events: unknown[] = []) {
   }
 
   const context = {
-    location: { directory: process.cwd() },
+    location: { directory },
     tool: {
       transform: async (callback: (editor: { add: (tool: any) => void }) => void) => {
         callback({ add: tool => tools.push(tool) })
@@ -115,6 +124,20 @@ function v2Session(contextResponse: unknown = [{ type: "assistant", content: [{ 
 
 describe("OpenCode V2 ODF adapter", () => {
   afterEach(() => vi.restoreAllMocks())
+
+  it("leaves non-initialized projects completely inert", async () => {
+    const inactiveRoot = fs.mkdtempSync(path.join(os.tmpdir(), "odf-v2-inactive-"))
+    try {
+      const fixture = testContext([], inactiveRoot)
+      const cleanup = await setupODFV2(fixture.context as any)
+      expect(fixture.tools).toHaveLength(0)
+      expect(fixture.hooks).toHaveLength(0)
+      expect(fixture.context.event.subscribe).not.toHaveBeenCalled()
+      await cleanup()
+    } finally {
+      fs.rmSync(inactiveRoot, { recursive: true, force: true })
+    }
+  })
 
   it("defines the stable V2 plugin and registers every ODF tool exactly once", async () => {
     const fixture = testContext()
@@ -629,6 +652,7 @@ describe("OpenCode V2 /odf-new entry authorization", () => {
     const fixture = testContext()
     const tmpDir = fsModule.realpathSync(fsModule.mkdtempSync(pathModule.join(osModule.tmpdir(), "odf-v2-entry-")))
     fixture.context.location.directory = tmpDir
+    writeProjectActivation({ directory: tmpDir, project: "odf-v2-entry" })
     const cleanup = await setupODFV2(fixture.context as any)
     const sessionID = "session-bind"
     const messageID = "msg-bind"
@@ -676,6 +700,7 @@ describe("OpenCode V2 /odf-new entry authorization", () => {
     const fixture = testContext()
     const tmpDir = fsModule.realpathSync(fsModule.mkdtempSync(pathModule.join(osModule.tmpdir(), "odf-v2-natural-entry-")))
     fixture.context.location.directory = tmpDir
+    writeProjectActivation({ directory: tmpDir, project: "odf-v2-natural-entry" })
     const cleanup = await setupODFV2(fixture.context as any)
     const sessionID = "session-natural-bind"
     const messageID = "msg-natural-bind"

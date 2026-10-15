@@ -1,4 +1,7 @@
-import { afterEach, describe, expect, it, vi } from "vitest"
+import { afterAll, afterEach, describe, expect, it, vi } from "vitest"
+import * as fs from "node:fs"
+import * as os from "node:os"
+import * as path from "node:path"
 import { tool as v1Tool } from "@opencode-ai/plugin"
 import {
   createODFRegisteredTools,
@@ -9,12 +12,17 @@ import OdfEntrypoint from "../plugins/odf-delegation.js"
 import { ODF_REGISTERED_TOOLS } from "./odf-delegation-shared.js"
 import { ODF_PLUGIN_ID } from "./runtime-boundary.js"
 import { setupODFV2 } from "./opencode-v2-adapter.js"
+import { writeProjectActivation } from "../scripts/lib/odf-project-activation.js"
 
 type ContractHook = {
   domain: "tool" | "session"
   name: string
   callback: (input: any) => Promise<void>
 }
+
+const activeContractRoot = fs.mkdtempSync(path.join(os.tmpdir(), "odf-contract-project-"))
+writeProjectActivation({ directory: activeContractRoot, project: "odf-contract-project" })
+afterAll(() => { fs.rmSync(activeContractRoot, { recursive: true, force: true }) })
 
 function createContractFixture() {
   const tools: any[] = []
@@ -41,7 +49,7 @@ function createContractFixture() {
     return { dispose }
   }
   const context = {
-    location: { directory: process.cwd() },
+    location: { directory: activeContractRoot },
     tool: {
       transform: async (callback: (editor: { add: (tool: any) => void }) => void) => {
         callback({ add: tool => tools.push(tool) })

@@ -4,18 +4,20 @@ description: "Initialize ODF project context. Detects Odoo version, modules, tes
 
 # ODF: Initialize Project
 
-**Parse command:** `/odf-init [--force]`
+**Parse command:** `/odf-init [--force] [--disable]`
 
 Examples:
 - `/odf-init` -- Detect and persist project context
 - `/odf-init --force` -- Re-detect even if config already exists
 - `/odf-init --deep` -- Also index active Doodba source repos with CodeGraph
+- `/odf-init --disable` -- Disable the ODF harness for this project without deleting its Engram context
 
 ## What This Does
 
 Scans the current project to detect Odoo version, modules, test runner, linting
 tools, and conventions. Persists the result to Engram so all ODF phases can
-read it without re-detecting.
+read it without re-detecting. A verified initialization also writes
+`.odf/project.json`, which activates the ODF harness only for this project.
 
 ## Orchestrator Instructions
 
@@ -33,7 +35,7 @@ read it without re-detecting.
    ```
    - Add `--diff` when re-detecting (shows changes vs the persisted config), `--fresh` to bypass the checksum cache, and pass user overrides as flags (`--odoo-version 18`, `--docker-container odoo`, `--codegraph`).
    - Exit codes: `0` ok; `1` warnings — show them; `2` blocked — fall back to manual detection (read `skills/odf-init/SKILL.md` steps) or ask the user for the missing values; never guess.
-   - **Success requires the CLI output to include `persisted to Engram topic odf-init/{project} (verified)`.** The readback is scoped to `--project {project}`, so it does not depend on the invocation cwd. If that line is absent (no `--persist`, persist error, or readback mismatch), the project is NOT initialized: stop and report, do not claim success, do not fall back to manual persistence. On success, forward `artifact_ref: { store: engram, ref: odf-init/{project} }`.
+   - **Success requires the CLI output to include both `persisted to Engram topic odf-init/{project} (verified)` and `ODF activation manifest:`.** The readback is scoped to `--project {project}`, so it does not depend on the invocation cwd. If either line is absent (no `--persist`, persist error, readback mismatch, or activation write error), the project is NOT initialized: stop and report, do not claim success, do not fall back to manual persistence. On success, forward `artifact_ref: { store: engram, ref: odf-init/{project} }`.
    - If the CLI cannot run, read `skills/odf-init/SKILL.md` and run detection manually.
 
 3. **Show results** to user:
@@ -49,7 +51,8 @@ read it without re-detecting.
      Environment: {sources active} sources, {declared-absent} declared-absent, {undeclared} undeclared
      CodeGraph: {indexed yes/no} ({root})
      artifact_ref: { store: engram, ref: odf-init/{project} }
-     Config saved to Engram. All ODF commands will use this context.
+     Activation: .odf/project.json (enabled)
+     Config saved to Engram. The ODF harness is active only in this project.
    ```
    Show warnings when `declared_absent` or `undeclared` sources exist, when a project module depends on an unresolved non-core module, or when the CodeGraph index is missing.
 
@@ -64,7 +67,8 @@ read it without re-detecting.
 
 - `/odf-new` checks for `odf-init/{project}` in Engram before starting. If missing, suggests `/odf-init` first.
 - All phase skills read project config for test/lint commands instead of hardcoding.
-- `/odf-init` is idempotent -- running it again updates the existing config via topic_key upsert.
+- `/odf-init` is idempotent -- running it again updates the existing config via topic_key upsert and refreshes `.odf/project.json`.
+- `/odf-init --disable` removes `.odf/project.json` but leaves the Engram project context intact.
 
 ## Manual Overrides
 
