@@ -22,6 +22,7 @@ import {
   type V2SessionApi,
 } from "./odf-delegation-health.js"
 import { observeOpenCodeSessionEvent } from "./odf-session-status.js"
+import { isProjectActivated } from "../scripts/lib/odf-project-activation.js"
 import { ODF_PLUGIN_ID } from "./runtime-boundary.js"
 import { loadRegistry } from "./odf-registry-io.js"
 
@@ -345,6 +346,11 @@ async function registerV2Hooks(
 export async function setupODFV2(context: V2Context): Promise<V2Cleanup> {
   const registrations: V2Registration[] = []
   const directory = context.location.directory
+  // The plugin is installed globally, but ODF is project-scoped. An absent or
+  // mismatched manifest leaves this project completely inert: no runtime warmup,
+  // tools, hooks, system rules, or event subscription are installed.
+  if (!isProjectActivated(directory)) return async () => {}
+
   // The guard mints the single-use entry capability; the registered tools
   // (odf_workflow_bind) consume it. Both sides must share the same maps.
   const entryAuthorizations: ODFEntryAuthorizations = new Map()

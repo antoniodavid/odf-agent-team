@@ -25,6 +25,7 @@ import { pathToFileURL } from "node:url"
 import YAML from "yaml"
 import { detectEnv } from "./odf-env-detect.js"
 import { dependencyProbe } from "./lib/dependencies.js"
+import { disableProjectActivation, writeProjectActivation } from "./lib/odf-project-activation.js"
 
 const COMPOSE_FILES = ["docker-compose.yml", "docker-compose.yaml", "compose.yml", "compose.yaml", "devel.yaml"]
 
@@ -388,7 +389,7 @@ export function resolveRepoArg(root, repoArg) {
 }
 
 async function main(argv) {
-  const args = { root: null, repo: null, format: "summary", persist: false, fresh: false, diff: false, codegraph: false, deep: false, odooVersion: null, dockerContainer: null }
+  const args = { root: null, repo: null, format: "summary", persist: false, fresh: false, diff: false, codegraph: false, deep: false, disable: false, odooVersion: null, dockerContainer: null }
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === "--root") args.root = argv[++i]
     else if (argv[i] === "--repo") args.repo = argv[++i]
@@ -398,17 +399,24 @@ async function main(argv) {
     else if (argv[i] === "--diff") args.diff = true
     else if (argv[i] === "--codegraph") args.codegraph = true
     else if (argv[i] === "--deep") args.deep = true
+    else if (argv[i] === "--disable") args.disable = true
     else if (argv[i] === "--odoo-version") args.odooVersion = Number(argv[++i]) || null
     else if (argv[i] === "--docker-container") args.dockerContainer = argv[++i]
   }
   if (!args.root || !args.repo) {
-    console.error("Usage: node scripts/odf-project-scan.js --root <doodba-root> --repo <repo-dir> [--format summary|json|yaml|markdown] [--persist] [--fresh] [--diff] [--codegraph] [--deep] [--odoo-version N] [--docker-container NAME]")
+    console.error("Usage: node scripts/odf-project-scan.js --root <doodba-root> --repo <repo-dir> [--format summary|json|yaml|markdown] [--persist] [--fresh] [--diff] [--codegraph] [--deep] [--disable] [--odoo-version N] [--docker-container NAME]")
     process.exit(2)
   }
   const root = path.resolve(args.root)
   // Resolve a relative --repo against the Doodba src dir (not the CWD) so a
   // bare repo name never produces a degraded scan of the wrong directory.
   const repo = resolveRepoArg(root, args.repo)
+  if (args.disable) {
+    const disabled = disableProjectActivation(repo)
+    console.log(disabled ? `ODF activation disabled for ${projectName(repo)}.` : `Could not disable ODF activation for ${projectName(repo)}.`)
+    process.exitCode = disabled ? 0 : 2
+    return
+  }
   const project = projectName(repo)
   const cached = args.diff || !args.fresh ? readPersistedConfig(project, { cwd: repo }) : null
 
@@ -463,6 +471,13 @@ async function main(argv) {
         verified = readPersistedConfig(project, { cwd: repo })
       }
       if (verified && verified.scan_checksum === config.scan_checksum) {
+        try {
+          writeProjectActivation({ directory: repo, project })
+          lines.push(`ODF activation manifest: ${path.join(repo, ".odf", "project.json")}`)
+        } catch (error) {
+          lines.push(`activation error: ${error instanceof Error ? error.message : String(error)}`)
+          exit = 2
+        }
         lines.push(`persisted to Engram topic odf-init/${project} (verified)`)
         artifactRef = { store: "engram", ref: `odf-init/${project}` }
         lines.push(`artifact_ref: ${JSON.stringify(artifactRef)}`)
