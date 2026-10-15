@@ -228,6 +228,7 @@ async function registerV2Hooks(
   guard: LoopGuardRuntime,
   registrations: V2Registration[],
   systemRules: string,
+  handleNativeDelegationSessionEvent: (event: unknown, session: V2SessionApi) => Promise<void>,
   odfNewCommandBody: string | null,
   odfFixCommandBody: string | null,
 ): Promise<void> {
@@ -325,6 +326,7 @@ async function registerV2Hooks(
     try {
       for await (const event of context.event.subscribe({ signal: eventAbort.signal })) {
         observeOpenCodeSessionEvent(event)
+        await handleNativeDelegationSessionEvent(event, context.session)
         await guard.event?.({ event: eventForV1Guard(event) as never })
       }
     } catch (error) {
@@ -350,7 +352,7 @@ export async function setupODFV2(context: V2Context): Promise<V2Cleanup> {
   const guard = createStableDiscoveryGuard(v2AbortClient(context), entryAuthorizations, entryGenerations, directory)
 
   try {
-    const { createODFRegisteredTools, ODF_SYSTEM_RULES, startOdfRuntime } = await import("../plugins/odf-delegation.js")
+    const { createODFRegisteredTools, ODF_SYSTEM_RULES, startOdfRuntime, handleNativeDelegationSessionEvent } = await import("../plugins/odf-delegation.js")
     // Registry cache, metrics flusher, unregistered-skill discovery and the
     // learning loop used to run inside the V1 `server` entrypoint. Running them
     // here keeps those side effects alive under the V2 host.
@@ -402,7 +404,7 @@ export async function setupODFV2(context: V2Context): Promise<V2Cleanup> {
         })
       }
     }))
-    await registerV2Hooks(context, guard, registrations, ODF_SYSTEM_RULES, loadOdfNewCommandBody(), loadOdfFixCommandBody())
+    await registerV2Hooks(context, guard, registrations, ODF_SYSTEM_RULES, handleNativeDelegationSessionEvent, loadOdfNewCommandBody(), loadOdfFixCommandBody())
     return async () => {
       await Promise.allSettled(registrations.splice(0).map(registration => registration.dispose()))
       await guard.dispose?.()

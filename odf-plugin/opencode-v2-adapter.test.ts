@@ -1,6 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { ODF_REGISTERED_TOOLS } from "./odf-delegation-shared.js"
 import { ODF_SYSTEM_RULES } from "../plugins/odf-delegation.js"
+import {
+  clearNativeLaunchChildren,
+  handleNativeDelegationSessionEvent,
+  registerNativeLaunchChild,
+} from "../plugins/odf-delegation.js"
 import { invokeTask } from "../plugins/odf-delegation.js"
 import {
   createV2SessionTaskApi,
@@ -426,6 +431,29 @@ describe("OpenCode V2 ODF adapter", () => {
     expect(session.interrupt).toHaveBeenCalledWith({ sessionID: "child-session" })
   })
 
+  it("waits for the cancelled child to become idle before returning", async () => {
+    const session = v2Session()
+    let rejectPrompt!: (error: Error) => void
+    session.prompt.mockImplementation(() => new Promise((_, reject) => { rejectPrompt = reject }))
+    let releaseIdle!: () => void
+    session.wait.mockImplementation(() => new Promise<void>(resolve => { releaseIdle = resolve }) as any)
+    const controller = new AbortController()
+    const task = createV2SessionTaskApi({ ...taskContext(), signal: controller.signal } as any, session as any)
+    const pending = invokeTask(task, "odoo_qa_engineer", "wait", undefined, 1_000, controller.signal)
+
+    await vi.waitFor(() => expect(session.prompt).toHaveBeenCalled())
+    controller.abort()
+    await vi.waitFor(() => expect(session.interrupt).toHaveBeenCalledWith({ sessionID: "child-session" }))
+    await expect(Promise.race([
+      pending.then(() => "returned", () => "rejected"),
+      new Promise(resolve => setTimeout(() => resolve("pending"), 25)),
+    ])).resolves.toBe("pending")
+    releaseIdle()
+    rejectPrompt(new Error("aborted by user"))
+    await expect(pending).rejects.toThrow("task-cancelled")
+    expect(session.wait).toHaveBeenCalledWith({ sessionID: "child-session" })
+  })
+
   it("interrupts the V2 child session when the task api is resolved through findTaskApi", async () => {
     // The real delegation path: the adapter injects its own bridge as
     // toolCtx.task, so findTaskApi resolves it. It used to re-wrap that bridge,
@@ -458,6 +486,37 @@ describe("OpenCode V2 ODF adapter", () => {
     await wrapper.abort?.(invocation)
 
     expect(session.interrupt).toHaveBeenCalledWith({ sessionID: "child-session" })
+  })
+
+  it("interrupts every child in a launch when one child reports MessageAbortedError", async () => {
+    const session = { interrupt: vi.fn(async () => ({}) as any) }
+    registerNativeLaunchChild("parent-session", "launch-token", "child-a")
+    registerNativeLaunchChild("parent-session", "launch-token", "child-b")
+
+    await handleNativeDelegationSessionEvent({
+      type: "session.error",
+      properties: {
+        sessionID: "child-a",
+        error: { name: "MessageAbortedError", data: { message: "cancelled" } },
+      },
+    }, session)
+
+    expect(session.interrupt).toHaveBeenCalledWith({ sessionID: "child-a" })
+    expect(session.interrupt).toHaveBeenCalledWith({ sessionID: "child-b" })
+    clearNativeLaunchChildren("parent-session", "launch-token")
+  })
+
+  it("does not interrupt a launch for a normal session.idle event", async () => {
+    const session = { interrupt: vi.fn(async () => ({}) as any) }
+    registerNativeLaunchChild("parent-session", "idle-token", "child-a")
+
+    await handleNativeDelegationSessionEvent({
+      type: "session.idle",
+      properties: { sessionID: "child-a" },
+    }, session)
+
+    expect(session.interrupt).not.toHaveBeenCalled()
+    clearNativeLaunchChildren("parent-session", "idle-token")
   })
 
   it.each([
