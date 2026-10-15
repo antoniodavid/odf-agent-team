@@ -989,6 +989,183 @@ describe("createODFWorkflowOverride", () => {
     expect(audit[0].evidence.prepared_token_sha256).not.toBe(token)
   })
 
+  it("settles a prepared native attempt when its prepare output proves no launch followed", async () => {
+    const attemptId = "native-probe-not-launched-1"
+    const parentSessionId = "native-parent"
+    const startedAt = "2026-09-21T20:00:00.000Z"
+    const startedMs = Date.parse(startedAt)
+    const token = "odf-tok-probe-not-launched-1"
+    const ledgerPath = path.join(root, ".odf", "attempt-ledger-ov-change.jsonl")
+    await fs.mkdir(path.dirname(ledgerPath), { recursive: true })
+    await fs.writeFile(ledgerPath, JSON.stringify({
+      attempt_id: attemptId, branch_id: "default", change: "ov-change", phase: "IMPLEMENT", next_stage: "BUILD",
+      status: "running", started_at: startedAt, updated_at: startedAt, settled_at: null,
+      reason: "acquired", result_status: "running", candidate_digest: null,
+      native_parent_session_id: parentSessionId,
+    }) + "\n", "utf8")
+
+    const preparedResult = {
+      status: "prepared", change: "ov-change", phase: "IMPLEMENT", agent: "odoo_batch_implementer", token,
+      delegation: {
+        agent: "odoo_batch_implementer",
+        description: "ODF IMPLEMENT → odoo_batch_implementer · ov-change",
+        prompt: `<!-- ODF-DELEGATION {"change":"ov-change","phase":"IMPLEMENT","agent":"odoo_batch_implementer","token":"${token}"} -->\nTask body`,
+      },
+      attempt_id: attemptId,
+    }
+    const fullOutput = JSON.stringify({ probe: preparedResult }, null, 1)
+    const truncatedOutput = `${fullOutput.slice(0, fullOutput.indexOf('"delegation"') + 20)}\n...[truncated]`
+    const context = [
+      {
+        id: "msg-parent-prepare",
+        type: "assistant",
+        time: { created: startedMs - 1_000, completed: startedMs + 1_000 },
+        content: [{
+          type: "tool", id: "call-probe", name: "execute",
+          state: {
+            status: "completed",
+            input: {
+              code: `const out = {};\ntry {\n  out.probe = j(await tools.odf_delegation_prepare({\n    phase: "IMPLEMENT",\n    change: "ov-change",\n    prompt: "PROBE — do not launch.",\n    attempt_id: "${attemptId}"\n  }));\n} catch(e) { out.probe = "ERR: " + String(e); }\nreturn JSON.stringify(out);`,
+            },
+            content: [{ type: "text", text: truncatedOutput }],
+          },
+        }],
+      },
+      {
+        id: "msg-parent-recheck",
+        type: "assistant",
+        time: { created: startedMs + 2_000, completed: startedMs + 3_000 },
+        content: [{
+          type: "tool", id: "call-recheck", name: "execute",
+          state: {
+            status: "completed",
+            input: {
+              code: `let probe = null;\ntry { probe = j(await tools.odf_delegation_prepare({ phase: "IMPLEMENT", change: "ov-change", attempt_id: "${attemptId}" })); } catch(e) {}\nreturn JSON.stringify({ probe });`,
+            },
+            content: [{ type: "text", text: JSON.stringify({ probe: { status: "blocked", reason: "attempt-id-reused" } }) }],
+          },
+        }],
+      },
+    ]
+    const session = {
+      get: vi.fn().mockResolvedValue({
+        id: parentSessionId,
+        time: { created: startedMs - 100_000, updated: startedMs + 10_000, idle: startedMs + 20_000 },
+      }),
+      wait: vi.fn().mockResolvedValue(undefined),
+      context: vi.fn().mockResolvedValue(context),
+    }
+    const { createODFWorkflowOverride } = await import("./odf-delegation.js")
+    const output = JSON.parse(await createODFWorkflowOverride().execute(baseArgs({
+      action: "settle-unlaunched-attempt",
+      target_stage: undefined,
+      attempt_id: attemptId,
+      confirm_no_active_run: true,
+    }), { sessionID: "fresh-recovery-session", [ODF_V2_SESSION]: session } as any) as string)
+
+    expect(output).toMatchObject({
+      status: "settled",
+      action: "settle-unlaunched-attempt",
+      attempt_id: attemptId,
+      verified_unlaunched: true,
+      recovery_evidence: {
+        evidence_type: "native-prepared-not-launched",
+        parent_session_id: parentSessionId,
+        attempt_id: attemptId,
+        prepare_message_id: "msg-parent-prepare",
+        prepare_call_id: "call-probe",
+        prepared_agent: "odoo_batch_implementer",
+        prepare_output_truncated: true,
+      },
+    })
+    expect(output.recovery_evidence.prepared_token_sha256).toMatch(/^[0-9a-f]{64}$/)
+    expect(JSON.stringify(output)).not.toContain(token)
+
+    const records = (await fs.readFile(ledgerPath, "utf8")).trim().split("\n").map(line => JSON.parse(line))
+    expect(records).toHaveLength(2)
+    expect(records.at(-1)).toMatchObject({ status: "failed", reason: "task-cancelled", native_parent_session_id: parentSessionId })
+    const audit = (await fs.readFile(path.join(root, ".odf", "override-ov-change.jsonl"), "utf8"))
+      .trim().split("\n").map(line => JSON.parse(line))
+    expect(audit[0]).toMatchObject({
+      action: "settle-unlaunched-attempt",
+      outcome: "parent-prepared-not-launched-proof-persisted",
+      attempt_id: attemptId,
+      evidence: { evidence_type: "native-prepared-not-launched", prepare_call_id: "call-probe" },
+    })
+    expect(JSON.stringify(audit)).not.toContain(token)
+  })
+
+  it("keeps a prepared native attempt running when a later launch call exists", async () => {
+    const attemptId = "native-probe-launch-present-1"
+    const parentSessionId = "native-parent"
+    const startedAt = "2026-09-21T20:00:00.000Z"
+    const startedMs = Date.parse(startedAt)
+    const token = "odf-tok-probe-launch-present-1"
+    const ledgerPath = path.join(root, ".odf", "attempt-ledger-ov-change.jsonl")
+    await fs.mkdir(path.dirname(ledgerPath), { recursive: true })
+    await fs.writeFile(ledgerPath, JSON.stringify({
+      attempt_id: attemptId, branch_id: "default", change: "ov-change", phase: "IMPLEMENT", next_stage: "BUILD",
+      status: "running", started_at: startedAt, updated_at: startedAt, settled_at: null,
+      reason: "acquired", result_status: "running", candidate_digest: null,
+      native_parent_session_id: parentSessionId,
+    }) + "\n", "utf8")
+
+    const preparedResult = {
+      status: "prepared", change: "ov-change", phase: "IMPLEMENT", agent: "odoo_batch_implementer", token,
+      delegation: {
+        agent: "odoo_batch_implementer",
+        description: "ODF IMPLEMENT → odoo_batch_implementer · ov-change",
+        prompt: `<!-- ODF-DELEGATION {"change":"ov-change","phase":"IMPLEMENT","agent":"odoo_batch_implementer","token":"${token}"} -->\nTask body`,
+      },
+      attempt_id: attemptId,
+    }
+    const context = [
+      {
+        id: "msg-parent-prepare",
+        type: "assistant",
+        time: { created: startedMs - 1_000, completed: startedMs + 1_000 },
+        content: [{
+          type: "tool", id: "call-probe", name: "execute",
+          state: {
+            status: "completed",
+            input: {
+              code: `const out = {};\ntry {\n  out.probe = j(await tools.odf_delegation_prepare({\n    phase: "IMPLEMENT",\n    change: "ov-change",\n    prompt: "PROBE — do not launch.",\n    attempt_id: "${attemptId}"\n  }));\n} catch(e) { out.probe = "ERR: " + String(e); }\nreturn JSON.stringify(out);`,
+            },
+            content: [{ type: "text", text: JSON.stringify({ probe: preparedResult }) }],
+          },
+        }],
+      },
+      {
+        id: "msg-parent-launch",
+        type: "assistant",
+        time: { created: startedMs + 2_000, completed: startedMs + 3_000 },
+        content: [{
+          type: "tool", id: "call-subagent", name: "subagent", executed: true,
+          state: { status: "completed", input: {}, content: [{ type: "text", text: "child-session" }] },
+        }],
+      },
+    ]
+    const session = {
+      get: vi.fn().mockResolvedValue({
+        id: parentSessionId,
+        time: { created: startedMs - 100_000, updated: startedMs + 10_000, idle: startedMs + 20_000 },
+      }),
+      wait: vi.fn().mockResolvedValue(undefined),
+      context: vi.fn().mockResolvedValue(context),
+    }
+    const { createODFWorkflowOverride } = await import("./odf-delegation.js")
+    const output = JSON.parse(await createODFWorkflowOverride().execute(baseArgs({
+      action: "settle-unlaunched-attempt",
+      target_stage: undefined,
+      attempt_id: attemptId,
+      confirm_no_active_run: true,
+    }), { sessionID: "fresh-recovery-session", [ODF_V2_SESSION]: session } as any) as string)
+
+    expect(output).toMatchObject({ status: "blocked", reason: "attempt-parent-unlaunched-proof-missing" })
+    expect((await fs.readFile(ledgerPath, "utf8")).trim().split("\n")).toHaveLength(1)
+    expect(fsSync.existsSync(path.join(root, ".odf", "override-ov-change.jsonl"))).toBe(false)
+  })
+
   it("settles a launched native attempt only after proving the exact child-bind failure", async () => {
     const attemptId = "native-bind-failed-1"
     const parentSessionId = "ses_f086e2882ffe4g4qlFO0iLTN16"
