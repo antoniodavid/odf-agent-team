@@ -3134,6 +3134,98 @@ async function sealProofBackedDelegation(opts: {
  * odf_delegation_launch, then finishes with odf_delegation_seal.
  */
 const activeNativeLaunches = new Set<string>()
+const nativeLaunchChildren = new Map<string, Set<string>>()
+const nativeChildLaunchKeys = new Map<string, Set<string>>()
+
+type NativeLaunchInterruptSession = Pick<V2SessionApi, "interrupt">
+
+function nativeLaunchKey(parentSessionId: string, token: string): string {
+  return `${parentSessionId}\u0000${token}`
+}
+
+export function registerNativeLaunchChild(parentSessionId: string, token: string, childSessionId: string): void {
+  const key = nativeLaunchKey(parentSessionId, token)
+  const children = nativeLaunchChildren.get(key) || new Set<string>()
+  children.add(childSessionId)
+  nativeLaunchChildren.set(key, children)
+  const launchKeys = nativeChildLaunchKeys.get(childSessionId) || new Set<string>()
+  launchKeys.add(key)
+  nativeChildLaunchKeys.set(childSessionId, launchKeys)
+}
+
+export function clearNativeLaunchChildren(parentSessionId: string, token: string): void {
+  const key = nativeLaunchKey(parentSessionId, token)
+  const children = nativeLaunchChildren.get(key)
+  nativeLaunchChildren.delete(key)
+  for (const childSessionId of children || []) {
+    const launchKeys = nativeChildLaunchKeys.get(childSessionId)
+    launchKeys?.delete(key)
+    if (launchKeys && launchKeys.size === 0) nativeChildLaunchKeys.delete(childSessionId)
+  }
+}
+
+function nativeSessionEventData(event: unknown): Record<string, unknown> | null {
+  if (!event || typeof event !== "object" || Array.isArray(event)) return null
+  const value = event as Record<string, unknown>
+  for (const candidate of [value.properties, value.data, value]) {
+    if (candidate && typeof candidate === "object" && !Array.isArray(candidate)) {
+      return candidate as Record<string, unknown>
+    }
+  }
+  return null
+}
+
+function nativeSessionErrorName(error: unknown): string | null {
+  if (!error || typeof error !== "object" || Array.isArray(error)) return null
+  const value = error as Record<string, unknown>
+  const nested = value.data && typeof value.data === "object" && !Array.isArray(value.data)
+    ? value.data as Record<string, unknown>
+    : null
+  for (const candidate of [value.name, value.type, nested?.name, nested?.type]) {
+    if (typeof candidate === "string") return candidate
+  }
+  return null
+}
+
+export async function handleNativeDelegationSessionEvent(
+  event: unknown,
+  session: NativeLaunchInterruptSession,
+): Promise<void> {
+  if (!event || typeof event !== "object" || Array.isArray(event)) return
+  const value = event as Record<string, unknown>
+  const data = nativeSessionEventData(event)
+  if (!data) return
+  const sessionID = typeof data.sessionID === "string"
+    ? data.sessionID
+    : typeof data.sessionId === "string" ? data.sessionId : null
+  if (!sessionID) return
+
+  if (value.type === "session.idle") {
+    const launchKeys = nativeChildLaunchKeys.get(sessionID)
+    for (const key of launchKeys || []) {
+      const children = nativeLaunchChildren.get(key)
+      children?.delete(sessionID)
+      if (children && children.size === 0) {
+        const [parentSessionId, token] = key.split("\u0000")
+        clearNativeLaunchChildren(parentSessionId, token)
+      }
+    }
+    return
+  }
+  if (value.type !== "session.error") return
+  const error = data.error || (data.info && typeof data.info === "object" && !Array.isArray(data.info)
+    ? (data.info as Record<string, unknown>).error
+    : undefined)
+  if (nativeSessionErrorName(error) !== "MessageAbortedError") return
+
+  const launchKeys = nativeChildLaunchKeys.get(sessionID) || new Set<string>()
+  const childIds = new Set<string>()
+  for (const key of launchKeys) {
+    for (const childId of nativeLaunchChildren.get(key) || []) childIds.add(childId)
+  }
+  await Promise.allSettled([...childIds].map(childId =>
+    session.interrupt({ sessionID: childId }).catch(() => undefined)))
+}
 
 function delegationTokenMutationLockPath(workspaceRoot: string, token: string): string | null {
   const odfDirectory = ensureSafeOdfDirectory(workspaceRoot)
@@ -3418,6 +3510,7 @@ function createODFDelegationLaunch(canonicalDirectory?: string): ReturnType<type
               return { branch_id: request.branchId ?? null, status: "blocked", reason: "delegation-launch-outcome-unknown", error_type: safeLaunchErrorType(error) }
             }
             if (!childId) return { branch_id: request.branchId ?? null, status: "blocked", reason: "delegation-child-id-missing" }
+            registerNativeLaunchChild(toolCtx.sessionID, args.token, childId)
             launch = { parent_session_id: toolCtx.sessionID, child_session_id: childId, state: "created" }
             const error = persistNativeChildLaunch({ workspaceRoot, change, token: args.token, branchId: request.branchId, launch })
             if (error) {
@@ -3439,6 +3532,7 @@ function createODFDelegationLaunch(canonicalDirectory?: string): ReturnType<type
               }
             }
           }
+          registerNativeLaunchChild(toolCtx.sessionID, args.token, childId)
 
           const signal = toolCtx.abort
           const interrupt = async (): Promise<void> => {

@@ -944,7 +944,12 @@ export function createV2SessionTaskApi(toolCtx: ToolContext, session: V2SessionA
   const abortInvocation = async (invocation: V2TaskInvocation): Promise<void> => {
     invocation.abortRequested = true
     if (!invocation.childID || invocation.aborting) return invocation.aborting
-    invocation.aborting = interruptChild(invocation.childID)
+    invocation.aborting = (async () => {
+      await interruptChild(invocation.childID!)
+      // Interrupt is only a request. Wait for OpenCode to observe the terminal
+      // state before allowing the parent timeout/cancellation path to return.
+      await callV2(() => session.wait({ sessionID: invocation.childID! }), "session-wait-error", true)
+    })()
     await invocation.aborting
   }
 
