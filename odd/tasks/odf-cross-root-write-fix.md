@@ -10,7 +10,7 @@ Scope: make command-aware cross-root write detection reject external destination
 
 ## Tasks
 
-- T1 (S1-S2): Update command-aware cross-root destination detection and regression tests; route IMPLEMENT; commit pending.
+- T1 (S1-S2): Update command-aware cross-root destination detection and regression tests; route IMPLEMENT; commit `96eccdd`.
 
 ## Log
 
