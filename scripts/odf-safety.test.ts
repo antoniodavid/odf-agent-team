@@ -157,6 +157,13 @@ describe("cross-root-write", () => {
     const r = block("cat /etc/hosts for reference", { authorized_roots: ["/home/dev/proj"] })
     expect(r.blocked).toBe(false)
   })
+  it.each([
+    "cp /etc/odoo.conf /home/dev/proj/odoo.conf",
+    "rsync -a /etc/odoo.conf /home/dev/proj/odoo.conf",
+  ])("allows an external source when the destination stays inside: %s", (command) => {
+    const r = block(command, { authorized_roots: ["/home/dev/proj"] })
+    expect(r.blocked).toBe(false)
+  })
   it("blocks a copy escaping roots even when a root is mentioned", () => {
     const r = block("cp config/odoo.conf /etc/odoo.conf  # root /home/dev/proj", { authorized_roots: ["/home/dev/proj"] })
     expect(r.blocked).toBe(true)
@@ -165,6 +172,11 @@ describe("cross-root-write", () => {
   it("blocks traversal targets outside roots", () => {
     const r = block("cp x ../../etc/evil", { authorized_roots: ["/home/dev/proj"] })
     expect(r.blocked).toBe(true)
+  })
+  it("blocks sibling paths that only share the authorized-root prefix", () => {
+    const r = block("cp source /home/dev/project/out.txt", { authorized_roots: ["/home/dev/proj"] })
+    expect(r.blocked).toBe(true)
+    expect(r.classes).toContain("cross-root-write")
   })
 })
 

@@ -135,8 +135,12 @@ export function safeContinuation(klass) {
 
 function rootsPattern(roots) {
   if (!Array.isArray(roots) || roots.length === 0) return null
-  const escaped = roots.map((r) => String(r).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|")
-  return new RegExp(`(^|[\\s;&|(])(${escaped})`, "i")
+  const alternatives = roots.map((value) => {
+    const root = String(value) === "/" ? "/" : String(value).replace(/[\\/]+$/, "")
+    const escaped = root.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+    return root === "/" ? escaped : `${escaped}(?=$|[\\\\/])`
+  }).join("|")
+  return new RegExp(`(^|[\\s;&|(])(${alternatives})`, "i")
 }
 
 // Path-like target: absolute (~/ or /...) or traversal (../, ..\). Relative
@@ -152,6 +156,89 @@ const WRITE_COMMAND = /(^|[\s;&|(])(cp|mv|touch|mkdir|tee|dd|ln|rsync)\b/gi
 // carries no path-like target and does not match.
 const REDIRECT_TARGET = />>?\s*["']?((?:~|\/)[^\s"'`;|&)>]*|[^\s"'`;|&)>]*\.\.[/\\][^\s"'`;|&)>]*)/g
 
+const SHELL_WORD = /"(?:\\.|[^"\\])*"|'[^']*'|[^\s]+/g
+
+function unquoteShellWord(word) {
+  if ((word.startsWith('"') && word.endsWith('"')) || (word.startsWith("'") && word.endsWith("'"))) {
+    return word.slice(1, -1)
+  }
+  return word
+}
+
+function stripShellComment(segment) {
+  let singleQuoted = false
+  let doubleQuoted = false
+  let escaped = false
+  for (let index = 0; index < segment.length; index += 1) {
+    const character = segment[index]
+    if (escaped) {
+      escaped = false
+      continue
+    }
+    if (character === "\\" && !singleQuoted) {
+      escaped = true
+      continue
+    }
+    if (character === "'" && !doubleQuoted) {
+      singleQuoted = !singleQuoted
+      continue
+    }
+    if (character === '"' && !singleQuoted) {
+      doubleQuoted = !doubleQuoted
+      continue
+    }
+    if (character === "#" && !singleQuoted && !doubleQuoted && (index === 0 || /\s/.test(segment[index - 1]))) {
+      return segment.slice(0, index)
+    }
+  }
+  return segment
+}
+
+/**
+ * Return only the paths that are destinations for commands with source and
+ * destination operands. A source may be outside the workspace when it is
+ * merely read by `cp` or `rsync`; inspecting every operand made that safe
+ * operation look like an external write.
+ */
+function commandWriteTargets(command, segment) {
+  if (command !== "cp" && command !== "rsync") return [segment]
+
+  const words = [...stripShellComment(segment).matchAll(SHELL_WORD)].map((match) => unquoteShellWord(match[0]))
+  const operands = []
+  let targetDirectory = null
+  let endOfOptions = false
+
+  for (let index = 0; index < words.length; index += 1) {
+    const word = words[index]
+    if (endOfOptions) {
+      operands.push(word)
+      continue
+    }
+    if (word === "--") {
+      endOfOptions = true
+      continue
+    }
+    if (word === "-t" || word === "--target-directory") {
+      targetDirectory = words[index + 1] || null
+      index += 1
+      continue
+    }
+    if (word.startsWith("--target-directory=")) {
+      targetDirectory = word.slice("--target-directory=".length)
+      continue
+    }
+    if (word.startsWith("-t") && word.length > 2) {
+      targetDirectory = word.slice(2)
+      continue
+    }
+    if (word.startsWith("-")) continue
+    operands.push(word)
+  }
+
+  if (targetDirectory) return [targetDirectory]
+  return operands.length >= 2 ? [operands[operands.length - 1]] : []
+}
+
 /**
  * True when the text contains a write expression targeting a path-like token
  * outside every authorized root (evaluated lexically; no filesystem access).
@@ -160,7 +247,7 @@ function crossRootEscape(text, rootRe) {
   const segments = []
   for (const match of text.matchAll(WRITE_COMMAND)) {
     const rest = text.slice(match.index + match[0].length)
-    segments.push(rest.split(/[;|&\n]/)[0])
+    segments.push(...commandWriteTargets(match[2].toLowerCase(), rest.split(/[;|&\n]/)[0]))
   }
   for (const match of text.matchAll(REDIRECT_TARGET)) segments.push(match[1])
   for (const segment of segments) {
