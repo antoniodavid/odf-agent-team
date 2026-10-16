@@ -10,9 +10,10 @@ Scope: make command-aware cross-root write detection reject external destination
 
 ## Tasks
 
-- T1 (S1-S2): Update command-aware cross-root destination detection and regression tests; route IMPLEMENT; commit `96eccdd`.
+- T1 (S1-S2): Update command-aware cross-root destination detection and regression tests; route IMPLEMENT; commits `96eccdd` plus a root-boundary correction pending.
 
 ## Log
 
 - L1: revisa y corrige el error
 - L2: Reproduction showed `cp /external/source /workspace/destination` is blocked because the scanner treats the external source as a write target, while a destination outside the workspace must remain blocked.
+- L3: Independent verification found that authorized-root prefix matching accepted sibling paths such as `/home/dev/project` for `/home/dev/proj`; the correction adds a path-boundary check and a regression.

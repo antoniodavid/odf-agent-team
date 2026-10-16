@@ -135,8 +135,12 @@ export function safeContinuation(klass) {
 
 function rootsPattern(roots) {
   if (!Array.isArray(roots) || roots.length === 0) return null
-  const escaped = roots.map((r) => String(r).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|")
-  return new RegExp(`(^|[\\s;&|(])(${escaped})`, "i")
+  const alternatives = roots.map((value) => {
+    const root = String(value) === "/" ? "/" : String(value).replace(/[\\/]+$/, "")
+    const escaped = root.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+    return root === "/" ? escaped : `${escaped}(?=$|[\\\\/])`
+  }).join("|")
+  return new RegExp(`(^|[\\s;&|(])(${alternatives})`, "i")
 }
 
 // Path-like target: absolute (~/ or /...) or traversal (../, ..\). Relative

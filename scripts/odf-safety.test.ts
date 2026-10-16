@@ -173,6 +173,11 @@ describe("cross-root-write", () => {
     const r = block("cp x ../../etc/evil", { authorized_roots: ["/home/dev/proj"] })
     expect(r.blocked).toBe(true)
   })
+  it("blocks sibling paths that only share the authorized-root prefix", () => {
+    const r = block("cp source /home/dev/project/out.txt", { authorized_roots: ["/home/dev/proj"] })
+    expect(r.blocked).toBe(true)
+    expect(r.classes).toContain("cross-root-write")
+  })
 })
 
 describe("corpus-false-positive-rate", () => {
