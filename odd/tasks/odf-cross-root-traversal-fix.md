@@ -12,7 +12,7 @@ Scope: close the absolute-traversal escape in command-aware cross-root write det
 
 - T1 (S1-S3): Create a regression for absolute traversal and correct path-boundary evaluation; route FIX/BUILD; commit `1f692b8`.
 - T2 (S2-S3): Run baseline/fix checks and independent read-only validation; route VERIFY; commit `1f692b8`.
-- T3 (S1-S3): Prepare the approved follow-up issue and PR; route delivery; commit TBD.
+- T3 (S1-S3): Prepare the approved follow-up issue and PR; route delivery; PR `#155`.
 
 ## Log
 
@@ -26,3 +26,4 @@ Scope: close the absolute-traversal escape in command-aware cross-root write det
 - L8: Differential comparison passed: five existing cases were unchanged and the two new absolute-traversal cases changed from allowed on base to blocked on the fix.
 - L9: Work-unit commit `1f692b8` contains the source correction and both public-interface regression cases.
 - L10: Independent read-only security validation passed 39 focused tests and confirmed external sources remain allowed only for in-root destinations, while absolute traversal and sibling-prefix destinations block. It noted the intentional conservative behavior of blocking normalized in-root paths that contain `..`.
+- L11: PR `#155` was created against `main` with `Closes #154` and exactly one `type:bug` label; merge remains a separate human decision.
