@@ -25,3 +25,4 @@ Scope: close the absolute-traversal escape in command-aware cross-root write det
 - L7: Fix branch passed 39 focused tests, `npm run typecheck`, registry validation, and `git diff --check`.
 - L8: Differential comparison passed: five existing cases were unchanged and the two new absolute-traversal cases changed from allowed on base to blocked on the fix.
 - L9: Work-unit commit `1f692b8` contains the source correction and both public-interface regression cases.
+- L10: Independent read-only security validation passed 39 focused tests and confirmed external sources remain allowed only for in-root destinations, while absolute traversal and sibling-prefix destinations block. It noted the intentional conservative behavior of blocking normalized in-root paths that contain `..`.
