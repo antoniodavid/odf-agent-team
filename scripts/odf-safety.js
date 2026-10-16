@@ -147,6 +147,12 @@ function rootsPattern(roots) {
 // targets resolve inside the workspace root and are not escapes.
 const PATH_LIKE = /(^|[\s"'`=(])((?:~|\/)[^\s"'`;|&)>]*|[^\s"'`;|&)>]*\.\.[/\\][^\s"'`;|&)>]*)/g
 
+// Absolute paths containing traversal cannot be safely authorized by a lexical
+// root-prefix check, so fail closed before evaluating the root boundary.
+function hasAbsoluteTraversal(candidatePath) {
+  return /^(?:~|\/)/.test(candidatePath) && candidatePath.split(/[\\/]/).includes("..")
+}
+
 // Commands whose arguments are write targets. echo/printf/cat write only
 // through a redirect (handled by REDIRECT_TARGET); scanning them as commands
 // would flag reads like `cat /etc/hosts`.
@@ -252,7 +258,7 @@ function crossRootEscape(text, rootRe) {
   for (const match of text.matchAll(REDIRECT_TARGET)) segments.push(match[1])
   for (const segment of segments) {
     for (const candidate of segment.matchAll(PATH_LIKE)) {
-      if (!rootRe.test(candidate[2])) return true
+      if (hasAbsoluteTraversal(candidate[2]) || !rootRe.test(candidate[2])) return true
     }
   }
   return false
