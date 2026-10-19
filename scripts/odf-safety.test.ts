@@ -186,6 +186,26 @@ describe("cross-root-write", () => {
     expect(r.blocked).toBe(true)
     expect(r.classes).toContain("cross-root-write")
   })
+  it("allows a regex placeholder whose closing bracket is followed by a slash delimiter", () => {
+    const r = block("the `filter` value of the form `/<url-encoded regex>/`", { authorized_roots: ["/home/dev/proj"] })
+    expect(r.blocked).toBe(false)
+  })
+  it("still blocks a redirect written without surrounding spaces", () => {
+    const r = block("echo x>/etc/evil", { authorized_roots: ["/home/dev/proj"] })
+    expect(r.blocked).toBe(true)
+    expect(r.classes).toContain("cross-root-write")
+  })
+  it.each([
+    'echo x > /"etc/evil"',
+    "echo x > /'etc/evil'",
+    "echo x > /$'etc/evil'",
+    "echo x <package.json>/etc/evil",
+    "echo x >/`echo etc/evil`",
+  ])("blocks a real cross-root target that a prose delimiter must not hide: %s", (command) => {
+    const r = block(command, { authorized_roots: ["/home/dev/proj"] })
+    expect(r.blocked).toBe(true)
+    expect(r.classes).toContain("cross-root-write")
+  })
 })
 
 describe("corpus-false-positive-rate", () => {

@@ -162,6 +162,22 @@ const WRITE_COMMAND = /(^|[\s;&|(])(cp|mv|touch|mkdir|tee|dd|ln|rsync)\b/gi
 // carries no path-like target and does not match.
 const REDIRECT_TARGET = />>?\s*["']?((?:~|\/)[^\s"'`;|&)>]*|[^\s"'`;|&)>]*\.\.[/\\][^\s"'`;|&)>]*)/g
 
+// A redirect target of exactly `/` is the filesystem root, not a writable
+// file. Prose regex delimiters also capture a bare `/` here. Skip it only when
+// the captured `/` is a complete shell word; a quote, ANSI-C `$`, or another
+// path character continues the real target and must be inspected.
+function isBareRootRedirectWord(text, match) {
+  if (match[1] !== "/") return false
+  const after = text[match.index + match[0].length]
+  if (after === undefined || /[\s;|&)\]},]/.test(after)) return true
+  if (after !== "`") return false
+  // A backtick that closes an inline Markdown code span is prose; a backtick
+  // that opens shell command substitution is not. An odd count of preceding
+  // backticks means this one closes an open span.
+  const before = text.slice(0, match.index + match[0].length)
+  return ((before.match(/`/g) ?? []).length % 2) === 1
+}
+
 const SHELL_WORD = /"(?:\\.|[^"\\])*"|'[^']*'|[^\s]+/g
 
 function unquoteShellWord(word) {
@@ -255,7 +271,10 @@ function crossRootEscape(text, rootRe) {
     const rest = text.slice(match.index + match[0].length)
     segments.push(...commandWriteTargets(match[2].toLowerCase(), rest.split(/[;|&\n]/)[0]))
   }
-  for (const match of text.matchAll(REDIRECT_TARGET)) segments.push(match[1])
+  for (const match of text.matchAll(REDIRECT_TARGET)) {
+    if (isBareRootRedirectWord(text, match)) continue
+    segments.push(match[1])
+  }
   for (const segment of segments) {
     for (const candidate of segment.matchAll(PATH_LIKE)) {
       if (hasAbsoluteTraversal(candidate[2]) || !rootRe.test(candidate[2])) return true
