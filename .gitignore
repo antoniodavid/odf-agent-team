@@ -34,3 +34,13 @@ backups/
 
 # Regenerable visual-QA artifacts
 docs/*.visual-check.*
+
+# ODF runtime state: attempt ledgers and delegation token files must never be
+# committed, because a token file authorizes a seal.
+.odf/
+
+# Local OpenCode project scaffolding
+.opencode/
+
+# Local Engram export
+engram-export.json
