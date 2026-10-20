@@ -1120,6 +1120,104 @@ describe("native prepare/seal delegation", () => {
     expect(readDelegationToken(tempHome, change, prepared.token).record).toMatchObject({ status: "prepared" })
   })
 
+  it("binds an aborted child and reports delegation-child-aborted", async () => {
+    const { odf_delegation_prepare, odf_delegation_seal } = await legacyTools()
+    const change = "native-implement-aborted-child"
+    const attemptId = "native-aborted-child-1"
+    await writeImplementState(tempHome, change)
+    const prepared = JSON.parse(await odf_delegation_prepare.execute({
+      phase: "IMPLEMENT",
+      change,
+      prompt: "Implement the planned change",
+      context_files: [],
+      artifact_store: "openspec",
+      attempt_id: attemptId,
+      workflow_advance: implementProof(),
+    }, { sessionID: "parent-session" } as any) as string)
+    const session = fakeChildSession({
+      agent: prepared.agent,
+      prompt: prepared.delegation.prompt,
+      resultText: odfResultText(),
+    })
+    session.context.mockResolvedValue([
+      { id: "msg_user", type: "user", text: `${OPENCODE_SUBAGENT_USER_PREFIX}${prepared.delegation.prompt}` },
+      {
+        id: "msg_aborted",
+        type: "assistant",
+        finish: "error",
+        error: { type: "aborted", message: "Step interrupted" },
+        content: [{ type: "reasoning", text: "working" }, { type: "tool" }],
+      },
+    ])
+    const output = JSON.parse(await odf_delegation_seal.execute({
+      token: prepared.token,
+      change,
+      session_id: "ses_child",
+    }, {
+      sessionID: "parent-session",
+      [ODF_V2_SESSION]: session,
+    } as any) as string)
+
+    expect(output).toMatchObject({
+      status: "blocked",
+      reason: "delegation-child-aborted",
+      prompt_verified: true,
+      conversation_read: { context: { status: "assistant-error", error_type: "aborted" } },
+    })
+    const ledger = (await fs.readFile(path.join(tempHome, ".odf", `attempt-ledger-${change}.jsonl`), "utf8"))
+      .trim().split("\n").map(line => JSON.parse(line))
+    const latest = ledger.filter((entry: { attempt_id: string }) => entry.attempt_id === attemptId).at(-1)
+    // The prompt was verified, so the child is durably bound and settle-attempt
+    // can recover the attempt even though no result exists.
+    expect(latest).toMatchObject({ status: "running", native_child_session_id: "ses_child" })
+    expect(latest.native_child_idle_at).toBeTruthy()
+  })
+
+  it("binds an idle child that returned no assistant text and reports delegation-child-no-result", async () => {
+    const { odf_delegation_prepare, odf_delegation_seal } = await legacyTools()
+    const change = "native-implement-no-result-child"
+    const attemptId = "native-no-result-child-1"
+    await writeImplementState(tempHome, change)
+    const prepared = JSON.parse(await odf_delegation_prepare.execute({
+      phase: "IMPLEMENT",
+      change,
+      prompt: "Implement the planned change",
+      context_files: [],
+      artifact_store: "openspec",
+      attempt_id: attemptId,
+      workflow_advance: implementProof(),
+    }, { sessionID: "parent-session" } as any) as string)
+    const session = fakeChildSession({
+      agent: prepared.agent,
+      prompt: prepared.delegation.prompt,
+      resultText: odfResultText(),
+    })
+    session.context.mockResolvedValue([
+      { id: "msg_user", type: "user", text: `${OPENCODE_SUBAGENT_USER_PREFIX}${prepared.delegation.prompt}` },
+      { id: "msg_assistant", type: "assistant", content: [{ type: "reasoning", text: "still working" }] },
+    ])
+    const output = JSON.parse(await odf_delegation_seal.execute({
+      token: prepared.token,
+      change,
+      session_id: "ses_child",
+    }, {
+      sessionID: "parent-session",
+      [ODF_V2_SESSION]: session,
+    } as any) as string)
+
+    expect(output).toMatchObject({
+      status: "blocked",
+      reason: "delegation-child-no-result",
+      prompt_verified: true,
+      conversation_read: { context: { status: "assistant-text-missing" } },
+    })
+    const ledger = (await fs.readFile(path.join(tempHome, ".odf", `attempt-ledger-${change}.jsonl`), "utf8"))
+      .trim().split("\n").map(line => JSON.parse(line))
+    const latest = ledger.filter((entry: { attempt_id: string }) => entry.attempt_id === attemptId).at(-1)
+    expect(latest).toMatchObject({ status: "running", native_child_session_id: "ses_child" })
+    expect(latest.native_child_idle_at).toBeTruthy()
+  })
+
   it("fails the proof-backed seal when IMPLEMENT validation evidence is missing", async () => {
     const { odf_delegation_prepare, odf_delegation_seal } = await legacyTools()
     const change = "native-implement-missing-evidence"

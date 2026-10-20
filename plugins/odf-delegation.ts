@@ -4489,13 +4489,47 @@ function createODFDelegationSeal(canonicalDirectory?: string): ReturnType<typeof
       const conversationRead = await readV2SessionConversation({ session, sessionID: args.session_id })
       const conversation = conversationRead.conversation
       if (!conversation) {
-        return blocked(
-          "delegation-child-unreadable",
-          childIdentityObserved
+        const contextStatus = conversationRead.diagnostic.context
+        // An aborted child still proves which prompt it received. Verify the
+        // prepared prompt before binding so an unreadable transcript keeps its
+        // child identity unverified instead of trusted.
+        const observedPrompt = conversationRead.prompt
+          ? preparedPromptFromV2Conversation(conversationRead.prompt, record.launch_mode === undefined)
+          : null
+        const promptVerified = observedPrompt !== null &&
+          delegationPromptDigest(observedPrompt) === record.prompt_digest &&
+          (record.prompt_byte_length === undefined ||
+            delegationPromptByteLength(observedPrompt) === record.prompt_byte_length)
+        let bindError: string | null = null
+        if (promptVerified && record.attempt_id && preparedAttempt?.native_parent_session_id) {
+          const bound = bindNativeAttemptChild({
+            workspaceRoot,
+            change: record.change,
+            attemptId: record.attempt_id,
+            branchId: record.branch_id || "default",
+            parentSessionId: preparedAttempt.native_parent_session_id,
+            childSessionId: args.session_id,
+            childIdleAt: childIdleConfirmedAt!,
+          })
+          if (!bound.record) bindError = bound.error || "unknown error"
+        }
+        const reason = !promptVerified
+          ? "delegation-child-unreadable"
+          : contextStatus.status === "assistant-error"
+            ? "delegation-child-aborted"
+            : "delegation-child-no-result"
+        const detail = !promptVerified
+          ? (childIdentityObserved
             ? "The child transcript from session.context is empty, incomplete, or unreadable; the attempt remains running and its child ID is preserved as unverified."
-            : "The child transcript from session.context is empty, incomplete, or unreadable; the delegation remains unsealed and the child identity is unverified.",
-          withRecord({ conversation_read: conversationRead.diagnostic }),
-        )
+            : "The child transcript from session.context is empty, incomplete, or unreadable; the delegation remains unsealed and the child identity is unverified.")
+          : contextStatus.status === "assistant-error"
+            ? `The child ended with error type ${contextStatus.error_type || "unknown"} before returning an ODF Result. The exact prepared prompt was verified and the child is durably bound, so odf_delegation_seal can be retried or the attempt settled with settle-attempt.`
+            : "The child is idle and received the exact prepared prompt but returned no assistant result. The child is durably bound, so odf_delegation_seal can be retried or the attempt settled with settle-attempt."
+        return blocked(reason, detail, withRecord({
+          conversation_read: conversationRead.diagnostic,
+          prompt_verified: promptVerified,
+          ...(bindError ? { child_bind_error: bindError } : {}),
+        }))
       }
       persistLifecycleTimestamp("child_result_observed_at")
       const observedPrompt = preparedPromptFromV2Conversation(conversation, record.launch_mode === undefined)

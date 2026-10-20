@@ -706,6 +706,12 @@ export interface V2ConversationReadDiagnostic {
 
 export interface V2SessionConversationRead {
   conversation: V2ContextConversation | null
+  /**
+   * User-prompt view of the transcript. Available even when the child ended
+   * without an assistant result, because prompt verification does not depend
+   * on one. Callers must still verify the digest before trusting it.
+   */
+  prompt: { userTexts: string[]; userTextExact: boolean } | null
   diagnostic: V2ConversationReadDiagnostic
 }
 
@@ -735,13 +741,6 @@ function contextMessages(response: unknown): unknown[] | null {
     value = envelope.data
   }
   return null
-}
-
-function completeConversation(messages: unknown[]): V2ContextConversation | null {
-  const conversation = readV2ContextConversation(messages)
-  return conversation && conversation.userTexts.length > 0 && conversation.assistantText.trim()
-    ? conversation
-    : null
 }
 
 function contextFailureStatus(response: unknown): V2ConversationReadDiagnostic["context"] {
@@ -785,9 +784,16 @@ export async function readV2SessionConversation(input: {
   try {
     const response = await input.session.context({ sessionID: input.sessionID })
     const messages = contextMessages(response)
-    const conversation = completeConversation(messages || [])
+    const parsed = messages && messages.length > 0 ? parseV2ContextMessages(messages) : null
+    // The prompt view stays available when the child produced no assistant
+    // result: an aborted child still proves which prompt it received.
+    const prompt = parsed && parsed.userTexts.length > 0
+      ? { userTexts: parsed.userTexts, userTextExact: parsed.userTextExact }
+      : null
+    const conversation = prompt && parsed && parsed.assistantText.trim() ? parsed : null
     return {
       conversation,
+      prompt,
       diagnostic: {
         context: conversation ? { status: "readable" } : contextFailureStatus(response),
       },
@@ -795,6 +801,7 @@ export async function readV2SessionConversation(input: {
   } catch (error) {
     return {
       conversation: null,
+      prompt: null,
       diagnostic: { context: { status: "request-failed", error_type: errorType(error) } },
     }
   }
@@ -803,14 +810,11 @@ export async function readV2SessionConversation(input: {
 const OPENCODE_SUBAGENT_USER_PREFIX = "You are a subagent spawned by another session.\n"
 
 /**
- * Bounded conversation view for the native seal path: the first user text is
+ * Bounded transcript view for the native seal path: the first user text is
  * the delegated prompt and the latest assistant text is the phase result.
- * Returns null when the response has no usable structure (caller decides the
- * failure reason); never throws.
+ * Never throws.
  */
-export function readV2ContextConversation(response: unknown): V2ContextConversation | null {
-  const messages = contextMessages(response)
-  if (!messages || messages.length === 0) return null
+function parseV2ContextMessages(messages: unknown[]): V2ContextConversation {
   const userTexts: string[] = []
   let userTextExact = true
   let assistantText: string | null = null
@@ -854,16 +858,23 @@ export function readV2ContextConversation(response: unknown): V2ContextConversat
       assistantText = info.error || value.error ? "" : text
     }
   }
-  if (!assistantText) return null
-  return { userTexts, userTextExact, assistantText }
+  return { userTexts, userTextExact, assistantText: assistantText || "" }
 }
+
+export function readV2ContextConversation(response: unknown): V2ContextConversation | null {
+  const messages = contextMessages(response)
+  if (!messages || messages.length === 0) return null
+  const parsed = parseV2ContextMessages(messages)
+  return parsed.assistantText ? parsed : null
+}
+
 
 /**
  * Return the exact prepared prompt represented by the first user message.
  * Only legacy host-subagent transcripts may remove the one known fixed prefix.
  */
 export function preparedPromptFromV2Conversation(
-  conversation: V2ContextConversation,
+  conversation: Pick<V2ContextConversation, "userTexts" | "userTextExact">,
   allowLegacyHostPrefix: boolean,
 ): string | null {
   if (!conversation.userTextExact || conversation.userTexts.length === 0) return null
