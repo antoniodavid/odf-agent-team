@@ -4233,9 +4233,15 @@ function createODFLateSealCapabilityPrepare(canonicalDirectory?: string): Return
         return recordBlocked("delegation-child-not-idle", "OpenCode could not confirm the original child is idle; no recovery capability was issued.")
       }
       const conversationRead = await readV2SessionConversation({ session, sessionID: args.session_id })
-      const observedPrompt = conversationRead.conversation
-        ? preparedPromptFromV2Conversation(conversationRead.conversation, false)
-        : null
+      // The capability only needs the prompt the child received and its idle
+      // state. An aborted child never produces an assistant result, so reading
+      // the prompt through the full conversation would reject a transcript
+      // that provably carries the exact prepared bytes.
+      const promptView = conversationRead.prompt
+      if (!promptView) {
+        return recordBlocked("delegation-child-unreadable", "The child transcript exposes no readable user prompt; no recovery capability was issued.")
+      }
+      const observedPrompt = preparedPromptFromV2Conversation(promptView, false)
       if (observedPrompt === null || delegationPromptDigest(observedPrompt) !== record.prompt_digest ||
         (record.prompt_byte_length !== undefined && delegationPromptByteLength(observedPrompt) !== record.prompt_byte_length)) {
         return recordBlocked("delegation-prompt-mismatch", "The child transcript does not prove receipt of the exact original prepared prompt; no recovery capability was issued.")

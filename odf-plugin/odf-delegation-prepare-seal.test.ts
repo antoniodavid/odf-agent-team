@@ -763,6 +763,85 @@ describe("native prepare/seal delegation", () => {
     expect(Buffer.byteLength(JSON.stringify(latest)) + 1).toBeLessThanOrEqual(1024)
   })
 
+  it("issues a late-seal capability for an aborted child whose prompt bytes are exact", async () => {
+    const { odf_delegation_prepare, odf_delegation_late_seal_prepare, odf_delegation_seal } = await tools()
+    const change = "native-expired-aborted-child"
+    const parentSessionId = "aborted-parent"
+    const childSessionId = "aborted-child"
+    await writeImplementState(tempHome, change)
+    const prepared = JSON.parse(await odf_delegation_prepare.execute({
+      phase: "IMPLEMENT",
+      change,
+      prompt: "Implement the planned change",
+      context_files: [],
+      artifact_store: "openspec",
+      attempt_id: "expired-aborted-attempt",
+      workflow_advance: implementProof(),
+    }, { sessionID: parentSessionId } as any) as string)
+    const originalToken = readDelegationToken(tempHome, change, prepared.token).record!
+    const originalExpiry = new Date(Date.now() - 60_000).toISOString()
+    expect(writeDelegationToken(tempHome, {
+      ...originalToken,
+      expires_at: originalExpiry,
+      launch: { parent_session_id: parentSessionId, state: "submitted", child_session_id: childSessionId },
+    })).toBeNull()
+    const session = fakeChildSession({
+      agent: prepared.agent,
+      prompt: prepared.delegation.prompt,
+      resultText: odfResultText(),
+      parentSessionId,
+      childSessionId,
+    })
+    session.get.mockResolvedValue({
+      id: childSessionId,
+      agent: prepared.agent,
+      parentID: parentSessionId,
+      location: { directory: tempHome },
+    })
+    // The child aborted mid tool-loop: the exact prompt is present but there is
+    // no assistant result to read.
+    session.context.mockResolvedValue([
+      { id: "msg_user", type: "user", text: prepared.delegation.prompt },
+      {
+        id: "msg_aborted",
+        type: "assistant",
+        finish: "error",
+        error: { type: "aborted", message: "Step interrupted" },
+        content: [{ type: "tool" }],
+      },
+    ])
+
+    const capabilityOutput = JSON.parse(await odf_delegation_late_seal_prepare.execute({
+      token: prepared.token,
+      change,
+      session_id: childSessionId,
+    }, { sessionID: parentSessionId, [ODF_V2_SESSION]: session } as any) as string)
+    expect(capabilityOutput).toMatchObject({
+      status: "recovery-capability-issued",
+      change,
+      attempt_id: "expired-aborted-attempt",
+      task_session_id: childSessionId,
+    })
+    expect(capabilityOutput.late_seal_capability).toMatch(/^odf-late-[a-f0-9]{64}$/)
+
+    const output = JSON.parse(await odf_delegation_seal.execute({
+      token: prepared.token,
+      change,
+      session_id: childSessionId,
+      late_seal_capability: capabilityOutput.late_seal_capability,
+    }, { sessionID: parentSessionId, [ODF_V2_SESSION]: session } as any) as string)
+    expect(output).toMatchObject({
+      status: "blocked",
+      reason: "delegation-child-aborted",
+      prompt_verified: true,
+    })
+    const ledger = (await fs.readFile(path.join(tempHome, ".odf", `attempt-ledger-${change}.jsonl`), "utf8"))
+      .trim().split("\n").map(line => JSON.parse(line))
+    const latest = ledger.filter((entry: { attempt_id: string }) => entry.attempt_id === "expired-aborted-attempt").at(-1)
+    expect(latest).toMatchObject({ status: "running", native_child_session_id: childSessionId })
+    expect(latest.native_child_idle_at).toBeTruthy()
+  })
+
   it("late-seals an expired original child through a bound capability without changing original expiry", async () => {
     const { odf_delegation_prepare, odf_delegation_late_seal_prepare, odf_delegation_seal } = await tools()
     const metrics = await import("./odf-delegation-metrics.js")
