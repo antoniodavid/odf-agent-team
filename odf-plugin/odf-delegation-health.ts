@@ -18,6 +18,11 @@ import {
   type ODFRegistry,
 } from "./odf-delegation-shared.js"
 import type { DelegationMetricInput, DelegationMetrics } from "./odf-delegation-metrics.js"
+import {
+  handleParentCancellation,
+  registerCancellationChild,
+  unregisterCancellationChild,
+} from "./odf-delegation-cancellation.js"
 import { validateODFResult } from "./odf-result-contract.js"
 
 // READ-ONLY HEALTH
@@ -389,7 +394,12 @@ export type TaskApiInput = {
 }
 
 export type TaskApi = ((input: TaskApiInput) => Promise<unknown>) & {
-  abort?: (invocation: Promise<unknown>) => Promise<void>
+  /**
+   * Abort the invocation. `options.parentScope` marks a parent tool-call abort
+   * (as opposed to a timeout or a child-reported cancellation): the V2 bridge
+   * then also cancels every other registered child of that parent.
+   */
+  abort?: (invocation: Promise<unknown>, options?: { parentScope?: boolean }) => Promise<void>
 }
 
 type NativeTaskInput = {
@@ -941,8 +951,30 @@ export function createV2SessionTaskApi(toolCtx: ToolContext, session: V2SessionA
   const interruptChild = async (childID: string): Promise<void> => {
     await callV2(() => session.interrupt({ sessionID: childID }), "session-prompt-error", true)
   }
-  const abortInvocation = async (invocation: V2TaskInvocation): Promise<void> => {
+  /**
+   * Parent-scoped cancellation for a parent tool-call abort (REQ-01/REQ-02): every
+   * registered child of the parent is targeted with its exact session ID, not only
+   * the live invocation's child, and children of other parents are never touched.
+   * The live child is excluded here because `abortInvocation` interrupts and waits
+   * for it directly below, so each child still receives exactly one interrupt. The
+   * run keeps its own bounded deadline and is not awaited: the caller keeps the
+   * established "bounded abort" return, while verdicts land in the outcome store.
+   */
+  const cancelParentScope = (invocation: V2TaskInvocation): void => {
+    const childID = invocation.childID
+    void handleParentCancellation({
+      parentSessionId: toolCtx.sessionID,
+      session,
+      trigger: { event: "child-launch-abort" },
+      ...(childID ? { excludedChildSessionIds: [childID] } : {}),
+    }).catch(() => undefined)
+  }
+  const abortInvocation = async (
+    invocation: V2TaskInvocation,
+    options?: { parentScope?: boolean },
+  ): Promise<void> => {
     invocation.abortRequested = true
+    if (options?.parentScope) cancelParentScope(invocation)
     if (!invocation.childID || invocation.aborting) return invocation.aborting
     invocation.aborting = (async () => {
       await interruptChild(invocation.childID!)
@@ -980,6 +1012,11 @@ export function createV2SessionTaskApi(toolCtx: ToolContext, session: V2SessionA
         : undefined
       invocation.childID = typeof createdValue?.id === "string" ? createdValue.id : undefined
       if (!invocation.childID) throw new Error("session-create-error: session.create returned no child session id")
+      registerCancellationChild({
+        parentSessionId: toolCtx.sessionID,
+        childSessionId: invocation.childID,
+        path: "sequential",
+      })
       if (invocation.abortRequested) {
         await abortInvocation(invocation)
         throw new Error("task-cancelled: child session was aborted")
@@ -1014,19 +1051,29 @@ export function createV2SessionTaskApi(toolCtx: ToolContext, session: V2SessionA
     pending.set(promise, invocation)
     live.add(invocation)
     promise.then(
-      () => live.delete(invocation),
+      () => {
+        // A fulfilled invocation already awaited `session.wait`, so the child is
+        // terminal and can leave the cancellation index. The child ID is only
+        // known once the invocation body ran, so it is read here at settle time.
+        // A rejection or abort keeps the registration: the child may still run.
+        if (invocation.childID) unregisterCancellationChild(toolCtx.sessionID, invocation.childID)
+        live.delete(invocation)
+      },
       () => live.delete(invocation),
     )
     return promise
   }) as TaskApi
 
-  taskApi.abort = async (invocationPromise: Promise<unknown>): Promise<void> => {
+  taskApi.abort = async (
+    invocationPromise: Promise<unknown>,
+    options?: { parentScope?: boolean },
+  ): Promise<void> => {
     // The exact promise is the normal path. When a wrapper returns a different
     // promise, fall back to the single live invocation so the child is still
     // interrupted instead of the abort quietly doing nothing.
     const invocation = pending.get(invocationPromise) ?? (live.size === 1 ? [...live][0] : undefined)
     if (!invocation) return
-    await abortInvocation(invocation)
+    await abortInvocation(invocation, options)
   }
   ;(taskApi as unknown as Record<symbol, unknown>)[ODF_TASK_BRIDGE] = true
   return taskApi

@@ -29,6 +29,10 @@ import {
   setupODFV2,
 } from "./opencode-v2-adapter.js"
 import { readObservedSessionStatus } from "./odf-session-status.js"
+import {
+  clearCancellationIndex,
+  readCancellationOutcome,
+} from "./odf-delegation-cancellation.js"
 import { writeProjectActivation } from "../scripts/lib/odf-project-activation.js"
 
 const activeTestRoot = fs.mkdtempSync(path.join(os.tmpdir(), "odf-v2-project-"))
@@ -123,7 +127,10 @@ function v2Session(contextResponse: unknown = [{ type: "assistant", content: [{ 
 }
 
 describe("OpenCode V2 ODF adapter", () => {
-  afterEach(() => vi.restoreAllMocks())
+  afterEach(() => {
+    clearCancellationIndex()
+    vi.restoreAllMocks()
+  })
 
   it("leaves non-initialized projects completely inert", async () => {
     const inactiveRoot = fs.mkdtempSync(path.join(os.tmpdir(), "odf-v2-inactive-"))
@@ -512,7 +519,12 @@ describe("OpenCode V2 ODF adapter", () => {
   })
 
   it("interrupts every child in a launch when one child reports MessageAbortedError", async () => {
-    const session = { interrupt: vi.fn(async () => ({}) as any) }
+    const session = {
+      interrupt: vi.fn(async () => ({}) as any),
+      wait: vi.fn(async () => undefined),
+      get: vi.fn(async () => ({})),
+      context: vi.fn(async () => []),
+    }
     registerNativeLaunchChild("parent-session", "launch-token", "child-a")
     registerNativeLaunchChild("parent-session", "launch-token", "child-b")
 
@@ -526,6 +538,11 @@ describe("OpenCode V2 ODF adapter", () => {
 
     expect(session.interrupt).toHaveBeenCalledWith({ sessionID: "child-a" })
     expect(session.interrupt).toHaveBeenCalledWith({ sessionID: "child-b" })
+    // The sibling fan-out now runs through the bounded confirmation routine, so
+    // each sibling also gets its own wait call.
+    expect(session.wait).toHaveBeenCalledWith({ sessionID: "child-a" })
+    expect(session.wait).toHaveBeenCalledWith({ sessionID: "child-b" })
+    expect(readCancellationOutcome("parent-session")?.confirmed).toEqual(["child-a", "child-b"])
     clearNativeLaunchChildren("parent-session", "launch-token")
   })
 

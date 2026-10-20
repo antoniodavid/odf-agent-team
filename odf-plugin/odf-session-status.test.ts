@@ -1,5 +1,10 @@
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 import { observeOpenCodeSessionEvent, readObservedSessionStatus } from "./odf-session-status.js"
+import {
+  clearCancellationIndex,
+  handleParentCancellation,
+  registerCancellationChild,
+} from "./odf-delegation-cancellation.js"
 
 describe("observed OpenCode session status", () => {
   it("uses only known busy, retry, and idle events; missing evidence stays unknown", () => {
@@ -21,5 +26,30 @@ describe("observed OpenCode session status", () => {
     observeOpenCodeSessionEvent({ type: "session.error", data: { sessionID: "status-test-error", status: { type: "busy" } } })
     expect(readObservedSessionStatus("bad\nsession")).toBeNull()
     expect(readObservedSessionStatus("status-test-error")).toBeNull()
+  })
+
+  it("never confirms a child from an observed idle status alone", async () => {
+    const sessionID = "observed-idle-child"
+    registerCancellationChild({
+      parentSessionId: "observed-idle-parent",
+      childSessionId: sessionID,
+      path: "native",
+    })
+    observeOpenCodeSessionEvent({ type: "session.status", data: { sessionID, status: { type: "idle" } } })
+    expect(readObservedSessionStatus(sessionID)?.state).toBe("idle")
+
+    const session = {
+      interrupt: vi.fn(async () => undefined),
+      wait: vi.fn(async () => { throw new Error("no terminal idle") }),
+    }
+    const outcome = await handleParentCancellation({ parentSessionId: "observed-idle-parent", session })
+
+    expect(outcome.verdicts[0]).toMatchObject({
+      child_session_id: sessionID,
+      status: "unconfirmed",
+      terminal_idle_confirmed: false,
+    })
+    expect(outcome.confirmed).toEqual([])
+    clearCancellationIndex()
   })
 })
