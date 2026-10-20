@@ -230,6 +230,8 @@ describe("OpenCode V2 ODF adapter", () => {
 
     expect(result).toEqual({
       conversation: null,
+      // The prompt stays readable so an aborted child can still be bound.
+      prompt: { userTexts: ["prepared prompt"], userTextExact: true },
       diagnostic: { context: { status: "assistant-error", error_type: "provider.auth" } },
     })
     expect(JSON.stringify(result)).not.toContain("private provider response")

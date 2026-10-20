@@ -146,6 +146,11 @@ plus a bounded `odf-tok-…` token under `.odf/`; launch verifies the prompt
 digest and submits it through the V2 session API; seal independently verifies
 the child transcript, reads its ODF Result, runs composite gates and returns the
 standard delegation envelope. Fast-lane BUILD/VERIFY still use `odf_delegate`.
+Seal binds the child to its running attempt once the exact prepared prompt and
+idle state are proven, even when no assistant result exists: an aborted child
+reports `delegation-child-aborted` and an idle child without text reports
+`delegation-child-no-result`, so `settle-attempt` can recover the attempt
+instead of leaving it running with no supported settlement path.
 
 The entrypoint stays a monolith for the delegation/workflow core but its
 self-contained sections live in cohesive modules under `odf-plugin/`:
