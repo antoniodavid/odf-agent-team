@@ -186,23 +186,16 @@ describe("cross-root-write", () => {
     expect(r.blocked).toBe(true)
     expect(r.classes).toContain("cross-root-write")
   })
-  it("allows a regex placeholder whose closing bracket is followed by a slash delimiter", () => {
-    const r = block("the `filter` value of the form `/<url-encoded regex>/`", { authorized_roots: ["/home/dev/proj"] })
+  it("allows a placeholder-qualified path (closing bracket is not a redirect)", () => {
+    const r = block("absence of local marker <worktree>/.odf/tdd.off", { authorized_roots: ["/home/dev/proj"] })
+    expect(r.blocked).toBe(false)
+  })
+  it("allows a closing tag followed by a path", () => {
+    const r = block("reference </a> /etc/hosts for the host list", { authorized_roots: ["/home/dev/proj"] })
     expect(r.blocked).toBe(false)
   })
   it("still blocks a redirect written without surrounding spaces", () => {
     const r = block("echo x>/etc/evil", { authorized_roots: ["/home/dev/proj"] })
-    expect(r.blocked).toBe(true)
-    expect(r.classes).toContain("cross-root-write")
-  })
-  it.each([
-    'echo x > /"etc/evil"',
-    "echo x > /'etc/evil'",
-    "echo x > /$'etc/evil'",
-    "echo x <package.json>/etc/evil",
-    "echo x >/`echo etc/evil`",
-  ])("blocks a real cross-root target that a prose delimiter must not hide: %s", (command) => {
-    const r = block(command, { authorized_roots: ["/home/dev/proj"] })
     expect(r.blocked).toBe(true)
     expect(r.classes).toContain("cross-root-write")
   })

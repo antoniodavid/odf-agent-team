@@ -69,11 +69,9 @@ import {
 } from "../odf-plugin/odf-community-tools.js"
 import {
   inspectNativeChildBindFailure,
-  inspectNativeExecuteLaunchNotExecuted,
   inspectNativePretoolSafetyBlock,
   inspectNativeSubagentLaunchNotExecuted,
   type NativeChildBindFailureEvidence,
-  type NativeExecuteLaunchNotExecutedEvidence,
   type NativePretoolSafetyEvidence,
   type NativeSubagentLaunchNotExecutedEvidence,
 } from "../odf-plugin/odf-native-attempt-recovery.js"
@@ -136,6 +134,13 @@ import {
   type NativeChildLaunchState,
 } from "../odf-plugin/odf-delegation-tokens.js"
 import { readObservedSessionStatus } from "../odf-plugin/odf-session-status.js"
+import {
+  cancelChildLaunchSiblings,
+  handleParentCancellation,
+  registerCancellationChild,
+  type CancellationLaunchPath,
+  type CancellationSessionApi,
+} from "../odf-plugin/odf-delegation-cancellation.js"
 import {
   consumeLateSealCapability,
   createLateSealCapability,
@@ -500,7 +505,14 @@ async function invokeTask(
     const message = error instanceof Error ? error.message : String(error)
     if (timedOut || cancelled || isCancellationMessage(message)) {
       try {
-        await settleTaskAbort(taskApi.abort?.(taskPromise), taskAbortGraceMs())
+        // A parent tool-call abort is parent-scoped (REQ-01/REQ-02): the bridge
+        // cancels every registered child of the parent, not only the live
+        // invocation's child. Timeouts and child-reported cancellations keep the
+        // per-invocation abort.
+        await settleTaskAbort(
+          taskApi.abort?.(taskPromise, cancelled ? { parentScope: true } : undefined),
+          taskAbortGraceMs(),
+        )
       } catch {
         // Preserve the original timeout/cancellation result if abort also fails.
       }
@@ -1708,6 +1720,13 @@ This tool:
 2. Injects relevant skill compact rules into the prompt
  3. Delegates via the native task tool when available, or returns a structured blocked envelope when unavailable
 
+Parent cancellation is bounded and honest: a delegated child session is reported confirmed
+only after session.interrupt was requested for that exact child and a following session.wait
+supplied terminal idle. Any other outcome (interrupt failure, wait failure, an incomplete session API, or the
+cancellation deadline elapsing) is reported unconfirmed with the child session ID preserved,
+and the child stays registered so a later attempt can still confirm it.
+This makes no claim to stop children after a SIGKILL of the host or of a child process, and
+parent cancellation is a no-op on runtimes that emit no session.execution.interrupted event.
 Use this instead of generic task() for ODF workflow delegation.`,
     args: {
       phase: tool.schema
@@ -3139,13 +3158,23 @@ const activeNativeLaunches = new Set<string>()
 const nativeLaunchChildren = new Map<string, Set<string>>()
 const nativeChildLaunchKeys = new Map<string, Set<string>>()
 
-type NativeLaunchInterruptSession = Pick<V2SessionApi, "interrupt">
+/**
+ * Session capability the parent-cancellation handler is allowed to use. Both
+ * capabilities are optional on purpose: an incomplete session API yields
+ * `unconfirmed` for every child instead of a privileged fallback.
+ */
+type NativeLaunchInterruptSession = CancellationSessionApi
 
 function nativeLaunchKey(parentSessionId: string, token: string): string {
   return `${parentSessionId}\u0000${token}`
 }
 
-export function registerNativeLaunchChild(parentSessionId: string, token: string, childSessionId: string): void {
+export function registerNativeLaunchChild(
+  parentSessionId: string,
+  token: string,
+  childSessionId: string,
+  path: CancellationLaunchPath = "native",
+): void {
   const key = nativeLaunchKey(parentSessionId, token)
   const children = nativeLaunchChildren.get(key) || new Set<string>()
   children.add(childSessionId)
@@ -3153,6 +3182,7 @@ export function registerNativeLaunchChild(parentSessionId: string, token: string
   const launchKeys = nativeChildLaunchKeys.get(childSessionId) || new Set<string>()
   launchKeys.add(key)
   nativeChildLaunchKeys.set(childSessionId, launchKeys)
+  registerCancellationChild({ parentSessionId, childSessionId, path })
 }
 
 export function clearNativeLaunchChildren(parentSessionId: string, token: string): void {
@@ -3214,19 +3244,38 @@ export async function handleNativeDelegationSessionEvent(
     }
     return
   }
+  if (value.type === "session.execution.interrupted") {
+    await handleParentCancellation({
+      parentSessionId: sessionID,
+      session,
+      trigger: {
+        event: "session.execution.interrupted",
+        reason: typeof data.reason === "string" ? data.reason : "unknown",
+      },
+    })
+    return
+  }
   if (value.type !== "session.error") return
   const error = data.error || (data.info && typeof data.info === "object" && !Array.isArray(data.info)
     ? (data.info as Record<string, unknown>).error
     : undefined)
   if (nativeSessionErrorName(error) !== "MessageAbortedError") return
 
+  // Sibling fan-out of the aborted child's launch, grouped by parent so only
+  // each cancelling parent's own children are targeted. It runs through the
+  // bounded confirmation routine: children whose `session.wait` is unavailable
+  // still get their interrupt and are reported unconfirmed.
   const launchKeys = nativeChildLaunchKeys.get(sessionID) || new Set<string>()
-  const childIds = new Set<string>()
+  const childrenByParent = new Map<string, Set<string>>()
   for (const key of launchKeys) {
+    const [parentSessionId] = key.split("\u0000")
+    if (!parentSessionId) continue
+    const childIds = childrenByParent.get(parentSessionId) || new Set<string>()
     for (const childId of nativeLaunchChildren.get(key) || []) childIds.add(childId)
+    childrenByParent.set(parentSessionId, childIds)
   }
-  await Promise.allSettled([...childIds].map(childId =>
-    session.interrupt({ sessionID: childId }).catch(() => undefined)))
+  await Promise.allSettled([...childrenByParent].map(([parentSessionId, childIds]) =>
+    cancelChildLaunchSiblings({ parentSessionId, childSessionIds: [...childIds], session })))
 }
 
 function delegationTokenMutationLockPath(workspaceRoot: string, token: string): string | null {
@@ -3512,7 +3561,7 @@ function createODFDelegationLaunch(canonicalDirectory?: string): ReturnType<type
               return { branch_id: request.branchId ?? null, status: "blocked", reason: "delegation-launch-outcome-unknown", error_type: safeLaunchErrorType(error) }
             }
             if (!childId) return { branch_id: request.branchId ?? null, status: "blocked", reason: "delegation-child-id-missing" }
-            registerNativeLaunchChild(toolCtx.sessionID, args.token, childId)
+            registerNativeLaunchChild(toolCtx.sessionID, args.token, childId, request.branchId ? "parallel" : "native")
             launch = { parent_session_id: toolCtx.sessionID, child_session_id: childId, state: "created" }
             const error = persistNativeChildLaunch({ workspaceRoot, change, token: args.token, branchId: request.branchId, launch })
             if (error) {
@@ -3534,11 +3583,25 @@ function createODFDelegationLaunch(canonicalDirectory?: string): ReturnType<type
               }
             }
           }
-          registerNativeLaunchChild(toolCtx.sessionID, args.token, childId)
+          registerNativeLaunchChild(toolCtx.sessionID, args.token, childId, request.branchId ? "parallel" : "native")
 
           const signal = toolCtx.abort
           const interrupt = async (): Promise<void> => {
-            try { await session.interrupt({ sessionID: childId! }) } catch { /* seal must still verify the child */ }
+            try {
+              // Parent-scoped cancellation (REQ-01/REQ-02): aborting this parent
+              // tool call cancels every registered child of the parent with its
+              // exact session ID, not only this launch's child. The launch's own
+              // child is interrupted directly below, so it is excluded from the
+              // parent run to keep exactly one interrupt per child; other parents
+              // are never touched.
+              void handleParentCancellation({
+                parentSessionId: toolCtx.sessionID,
+                session,
+                trigger: { event: "child-launch-abort" },
+                excludedChildSessionIds: [childId!],
+              }).catch(() => undefined)
+              await session.interrupt({ sessionID: childId! })
+            } catch { /* seal must still verify the child */ }
           }
           if (signal?.aborted) {
             const state: NativeChildLaunch = { parent_session_id: toolCtx.sessionID, child_session_id: childId, state: "interrupted" }
@@ -9857,7 +9920,7 @@ Actions:
 - re-plan: like re-enter, plus persist a human-approved Expectations revision (revision > current, supersedes = digest of the previous artifact).
 - disable-fast-lane: disable an existing fast_lane_policy through a separate audited marker without rewriting workflow state or artifacts.
 - settle-attempt: append a terminal settlement for a stale running attempt (use the attempt_id from odf_workflow_status active_attempts) so a fresh attempt can be acquired. Requires confirm_no_active_run: true and refuses attempts that are still active in this runtime. Native prepare/seal attempts additionally require child_session_id; the tool verifies its parent binding and awaits session.wait before settling.
-- settle-unlaunched-attempt: recover a native attempt only when the bound parent session is idle and its transcript proves one of: an exact odf_delegation_prepare rejection by pre-tool-safety; an exact successful prepare followed by a host subagent call recorded as aborted and not executed (empty tool input, no child identity); or an aborted execute whose metadata records exactly one matching prepare and whose code contains exactly one launch call site that produced no child or result. Missing, compacted, ambiguous, or changing parent history remains blocked; verification evidence is durably appended before settlement.
+- settle-unlaunched-attempt: recover a native attempt only when the bound parent session is idle and its transcript proves either an exact odf_delegation_prepare rejection by pre-tool-safety, or an exact successful prepare followed by a host subagent call recorded as aborted and not executed. The latter requires an empty tool input and no child identity. Missing, compacted, ambiguous, or changing parent history remains blocked; verification evidence is durably appended before settlement.
 - settle-bind-failed-attempt: recover a launched native attempt only when the idle parent transcript proves the exact successful prepare, one subagent launch with its exact agent/prompt, and at least one matching seal blocked specifically because child binding could not be persisted. Exact retries of that seal may follow; a later token-unknown retry is ignored only after the bind-failure proof. ODF independently rechecks the child parent, agent, workspace, prompt digest, and idle state; it records the attempt as failed and never accepts the child result or commits BUILD.
 - settle-join: settle a persisted parallel join that is still running after a host restart so resume_from_join can continue. Every running branch attempt must be settled first with action=settle-attempt; refuses joins whose branch attempts are still active in this runtime. The join becomes blocked with a failure receipt - commit a retry receipt before resuming.
 
@@ -9957,7 +10020,7 @@ Actions:
         if (observedRecord.status !== "running") return blocked("attempt-not-running", "Only a running attempt can be settled; this attempt already has a terminal record.")
 
         let nativeChildRecovery: { sessionId: string; idleAt: string } | null = null
-        let nativeUnlaunchedEvidence: NativePretoolSafetyEvidence | NativeSubagentLaunchNotExecutedEvidence | NativeExecuteLaunchNotExecutedEvidence | null = null
+        let nativeUnlaunchedEvidence: NativePretoolSafetyEvidence | NativeSubagentLaunchNotExecutedEvidence | null = null
         let nativeBindFailureEvidence: NativeChildBindFailureEvidence | null = null
         let nativeBindFailureAuditEvidence: Record<string, unknown> | null = null
         let nativeBindFailureChild: { sessionId: string; idleAt: string } | null = null
@@ -9989,10 +10052,9 @@ Actions:
             startedAt: observedRecord.started_at,
           }
           nativeUnlaunchedEvidence = inspectNativePretoolSafetyBlock(parentContext.context, evidenceInput) ??
-            inspectNativeSubagentLaunchNotExecuted(parentContext.context, evidenceInput) ??
-            inspectNativeExecuteLaunchNotExecuted(parentContext.context, evidenceInput)
+            inspectNativeSubagentLaunchNotExecuted(parentContext.context, evidenceInput)
           if (!nativeUnlaunchedEvidence) {
-            return blocked("attempt-parent-unlaunched-proof-missing", "The parent transcript does not prove an exact pre-tool-safety rejection, a prepared delegation whose host subagent call was recorded as not executed, or an aborted execute whose prepare ran and whose launch never executed; keep it running and use child-bound recovery if a child exists.")
+            return blocked("attempt-parent-unlaunched-proof-missing", "The parent transcript does not prove either an exact pre-tool-safety rejection or a prepared delegation whose host subagent call was recorded as not executed; keep it running and use child-bound recovery if a child exists.")
           }
         } else if (isBindFailureRecovery) {
           if (!observedRecord.native_parent_session_id) {
@@ -10206,9 +10268,7 @@ Actions:
               action: "settle-unlaunched-attempt",
               outcome: nativeUnlaunchedEvidence.evidence_type === "native-pretool-safety-block"
                 ? "parent-pretool-safety-proof-persisted"
-                : nativeUnlaunchedEvidence.evidence_type === "native-subagent-launch-not-executed"
-                  ? "parent-subagent-not-executed-proof-persisted"
-                  : "parent-execute-launch-not-executed-proof-persisted",
+                : "parent-subagent-not-executed-proof-persisted",
               attempt_id: attemptId,
               phase: record.phase,
               stage: record.next_stage,

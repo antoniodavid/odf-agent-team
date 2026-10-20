@@ -3,16 +3,54 @@ import * as fs from "node:fs"
 import * as os from "node:os"
 import * as path from "node:path"
 import { tool as v1Tool } from "@opencode-ai/plugin"
+import type { Context as V2Context } from "@opencode/plugin/promise/plugin"
 import {
   createODFRegisteredTools,
+  handleNativeDelegationSessionEvent,
   ODF_SYSTEM_RULES,
   OdfDelegationPluginV2,
 } from "../plugins/odf-delegation.js"
 import OdfEntrypoint from "../plugins/odf-delegation.js"
+import {
+  DEFAULT_DELEGATION_CANCELLATION_DEADLINE_MS,
+  clearCancellationIndex,
+  delegationCancellationDeadlineMs,
+  readCancellationOutcome,
+  registerCancellationChild,
+} from "./odf-delegation-cancellation.js"
 import { ODF_REGISTERED_TOOLS } from "./odf-delegation-shared.js"
 import { ODF_PLUGIN_ID } from "./runtime-boundary.js"
 import { setupODFV2 } from "./opencode-v2-adapter.js"
 import { writeProjectActivation } from "../scripts/lib/odf-project-activation.js"
+
+/**
+ * The installed V2 event contract, read through the public plugin surface:
+ * `context.event.subscribe` yields the `V2Event` union.
+ */
+type V2SubscribedEvent = ReturnType<V2Context["event"]["subscribe"]> extends AsyncIterable<infer Event>
+  ? Event
+  : never
+type SessionExecutionInterruptedEvent = Extract<V2SubscribedEvent, { type: "session.execution.interrupted" }>
+
+/** DESIGN-pinned trigger event name (design §2): referenced once, then asserted. */
+const PARENT_CANCELLATION_EVENT = "session.execution.interrupted"
+
+/** The installed confirmation capabilities `session.interrupt`/`session.wait`. */
+type CancellationConfirmationCapabilities = Pick<
+  V2Context["session"],
+  "interrupt" | "wait" | "get" | "context"
+>
+const CANCELLATION_CONFIRMATION_CAPABILITIES = ["interrupt", "wait", "get", "context"] as const satisfies ReadonlyArray<
+  keyof CancellationConfirmationCapabilities
+>
+
+/** Every installed `session.execution.interrupted` reason must be accepted. */
+const CANCELLATION_REASONS = ["user", "shutdown", "superseded", "inactivity"] as const satisfies ReadonlyArray<
+  SessionExecutionInterruptedEvent["data"]["reason"]
+>
+
+/** Test-only deadline override; the production deadline is never a literal here. */
+const CONTRACT_DEADLINE_OVERRIDE_MS = 40
 
 type ContractHook = {
   domain: "tool" | "session"
@@ -187,5 +225,97 @@ describe("OpenCode V1/V2 contract fixtures", () => {
 
     expect(fixture.disposers.every(dispose => dispose.mock.calls.length === 1)).toBe(true)
     expect(fixture.eventSignal?.aborted).toBe(true)
+  })
+})
+
+describe("OpenCode V2 parent-cancellation contract", () => {
+  afterEach(() => {
+    clearCancellationIndex()
+    vi.unstubAllEnvs()
+    vi.restoreAllMocks()
+  })
+
+  it("pins the parent-cancellation trigger event shape", async () => {
+    // The literal is checked against the installed shape: the event name, the
+    // durable envelope, `data.sessionID`, and the `data.reason` union.
+    const triggerEvent = {
+      id: "event-parent-cancelled",
+      created: 1,
+      type: PARENT_CANCELLATION_EVENT,
+      durable: { aggregateID: "contract-cancel-parent", seq: 1, version: 1 },
+      data: { sessionID: "contract-cancel-parent", reason: "user" },
+    } satisfies SessionExecutionInterruptedEvent
+    expect(CANCELLATION_CONFIRMATION_CAPABILITIES).toEqual(["interrupt", "wait", "get", "context"])
+    // The complete V2 session API: a confirmed verdict also requires get/context (REQ-06/E-06).
+    const session = {
+      interrupt: vi.fn(async () => undefined),
+      wait: vi.fn(async () => undefined),
+      get: vi.fn(async () => ({})),
+      context: vi.fn(async () => []),
+    }
+    registerCancellationChild({
+      parentSessionId: "contract-cancel-parent",
+      childSessionId: "contract-cancel-child",
+      path: "native",
+    })
+
+    await handleNativeDelegationSessionEvent(triggerEvent, session)
+
+    expect(session.interrupt).toHaveBeenCalledWith({ sessionID: "contract-cancel-child" })
+    expect(session.wait).toHaveBeenCalledWith({ sessionID: "contract-cancel-child" })
+    expect(readCancellationOutcome("contract-cancel-parent")?.trigger).toEqual({
+      event: PARENT_CANCELLATION_EVENT,
+      reason: "user",
+    })
+
+    // Every installed reason value is accepted.
+    for (const reason of CANCELLATION_REASONS) {
+      const parentSessionId = `contract-reason-${reason}`
+      const childSessionId = `contract-reason-child-${reason}`
+      registerCancellationChild({ parentSessionId, childSessionId, path: "sequential" })
+      const reasonSession = {
+        interrupt: vi.fn(async () => undefined),
+        wait: vi.fn(async () => undefined),
+        get: vi.fn(async () => ({})),
+        context: vi.fn(async () => []),
+      }
+
+      await handleNativeDelegationSessionEvent({
+        ...triggerEvent,
+        data: { sessionID: parentSessionId, reason },
+      }, reasonSession)
+
+      expect(reasonSession.interrupt).toHaveBeenCalledWith({ sessionID: childSessionId })
+      expect(readCancellationOutcome(parentSessionId)?.confirmed).toEqual([childSessionId])
+    }
+
+    // Same-shaped non-cancellation events do not trigger a run.
+    const idleSession = { interrupt: vi.fn(async () => undefined), wait: vi.fn(async () => undefined) }
+    registerCancellationChild({
+      parentSessionId: "contract-idle-parent",
+      childSessionId: "contract-idle-child",
+      path: "native",
+    })
+    await handleNativeDelegationSessionEvent({
+      type: "session.idle",
+      durable: { aggregateID: "contract-idle-parent", seq: 1, version: 1 },
+      data: { sessionID: "contract-idle-parent" },
+    }, idleSession)
+    await handleNativeDelegationSessionEvent({
+      type: "session.error",
+      durable: { aggregateID: "contract-idle-parent", seq: 1, version: 1 },
+      data: { sessionID: "contract-idle-parent", error: { name: "ProviderError" } },
+    }, idleSession)
+
+    expect(idleSession.interrupt).not.toHaveBeenCalled()
+    expect(idleSession.wait).not.toHaveBeenCalled()
+    expect(readCancellationOutcome("contract-idle-parent")).toBeNull()
+  })
+
+  it("uses the exported deadline constant and env override, never a literal", () => {
+    expect(delegationCancellationDeadlineMs()).toBe(DEFAULT_DELEGATION_CANCELLATION_DEADLINE_MS)
+
+    vi.stubEnv("ODF_DELEGATION_CANCELLATION_DEADLINE_MS", String(CONTRACT_DEADLINE_OVERRIDE_MS))
+    expect(delegationCancellationDeadlineMs()).toBe(CONTRACT_DEADLINE_OVERRIDE_MS)
   })
 })

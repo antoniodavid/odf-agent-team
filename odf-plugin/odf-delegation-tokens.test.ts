@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest"
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest"
 import * as path from "node:path"
 import * as fs from "node:fs/promises"
 import * as os from "node:os"
@@ -15,6 +15,11 @@ import {
   readDelegationTokenDiagnostics,
   writeDelegationToken,
 } from "./odf-delegation-tokens.js"
+import {
+  clearCancellationIndex,
+  handleParentCancellation,
+  registerCancellationChild,
+} from "./odf-delegation-cancellation.js"
 
 let workspace: string
 
@@ -265,5 +270,45 @@ describe("delegation tokens", () => {
 
     expect(delegationTokenPath(workspace, "../escape", record.token)).toBeNull()
     expect(delegationTokenPath(workspace, record.change, "../escape")).toBeNull()
+  })
+
+  it("never treats an interrupted launch record as idle evidence and preserves its child session id", async () => {
+    const token = "odf-tok-0123456789abcdef0123456789abcdef"
+    const record = createDelegationTokenRecord(validInput({ token, launch_mode: "programmatic", parent_session_id: "tokens-cancel-parent" }))!
+    const launched = {
+      ...record,
+      launch: {
+        parent_session_id: "tokens-cancel-parent",
+        child_session_id: "tokens-cancel-child",
+        state: "interrupted" as const,
+      },
+    }
+    expect(writeDelegationToken(workspace, launched)).toBeNull()
+    const filePath = delegationTokenPath(workspace, record.change, token)!
+    const bytesBefore = await fs.readFile(filePath, "utf8")
+
+    registerCancellationChild({
+      parentSessionId: "tokens-cancel-parent",
+      childSessionId: "tokens-cancel-child",
+      path: "native",
+    })
+    const session = {
+      interrupt: vi.fn(async () => undefined),
+      wait: vi.fn(async () => { throw new Error("no terminal idle") }),
+    }
+
+    const outcome = await handleParentCancellation({ parentSessionId: "tokens-cancel-parent", session })
+
+    // state "interrupted" is not idle evidence: confirmation still needs session.wait.
+    expect(outcome.verdicts[0]).toMatchObject({
+      child_session_id: "tokens-cancel-child",
+      status: "unconfirmed",
+      reason: "wait-failed",
+      terminal_idle_confirmed: false,
+    })
+    expect(await fs.readFile(filePath, "utf8")).toBe(bytesBefore)
+    const reread = readDelegationToken(workspace, record.change, token)
+    expect(reread.record?.launch).toMatchObject({ state: "interrupted", child_session_id: "tokens-cancel-child" })
+    clearCancellationIndex()
   })
 })
