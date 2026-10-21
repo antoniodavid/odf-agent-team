@@ -265,10 +265,17 @@ fs.writeFileSync(args[1], JSON.stringify({ observations: [{ topic_key: "odf-init
         expect(summary.stdout).toContain("persisted to Engram topic odf-init/myrepo (verified)")
         expect(summary.stdout).toContain("ODF activation manifest:")
         expect(summary.stdout).toContain('"store":"engram"')
+        expect(summary.stdout).toContain("ODF runtime reload required:")
         const activation = JSON.parse(await fs.readFile(path.join(repo, ".odf", "project.json"), "utf8")) as Record<string, unknown>
         expect(activation).toMatchObject({ enabled: true, kind: "odoo", project: "myrepo" })
         const stored = JSON.parse(await fs.readFile(store, "utf8")) as Array<Record<string, unknown>>
         expect(stored[0]).toMatchObject({ topic_key: "odf-init/myrepo", project: "myrepo" })
+
+        const rescan = spawnSync(process.execPath, [SCAN_CLI, "--root", root, "--repo", repo, "--persist", "--format", "summary"], { cwd: outside, env: { ...process.env }, encoding: "utf8" })
+        expect(rescan.stdout).toContain("ODF activation manifest:")
+        expect(rescan.stdout).not.toContain("ODF runtime reload required:")
+        const reactivated = JSON.parse(await fs.readFile(path.join(repo, ".odf", "project.json"), "utf8")) as Record<string, unknown>
+        expect(reactivated.initialized_at).toBe(activation.initialized_at)
 
         const json = spawnSync(process.execPath, [SCAN_CLI, "--root", root, "--repo", repo, "--persist", "--format", "json"], { cwd: outside, env: { ...process.env }, encoding: "utf8" })
         const parsed = JSON.parse(json.stdout) as { artifact_ref?: unknown }

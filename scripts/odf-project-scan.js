@@ -25,7 +25,7 @@ import { pathToFileURL } from "node:url"
 import YAML from "yaml"
 import { detectEnv } from "./odf-env-detect.js"
 import { dependencyProbe } from "./lib/dependencies.js"
-import { disableProjectActivation, writeProjectActivation } from "./lib/odf-project-activation.js"
+import { disableProjectActivation, readProjectActivation, writeProjectActivation } from "./lib/odf-project-activation.js"
 
 const COMPOSE_FILES = ["docker-compose.yml", "docker-compose.yaml", "compose.yml", "compose.yaml", "devel.yaml"]
 
@@ -471,9 +471,13 @@ async function main(argv) {
         verified = readPersistedConfig(project, { cwd: repo })
       }
       if (verified && verified.scan_checksum === config.scan_checksum) {
+        const activationBefore = readProjectActivation(repo)
         try {
           writeProjectActivation({ directory: repo, project })
           lines.push(`ODF activation manifest: ${path.join(repo, ".odf", "project.json")}`)
+          if (!activationBefore || activationBefore.project !== project) {
+            lines.push(`ODF runtime reload required: restart OpenCode (every window, including the "opencode serve --service" daemon) so this project registers the odf_* tools before /odf-new.`)
+          }
         } catch (error) {
           lines.push(`activation error: ${error instanceof Error ? error.message : String(error)}`)
           exit = 2

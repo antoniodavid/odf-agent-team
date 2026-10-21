@@ -184,7 +184,7 @@ tests:
         ### ODF Entry Health Gate
 
         - For exact `/odf-new ...` and `/odf-fix ...` invocations, and for a clearly explicit natural-language request to start a new feature or bugfix, `odf_health` MUST be the first ODF operation. Call it before `question`, Engram writes, artifact/state creation, route/triage/status tools, or delegation.
-        - Continue only when `odf_health` returns `status: warning` with the required static/runtime checks present, or a future `status: ok`. A missing tool, thrown/malformed result, `failed`, or `blocked` result stops the command immediately with no subsequent question, write, artifact creation, or delegation.
+        - Continue only when `odf_health` returns `status: warning` with the required static/runtime checks present, or a future `status: ok`. A missing tool, thrown/malformed result, `failed`, or `blocked` result stops the command immediately with no subsequent question, write, artifact creation, or delegation. A missing tool is not a broken installation: ODF registers its tools per project when the runtime boots, so a project activated afterwards stays inert for that runtime. The only valid recovery is the `/odf-init` reload path — fully restart OpenCode (every window and the `opencode serve --service` daemon), then verify `/odf-health` — never a reinstall or a repeated scan as the first answer.
         - Never simulate health from file reads and never bypass this gate because project configuration or prior session health exists. The runtime hook enforces this order for slash-command starts and recognized direct natural-language feature/bugfix starts.
 
   - name: "prompt-only conversational routing contract (not a behavior replay)"

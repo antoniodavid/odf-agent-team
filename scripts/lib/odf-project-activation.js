@@ -38,8 +38,15 @@ export function isProjectActivated(directory) {
   return readProjectActivation(directory) !== null
 }
 
+/**
+ * Persist the activation manifest. Idempotent for the same canonical root and
+ * project: the existing activation is returned unchanged so `initialized_at`
+ * keeps recording the first activation instead of every re-scan.
+ */
 export function writeProjectActivation({ directory, project, initializedAt = new Date().toISOString() }) {
   const root = canonicalRoot(directory)
+  const existing = readProjectActivation(root)
+  if (existing && existing.project === project) return existing
   const activation = {
     schema_version: ACTIVATION_SCHEMA_VERSION,
     enabled: true,
