@@ -254,9 +254,9 @@ contract, and the selected workflow state are authoritative; the installed pack
 implementation is not part of a customer-project task.
 
 - **Progress or continuation:** make one `odf_workflow_status` call and reuse
-  its canonical stage, resumability, receipt, and join data. `odf_status` is
-  deprecated; it remains callable only as a last-resort legacy Engram summary
-  when canonical status is unavailable.
+  its canonical stage, resumability, receipt, and join data. It is the only
+  status surface: it resolves OpenSpec, Engram, and hybrid stores, including
+  changes that exist only as Engram observations.
 - **Phase handoff:** consume `next_handoff` from that same status result as the
   authoritative, versioned stage-to-stage contract. Forward it unchanged with
   its artifact references; do not rebuild refs from `next_recommended`, prose,
