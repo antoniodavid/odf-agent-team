@@ -1970,6 +1970,149 @@ describe("createODFWorkflowBind", () => {
     }
   })
 
+  it("persists a new state route without legacy phase aliases", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "odf-openspec-route-projection-"))
+    const change = "route-projection"
+    const expectations = approvedExpectations(change)
+    const { bind, context } = authorizedWorkflowBind(change, root)
+
+    try {
+      const output = JSON.parse(await bind.execute({
+        change_name: change,
+        work_type: "feature",
+        artifact_store: "openspec",
+        workspace_dir: root,
+        preflight: completePreflight(change),
+        expectations,
+      }, context) as string)
+      expect(output).toMatchObject({ status: "bound", state_action: "created" })
+
+      const state = YAML.parse(await fs.readFile(path.join(root, "openspec", "changes", change, "state.yaml"), "utf8"))
+      expect(state.route).toMatchObject({
+        work_type: "feature",
+        entry: "DECIDE",
+        stages: ["DECIDE", "PLAN", "BUILD", "VERIFY"],
+        plan: "required",
+        verification: "required",
+        parallel_build: false,
+        risk: "standard",
+      })
+      expect(Object.prototype.hasOwnProperty.call(state.route, "legacy_phases")).toBe(false)
+    } finally {
+      await fs.rm(root, { recursive: true, force: true })
+    }
+  })
+
+  it("keeps a state that still carries legacy route aliases bindable and unrewritten", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "odf-openspec-route-legacy-alias-"))
+    const change = "route-legacy-alias"
+    const changeDir = path.join(root, "openspec", "changes", change)
+    await fs.mkdir(changeDir, { recursive: true })
+    const statePath = path.join(changeDir, "state.yaml")
+    const legacyAliases = ["PROPOSE", "ASSESS", "QA-PLAN", "DESIGN", "IMPLEMENT", "VERIFY"]
+    await fs.writeFile(statePath, YAML.stringify({
+      work_type: "feature",
+      canonical_stage: "DECIDE",
+      completed_canonical_stages: [],
+      route: {
+        work_type: "feature",
+        entry: "DECIDE",
+        stages: ["DECIDE", "PLAN", "BUILD", "VERIFY"],
+        legacy_phases: legacyAliases,
+        plan: "required",
+        verification: "required",
+        parallel_build: false,
+        risk: "standard",
+      },
+    }), "utf8")
+    const { bind, context } = authorizedWorkflowBind(change, root)
+
+    try {
+      const output = JSON.parse(await bind.execute({
+        change_name: change,
+        work_type: "feature",
+        artifact_store: "openspec",
+        workspace_dir: root,
+        preflight: completePreflight(change),
+      }, context) as string)
+      expect(output).toMatchObject({ status: "bound", state_action: "updated" })
+
+      const state = YAML.parse(await fs.readFile(statePath, "utf8"))
+      expect(state.route.legacy_phases).toEqual(legacyAliases)
+      expect(state.preflight).toMatchObject({ change, work_type: "feature" })
+    } finally {
+      await fs.rm(root, { recursive: true, force: true })
+    }
+  })
+
+  it("re-binds a state whose persisted route already dropped the legacy alias", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "odf-openspec-route-rebind-"))
+    const change = "route-rebind"
+    const expectations = approvedExpectations(change)
+    const { bind, context } = authorizedWorkflowBind(change, root)
+
+    try {
+      const first = JSON.parse(await bind.execute({
+        change_name: change,
+        work_type: "feature",
+        artifact_store: "openspec",
+        workspace_dir: root,
+        preflight: completePreflight(change),
+        expectations,
+      }, context) as string)
+      expect(first).toMatchObject({ status: "bound", state_action: "created" })
+
+      const second = JSON.parse(await bind.execute({
+        change_name: change,
+        work_type: "feature",
+        artifact_store: "openspec",
+        workspace_dir: root,
+        preflight: completePreflight(change),
+      }, context) as string)
+      expect(second).toMatchObject({ status: "bound" })
+      expect(second.reason).toBeUndefined()
+    } finally {
+      await fs.rm(root, { recursive: true, force: true })
+    }
+  })
+
+  it("still blocks a persisted route that differs beyond the legacy alias", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "odf-openspec-route-real-conflict-"))
+    const change = "route-real-conflict"
+    const changeDir = path.join(root, "openspec", "changes", change)
+    await fs.mkdir(changeDir, { recursive: true })
+    const statePath = path.join(changeDir, "state.yaml")
+    await fs.writeFile(statePath, YAML.stringify({
+      work_type: "feature",
+      canonical_stage: "DECIDE",
+      route: {
+        work_type: "feature",
+        entry: "DECIDE",
+        stages: ["DECIDE", "BUILD", "VERIFY"],
+        plan: "required",
+        verification: "required",
+        parallel_build: false,
+        risk: "standard",
+      },
+    }), "utf8")
+    const { bind, context } = authorizedWorkflowBind(change, root)
+
+    try {
+      const before = await fs.readFile(statePath, "utf8")
+      const output = JSON.parse(await bind.execute({
+        change_name: change,
+        work_type: "feature",
+        artifact_store: "openspec",
+        workspace_dir: root,
+        preflight: completePreflight(change),
+      }, context) as string)
+      expect(output).toMatchObject({ status: "blocked", reason: "route-conflict" })
+      expect(await fs.readFile(statePath, "utf8")).toBe(before)
+    } finally {
+      await fs.rm(root, { recursive: true, force: true })
+    }
+  })
+
   it("round-trips bounded optional Expectations through OpenSpec bind", async () => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), "odf-openspec-extension-"))
     const change = "extension-feature"

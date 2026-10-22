@@ -9245,6 +9245,27 @@ function canonicalWorkflowValue(value: unknown): string {
   return JSON.stringify(canonicalLoopGuardValue(value))
 }
 
+/**
+ * Persisted route projection. `legacy_phases` is an in-memory compatibility
+ * alias consumed by status derivation; persisted state carries only the
+ * routing metadata that binds the change to a canonical route.
+ */
+function routeStateProjection(route: WorkflowRoute): Record<string, unknown> {
+  const { legacy_phases: _legacyPhases, ...projection } = route
+  return projection
+}
+
+/**
+ * Route comparison value. States written before the projection change still
+ * carry `legacy_phases`; ignoring that single alias keeps them bindable, while
+ * every other route difference keeps conflicting.
+ */
+function comparableRouteState(route: unknown): unknown {
+  if (!route || typeof route !== "object" || Array.isArray(route)) return route
+  const { legacy_phases: _legacyPhases, ...rest } = route as Record<string, unknown>
+  return rest
+}
+
 function saveEngramTopic(workspaceRoot: string, project: string, topicKey: string, content: string): string | null {
   try {
     execFileSync("engram", [
@@ -9507,7 +9528,8 @@ only after canonical state exists. Existing state and Expectations are reused on
         if (args.target !== undefined && requestedTarget === null) return { error: "invalid-workflow-target" }
         if (currentTarget && requestedTarget && currentTarget !== requestedTarget) return { error: "workflow-target-conflict" }
         if (preflight && current.artifact_store !== undefined && current.artifact_store !== stateArtifactStore) return { error: "artifact-store-conflict" }
-        if (preflight && current.route !== undefined && canonicalWorkflowValue(current.route) !== canonicalWorkflowValue(route)) {
+        if (preflight && current.route !== undefined &&
+          canonicalWorkflowValue(comparableRouteState(current.route)) !== canonicalWorkflowValue(routeStateProjection(route))) {
           return { error: "route-conflict" }
         }
         const hasStoredEntryRouteBinding = Object.prototype.hasOwnProperty.call(current, "entry_route_binding")
@@ -9565,7 +9587,10 @@ only after canonical state exists. Existing state and Expectations are reused on
           document.set("change", changeName)
           document.set("artifact_store", stateArtifactStore)
           document.set("preflight", persistedPreflight)
-          document.set("route", route)
+          // A state that already carries a route keeps its persisted bytes: only
+          // a new state (or one without a route node) receives the projection,
+          // so an existing change is never rewritten by this normalization.
+          if (!existed || current.route === undefined) document.set("route", routeStateProjection(route))
         } else if (isMap(existingPreflightNode)) {
           existingPreflightNode.set("work_type", args.work_type)
         }
