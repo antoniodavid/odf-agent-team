@@ -13,14 +13,14 @@ ODF is a route-driven harness for delivering Odoo changes:
 init → health/preflight → one resolved route → required QA/VERIFY → archived when applicable
 ```
 
-The route determines which stages and phase adapters apply; not every request runs every phase. The orchestrator never writes code — it delegates, tracks state, and enforces required evidence and human gates.
+The route determines which stages and roles apply; not every request runs every stage. The orchestrator never writes code — it delegates, tracks state, and enforces required evidence and human gates.
 
 ### What you can do
 
 | Command | Purpose |
 |---------|---------|
 | `/odf-new <name>` | Start a new change on its resolved route; planning is proportional to risk/scope |
-| `/odf-continue [name]` | Resume a change from its last completed phase |
+| `/odf-continue [name]` | Resume a change from its last completed stage |
 | `/odf-status [name]` | Show change state, artifacts, task progress |
 | `/odf-explore <topic>` | Investigate Odoo patterns before committing to a change |
 | `/odf-fix <description>` | Lightweight 3-step bugfix: diagnose → fix → verify |
@@ -31,7 +31,7 @@ The route determines which stages and phase adapters apply; not every request ru
 | `/odf-health` | Verify installation and project detection |
 | `/odf-feedback <change>` | Preview and optionally submit explicitly confirmed, privacy-bounded feedback |
 
-### Pipeline phases
+### Pipeline stages
 
 | Phase | Agent | Output | Gate |
 |-------|-------|--------|------|
@@ -44,7 +44,7 @@ The route determines which stages and phase adapters apply; not every request ru
 | **ARCHIVED** | (auto) | Retrospective saved to Engram | — |
 
 These are available adapters, not a promise that every request runs every row.
-The user sees one route selected by `work_type`; triage labels and legacy phases
+The user sees one route selected by `work_type`; triage labels and stage roles
 are internal mappings. Every code-changing route carries focused QA, while a
 formal QA-PLAN is conditional on the resolved route or an explicit risk
 escalation.
@@ -82,12 +82,12 @@ escalation.
 
 | Tool | Purpose |
 |------|---------|
-| `odf_delegate` | Route phase + prompt to the right sub-agent with skill injection |
+| `odf_delegate` | Route a stage role + prompt to the right sub-agent with skill injection |
 | `odf_delegation_prepare` | Resolve agent/skills/profile/prompt and mint a bounded delegation token |
 | `odf_delegation_launch` | Digest-check and submit prepared prompts through the V2 session API |
 | `odf_delegation_late_seal_prepare` | Verify an expired native child and issue a bound, single-use late-seal capability |
 | `odf_proposal_write` | Persist the token-bound PROPOSE artifact to its canonical OpenSpec path |
-| `odf_delegation_seal` | Seal a native delegation: verify the child session, run the phase gates, return the standard envelope |
+| `odf_delegation_seal` | Seal a native delegation: verify the child session, run the stage gates, return the standard envelope |
 | `odf_parallel_delegate` | Run a cross-domain BUILD as 2-3 parallel branches with one aggregate join |
 | `odf_parallel_prepare` | Prepare a native parallel BUILD (branch prompts + one token) |
 | `odf_parallel_seal` | Seal a native parallel BUILD: verify the branch sessions, run the aggregate scheduler and commit once |
@@ -101,7 +101,7 @@ escalation.
 | `odf_skill_inject` | Match and inject relevant skill compact rules into a prompt |
 | `odf_skill_resolve` | Preview which skills match a task WITHOUT executing |
 | `odf_registry_read` | Read and cache `odf-registry.json` with TTL and file watcher |
-| `odf_profile_select` | Preview which model profile applies to a phase |
+| `odf_profile_select` | Preview which model profile applies to a stage role |
 | `odf_notebooklm_lookup` | Search NotebookLM notebooks for reference material |
 | `odf_community_tool_detect` | Check if a community tool (e.g., CodeGraph) is available |
 | `odf_community_tool_install` | Install and wire a community tool |
@@ -120,7 +120,7 @@ escalation.
 - **OCA governance**: PR workflow, maturity levels, commit messages, contribution guidelines
 - **OCA style**: Python, XML, JavaScript/CSS standards
 - **Odoo patterns**: field types, computed fields, inheritance, constraints, domains, onchange, context/env, security, data migration, API integration, migration guides, debug patterns
-- **ODF phases**: assess, design, implement, bounded batch implementation, verify, fix, TDD, QA, exploration, agent builder, chained PR
+- **ODF stage roles**: assess, design, implement, bounded batch implementation, verify, fix, TDD, QA, exploration, agent builder, chained PR
 - **Shared conventions**: Engram persistence, result contract, skill resolver, Odoo source paths
 - **ODF onboarding**: guided walkthrough of the full pipeline on a real codebase
 
@@ -128,12 +128,12 @@ Max 5 skills per delegation via compact rules.
 
 ### Model profiles
 
-| Profile | ASSESS | VERIFY | Other phases |
+| Profile | ASSESS | VERIFY | Other stage roles |
 |---------|--------|--------|--------------|
 | `default` | current | current | current |
 | `cheap` | current | current | current |
 
-All phases inherit the **current session model** (no hardcoded model override). Profiles apply ONLY to SDD pipeline phases. General queries and non-SDD tasks use the default runtime model.
+All stage roles inherit the **current session model** (no hardcoded model override). Profiles apply ONLY to SDD pipeline stage roles. General queries and non-SDD tasks use the default runtime model.
 
 ### Community tools
 
@@ -158,7 +158,7 @@ for migration only; old changes are not rewritten automatically.
 
 ### Preflight gate
 
-9 fields required before any phase runs:
+9 fields required before any stage runs:
 
 - `change` (kebab-case name)
 - `execution_mode` (interactive | batch | auto)
@@ -174,12 +174,12 @@ Missing fields are collected via `question` tool.
 
 ### Orchestrator safety checks (gentle-ai inspired)
 
-- **Sub-agent launch deduplication**: same (phase, fingerprint) never launched twice
+- **Sub-agent launch deduplication**: same (stage role, fingerprint) never launched twice
 - **Fresh review rule**: adversarial review gets a fresh context for independent judgment
 - **Incident rule**: after state corruption, stop and audit before continuing
 - **Long-session rule**: after ~20 tool calls or 5 file reads without delegation, delegate instead of accumulating context
 - **Apply-progress continuity**: continuation batches merge with existing progress, never overwrite
-- **Model routing scope**: profiles only apply to SDD pipeline phases, not general queries
+- **Model routing scope**: profiles only apply to SDD pipeline stage roles, not general queries
 
 ## Development and collaboration practices
 
@@ -223,10 +223,10 @@ agent/              — 11 agent instructions (orchestrator + 10 sub-agents)
 command/            — 23 slash command definitions (Markdown)
 plugins/            — odf-delegation.ts (OpenCode plugin)
 scripts/            — test runner (1182 Vitest tests + 331 YAML scenarios), CLI wrapper, registry validator
-skills/              — 87 skills (OCA governance, ODF phases, patterns)
+skills/              — 87 skills (OCA governance, ODF stage roles, patterns)
   _shared/          — conventions (engram persistence, skill-resolver, Odoo sources)
   oca/              — OCA governance, style, patterns
-  odf-{phase}/      — phase-specific skills (assess, design, implement, etc.)
+  odf-{stage-role}/ — stage-role skills (assess, design, implement, etc.)
 openspec/           — SDD change artifacts (when artifact_store=openspec)
 docs/               — intended-usage, architecture, skill-style-guide
 install.sh          — idempotent installer (backup, --dry-run, --force)
@@ -256,7 +256,7 @@ ODF is a superset of the generic SDD workflow:
 | Domain | Generic | Odoo-specific |
 | Sub-agents | 7 generic agents | 10 specialized Odoo agents (backend, frontend, QA, DBA, etc.) |
 | Skills | Code style, commit conventions | OCA governance, Odoo patterns, migration guides |
-| Profile system | No | Yes (default/cheap profiles per phase) |
+| Profile system | No | Yes (default/cheap profiles per stage role) |
 | Community tools | CodeGraph | CodeGraph + extensible via plugin tools |
 | Persistence | Engram default | Selected `openspec`, `engram`, or `hybrid` mode |
 

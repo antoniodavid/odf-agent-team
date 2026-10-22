@@ -114,13 +114,13 @@ Acceptance:
 
 ## Tasks
 
-- [ ] T1 — S1, S2 — route: inline — stage/role contract module and validation, tests first.
-- [ ] T2 — S1, S3, S4 — route: inline — `odf_delegate` schema and handler migrated to the derived phase.
-- [ ] T3 — S6 — route: inline — `odf_delegation_prepare`/`seal`/`late-seal`/recovery and token schema v2.
-- [ ] T4 — S5 — route: inline — policy gate, receipts, and attempt ledger.
-- [ ] T5 — S9 — route: inline — parallel BUILD and join artifact.
-- [ ] T6 — S7 — route: inline — delete `materializeLegacyCanonicalBoundary`, add the stage commit.
-- [ ] T7 — S8, S10 — route: inline — metrics/observability, bind prefix, and `route.legacy_phases` removal.
+- [x] T1 — S1, S2 — route: inline — `1ad1fa8` `refactor(delegation): introduce the canonical stage+role contract`.
+- [x] T2 — S1, S3, S4 — route: inline — `3635464` `refactor(delegation): accept canonical stages in odf_delegate`.
+- [x] T3 — S6 — route: inline — `829df36` `refactor(delegation): bind native tokens to stage and role`.
+- [x] T4 — S5 — route: inline — `4faec55` `refactor(delegation): gate and settle canonical stages`.
+- [x] T5 — S9 — route: inline — `2962eb2` `refactor(delegation): make parallel BUILD a stage contract`.
+- [x] T6 — S7 — route: inline — `2755ed8` `refactor(delegation): commit canonical stages instead of legacy boundaries`.
+- [x] T7 — S8, S10 — route: inline — `7d0ef41` `refactor(workflow): emit stages and drop route phase aliases`.
 - [ ] T8 — S11, S12 — route: inline — docs, registry, full verification, and PR.
 
 ## Log
@@ -164,3 +164,28 @@ Answer (selected label and description, verbatim):
 | Route aliases | `WorkflowRoute.legacy_phases` at `odf-plugin/odf-workflow.ts:27`; bind tolerance at `plugins/odf-delegation.ts:9156`, `:9167` |
 | Registry | 10 of 11 agents declare `phases`; `odoo_orchestrator` declares `ALL`; profiles keyed by phase (6 entries, no EXPLORE/FIX) |
 | Test weight | `odf-plugin/odf-delegation.test.ts` 233 `phase:` occurrences, `odf-delegation-prepare-seal.test.ts` 44, `odf-native-attempt-recovery.test.ts` 15, YAML scenarios 14, docs 12 |
+
+### L4 — Work-unit evidence (2026-10-22)
+
+Each work unit was verified before its commit:
+
+| Unit | Focused evidence | Result |
+|---|---|---|
+| T1 | `npx vitest run odf-plugin/odf-delegation-contract.test.ts` | 12/12 passed |
+| T2 | `npx vitest run odf-plugin/odf-delegation.test.ts` | 477/477 passed |
+| T3 | `npx vitest run odf-plugin/odf-delegation-tokens.test.ts odf-plugin/odf-delegation-prepare-seal.test.ts odf-plugin/odf-observability.test.ts` | 68/68 passed |
+| T4 | `npx vitest run odf-plugin` | 921/921 passed |
+| T5 | `npx vitest run odf-plugin/odf-delegation.test.ts odf-plugin/odf-delegation-prepare-seal.test.ts` | 520/520 passed |
+| T6 | `npx vitest run odf-plugin/odf-delegation.test.ts odf-plugin/odf-delegation-prepare-seal.test.ts` | 520/520 passed |
+| T7 | `npx vitest run odf-plugin` | 921/921 passed |
+
+Full verification after T7:
+- `npm run typecheck` — clean.
+- `npm run test:unit` — 1281/1281 passed; Vitest still reports the pre-existing `[vitest-worker]: Timeout calling "onTaskUpdate"` unhandled error on some runs, which is not a test failure.
+- `npm run test:yaml` — 331/331 passed.
+- `ODF_CONFIG_DIR="$PWD" node scripts/odf-registry-validate.js` — all registered paths valid.
+
+Out-of-scope remnants, intentional:
+- `ValidationEvidenceFile.phase` and the `phase: "VERIFY"` field written by `odf-toolkit manual-evidence` remain the validation-evidence proof contract (S12 keeps the evidence seal unchanged).
+- OCA governance `GOVERNANCE_PHASES` and `.odf/ai-provenance.json` remain a separate publication artifact.
+- Historical reads keep `PHASE_STAGE` and the `by_phase` dashboard bucket name; new events write `stage`/`role`.

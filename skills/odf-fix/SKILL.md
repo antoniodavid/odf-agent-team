@@ -21,7 +21,7 @@ Use odf-fix for targeted bugs where the problem is known and scope is small (1-3
 
 | Rule | Requirement |
 |------|-------------|
-| No gates | No human phase-approval pauses: run DIAGNOSE → FIX → VERIFY continuously. This does not remove policy gates, validation evidence, VERIFY, or risk escalation; `odf_policy_gate` and those checks remain mandatory and may block |
+| No gates | No human stage-approval pauses: run DIAGNOSE → FIX → VERIFY continuously. This does not remove policy gates, validation evidence, VERIFY, or risk escalation; `odf_policy_gate` and those checks remain mandatory and may block |
 | Root cause first | Identify root cause BEFORE modifying any code |
 | Test validates fix | Include a test that fails without the fix |
 | Scope escalation | If diagnosis reveals >3 files or an architectural change, never improvise: finish the diagnosis, report the scope, and escalate the route — continue under the same supervised-auto flow with an inline plan when the fix stays bounded (one root cause, no schema/security/data-loss signals, ≤8 files), or stop for a scope decision when architectural or high-risk |

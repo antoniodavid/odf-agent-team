@@ -1,6 +1,6 @@
 # ODF Agent Team
 
-> **Spec-driven Odoo delivery on OpenCode** — a phase pipeline, 11 specialized agents, 87 skills, and deterministic CLIs so your AI team *finds* the codebase instead of inventing it.
+> **Spec-driven Odoo delivery on OpenCode** — a stage pipeline, 11 specialized agents, 87 skills, and deterministic CLIs so your AI team *finds* the codebase instead of inventing it.
 
 [![Tests](https://img.shields.io/badge/tests-1182%20unit%20%2B%20331%20YAML%20%2B%2018%20harness-brightgreen)](#development)
 [![Registry](https://img.shields.io/badge/registry-87%20skills%20%C2%B7%2011%20agents-blue)](odf-registry.json)
@@ -8,7 +8,7 @@
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![Version](https://img.shields.io/badge/version-1.6.0-informational)](CHANGELOG.md)
 
-**ODF** — spec-driven Odoo delivery on OpenCode. Turns a generic AI assistant into a structured Odoo delivery team. An orchestrator routes every phase through a plugin that resolves the right agent, injects at most five skill rules, enforces Policy Gates, and seals evidence — so nothing ships on a guess.
+**ODF** — spec-driven Odoo delivery on OpenCode. Turns a generic AI assistant into a structured Odoo delivery team. An orchestrator routes every stage through a plugin that resolves the right agent, injects at most five skill rules, enforces Policy Gates, and seals evidence — so nothing ships on a guess.
 
 ```
 odf-delegation plugin ──► task() ──► specialist agent ──► Odoo worktree
@@ -35,12 +35,12 @@ Need CodeGraph structural queries? Add `-- --with-codegraph`. Non-interactive CI
 init → health/preflight → one resolved route → only its required stages → archive when applicable
 ```
 
-| Stage | Legacy phases | When |
+| Stage | Roles | When |
 |-------|---------------|------|
 | `DECIDE` | `PROPOSE` + `ASSESS` | routes that include DECIDE; can be terminal for standard config |
 | `PLAN` | `QA-PLAN` + `DESIGN` | only when the resolved route or risk requires formal planning |
-| `BUILD` | `IMPLEMENT` | plan is closed |
-| `VERIFY` | `VERIFY` | verification required |
+| `BUILD` | — | plan is closed |
+| `VERIFY` | — | verification required |
 
 The user sees one route selected by `work_type`; `micro/standard/full` is entry triage, not another workflow. Small changes use DECIDE → BUILD → VERIFY with inline QA; bugfixes use FIX → BUILD → VERIFY with inline regression QA; complex/high-risk routes use formal PLAN/QA-PLAN. The shadow prediction is advisory and does not alter execution. Full vocabulary: [docs/architecture.md](docs/architecture.md).
 
@@ -72,7 +72,7 @@ The user sees one route selected by `work_type`; `micro/standard/full` is entry 
 
 | Piece | Count / location |
 |-------|------------------|
-| Skills | 87 (`skills/` — OCA governance/style, Odoo patterns, ODF phases) |
+| Skills | 87 (`skills/` — OCA governance/style, Odoo patterns, ODF stage roles) |
 | Agents | 11 (`agent/` — orchestrator + 10 specialists) |
 | Commands | 23 (`command/`) |
 | Plugin tools | 31 injected at runtime (`plugins/odf-delegation.ts` + `odf-plugin/`) |
@@ -95,7 +95,7 @@ The user sees one route selected by `work_type`; `micro/standard/full` is entry 
   - `plugins/odf-delegation.ts` (~6k lines) is still a monolith for the delegation/workflow core; cohesive sections already live in `odf-plugin/`.
   - The `engram` store needs the **Engram MCP** (or CLI); OpenSpec-only flows work without it.
   - `codegraph` / `fff` / `context7` are **optional** and degrade gracefully.
-  - The phase model is strict by design; the escape hatch is audited `odf_workflow_override`, not a bypass.
+  - The stage model is strict by design; the escape hatch is audited `odf_workflow_override`, not a bypass.
 
 ## Dependencies
 
