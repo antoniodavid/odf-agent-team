@@ -121,7 +121,7 @@ Acceptance:
 - [x] T5 — S9 — route: inline — `2962eb2` `refactor(delegation): make parallel BUILD a stage contract`.
 - [x] T6 — S7 — route: inline — `2755ed8` `refactor(delegation): commit canonical stages instead of legacy boundaries`.
 - [x] T7 — S8, S10 — route: inline — `7d0ef41` `refactor(workflow): emit stages and drop route phase aliases`.
-- [ ] T8 — S11, S12 — route: inline — docs, registry, full verification, and PR.
+- [x] T8 — S11, S12 — route: inline — `f43cdb5` toolkit read side, `13f7741` docs, `8443c4b` route fixture; full verification recorded in L5.
 
 ## Log
 
@@ -189,3 +189,15 @@ Out-of-scope remnants, intentional:
 - `ValidationEvidenceFile.phase` and the `phase: "VERIFY"` field written by `odf-toolkit manual-evidence` remain the validation-evidence proof contract (S12 keeps the evidence seal unchanged).
 - OCA governance `GOVERNANCE_PHASES` and `.odf/ai-provenance.json` remain a separate publication artifact.
 - Historical reads keep `PHASE_STAGE` and the `by_phase` dashboard bucket name; new events write `stage`/`role`.
+
+### L5 — Full verification (2026-10-22)
+
+On the branch tip after T8:
+
+- `npm run typecheck` — clean (no diagnostics).
+- `npm run test:unit` — 47 files, 1281/1281 tests passed. Vitest reports the pre-existing `[vitest-worker]: Timeout calling "onTaskUpdate"` unhandled error; it is not a failing test and predates this work.
+- `npm run test:yaml` — 331/331 passed.
+- `ODF_CONFIG_DIR="$PWD" node scripts/odf-registry-validate.js` — all registered paths valid.
+- `git diff --check main..HEAD` — clean.
+
+Independent verifier: requested because the change removes published tool fields (`phase`) and a persisted route key (`legacy_phases`), which is Task Size high-risk item 3. The runtime denied the delegated verifier (`permission.rejected`), so the result is recorded as unavailable, never PASS.
