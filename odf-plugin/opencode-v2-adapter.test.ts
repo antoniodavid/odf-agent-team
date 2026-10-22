@@ -168,7 +168,7 @@ describe("OpenCode V2 ODF adapter", () => {
     expect(readObservedSessionStatus("adapter-status-child")).toMatchObject({ state: "busy" })
   })
 
-  it("preserves transcript bytes and strips only one exact legacy host prefix", () => {
+  it("preserves transcript bytes exactly and never strips a host prefix", () => {
     const prompt = "  Unicode →\r\ntrailing whitespace \t\n"
     const assistant = { type: "assistant", content: [{ type: "text", text: "## ODF Result\n- **status**: ok" }] }
     const direct = readV2ContextConversation([
@@ -177,26 +177,26 @@ describe("OpenCode V2 ODF adapter", () => {
     ])!
     expect(direct.userTexts[0]).toBe(prompt)
     expect(direct.userTextExact).toBe(true)
-    expect(preparedPromptFromV2Conversation(direct, false)).toBe(prompt)
+    expect(preparedPromptFromV2Conversation(direct)).toBe(prompt)
 
     const hostPrefix = "You are a subagent spawned by another session.\n"
-    const legacy = readV2ContextConversation([
+    const prefixed = readV2ContextConversation([
       { type: "user", text: `${hostPrefix}${prompt}` },
       assistant,
     ])!
-    expect(preparedPromptFromV2Conversation(legacy, true)).toBe(prompt)
+    expect(preparedPromptFromV2Conversation(prefixed)).toBe(`${hostPrefix}${prompt}`)
     const doubled = readV2ContextConversation([
       { type: "user", text: `${hostPrefix}${hostPrefix}${prompt}` },
       assistant,
     ])!
-    expect(preparedPromptFromV2Conversation(doubled, true)).toBe(`${hostPrefix}${prompt}`)
+    expect(preparedPromptFromV2Conversation(doubled)).toBe(`${hostPrefix}${hostPrefix}${prompt}`)
 
     const ambiguousParts = readV2ContextConversation([
       { info: { type: "user" }, content: [{ type: "text", text: "first" }, { type: "text", text: "second" }] },
       assistant,
     ])!
     expect(ambiguousParts.userTextExact).toBe(false)
-    expect(preparedPromptFromV2Conversation(ambiguousParts, true)).toBeNull()
+    expect(preparedPromptFromV2Conversation(ambiguousParts)).toBeNull()
   })
 
   it("does not reuse an earlier success when the terminal assistant message fails or is empty", () => {
