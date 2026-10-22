@@ -46,17 +46,6 @@ export const STAGE_ARTIFACT_REQUIREMENTS: Record<CanonicalStage, readonly (reado
   FIX: [["fix"], ["fix-progress"]],
 }
 
-export const LEGACY_ARTIFACT_PHASES: ReadonlyArray<readonly [string, readonly string[]]> = [
-  ["VERIFY", ["verify", "verify-report"]],
-  ["IMPLEMENT", ["build", "implement-progress", "implement", "apply-progress", "tasks"]],
-  ["FIX", ["fix", "fix-progress"]],
-  ["EXPLORE", ["explore", "explore-progress"]],
-  ["DESIGN", ["plan", "design"]],
-  ["QA-PLAN", ["qa-plan"]],
-  ["ASSESS", ["decision", "assess"]],
-  ["PROPOSE", ["propose"]],
-]
-
 export const ARTIFACT_TYPE_PRIORITY = [
   "decision", "plan", "build", "verify", "implement-progress", "propose", "assess", "design", "qa-plan",
   "implement", "apply-progress", "tasks", "verify-report", "explore", "explore-progress", "fix", "fix-progress",

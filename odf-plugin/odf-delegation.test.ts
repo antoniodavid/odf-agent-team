@@ -525,11 +525,11 @@ describe("createODFWorkflowOverride", () => {
     ) as string)
     expect(status).toMatchObject({
       canonical_stage: "VERIFY",
-      legacy_phase: "VERIFY",
       completed_canonical_stages: ["DECIDE", "PLAN", "BUILD"],
       pending_stage: "VERIFY",
       resumable: true,
     })
+    expect(status).not.toHaveProperty("legacy_phase")
   }, 10_000)
 
   it("recovers an orphan workflow lock whose owner process is dead", async () => {
@@ -4017,10 +4017,12 @@ describe("odf_workflow_status discovery and Engram fallback", () => {
       expect(status).toMatchObject({
         status: "found",
         change: "engram-only",
-        state_kind: "legacy-artifacts",
+        state_kind: "none",
+        resumable: false,
         source: { state: "engram" },
         progress: { completed: 1, total: 2, known: true, source: "implement-progress" },
       })
+      expect(status.warnings).toContain("Workflow state is missing; artifacts alone are not resumable.")
       for (const removed of ["phase", "artifacts", "applyProgress", "lastUpdated"]) {
         expect(status).not.toHaveProperty(removed)
       }
@@ -4043,10 +4045,10 @@ describe("odf_workflow_status discovery and Engram fallback", () => {
       expect(result).toMatchObject({
         status: "found",
         change: "legacy-output",
-        legacy_phase: "PROPOSE",
+        state_kind: "none",
         observability: { schema_version: 1, change: "legacy-output" },
       })
-      for (const removed of ["phase", "artifacts", "applyProgress", "lastUpdated"]) {
+      for (const removed of ["phase", "artifacts", "applyProgress", "lastUpdated", "legacy_phase"]) {
         expect(result).not.toHaveProperty(removed)
       }
     } finally {
@@ -11257,7 +11259,7 @@ describe("stable discovery runtime guard", () => {
     expect(unsafe.authorizations.size).toBe(0)
   })
 
-  it("keeps command contracts health-first while preserving explicit legacy recovery", async () => {
+  it("keeps command contracts health-first while preserving explicit canonical recovery", async () => {
     const root = process.cwd()
     const command = await fs.readFile(path.join(root, "command", "odf-new.md"), "utf8")
     const orchestrator = await fs.readFile(path.join(root, "agent", "odoo_orchestrator.md"), "utf8")
@@ -11267,7 +11269,7 @@ describe("stable discovery runtime guard", () => {
     expect(instructions.indexOf("Run `odf_health` first")).toBeLessThan(instructions.indexOf("`question`"))
     expect(orchestrator).toContain("A missing tool, thrown/malformed result, `failed`, or `blocked` result stops the command immediately")
     expect(continuation).toContain("`expectations-only` blocks")
-    expect(continuation).toContain("`legacy-artifacts` preserves `resumable: true`")
+    expect(continuation).not.toContain("legacy-artifacts")
     expect(continuation).toContain("requires `--work-type <type>`")
     expect(continuation).toContain("never creates workflows")
   })

@@ -132,21 +132,22 @@ describe("workflow status adapter", () => {
     expect(normalizeArtifactKey("openspec/changes/change/verify-report-slice1.yaml")).toMatchObject({ group: "VERIFY", type: "verify-report" })
   })
 
-  it("derives a partial and complete legacy-only workflow", () => {
+  it("derives stages from artifacts without granting resumability when no state exists", () => {
     const partial = deriveWorkflowStatus({
       change: "partial",
       artifacts: { propose: "proposal" },
     })
     expect(partial).toMatchObject({
       canonical_stage: "DECIDE",
-      legacy_phase: "PROPOSE",
       completed_canonical_stages: [],
       pending_stage: "DECIDE",
       state_present: false,
-      state_kind: "legacy-artifacts",
-      recovery_work_type_required: true,
-      resumable: true,
+      state_kind: "none",
+      recovery_work_type_required: false,
+      resumable: false,
     })
+    expect(partial).not.toHaveProperty("legacy_phase")
+    expect(partial.warnings).toContain("Workflow state is missing; artifacts alone are not resumable.")
 
     const complete = deriveWorkflowStatus({
       change: "complete",
@@ -161,7 +162,9 @@ describe("workflow status adapter", () => {
     expect(complete.completed_canonical_stages).toEqual(["DECIDE", "PLAN", "BUILD", "VERIFY"])
     expect(complete.canonical_stage).toBe("VERIFY")
     expect(complete.pending_stage).toBeNull()
-    expect(complete.legacy_phase).toBe("VERIFY")
+    expect(complete.state_kind).toBe("none")
+    expect(complete.resumable).toBe(false)
+    expect(complete).not.toHaveProperty("legacy_phase")
   })
 
   it("ignores stale phase artifacts and requires a committed stage for refreshed evidence", () => {
@@ -245,7 +248,6 @@ describe("workflow status adapter", () => {
     ]) {
       expect(status).toMatchObject({
         canonical_stage: "INIT",
-        legacy_phase: null,
         pending_stage: null,
         state_present: false,
         state_kind: "none",
@@ -263,7 +265,6 @@ describe("workflow status adapter", () => {
     })
     expect(status).toMatchObject({
       canonical_stage: "INIT",
-      legacy_phase: null,
       completed_canonical_stages: [],
       pending_stage: null,
       state_present: false,
@@ -345,7 +346,8 @@ describe("workflow status adapter", () => {
     })
     expect(status.completed_canonical_stages).toEqual(["DECIDE"])
     expect(status.canonical_stage).toBe("PLAN")
-    expect(status.legacy_phase).toBe("QA-PLAN")
+    expect(status.state_kind).toBe("none")
+    expect(status).not.toHaveProperty("legacy_phase")
     expect(status.pending_stage).toBe("PLAN")
   })
 
@@ -602,7 +604,7 @@ describe("workflow status adapter", () => {
     expect(buildWarning.pending_stage).toBe("BUILD")
   })
 
-  it("supports non-default EXPLORE and FIX routes without changing legacy defaults", () => {
+  it("supports non-default EXPLORE and FIX routes and ignores a legacy phase key", () => {
     const explore = deriveWorkflowStatus({
       change: "explore-route",
       state: { work_type: "question" },
@@ -612,9 +614,9 @@ describe("workflow status adapter", () => {
       canonical_stage: "EXPLORE",
       completed_canonical_stages: ["EXPLORE"],
       pending_stage: null,
-      legacy_phase: "EXPLORE",
       work_type: "question",
     })
+    expect(explore).not.toHaveProperty("legacy_phase")
     expect(explore.artifact_refs.EXPLORE).toEqual(["explore"])
 
     const fix = deriveWorkflowStatus({
@@ -632,14 +634,14 @@ describe("workflow status adapter", () => {
       work_type: "bugfix",
     })
 
-    const legacyDefault = deriveWorkflowStatus({
-      change: "legacy-default",
+    const legacyPhaseIgnored = deriveWorkflowStatus({
+      change: "legacy-phase-ignored",
       state: { phase: "IMPLEMENT" },
     })
-    expect(legacyDefault).toMatchObject({
-      canonical_stage: "VERIFY",
-      completed_canonical_stages: ["DECIDE", "PLAN", "BUILD"],
-      pending_stage: "VERIFY",
+    expect(legacyPhaseIgnored).toMatchObject({
+      canonical_stage: "DECIDE",
+      completed_canonical_stages: [],
+      pending_stage: "DECIDE",
       work_type: null,
     })
   })
@@ -658,11 +660,11 @@ describe("workflow status adapter", () => {
     expect(deriveReceiptState({ status: "mystery" })).toMatchObject({ state: "pending", action: null })
     expect(deriveReceiptState({ status: "failed", action: {} })).toMatchObject({ state: "pending", action: null })
 
-    const pending = deriveWorkflowStatus({ change: "receipt", artifacts: { propose: "proposal" }, receipt: { status: "failed" } })
+    const pending = deriveWorkflowStatus({ change: "receipt", state: { work_type: "feature" }, artifacts: { propose: "proposal" }, receipt: { status: "failed" } })
     expect(pending.resumable).toBe(false)
-    const retry = deriveWorkflowStatus({ change: "retry", artifacts: { propose: "proposal" }, receipt: { status: "failed", action: "retry" } })
+    const retry = deriveWorkflowStatus({ change: "retry", state: { work_type: "feature" }, artifacts: { propose: "proposal" }, receipt: { status: "failed", action: "retry" } })
     expect(retry.resumable).toBe(true)
-    const abandoned = deriveWorkflowStatus({ change: "abandoned", artifacts: { propose: "proposal" }, receipt: { status: "failed", action: "abandon" } })
+    const abandoned = deriveWorkflowStatus({ change: "abandoned", state: { work_type: "feature" }, artifacts: { propose: "proposal" }, receipt: { status: "failed", action: "abandon" } })
     expect(abandoned.resumable).toBe(false)
   })
 
@@ -671,15 +673,18 @@ describe("workflow status adapter", () => {
     expect(deriveWorkflowStatus({ change: "state", state: { archived: true } }).canonical_stage).toBe("ARCHIVED")
     expect(deriveWorkflowStatus({ change: "report", artifacts: { "archive-report": "status: archived" } }).canonical_stage).toBe("ARCHIVED")
 
-    for (const state of [{ canonical_stage: "ARCHIVED" }, { phase: "archived" }, { status: "archived" }]) {
+    for (const state of [{ canonical_stage: "ARCHIVED" }, { status: "archived" }]) {
       expect(deriveWorkflowStatus({ change: "explicit-archive", state, receipt: { status: "blocked" } })).toMatchObject({
         canonical_stage: "ARCHIVED",
-        legacy_phase: "ARCHIVED",
         completed_canonical_stages: ["DECIDE", "PLAN", "BUILD", "VERIFY"],
         pending_stage: null,
         resumable: false,
       })
     }
+
+    const legacyArchiveKey = deriveWorkflowStatus({ change: "legacy-archive", state: { phase: "archived" } })
+    expect(legacyArchiveKey.canonical_stage).not.toBe("ARCHIVED")
+    expect(legacyArchiveKey).not.toHaveProperty("legacy_phase")
   })
 
   it("reopens a change whose state declares an active stage over an archive report", () => {
@@ -693,7 +698,7 @@ describe("workflow status adapter", () => {
     })
 
     expect(status.canonical_stage).toBe("VERIFY")
-    expect(status.legacy_phase).toBe("VERIFY")
+    expect(status).not.toHaveProperty("legacy_phase")
     expect(status.completed_canonical_stages).toEqual(["DECIDE", "PLAN", "BUILD"])
     expect(status.pending_stage).toBe("VERIFY")
     expect(status.resumable).toBe(true)
@@ -729,7 +734,6 @@ describe("odf_workflow_status tool", () => {
       expect(result).toMatchObject({
         status: "found",
         canonical_stage: "INIT",
-        legacy_phase: null,
         pending_stage: null,
         state_present: false,
         state_kind: "expectations-only",
@@ -908,9 +912,10 @@ await fs.writeFile(cli, "#!/bin/sh\nprintf '{\"observations\":%s}' \"$ODF_TEST_E
       const result = JSON.parse(output as string)
       expect(result.canonical_stage).toBe("BUILD")
       expect(result.pending_stage).toBe("BUILD")
-      expect(result.state_kind).toBe("legacy-artifacts")
-      expect(result.recovery_work_type_required).toBe(true)
-      expect(result.resumable).toBe(true)
+      expect(result.state_kind).toBe("none")
+      expect(result.recovery_work_type_required).toBe(false)
+      expect(result.resumable).toBe(false)
+      expect(result).not.toHaveProperty("legacy_phase")
       expect(result.progress).toMatchObject({ completed: 1, total: 2, known: true, source: "implement-progress" })
       // Presence alone is not completion: the progress keeps the real ratio.
       for (const removed of ["phase", "artifacts", "applyProgress", "lastUpdated"]) {
@@ -918,6 +923,7 @@ await fs.writeFile(cli, "#!/bin/sh\nprintf '{\"observations\":%s}' \"$ODF_TEST_E
       }
       expect(result.source.state).toBe("engram")
       expect(result.warnings).toContain("OpenSpec state was not read; status is derived from Engram artifacts.")
+      expect(result.warnings).toContain("Workflow state is missing; artifacts alone are not resumable.")
       expect(result.status).toBe("found")
 
       process.env.ODF_TEST_ENGRAM_EXPORT = JSON.stringify([
