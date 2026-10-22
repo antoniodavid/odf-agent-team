@@ -166,7 +166,8 @@ describe("OpenCode V1/V2 contract fixtures", () => {
     expect(ODF_SYSTEM_RULES).toContain("`odf_workflow_archive`")
     expect(tools.odf_workflow_status.description).toContain("Use this first for a current-state or continuation question")
     expect(tools.odf_workflow_archive.description).toContain("idempotent")
-    expect(tools.odf_status.description).toContain("use odf_workflow_status instead")
+    expect(ODF_REGISTERED_TOOLS).not.toContain("odf_status")
+    expect(tools).not.toHaveProperty("odf_status")
   })
 
   it("keeps JSON Schema fields and validation aligned with the V1 schemas", async () => {

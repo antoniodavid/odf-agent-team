@@ -8477,67 +8477,32 @@ function legacyArtifactState(key: string, content: string | null | undefined): s
   return progress.completed >= progress.total ? "done" : "in-progress"
 }
 
-function buildEngramStatus(
+/** Canonical status for a change that exists only as Engram observations.
+ * There is no local artifact set, so the merged builder receives the Engram
+ * state document (when the change has one) plus an empty OpenSpec artifact
+ * list and the explicit Engram source channel. */
+function buildEngramOnlyStatus(
   workspaceRoot: string,
-  snapshot: EngramSnapshot,
-  warnings: string[] = []
+  engram: EngramSnapshot,
+  warnings: string[] = [],
 ): Omit<ODFChangeStatus, "observability"> {
-  const { change: bestChange, artifacts } = snapshot
-  const rawWorkflowArtifacts = Array.from(artifacts.entries()).map(([type, data]) => ({
-    key: `odf/${bestChange}/${type}`,
-    content: data.content,
-    created_at: data.created,
-  }))
-  const stateArtifact = artifacts.get("state")
-  const workflowArtifacts = filterInvalidatedWorkflowArtifacts(stateArtifact?.content, rawWorkflowArtifacts)
-  const activeArtifactTypes = new Set(workflowArtifacts.map((artifact) => normalizeArtifactKey(artifact.key).type))
-
-  const status = {
-    change: bestChange,
-    phase: "init",
-    artifacts: {},
-    applyProgress: { completed: 0, total: 0 },
-    lastUpdated: null,
-  } as Omit<ODFChangeStatus, "observability">
-
-  // Map artifact types to state
-  const artifactStates: Record<string, string> = {}
-  for (const [type, data] of artifacts) {
-    if (normalizeArtifactKey(type).type === "state" || !activeArtifactTypes.has(normalizeArtifactKey(type).type)) continue
-    artifactStates[type] = legacyArtifactState(type, data.content)
-    if (data.created && Number.isFinite(Date.parse(data.created)) && (!status.lastUpdated || data.created > status.lastUpdated)) {
-      status.lastUpdated = data.created
-    }
-  }
-  status.artifacts = artifactStates
-
-  const expectationWarnings = validateExpectations({ change: bestChange, artifacts: workflowArtifacts }).status === "missing"
-    ? ["missing-expectations"]
-    : []
-  const expectationsOnly = artifacts.size > 0 && Array.from(artifacts.keys()).every(type => normalizeArtifactKey(type).type === "expectations")
-  status.workflowStatus = deriveWorkflowStatus({
-    change: bestChange,
-    artifacts: workflowArtifacts,
-    receipt: readReceiptJson(workspaceRoot, bestChange),
-    source: {
-      state: artifacts.has("state") || !expectationsOnly ? "engram" : "none",
-      artifacts: workflowArtifacts.map((artifact) => artifact.key),
+  const stateArtifact = engram.artifacts.get("state")
+  const expectationsOnly = engram.artifacts.size > 0 &&
+    Array.from(engram.artifacts.keys()).every(type => normalizeArtifactKey(type).type === "expectations")
+  const stateSource: StatusSourceState = engram.artifacts.has("state") || !expectationsOnly ? "engram" : "none"
+  return buildMergedStatus(
+    workspaceRoot,
+    {
+      change: engram.change,
+      state: stateArtifact
+        ? { key: `odf/${engram.change}/state`, content: stateArtifact.content, created: stateArtifact.created, source: "engram" }
+        : null,
+      artifacts: [],
+      warnings,
     },
-    warnings: [...warnings, ...expectationWarnings],
-  })
-  status.phase = status.workflowStatus.legacy_phase?.toLowerCase() || "init"
-  status.applyProgress = {
-    completed: status.workflowStatus.progress.completed,
-    total: status.workflowStatus.progress.total,
-  }
-
-  return status
-}
-
-export async function loadEngramStatus(workspaceRoot: string, changeName?: string): Promise<ODFChangeStatus | null> {
-  const observations = await readEngramObservations(workspaceRoot)
-  const snapshot = observations ? selectEngramSnapshot(observations, changeName) : null
-  return snapshot ? attachRuntimeStatus(buildEngramStatus(workspaceRoot, snapshot), workspaceRoot) : null
+    engram,
+    stateSource,
+  )
 }
 
 function contentStatus(content: string): string | null {
@@ -8587,10 +8552,13 @@ function conflictWarnings(openSpec: OpenSpecSnapshot, engram: EngramSnapshot | n
   return warnings
 }
 
+type StatusSourceState = "openspec" | "engram" | "none"
+
 function buildMergedStatus(
   workspaceRoot: string,
   openSpec: OpenSpecSnapshot,
   engram: EngramSnapshot | null,
+  stateSource?: StatusSourceState,
 ): Omit<ODFChangeStatus, "observability"> {
   const warnings = [...openSpec.warnings, ...conflictWarnings(openSpec, engram)]
   const openGroups = new Set(openSpec.artifacts
@@ -8630,15 +8598,18 @@ function buildMergedStatus(
     state: openSpec.state?.content || null,
     artifacts: mergedArtifacts,
     receipt: readReceiptJson(workspaceRoot, openSpec.change),
-    source: { state: openSpec.state ? "openspec" : "none", artifacts: Array.from(new Set(sourceRefs)) },
+    source: { state: stateSource ?? (openSpec.state ? "openspec" : "none"), artifacts: Array.from(new Set(sourceRefs)) },
     warnings: Array.from(new Set([...warnings, ...expectationWarnings])),
   })
   const artifactStates: Record<string, string> = {}
   for (const artifact of mergedArtifacts) {
-    artifactStates[normalizeArtifactKey(artifact.key).type] = legacyArtifactState(artifact.key, artifact.content)
+    const { type } = normalizeArtifactKey(artifact.key)
+    if (type === "state") continue
+    artifactStates[type] = legacyArtifactState(artifact.key, artifact.content)
   }
   let lastUpdated: string | null = null
   for (const artifact of mergedArtifacts) {
+    if (normalizeArtifactKey(artifact.key).type === "state") continue
     if (artifact.created && Number.isFinite(Date.parse(artifact.created)) && (!lastUpdated || artifact.created > lastUpdated)) {
       lastUpdated = artifact.created
     }
@@ -8726,7 +8697,7 @@ async function loadCombinedWorkflowStatus(workspaceRoot: string, changeName?: st
   if (openSpec?.state) {
     return attachRuntimeStatus(buildMergedStatus(workspaceRoot, openSpec, engram), workspaceRoot)
   }
-  if (engram) return attachRuntimeStatus(buildEngramStatus(workspaceRoot, engram, openSpec?.warnings || []), workspaceRoot)
+  if (engram) return attachRuntimeStatus(buildEngramOnlyStatus(workspaceRoot, engram, openSpec?.warnings || []), workspaceRoot)
   return openSpec?.artifacts.length
     ? attachRuntimeStatus(buildMergedStatus(workspaceRoot, openSpec, null), workspaceRoot)
     : null
@@ -8867,7 +8838,7 @@ async function discoverActiveWorkflowCandidates(workspaceRoot: string): Promise<
     const store = stateArtifactStoreValue(local?.state?.content)
     const status = local
       ? buildMergedStatus(workspaceRoot, local, store === "openspec" ? null : engram)
-      : engram ? buildEngramStatus(workspaceRoot, engram) : null
+      : engram ? buildEngramOnlyStatus(workspaceRoot, engram) : null
     if (!status) continue
     const candidate = projectActiveWorkflowCandidate(status, unreadableLocalStates.has(change))
     if (candidate) activeStatuses.push({ candidate, status })
@@ -8886,41 +8857,6 @@ async function discoverActiveWorkflowCandidates(workspaceRoot: string): Promise<
     warnings: Array.from(new Set(warnings)),
     ...(status === "unambiguous" ? { selected_status: activeStatuses[0]?.status } : {}),
   }
-}
-
-function createODFStatus(canonicalDirectory?: string): ReturnType<typeof tool> {
-  return tool({
-    description: `Deprecated: use odf_workflow_status instead.
-
-Show ODF change status by resolving from Engram observations. Returns
-structured JSON with current phase, artifact states, task progress, and
-timestamps, plus deprecated: true and replacement: "odf_workflow_status".
-Kept callable this release for legacy Engram-only summaries; it is not a
-supported primary path. For canonical progress, continuation readiness,
-receipts, or parallel join state, use odf_workflow_status.`,
-    args: {
-      change_name: tool.schema
-        .string()
-        .optional()
-        .describe("Change name to inspect (omit for latest active change)"),
-      workspace_dir: tool.schema
-        .string()
-        .optional()
-        .describe("Project directory (defaults to current session workspace)"),
-    },
-    async execute(args: { change_name?: string; workspace_dir?: string }, toolCtx: ToolContext): Promise<string> {
-      const workspace = resolveSelectedWorkspaceRoot(args.workspace_dir, toolCtx?.directory || canonicalDirectory)
-      if (!workspace) {
-        return JSON.stringify({ status: "blocked", reason: "unsafe-workspace-path", message: "The session workspace does not resolve to a safe existing project root." }, null, 2)
-      }
-      const status = await loadEngramStatus(workspace, args.change_name)
-      if (!status) {
-        return JSON.stringify({ status: "not-found", deprecated: true, replacement: "odf_workflow_status", message: "No ODF changes found in Engram" }, null, 2)
-      }
-      const { workflowStatus: _workflowStatus, ...legacyStatus } = status
-      return JSON.stringify({ status: "found", deprecated: true, replacement: "odf_workflow_status", ...legacyStatus }, null, 2)
-    },
-  })
 }
 
 function createODFWorkflowStatus(canonicalDirectory?: string): ReturnType<typeof tool> {
@@ -10842,7 +10778,7 @@ export const ODF_SYSTEM_RULES = `<odf-system>
 - Workflow state commits happen after successful inner results and evidence; ARCHIVED remains an explicit archive transition.
 - \`odf_skill_inject\`, \`odf_skill_resolve\`, \`odf_registry_read\`: standards and routing inspection
 - \`odf_policy_gate\`, \`odf_receipt\`: policy and failure persistence
-- \`odf_status\`, \`odf_workflow_status\`, \`odf_profile_select\`, \`odf_notebooklm_lookup\`: state, canonical progress, profile, and research lookup
+- \`odf_workflow_status\`, \`odf_profile_select\`, \`odf_notebooklm_lookup\`: canonical state, profile, and research lookup
 - \`odf_health\`: read-only installed/runtime health; it does not probe task usability or execute task/Odoo/PostgreSQL/Engram export
 - \`odf_community_tool_detect\`, \`odf_community_tool_install\`: optional community tooling
 
@@ -10851,7 +10787,7 @@ export const ODF_SYSTEM_RULES = `<odf-system>
 ODF is a control-plane API, not a codebase to reverse-engineer during customer-project work.
 
 - Use the registered ODF tool descriptions and these rules as the contract. Do not inspect or search the installed ODF runtime source (plugin entrypoint, support code, or internal scripts under \`$ODF_CONFIG_DIR\` / the OpenCode config directory) to learn how to operate it. Resolve skill guidance through ODF's skill tools/injection, not filesystem searches. Inspect harness source only when the user explicitly asks to develop or debug ODF itself.
-- For current progress, continuation readiness, pending receipts, or parallel joins, make one \`odf_workflow_status\` call and reuse its result. \`odf_status\` is deprecated; it remains callable only as a last-resort legacy Engram summary when canonical status is unavailable.
+- For current progress, continuation readiness, pending receipts, or parallel joins, make one \`odf_workflow_status\` call and reuse its result. It is the only status surface: it resolves OpenSpec, Engram, and hybrid stores, including changes that exist only as Engram observations.
 - Call \`odf_health\` for the exact \`/odf-new\` entry gate or an explicit health request, not as a routine check before every phase.
 - If state is missing or inconsistent, use the relevant ODF status/receipt tool and the documented recovery path once. If still unresolved, stop and report the returned evidence; never switch to shell/grep/source inspection or bypass a gate to guess.
 - Read customer-project code and referenced workflow artifacts only as needed for the approved task. Keep routine tool plumbing out of user-facing narration; give concise progress and results in the user's language without skipping required approvals or dispositions.
@@ -10910,7 +10846,6 @@ export function createODFRegisteredTools(
     odf_profile_select: createODFProfileSelect(),
     odf_community_tool_detect: createODFCommunityToolDetect(),
     odf_community_tool_install: createODFCommunityToolInstall(),
-    odf_status: createODFStatus(canonicalDirectory),
     odf_workflow_status: createODFWorkflowStatus(canonicalDirectory),
     odf_feedback_submit: createODFFeedbackSubmit(),
     odf_policy_gate: createODFPolicyGate(),
@@ -11042,7 +10977,6 @@ export {
   createODFWorkflowArchive,
   createODFWorkflowOverride,
   createODFWorkflowBind,
-  createODFStatus,
   createODFWorkflowStatus,
   createODFHealth,
   createODFGovernanceCheck,
