@@ -1,8 +1,8 @@
 # Legacy Route Removal
 
 Objective: retire the dead legacy-route compatibility in three bounded slices (F1, F4, F6) without changing the delegation API or breaking changes already in flight.
-Branch: `main` (uncommitted working tree). Delivery strategy `ask-on-risk`; test runner `npm test` (Vitest + YAML scenarios).
-Status: T2, T3, T4, and T5 implemented and verified locally. No commit has been made.
+Branch: `feature/legacy-route-removal` (four work-unit commits). Delivery strategy `ask-on-risk`; test runner `npm test` (Vitest + YAML scenarios).
+Status: T2, T3, T4, and T5 implemented, verified locally, and committed in reviewable slices.
 
 ## Specs
 
@@ -88,10 +88,10 @@ Check: `git diff --word-diff` review against the authorized files.
 ## Tasks
 
 - [x] T1 — S1 — route: inline — evidence only, no commit. Result in L6: `data_status: no_data`; static inventory recorded.
-- [x] T2 — S2, S3 — route: inline — pending commit: `refactor(workflow): stop persisting legacy route aliases`. Evidence in L7.
-- [x] T3 — S4 — route: inline — pending commit: `refactor(delegation): require workflow proof unconditionally`. Evidence in L8.
-- [x] T4 — S5 — route: inline — pending commit: `refactor(delegation): reject legacy launch tokens`. Evidence in L12.
-- [x] T5 — S6 — route: inline — pending commit: `docs(status): deprecate odf_status`. Evidence in L9.
+- [x] T2 — S2, S3 — route: inline — `aca17c9` `refactor(workflow): stop persisting legacy route aliases`. Evidence in L7.
+- [x] T3 — S4 — route: inline — `b7469ee` `refactor(delegation): require workflow proof unconditionally`. Evidence in L8.
+- [x] T4 — S5 — route: inline — `5a2b64f` `refactor(delegation): reject legacy launch tokens`. Evidence in L12.
+- [x] T5 — S6 — route: inline — closing commit `docs(status): deprecate odf_status`. Evidence in L9.
 - [ ] D1 — deferred (not authorized) — F4 deletion: remove `odf_status`, `loadEngramStatus`, `buildEngramStatus`, `legacyArtifactState` after the `odf_workflow_status` fallback is migrated.
 - [ ] D2 — deferred (not authorized) — F2 + F3: migrate the delegation API to canonical stages and delete `materializeLegacyCanonicalBoundary`.
 - [ ] D3 — deferred (not authorized) — F5: remove `legacy_phase`, `state_kind: "legacy-artifacts"`, `LEGACY_ARTIFACT_PHASES`, and the legacy `--work-type` recovery. This revises ODF 2 migration decision M6 and drops resumability for changes that predate `state.yaml`.
@@ -233,3 +233,13 @@ GREEN evidence:
 - `npm run typecheck` → clean; `node scripts/odf-registry-validate.js` → all registered paths valid.
 
 Compatibility note: a token prepared by an older build is rejected as soon as the new build reads it, regardless of its 2-hour TTL, because the record shape is checked on read. No migration or long grace window was added; a fresh `odf_delegation_prepare` is required. Runtime effect still requires reinstalling the pack into `~/.config/opencode`.
+
+### L13 — Delivery (2026-10-21)
+
+Branch `feature/legacy-route-removal`, four work-unit commits:
+- `aca17c9` — T2: stop persisting legacy route aliases.
+- `b7469ee` — T3: require workflow proof unconditionally.
+- `5a2b64f` — T4: reject legacy launch tokens.
+- T5 closing commit: deprecate `odf_status`; this commit also records the delivery.
+
+Push, pull request creation, and merge remain the user's decision. Runtime behavior changes only after reinstalling the pack into `~/.config/opencode`.

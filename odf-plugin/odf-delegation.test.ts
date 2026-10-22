@@ -4039,6 +4039,8 @@ describe("loadEngramStatus", () => {
       const result = JSON.parse(output as string)
       expect(result).toMatchObject({
         status: "found",
+        deprecated: true,
+        replacement: "odf_workflow_status",
         change: "legacy-output",
         phase: "propose",
         artifacts: { propose: "done" },
