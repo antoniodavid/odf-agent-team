@@ -6336,7 +6336,7 @@ ${overrides}`
     const parallelTool = createODFParallelDelegate(undefined, tempHome)
     const output = await parallelTool.execute({
       work_type: "cross-domain",
-      phase: "IMPLEMENT",
+      stage: "BUILD",
       change: "parallel-strict-missing-proof",
       artifact_store: "openspec",
       branches: parallelBranches("strict"),
@@ -9089,7 +9089,7 @@ ${overrides}`
 
     const output = await parallelTool.execute({
       work_type: "cross-domain",
-      phase: "IMPLEMENT",
+      stage: "BUILD",
       change: "parallel-success",
       artifact_store: "openspec",
       workflow_advance: parallelWorkflowAdvance(),
@@ -9148,7 +9148,7 @@ ${overrides}`
       schema_version: 1,
       change: "parallel-success",
       work_type: "cross-domain",
-      phase: "IMPLEMENT",
+      stage: "BUILD",
       join: { status: "complete", expected: 2, completed: 2, failed: 0 },
     })
     expect(joinArtifact.branches[0].descriptor.prompt).toContain("backend")
@@ -9187,7 +9187,7 @@ ${overrides}`
       expect((parallelTool as any).args).toHaveProperty("workspace_dir")
       const output = JSON.parse(await parallelTool.execute({
         work_type: "cross-domain",
-        phase: "IMPLEMENT",
+        stage: "BUILD",
         change,
         workspace_dir: workspace,
         artifact_store: "openspec",
@@ -9224,7 +9224,7 @@ ${overrides}`
 
     const result = JSON.parse(await parallelTool.execute({
       work_type: "cross-domain",
-      phase: "IMPLEMENT",
+      stage: "BUILD",
       change,
       artifact_store: "openspec",
       workflow_advance: parallelWorkflowAdvance(),
@@ -9262,7 +9262,7 @@ ${overrides}`
 
     const result = JSON.parse(await parallelTool.execute({
       work_type: "cross-domain",
-      phase: "IMPLEMENT",
+      stage: "BUILD",
       change: "parallel-too-many",
       artifact_store: "openspec",
       workflow_advance: parallelWorkflowAdvance(),
@@ -9285,7 +9285,7 @@ ${overrides}`
 
     const result = JSON.parse(await parallelTool.execute({
       work_type: "cross-domain",
-      phase: "IMPLEMENT",
+      stage: "BUILD",
       change: "parallel-invalid-input",
       artifact_store: "openspec",
       workflow_advance: parallelWorkflowAdvance(),
@@ -9309,7 +9309,7 @@ ${overrides}`
     const parallelTool = createODFParallelDelegate(undefined, tempHome)
     const run = parallelTool.execute({
       work_type: "cross-domain",
-      phase: "IMPLEMENT",
+      stage: "BUILD",
       change: "parallel-running",
       artifact_store: "openspec",
       workflow_advance: parallelWorkflowAdvance(),
@@ -9342,7 +9342,7 @@ ${overrides}`
     const parallelTool = createODFParallelDelegate(undefined, tempHome)
     const run = parallelTool.execute({
       work_type: "cross-domain",
-      phase: "IMPLEMENT",
+      stage: "BUILD",
       change,
       artifact_store: "openspec",
       workflow_advance: parallelWorkflowAdvance(),
@@ -9358,7 +9358,7 @@ ${overrides}`
 
     const resumed = JSON.parse(await createODFParallelDelegate(undefined, tempHome).execute({
       work_type: "cross-domain",
-      phase: "IMPLEMENT",
+      stage: "BUILD",
       change,
       artifact_store: "openspec",
       workflow_advance: parallelWorkflowAdvance(),
@@ -9404,7 +9404,7 @@ ${overrides}`
       schema_version: 1,
       change,
       work_type: "cross-domain",
-      phase: "IMPLEMENT",
+      stage: "BUILD",
       timestamp: "2026-09-28T00:00:00.000Z",
       join: { status: "running", expected: 2, completed: 1, failed: 0, running: 1, validation_verified: false },
       branches: [
@@ -9483,7 +9483,7 @@ ${overrides}`
     const taskApi = vi.fn().mockResolvedValue({ status: "ok", executive_summary: "branch done" })
     const resumed = JSON.parse(await createODFParallelDelegate(undefined, tempHome).execute({
       work_type: "cross-domain",
-      phase: "IMPLEMENT",
+      stage: "BUILD",
       change,
       artifact_store: "openspec",
       workflow_advance: parallelWorkflowAdvance(),
@@ -9508,7 +9508,7 @@ ${overrides}`
       .mockReturnValueOnce(new Promise(resolve => { resolveSecond = resolve }))
     const run = createODFParallelDelegate(undefined, tempHome).execute({
       work_type: "cross-domain",
-      phase: "IMPLEMENT",
+      stage: "BUILD",
       change,
       artifact_store: "openspec",
       workflow_advance: parallelWorkflowAdvance(),
@@ -9561,7 +9561,7 @@ ${overrides}`
 
     const result = JSON.parse(await createODFParallelDelegate(undefined, tempHome).execute({
       work_type: "cross-domain",
-      phase: "IMPLEMENT",
+      stage: "BUILD",
       change,
       artifact_store: "openspec",
       workflow_advance: parallelWorkflowAdvance(),
@@ -9589,7 +9589,7 @@ ${overrides}`
     const parallelTool = createODFParallelDelegate(undefined, tempHome)
     const first = await parallelTool.execute({
       work_type: "cross-domain",
-      phase: "IMPLEMENT",
+      stage: "BUILD",
       change: "parallel-branch-ledger",
       artifact_store: "openspec",
       workflow_advance: parallelWorkflowAdvance(),
@@ -9599,7 +9599,7 @@ ${overrides}`
 
     const sameBranch = JSON.parse(await parallelTool.execute({
       work_type: "cross-domain",
-      phase: "IMPLEMENT",
+      stage: "BUILD",
       change: "parallel-branch-ledger",
       artifact_store: "openspec",
       workflow_advance: parallelWorkflowAdvance(),
@@ -9625,7 +9625,7 @@ ${overrides}`
 
     const result = JSON.parse(await parallelTool.execute({
       work_type: "cross-domain",
-      phase: "IMPLEMENT",
+      stage: "BUILD",
       change: "parallel-failure",
       artifact_store: "openspec",
       workflow_advance: parallelWorkflowAdvance(),
@@ -9655,7 +9655,7 @@ ${overrides}`
 
     const result = JSON.parse(await parallelTool.execute({
       work_type: "cross-domain",
-      phase: "IMPLEMENT",
+      stage: "BUILD",
       change: "parallel-no-validation",
       artifact_store: "openspec",
       workflow_advance: parallelWorkflowAdvance(),
@@ -9688,7 +9688,7 @@ ${overrides}`
 
     const result = JSON.parse(await parallelTool.execute({
       work_type: "cross-domain",
-      phase: "IMPLEMENT",
+      stage: "BUILD",
       change: "parallel-inner-failure",
       artifact_store: "openspec",
       workflow_advance: parallelWorkflowAdvance(),
@@ -9725,7 +9725,7 @@ ${overrides}`
 
     const first = JSON.parse(await parallelTool.execute({
       work_type: "cross-domain",
-      phase: "IMPLEMENT",
+      stage: "BUILD",
       change,
       artifact_store: "openspec",
       workflow_advance: parallelWorkflowAdvance(),
@@ -9741,7 +9741,7 @@ ${overrides}`
 
     const resumed = JSON.parse(await parallelTool.execute({
       work_type: "cross-domain",
-      phase: "IMPLEMENT",
+      stage: "BUILD",
       change,
       artifact_store: "openspec",
       workflow_advance: parallelWorkflowAdvance(),
@@ -9767,7 +9767,7 @@ ${overrides}`
     const parallelTool = createODFParallelDelegate(undefined, tempHome)
     await parallelTool.execute({
       work_type: "cross-domain",
-      phase: "IMPLEMENT",
+      stage: "BUILD",
       change,
       artifact_store: "openspec",
       workflow_advance: parallelWorkflowAdvance(),
@@ -9777,7 +9777,7 @@ ${overrides}`
 
     const resumed = JSON.parse(await parallelTool.execute({
       work_type: "cross-domain",
-      phase: "IMPLEMENT",
+      stage: "BUILD",
       change,
       artifact_store: "openspec",
       workflow_advance: parallelWorkflowAdvance(),
@@ -9794,7 +9794,7 @@ ${overrides}`
     const parallelTool = createODFParallelDelegate(undefined, tempHome)
     const result = JSON.parse(await parallelTool.execute({
       work_type: "cross-domain",
-      phase: "IMPLEMENT",
+      stage: "BUILD",
       change: "parallel-one-fresh",
       artifact_store: "openspec",
       workflow_advance: parallelWorkflowAdvance(),
@@ -9817,7 +9817,7 @@ ${overrides}`
     const parallelTool = createODFParallelDelegate(undefined, tempHome)
     const result = JSON.parse(await parallelTool.execute({
       work_type: "cross-domain",
-      phase: "IMPLEMENT",
+      stage: "BUILD",
       change: "parallel-join-invalid",
       artifact_store: "openspec",
       workflow_advance: parallelWorkflowAdvance(),

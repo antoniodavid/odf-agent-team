@@ -1803,7 +1803,7 @@ describe("native prepare/seal delegation", () => {
 
     const prepared = JSON.parse(await odf_parallel_prepare.execute({
       work_type: "cross-domain",
-      phase: "IMPLEMENT",
+      stage: "BUILD",
       change,
       artifact_store: "openspec",
       workflow_advance: parallelWorkflowAdvance(),
@@ -1997,7 +1997,7 @@ describe("native prepare/seal delegation", () => {
     const { odf_parallel_prepare, odf_parallel_seal } = await tools(root)
     const prepared = JSON.parse(await odf_parallel_prepare.execute({
       work_type: "cross-domain",
-      phase: "IMPLEMENT",
+      stage: "BUILD",
       change,
       artifact_store: "openspec",
       workflow_advance: parallelWorkflowAdvance(),
@@ -2050,7 +2050,7 @@ describe("native prepare/seal delegation", () => {
     const { odf_parallel_prepare, odf_parallel_seal } = await tools(root)
     const prepared = JSON.parse(await odf_parallel_prepare.execute({
       work_type: "cross-domain",
-      phase: "IMPLEMENT",
+      stage: "BUILD",
       change,
       artifact_store: "openspec",
       workflow_advance: parallelWorkflowAdvance(),
@@ -2079,7 +2079,7 @@ describe("native prepare/seal delegation", () => {
     const { odf_parallel_prepare } = await tools()
     const base = {
       work_type: "cross-domain",
-      phase: "IMPLEMENT",
+      stage: "BUILD",
       change: "native-parallel-validation",
       artifact_store: "openspec",
       workflow_advance: parallelWorkflowAdvance(),

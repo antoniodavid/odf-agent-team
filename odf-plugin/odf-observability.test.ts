@@ -77,7 +77,7 @@ function joinArtifact(change: string): Parameters<typeof writeParallelJoinArtifa
     schema_version: 1,
     change,
     work_type: "cross-domain",
-    phase: "IMPLEMENT",
+    stage: "BUILD",
     timestamp: "2026-08-24T10:03:00.000Z",
     join: { status: "complete", expected: 2, completed: 2, failed: 0, running: 0, validation_verified: true },
     branches,

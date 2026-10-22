@@ -46,7 +46,7 @@ export interface ParallelJoinArtifact {
   schema_version: 1
   change: string
   work_type: "cross-domain"
-  phase: "IMPLEMENT"
+  stage: "BUILD"
   timestamp: string
   join: {
     status: ParallelJoinStatus
@@ -130,7 +130,7 @@ function normalizeArtifact(value: unknown, change: string): ParallelJoinArtifact
   const artifact = value as Partial<ParallelJoinArtifact>
   if (artifact.schema_version !== 1) return "unsupported schema_version"
   if (!isSafeToken(artifact.change) || artifact.change !== change) return "change does not match"
-  if (artifact.work_type !== "cross-domain" || artifact.phase !== "IMPLEMENT") return "work_type or phase does not match"
+  if (artifact.work_type !== "cross-domain" || artifact.stage !== "BUILD") return "work_type or stage does not match"
   if (!isSafeTimestamp(artifact.timestamp)) return "timestamp is invalid"
   if (!artifact.join || typeof artifact.join !== "object" || Array.isArray(artifact.join)) return "join is invalid"
 
@@ -215,7 +215,7 @@ function normalizeArtifact(value: unknown, change: string): ParallelJoinArtifact
     schema_version: 1,
     change,
     work_type: "cross-domain",
-    phase: "IMPLEMENT",
+    stage: "BUILD",
     timestamp: artifact.timestamp,
     join: {
       status: join.status,

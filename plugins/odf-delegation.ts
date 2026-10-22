@@ -2790,7 +2790,7 @@ function buildParallelJoinArtifact(
     schema_version: 1,
     change,
     work_type: "cross-domain",
-    phase: "IMPLEMENT",
+    stage: "BUILD",
     timestamp: new Date().toISOString(),
     join,
     branches: descriptors.map((descriptor, index) => {
@@ -4847,7 +4847,7 @@ function createODFParallelPrepare(canonicalDirectory?: string): ReturnType<typeo
     description: `Prepare a native parallel BUILD (cross-domain IMPLEMENT): validate the shared proof, resolve each branch agent/skills/prompt, acquire the branch attempts and return one delegation token plus per-branch prompts. Submit every exact branch prompt with odf_delegation_launch through the V2 session API, then finish with odf_parallel_seal({ token, change, branches }). Do not use host subagent tools.`,
     args: {
       work_type: tool.schema.enum(["cross-domain"]).describe("Only cross-domain work can use the parallel BUILD scheduler"),
-      phase: tool.schema.enum(["IMPLEMENT"]).describe("Only IMPLEMENT is parallelized; VERIFY remains sequential"),
+      stage: tool.schema.enum(["BUILD"]).describe("Only BUILD is parallelized; VERIFY remains sequential"),
       change: tool.schema.string().describe("Shared change name (kebab-case)"),
       artifact_store: tool.schema.enum(["openspec", "engram", "hybrid"]).describe("Authoritative workflow store for the aggregate transition"),
       workflow_advance: workflowAdvanceSchema.describe("Exact shared transition proof; it must advance cross-domain to BUILD"),
@@ -4860,7 +4860,7 @@ function createODFParallelPrepare(canonicalDirectory?: string): ReturnType<typeo
     },
     async execute(args: {
       work_type: "cross-domain"
-      phase: "IMPLEMENT"
+      stage: "BUILD"
       change: string
       artifact_store: ArtifactStore
       workflow_advance: Record<string, unknown>
@@ -4877,7 +4877,8 @@ function createODFParallelPrepare(canonicalDirectory?: string): ReturnType<typeo
         reason,
         stop_disposition: classifyODFStop(reason),
         work_type: "cross-domain",
-        phase: "IMPLEMENT",
+        stage: "BUILD",
+        role: null,
         agent: "scheduler",
         token: null,
         task_api_source: "sdk.v2",
@@ -5014,7 +5015,7 @@ function createODFParallelPrepare(canonicalDirectory?: string): ReturnType<typeo
           ? buildSourceAuthorityPrompt(sourceAuthorityRoots)
           : ""
         const evidenceRef = validationEvidenceRelativePath(changeName, branch.branch_id)
-        const marker = `<!-- ODF-DELEGATION ${JSON.stringify({ change: changeName, phase: "IMPLEMENT", agent: agentName, token, branch_id: branch.branch_id })} -->`
+        const marker = `<!-- ODF-DELEGATION ${JSON.stringify({ change: changeName, stage: "BUILD", role: null, agent: agentName, token, branch_id: branch.branch_id })} -->`
         const finalPrompt = `${marker}\n\n${buildDelegationPrompt({ enrichedPrompt, sourceAuthorityPrompt, policyGate })}\n\nStop-validation evidence: write \`${evidenceRef}\`.`
         prepared.push({
           branch_id: branch.branch_id,
@@ -5088,7 +5089,8 @@ function createODFParallelPrepare(canonicalDirectory?: string): ReturnType<typeo
       return JSON.stringify({
         status: "prepared",
         work_type: "cross-domain",
-        phase: "IMPLEMENT",
+        stage: "BUILD",
+        role: null,
         change: changeName,
         token,
         branches: prepared.map(branch => ({
@@ -5420,7 +5422,7 @@ function createODFParallelSeal(canonicalDirectory?: string): ReturnType<typeof t
             suppress_metrics: true,
           }).execute({
             work_type: "cross-domain",
-            phase: "IMPLEMENT",
+            stage: "BUILD",
             change: changeName,
             artifact_store: record.artifact_store,
             workflow_advance: record.workflow_advance,
@@ -5532,9 +5534,9 @@ must not overlap. VERIFY remains sequential after the aggregate join is complete
       work_type: tool.schema
         .enum(["cross-domain"])
         .describe("Only cross-domain work can use the parallel BUILD scheduler"),
-      phase: tool.schema
-        .enum(["IMPLEMENT"])
-        .describe("Only IMPLEMENT is parallelized; VERIFY remains sequential"),
+      stage: tool.schema
+        .enum(["BUILD"])
+        .describe("Only BUILD is parallelized; VERIFY remains sequential"),
       target: tool.schema.enum(["oca"]).optional().describe("Explicit governance target"),
       governance_acknowledgment: governanceAcknowledgmentSchema.optional().describe("Explicit final human OCA acknowledgment"),
       change: tool.schema
@@ -5585,7 +5587,7 @@ must not overlap. VERIFY remains sequential after the aggregate join is complete
     },
     async execute(args: {
       work_type: "cross-domain"
-      phase: "IMPLEMENT"
+      stage: "BUILD"
       target?: "oca"
       governance_acknowledgment?: GovernanceAcknowledgment
       change: string
@@ -5648,7 +5650,7 @@ must not overlap. VERIFY remains sequential after the aggregate join is complete
         return JSON.stringify({
           status: "blocked",
           work_type: args.work_type,
-          phase: args.phase,
+          stage: args.stage,
           reason,
           message,
           branches: outcomes,
@@ -5669,7 +5671,7 @@ must not overlap. VERIFY remains sequential after the aggregate join is complete
 
       if (!toolCtx?.sessionID) return blocked("session-required", "odf_parallel_delegate requires sessionID")
       if (args.work_type !== "cross-domain") return blocked("parallel-work-type-unsupported", "Only cross-domain work can use the parallel BUILD scheduler.")
-      if (args.phase !== "IMPLEMENT") return blocked("parallel-phase-unsupported", "Only IMPLEMENT can use the parallel BUILD scheduler; VERIFY remains sequential.")
+      if (args.stage !== "BUILD") return blocked("parallel-stage-unsupported", "Only BUILD can use the parallel BUILD scheduler; VERIFY remains sequential.")
       if (!isSafeToken(args.change)) return blocked("unsafe-change-name", "The shared change name must be a safe token.")
       if (args.artifact_store !== "openspec" && args.artifact_store !== "engram" && args.artifact_store !== "hybrid") {
         return blocked("artifact-store-required", "Parallel proof-backed BUILD requires an explicit artifact_store: openspec, engram, or hybrid.")
@@ -5802,7 +5804,7 @@ must not overlap. VERIFY remains sequential after the aggregate join is complete
         return JSON.stringify({
           status: "parallel-delegated",
           work_type: args.work_type,
-          phase: args.phase,
+          stage: args.stage,
           resumed: false,
           branches: [],
           join: { status: "complete", expected, completed: expected, failed: 0, running: 0, validation_verified: true, artifact_ref: null },
@@ -5838,7 +5840,8 @@ must not overlap. VERIFY remains sequential after the aggregate join is complete
         return JSON.stringify({
           status: "parallel-delegated",
           work_type: "cross-domain",
-          phase: "IMPLEMENT",
+          stage: "BUILD",
+          role: null,
           resumed: true,
           branches: savedJoin.branches.map(savedParallelOutcome),
           join: { ...savedJoin.join, artifact_ref: persistedJoinRef },
@@ -6150,7 +6153,8 @@ must not overlap. VERIFY remains sequential after the aggregate join is complete
         return JSON.stringify({
           status: "parallel-delegated",
           work_type: "cross-domain",
-          phase: "IMPLEMENT",
+          stage: "BUILD",
+          role: null,
           resumed: Boolean(args.resume_from_join),
           branches: outcomes,
           join: {
