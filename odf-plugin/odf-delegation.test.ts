@@ -3379,7 +3379,8 @@ describe("recordMetrics", () => {
   const makeMetric = (overrides: Partial<Parameters<typeof recordMetrics>[0]> = {}) => ({
     timestamp: new Date().toISOString(),
     session_id: "session-abc-123",
-    phase: "DESIGN",
+    stage: "PLAN",
+    role: "DESIGN",
     agent: "odoo_backend_engineer",
     skills_injected: ["odf-design"],
     skill_resolution: "injected" as const,
@@ -3457,14 +3458,14 @@ describe("recordMetrics", () => {
   })
 
   it("maps lifecycle calls to the six bounded end-to-end stages", () => {
-    expect(resolveFlowStage("PROPOSE", "started")).toBe("entry_started")
-    expect(resolveFlowStage("PROPOSE", "finished", "ok")).toBe("intent_approved")
-    expect(resolveFlowStage("ASSESS", "started")).toBeUndefined()
-    expect(resolveFlowStage("ASSESS", "finished", "ok")).toBe("policy_selected")
-    expect(resolveFlowStage("IMPLEMENT", "started")).toBe("build_started")
-    expect(resolveFlowStage("VERIFY", "started")).toBe("verify_started")
-    expect(resolveFlowStage("VERIFY", "finished", "warning")).toBe("verified_completed")
-    expect(resolveFlowStage("VERIFY", "finished", "blocked")).toBeUndefined()
+    expect(resolveFlowStage("DECIDE", "PROPOSE", "started")).toBe("entry_started")
+    expect(resolveFlowStage("DECIDE", "PROPOSE", "finished", "ok")).toBe("intent_approved")
+    expect(resolveFlowStage("DECIDE", "ASSESS", "started")).toBeUndefined()
+    expect(resolveFlowStage("DECIDE", "ASSESS", "finished", "ok")).toBe("policy_selected")
+    expect(resolveFlowStage("BUILD", null, "started")).toBe("build_started")
+    expect(resolveFlowStage("VERIFY", null, "started")).toBe("verify_started")
+    expect(resolveFlowStage("VERIFY", null, "finished", "warning")).toBe("verified_completed")
+    expect(resolveFlowStage("VERIFY", null, "finished", "blocked")).toBeUndefined()
   })
 
   it("sanitizes lifecycle identity fields and preserves start/finish correlation", () => {
@@ -4946,7 +4947,8 @@ ${overrides}`
     ])
     expect(metrics[1]).toMatchObject({
       status: "ok",
-      phase: "ASSESS",
+      stage: "DECIDE",
+      role: "ASSESS",
       agent: "odoo_functional_consultant",
       task_api_source: "toolCtx.task",
       run_id: expect.any(String),
@@ -9054,7 +9056,7 @@ ${overrides}`
 
     const metrics = getMetricsBuffer()
     expect(metrics.filter(metric => metric.event === "run")).toHaveLength(1)
-    expect(metrics.find(metric => metric.event === "run")).toMatchObject({ phase: "EXPLORE", agent: "odoo_functional_consultant" })
+    expect(metrics.find(metric => metric.event === "run")).toMatchObject({ stage: "EXPLORE", role: null, agent: "odoo_functional_consultant" })
   })
 
   it("accepts PROPOSE phase and delegates to the proposal agent", async () => {
@@ -9074,7 +9076,8 @@ ${overrides}`
     expect(envelope.stage).toBe("DECIDE")
     expect(envelope.role).toBe("PROPOSE")
     expect(envelope.agent).toBe("odoo_proposer")
-    expect(getMetricsBuffer()[0].phase).toBe("PROPOSE")
+    expect(getMetricsBuffer()[0].stage).toBe("DECIDE")
+    expect(getMetricsBuffer()[0].role).toBe("PROPOSE")
   })
 
   it("runs two independent cross-domain BUILD branches and completes the join", async () => {

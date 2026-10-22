@@ -1533,10 +1533,10 @@ function recordTerminalFlowMarkers(
   const traceId = createTelemetryTraceId()
   const runId = createTelemetryRunId()
   let parentSpanId = createTelemetrySpanId()
-  const prefix: Array<{ phase: string; lifecycle: "started" | "finished"; flowStage: TelemetryFlowStage }> = [
-    { phase: "PROPOSE", lifecycle: "started", flowStage: "entry_started" },
-    { phase: "PROPOSE", lifecycle: "finished", flowStage: "intent_approved" },
-    { phase: "ASSESS", lifecycle: "finished", flowStage: "policy_selected" },
+  const prefix: Array<{ stage: string; role: string | null; lifecycle: "started" | "finished"; flowStage: TelemetryFlowStage }> = [
+    { stage: "DECIDE", role: "PROPOSE", lifecycle: "started", flowStage: "entry_started" },
+    { stage: "DECIDE", role: "PROPOSE", lifecycle: "finished", flowStage: "intent_approved" },
+    { stage: "DECIDE", role: "ASSESS", lifecycle: "finished", flowStage: "policy_selected" },
   ]
 
   for (const marker of prefix) {
@@ -1544,7 +1544,8 @@ function recordTerminalFlowMarkers(
     recordMetrics({
       timestamp: new Date().toISOString(),
       session_id: sessionId,
-      phase: marker.phase,
+      stage: marker.stage,
+      role: marker.role,
       agent: "workflow-bind",
       skills_injected: [],
       skill_resolution: "none",
@@ -1870,7 +1871,8 @@ Use this instead of generic task() for ODF workflow delegation.`,
         metricsSink?.({
           timestamp: new Date().toISOString(),
           session_id: toolCtx.sessionID,
-          phase: phase,
+          stage: target.stage,
+          role: target.role,
           agent: "unresolved",
           skills_injected: [],
           skill_resolution: "none",
@@ -1985,7 +1987,8 @@ Use this instead of generic task() for ODF workflow delegation.`,
           metricsSink?.({
             timestamp: new Date().toISOString(),
             session_id: toolCtx.sessionID,
-            phase: phase,
+            stage: target.stage,
+            role: target.role,
             agent: "unresolved",
             skills_injected: [],
             skill_resolution: "none",
@@ -2029,7 +2032,8 @@ Use this instead of generic task() for ODF workflow delegation.`,
         metricsSink?.({
           timestamp: new Date().toISOString(),
           session_id: toolCtx.sessionID,
-          phase: phase,
+          stage: target.stage,
+          role: target.role,
           agent: "unresolved",
           skills_injected: [],
           skill_resolution: "none",
@@ -2106,7 +2110,8 @@ Use this instead of generic task() for ODF workflow delegation.`,
           metricsSink?.({
             timestamp: new Date().toISOString(),
             session_id: toolCtx.sessionID,
-            phase: phase,
+            stage: target.stage,
+            role: target.role,
             agent: "unresolved",
             skills_injected: [],
             skill_resolution: "none",
@@ -2330,11 +2335,12 @@ Use this instead of generic task() for ODF workflow delegation.`,
         overrides: Partial<DelegationMetricInput> = {},
       ): void => {
         if (!taskSpanId) return
-        const flowStage = resolveFlowStage(phase, lifecycle, overrides.status)
+        const flowStage = resolveFlowStage(target.stage, target.role, lifecycle, overrides.status)
         metricsSink?.({
           timestamp: new Date().toISOString(),
           session_id: toolCtx.sessionID,
-          phase: phase,
+          stage: target.stage,
+          role: target.role,
           agent: agentName,
           skills_injected: skills.map(s => s.name),
           skill_resolution: skills.length > 0 ? "injected" : "none",
@@ -2372,11 +2378,12 @@ Use this instead of generic task() for ODF workflow delegation.`,
       ): void => {
         if (lifecycle === "finished") finishTaskSpan(overrides)
         if (!emitTelemetryLifecycle) return
-        const flowStage = resolveFlowStage(phase, lifecycle, overrides.status)
+        const flowStage = resolveFlowStage(target.stage, target.role, lifecycle, overrides.status)
         const metric: DelegationMetricInput = {
           timestamp: new Date().toISOString(),
           session_id: toolCtx.sessionID,
-          phase: phase,
+          stage: target.stage,
+          role: target.role,
           agent: agentName,
           skills_injected: skills.map(s => s.name),
           skill_resolution: skills.length > 0 ? "injected" : "none",
@@ -2922,7 +2929,8 @@ function recordParallelJoinMetrics(
   recordMetrics({
     timestamp: new Date().toISOString(),
     session_id: sessionId,
-    phase: "IMPLEMENT",
+    stage: "BUILD",
+    role: null,
     agent: "scheduler",
     skills_injected: [],
     skill_resolution: "none",
@@ -2961,11 +2969,12 @@ function recordSchedulerLifecycle(
   // M0 Slice 2: the scheduler run is the parallel BUILD funnel anchor. The
   // change tag lets the reader pair it with the sequential entry/verify
   // milestones; only the start maps to a funnel stage (build_started).
-  const flowStage = resolveFlowStage("IMPLEMENT", lifecycle)
+  const flowStage = resolveFlowStage("BUILD", null, lifecycle)
   recordMetrics({
     timestamp: new Date().toISOString(),
     session_id: sessionId,
-    phase: "IMPLEMENT",
+    stage: "BUILD",
+    role: null,
     agent: "scheduler",
     skills_injected: [],
     skill_resolution: "none",
@@ -3001,7 +3010,8 @@ function recordBranchLifecycle(
   recordMetrics({
     timestamp: new Date().toISOString(),
     session_id: sessionId,
-    phase: "IMPLEMENT",
+    stage: "BUILD",
+    role: null,
     agent: "branch",
     skills_injected: [],
     skill_resolution: "none",
@@ -3171,7 +3181,8 @@ async function sealProofBackedDelegation(opts: {
   recordMetrics({
     timestamp: new Date().toISOString(),
     session_id: opts.toolCtx.sessionID,
-    phase: delegationPhase(opts.record.stage, opts.record.role),
+    stage: opts.record.stage,
+    role: opts.record.role,
     agent: opts.record.agent,
     skills_injected: opts.record.skills_injected,
     skill_resolution: opts.record.skills_injected.length > 0 ? "injected" : "none",
@@ -3990,7 +4001,8 @@ function createODFDelegationPrepare(canonicalDirectory?: string): ReturnType<typ
       recordMetrics({
         timestamp: new Date().toISOString(),
         session_id: toolCtx.sessionID,
-        phase: phase,
+        stage: target.stage,
+        role: target.role,
         agent: agentName,
         skills_injected: skills.map(s => s.name),
         skill_resolution: skills.length > 0 ? "injected" : "none",
@@ -4156,7 +4168,8 @@ function recordRecoveryMetric(input: {
   recordMetrics({
     timestamp: new Date().toISOString(),
     session_id: input.toolCtx.sessionID,
-    phase: "RECOVERY",
+    stage: "RECOVERY",
+    role: null,
     agent: "odf_orchestrator",
     skills_injected: [],
     skill_resolution: "none",
@@ -4771,7 +4784,8 @@ function createODFDelegationSeal(canonicalDirectory?: string): ReturnType<typeof
       recordMetrics({
         timestamp: new Date().toISOString(),
         session_id: toolCtx.sessionID,
-        phase: delegationPhase(record.stage, record.role),
+        stage: record.stage,
+        role: record.role,
         agent: record.agent,
         skills_injected: record.skills_injected,
         skill_resolution: record.skills_injected.length > 0 ? "injected" : "none",
@@ -5074,7 +5088,8 @@ function createODFParallelPrepare(canonicalDirectory?: string): ReturnType<typeo
       recordMetrics({
         timestamp: new Date().toISOString(),
         session_id: toolCtx.sessionID,
-        phase: "IMPLEMENT",
+        stage: "BUILD",
+        role: null,
         agent: "scheduler",
         skills_injected: [],
         skill_resolution: "none",
@@ -5487,7 +5502,8 @@ function createODFParallelSeal(canonicalDirectory?: string): ReturnType<typeof t
       recordMetrics({
         timestamp: new Date().toISOString(),
         session_id: toolCtx.sessionID,
-        phase: "IMPLEMENT",
+        stage: "BUILD",
+        role: null,
         agent: "scheduler",
         skills_injected: [],
         skill_resolution: "none",
@@ -6232,28 +6248,36 @@ Use this before notebooklm_query to get the correct notebook_id.`,
 
 function createODFProfileSelect(): ReturnType<typeof tool> {
   return tool({
-    description: `Get the recommended model and temperature for an ODF phase.
+    description: `Get the recommended model and temperature for an ODF stage role.
 Uses the ACTIVE named profile from the registry.
 Reads SDD Profiles from odf-registry.json. Use this to configure
-the sub-agent model before delegation for optimal phase performance.`,
+the sub-agent model before delegation for optimal stage performance.`,
     args: {
-      phase: tool.schema
+      stage: tool.schema
         .string()
-        .describe("ODF phase: PROPOSE, ASSESS, QA-PLAN, DESIGN, IMPLEMENT, VERIFY"),
+        .describe("Canonical stage: DECIDE, PLAN, BUILD, VERIFY, EXPLORE, FIX"),
+      role: tool.schema
+        .string()
+        .optional()
+        .describe("Role inside a composite stage: DECIDE requires PROPOSE or ASSESS; PLAN requires QA-PLAN or DESIGN. Omit for BUILD, VERIFY, EXPLORE, and FIX."),
     },
-    async execute(args: { phase: string }): Promise<string> {
+    async execute(args: { stage: string; role?: string }): Promise<string> {
+      const target = resolveDelegationTarget(args.stage, args.role)
+      if (!target.ok) {
+        return `❌ ${target.message}`
+      }
       const registry = await loadRegistry()
       if (!registry?.profiles) {
         return "❌ No SDD profiles found in registry. Using defaults."
       }
 
-      const profile = await getProfileByPhase(registry, args.phase)
+      const profile = await getProfileByPhase(registry, target.phase)
       if (!profile) {
-        return `No profile for phase ${args.phase}. Using defaults: model=default, temperature=0.2`
+        return `No profile for ${target.stage}${target.role ? ` ${target.role}` : ""}. Using defaults: model=default, temperature=0.2`
       }
-      debugLog(`[odf-delegation] odf_profile_select: phase=${args.phase} model=${profile.model} temp=${profile.temperature}`)
+      debugLog(`[odf-delegation] odf_profile_select: stage=${target.stage} role=${target.role ?? "none"} model=${profile.model} temp=${profile.temperature}`)
 
-      return `Phase: ${args.phase}
+      return `Stage: ${target.stage}${target.role ? ` ${target.role}` : ""}
 Model: ${profile.model ?? "current (inherited)"}
 Temperature: ${profile.temperature}
 Reasoning: ${profile.reasoning ? "enabled" : "disabled"}`
@@ -9210,13 +9234,11 @@ function delegationTokenReadMessage(error: string | null | undefined): string {
 }
 
 /**
- * Persisted route projection. `legacy_phases` is an in-memory compatibility
- * alias consumed by status derivation; persisted state carries only the
- * routing metadata that binds the change to a canonical route.
+ * Persisted route projection. New states carry only the routing metadata that
+ * binds the change to a canonical route; `legacy_phases` is never written.
  */
 function routeStateProjection(route: WorkflowRoute): Record<string, unknown> {
-  const { legacy_phases: _legacyPhases, ...projection } = route
-  return projection
+  return { ...route }
 }
 
 /**

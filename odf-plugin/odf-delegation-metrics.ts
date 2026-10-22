@@ -49,7 +49,10 @@ export interface TelemetryTokens {
 export interface DelegationMetrics {
   timestamp: string
   session_hash: string
-  phase: string
+  stage: string
+  role?: string | null
+  /** Historical read-only field: events written before the stage migration. */
+  phase?: string
   agent: string
   skills_injected: string[]
   skill_resolution: "injected" | "self-discovered" | "none"
@@ -174,26 +177,28 @@ export function sanitizeMetricOdooVersion(value: unknown): number | undefined {
 }
 
 /**
- * Map an existing phase lifecycle to its funnel stage. Started milestones tag
- * entries and build/verify starts; finished milestones only tag accepted
- * (ok/warning) outcomes so blocked/error runs never close a funnel step.
+ * Map a stage lifecycle to its funnel stage. Started milestones tag entries
+ * and build/verify starts; finished milestones only tag accepted (ok/warning)
+ * outcomes so blocked/error runs never close a funnel step. DECIDE closes its
+ * distinct funnel steps through its PROPOSE and ASSESS roles.
  */
 export function resolveFlowStage(
-  phase: unknown,
+  stage: unknown,
+  role: unknown,
   lifecycle: unknown,
   status?: unknown,
 ): TelemetryFlowStage | undefined {
   if (lifecycle === "started") {
-    if (phase === "PROPOSE") return "entry_started"
-    if (phase === "IMPLEMENT") return "build_started"
-    if (phase === "VERIFY") return "verify_started"
+    if (stage === "DECIDE" && role === "PROPOSE") return "entry_started"
+    if (stage === "BUILD") return "build_started"
+    if (stage === "VERIFY") return "verify_started"
     return undefined
   }
   if (lifecycle === "finished") {
     if (status !== "ok" && status !== "warning") return undefined
-    if (phase === "PROPOSE") return "intent_approved"
-    if (phase === "ASSESS") return "policy_selected"
-    if (phase === "VERIFY") return "verified_completed"
+    if (stage === "DECIDE" && role === "PROPOSE") return "intent_approved"
+    if (stage === "DECIDE" && role === "ASSESS") return "policy_selected"
+    if (stage === "VERIFY") return "verified_completed"
     return undefined
   }
   return undefined
@@ -395,7 +400,7 @@ export function recordMetrics(metric: DelegationMetricInput): void {
   const sanitizedSpanId = sanitizeMetricSafeToken(span_id)
   const sanitizedParentSpanId = sanitizeMetricSafeToken(parent_span_id)
   const sanitizedSpanKind = sanitizeMetricSpanKind(span_kind)
-  const runSpanId = span_id || nextTelemetrySpanId(session_id, rest.phase || "phase")
+  const runSpanId = span_id || nextTelemetrySpanId(session_id, rest.stage || "stage")
   const sanitized: DelegationMetrics = {
     ...rest,
     session_hash: hashSession(session_id),
