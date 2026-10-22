@@ -178,7 +178,7 @@ export function buildManualEvidence(opts: {
 }): { problems: string[]; evidence: ManualEvidence }
 
 export function asBoolean(value: unknown): boolean
-export function normalizeResult(raw: unknown, opts?: { root?: string; phase?: string }): NormalizedResult
+export function normalizeResult(raw: unknown, opts?: { root?: string; stage?: string; role?: string | null }): NormalizedResult
 export function resolveAgent(registry: { agents?: unknown[] }, phase: string, taskKeywords: unknown): string | null
 export function matchSkills(registry: { skills?: unknown[] }, phase: string | null, context: { task?: string; files?: string[]; odooVersion?: number | null }): string[]
 export function loadRegistry(): Record<string, unknown> | null

@@ -3,15 +3,15 @@
  * ODF deterministic toolkit (odf-toolkit).
  *
  * Read-side CLI subcommands that keep deterministic work out of the LLM:
- *   result    normalize a phase result envelope (status/design_closed/artifact refs)
- *   resolve   preview agent + skills + profile for a phase task
+ *   result    normalize a stage role result envelope (status/design_closed/artifact refs)
+ *   resolve   preview agent + skills + profile for a stage role task
  *   state     compact runtime bundle for a change (state + receipts + gates)
  *   evidence  git evidence pack for BUILD/VERIFY
  *   context   CodeGraph explore context pack for a task (shells out to `codegraph`)
  *
  * Usage:
- *   node scripts/odf-toolkit.js result  --result <json> [--root <dir>] [--phase DESIGN]
- *   node scripts/odf-toolkit.js resolve --phase DESIGN --task "<prompt>" [--files a.py,b.js] [--odoo-version 18]
+ *   node scripts/odf-toolkit.js result  --result <json> [--root <dir>] [--stage PLAN --role DESIGN]
+ *   node scripts/odf-toolkit.js resolve --stage PLAN --role DESIGN --task "<prompt>" [--files a.py,b.js] [--odoo-version 18]
  *   node scripts/odf-toolkit.js state   --root <dir> --change <name>
  *   node scripts/odf-toolkit.js evidence --repo <dir> [--json]
  *   node scripts/odf-toolkit.js context --repo <dir> --task "<query>" [--max-files 8] [--json]
@@ -25,7 +25,7 @@ import { createHash } from "node:crypto"
 import { StringDecoder } from "node:string_decoder"
 import { pathToFileURL } from "node:url"
 import YAML from "yaml"
-import { buildDashboard, collectDelegations, resolveMetricsDir } from "./odf-metrics.js"
+import { buildDashboard, collectDelegations, resolveMetricsDir, recordStageRoleLabel } from "./odf-metrics.js"
 import { resolveOdfConfigDir } from "./lib/config-dir.js"
 
 const CONFIG_DIR = resolveOdfConfigDir(process.env).dir
@@ -71,10 +71,46 @@ export function asBoolean(value) {
 }
 
 // ==========================================
-// result — phase result envelope normalizer
+// result — stage role result envelope normalizer
 // ==========================================
 
 const INNER_STATUSES = new Set(["ok", "warning", "blocked", "failed"])
+
+const STAGE_ROLES = {
+  DECIDE: ["PROPOSE", "ASSESS"],
+  PLAN: ["QA-PLAN", "DESIGN"],
+}
+const STAGE_PHASE = {
+  BUILD: "IMPLEMENT",
+  VERIFY: "VERIFY",
+  EXPLORE: "EXPLORE",
+  FIX: "FIX",
+}
+const ROLE_PHASE = {
+  PROPOSE: "PROPOSE",
+  ASSESS: "ASSESS",
+  "QA-PLAN": "QA-PLAN",
+  DESIGN: "DESIGN",
+}
+
+function normalizeStage(stageInput, roleInput) {
+  const stage = typeof stageInput === "string" ? stageInput.trim().toUpperCase() : ""
+  const role = typeof roleInput === "string" ? roleInput.trim().toUpperCase() : ""
+  const stages = Object.keys(STAGE_ROLES).concat(Object.keys(STAGE_PHASE))
+  if (!stages.includes(stage)) {
+    return { error: stage ? `Invalid stage "${stage}". Allowed: ${stages.join(", ")}` : `Missing stage. Allowed: ${stages.join(", ")}` }
+  }
+  const allowedRoles = STAGE_ROLES[stage]
+  if (!allowedRoles) {
+    if (role) return { error: `Stage ${stage} does not accept a role. Omit role.` }
+    return { stage, role: null, phase: STAGE_PHASE[stage] }
+  }
+  if (!role) return { error: `Stage ${stage} requires a role. Allowed roles: ${allowedRoles.join(", ")}` }
+  if (!allowedRoles.includes(role)) {
+    return { error: `Invalid role "${role}" for stage ${stage}. Allowed roles: ${allowedRoles.join(", ")}` }
+  }
+  return { stage, role, phase: ROLE_PHASE[role] }
+}
 
 export function normalizeResult(raw, opts = {}) {
   const warnings = []
@@ -84,8 +120,8 @@ export function normalizeResult(raw, opts = {}) {
   const status = INNER_STATUSES.has(raw.status) ? raw.status : "error"
   if (status === "error") warnings.push(`unknown inner status: ${String(raw.status)}`)
   const designClosed = asBoolean(raw.design_closed)
-  if ((opts.phase === "DESIGN" || opts.phase === "PLAN") && !designClosed) {
-    warnings.push("DESIGN/PLAN result missing design_closed: true")
+  if (opts.stage === "PLAN" && opts.role === "DESIGN" && !designClosed) {
+    warnings.push("PLAN DESIGN result missing design_closed: true")
   }
   const artifactsSaved = []
   const rawRefs = Array.isArray(raw.artifacts_saved) ? raw.artifacts_saved : Array.isArray(raw.artifact_refs) ? raw.artifact_refs : []
@@ -149,14 +185,16 @@ export function loadRegistry() {
   return readJson(REGISTRY_PATH)
 }
 
-function resolvePreview(phase, task, files, odooVersion, target) {
+function resolvePreview(stage, role, task, files, odooVersion, target) {
+  const targetStage = normalizeStage(stage, role)
+  if (targetStage.error) return { status: "error", warnings: [targetStage.error] }
   const registry = loadRegistry()
   if (!registry) return { status: "error", warnings: [`registry not found at ${REGISTRY_PATH}`] }
   const keywords = task.split(/\s+/)
-  const agent = resolveAgent(registry, phase, keywords)
-  const skills = matchSkills(registry, phase, { task, files, target, odooVersion })
-  const profile = (registry.profiles || []).find(p => p.name === "default")?.phases?.[phase] || null
-  return { status: "ok", agent, skills, profile }
+  const agent = resolveAgent(registry, targetStage.phase, keywords)
+  const skills = matchSkills(registry, targetStage.phase, { task, files, target, odooVersion })
+  const profile = (registry.profiles || []).find(p => p.name === "default")?.phases?.[targetStage.phase] || null
+  return { status: "ok", stage: targetStage.stage, role: targetStage.role, agent, skills, profile }
 }
 
 // ==========================================
@@ -261,7 +299,7 @@ export function metricsSummary(days = 14) {
   const baseline = buildDashboard(records, days).baseline
   const byPhase = {}
   for (const record of records) {
-    const key = record.phase || "?"
+    const key = recordStageRoleLabel(record)
     byPhase[key] ??= { calls: 0, ok: 0, blocked: 0, error: 0, timeout: 0, total_duration_ms: 0, avg_duration_ms: 0 }
     const bucket = byPhase[key]
     bucket.calls++
@@ -320,11 +358,12 @@ export function buildManualEvidence({ change, command, database, output, exitCod
       output_evidence: String(output).slice(-2000),
     }],
   }
-  if (gate && gate.phase !== "VERIFY") {
-    if (gate.phase === "IMPLEMENT") {
-      problems.push("manual evidence requires a VERIFY policy gate; the IMPLEMENT gate intentionally has no candidate_digest; create a VERIFY policy gate before recording evidence")
+  const gateStage = gate?.stage || (gate?.phase === "IMPLEMENT" ? "BUILD" : gate?.phase === "VERIFY" ? "VERIFY" : null)
+  if (gate && gateStage !== "VERIFY") {
+    if (gateStage === "BUILD") {
+      problems.push("manual evidence requires a VERIFY policy gate; the BUILD gate intentionally has no candidate_digest; create a VERIFY policy gate before recording evidence")
     } else {
-      problems.push(`manual evidence requires a VERIFY policy gate; found policy gate phase ${String(gate.phase || "unknown")}`)
+      problems.push(`manual evidence requires a VERIFY policy gate; found policy gate stage ${String(gateStage || "unknown")}`)
     }
   } else if (gate && !gate.candidate_digest) {
     problems.push("VERIFY policy gate has no candidate_digest; create a VERIFY policy gate before recording evidence")
@@ -890,20 +929,23 @@ function main(argv) {
   switch (sub) {
     case "result": {
       const raw = argValue(argv, "--result")
-      if (!raw) return usage("result  --result <json> [--root <dir>] [--phase <PHASE>]")
+      if (!raw) return usage("result  --result <json> [--root <dir>] [--stage <STAGE>] [--role <ROLE>]")
       let parsed
       try { parsed = JSON.parse(raw) } catch { parsed = { raw } }
-      result = normalizeResult(parsed, { root: argValue(argv, "--root"), phase: argValue(argv, "--phase") })
+      const resultTarget = normalizeStage(argValue(argv, "--stage"), argValue(argv, "--role"))
+      if (resultTarget.error) return usage(resultTarget.error)
+      result = normalizeResult(parsed, { root: argValue(argv, "--root"), stage: resultTarget.stage, role: resultTarget.role })
       break
     }
     case "resolve": {
-      const phase = argValue(argv, "--phase")
+      const stage = argValue(argv, "--stage")
+      const role = argValue(argv, "--role")
       const task = argValue(argv, "--task")
-if (!phase || !task) return usage("resolve --phase <PHASE> --task \"<prompt>\" [--target oca] [--files a.py,b.js] [--odoo-version 18]")
+if (!stage || !task) return usage("resolve --stage <STAGE> [--role <ROLE>] --task \"<prompt>\" [--target oca] [--files a.py,b.js] [--odoo-version 18]")
 const files = argValue(argv, "--files", "")?.split(",").filter(Boolean) || []
 const version = Number(argValue(argv, "--odoo-version")) || null
 const target = argValue(argv, "--target")
-result = resolvePreview(phase, task, files, version, target)
+result = resolvePreview(stage, role, task, files, version, target)
       break
     }
     case "state": {

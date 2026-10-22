@@ -13,12 +13,12 @@ import { asBoolean, authorityLookup, buildManualEvidence, evidencePack, loadRegi
 
 describe("odf-toolkit result", () => {
   it("normalizes design_closed as string or boolean and flags missing on DESIGN/PLAN", () => {
-    expect(normalizeResult({ status: "ok", design_closed: "true" }, { phase: "DESIGN" })).toMatchObject({ status: "ok", design_closed: true })
-    expect(normalizeResult({ status: "ok", design_closed: true }, { phase: "PLAN" })).toMatchObject({ status: "ok", design_closed: true })
-    const missing = normalizeResult({ status: "ok" }, { phase: "DESIGN" })
+    expect(normalizeResult({ status: "ok", design_closed: "true" }, { stage: "PLAN", role: "DESIGN" })).toMatchObject({ status: "ok", design_closed: true })
+    expect(normalizeResult({ status: "ok", design_closed: true }, { stage: "PLAN", role: "DESIGN" })).toMatchObject({ status: "ok", design_closed: true })
+    const missing = normalizeResult({ status: "ok" }, { stage: "PLAN", role: "DESIGN" })
     expect(missing.design_closed).toBe(false)
     expect(missing.warnings.some(w => w.includes("design_closed"))).toBe(true)
-    expect(normalizeResult({ status: "ok" }, { phase: "ASSESS" }).warnings).toEqual([])
+    expect(normalizeResult({ status: "ok" }, { stage: "DECIDE", role: "ASSESS" }).warnings).toEqual([])
   })
 
   it("maps unknown status to error and validates openspec artifact refs on disk", async () => {
@@ -121,14 +121,14 @@ describe("odf-toolkit metrics", () => {
       await fs.mkdir(path.join(configDir, "metrics"), { recursive: true })
       const utcDay = new Date().toISOString().split("T")[0]
       await fs.writeFile(path.join(configDir, "metrics", `delegations-${utcDay}.jsonl`), [
-        JSON.stringify({ phase: "DESIGN", status: "ok", duration_ms: 120_000 }),
-        JSON.stringify({ phase: "DESIGN", status: "timeout", duration_ms: 300_000 }),
-        JSON.stringify({ phase: "VERIFY", status: "ok", duration_ms: 60_000 }),
+        JSON.stringify({ stage: "PLAN", role: "DESIGN", status: "ok", duration_ms: 120_000 }),
+        JSON.stringify({ stage: "PLAN", role: "DESIGN", status: "timeout", duration_ms: 300_000 }),
+        JSON.stringify({ stage: "VERIFY", status: "ok", duration_ms: 60_000 }),
       ].join("\n"), "utf8")
       const summary = metricsSummary(1)
       expect(summary.records).toBe(3)
-      expect(summary.by_phase.DESIGN).toMatchObject({ calls: 2, ok: 1, timeout: 1 })
-      expect(summary.by_phase.DESIGN.avg_duration_ms).toBe(210_000)
+      expect(summary.by_phase["PLAN DESIGN"]).toMatchObject({ calls: 2, ok: 1, timeout: 1 })
+      expect(summary.by_phase["PLAN DESIGN"].avg_duration_ms).toBe(210_000)
       expect(summary.by_phase.VERIFY).toMatchObject({ calls: 1, ok: 1 })
       expect(summary.baseline).toMatchObject({ sample_count: 3 })
       expect(summary.baseline.duration).toMatchObject({ p50_ms: 120_000, p95_ms: 282_000 })
@@ -216,7 +216,7 @@ describe("odf-toolkit manual-evidence", () => {
     try {
       await fs.mkdir(path.join(root, ".odf"), { recursive: true })
       await fs.writeFile(path.join(root, ".odf", "policy-gate-chg.json"), JSON.stringify({
-        phase: "VERIFY", risk_tier: "MEDIUM", frozen_diff_ref: "abc123", candidate_digest: "d" + "0".repeat(63),
+        stage: "VERIFY", risk_tier: "MEDIUM", frozen_diff_ref: "abc123", candidate_digest: "d" + "0".repeat(63),
       }))
       const built = buildManualEvidence({
         change: "chg", command: "odoo-bin -d devel_test -i mod --test-enable --stop-after-init", database: "devel_test",
@@ -232,10 +232,10 @@ describe("odf-toolkit manual-evidence", () => {
     }
   })
 
-  it("rejects manual evidence for an IMPLEMENT gate without mutating it", async () => {
+  it("rejects manual evidence for a BUILD gate without mutating it", async () => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), "odf-manual-implement-"))
     const gatePath = path.join(root, ".odf", "policy-gate-chg.json")
-    const gateText = JSON.stringify({ phase: "IMPLEMENT", risk_tier: "MEDIUM", frozen_diff_ref: null, candidate_digest: null })
+    const gateText = JSON.stringify({ stage: "BUILD", risk_tier: "MEDIUM", frozen_diff_ref: null, candidate_digest: null })
     try {
       await fs.mkdir(path.dirname(gatePath), { recursive: true })
       await fs.writeFile(gatePath, gateText, "utf8")
@@ -243,7 +243,7 @@ describe("odf-toolkit manual-evidence", () => {
         change: "chg", command: "odoo-bin -d devel_test --test-enable", database: "devel_test",
         output: "12 passed, 0 failed", root,
       })
-      expect(built.problems).toContain("manual evidence requires a VERIFY policy gate; the IMPLEMENT gate intentionally has no candidate_digest; create a VERIFY policy gate before recording evidence")
+      expect(built.problems).toContain("manual evidence requires a VERIFY policy gate; the BUILD gate intentionally has no candidate_digest; create a VERIFY policy gate before recording evidence")
       expect(await fs.readFile(gatePath, "utf8")).toBe(gateText)
     } finally {
       await fs.rm(root, { recursive: true, force: true })
