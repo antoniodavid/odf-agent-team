@@ -1872,14 +1872,11 @@ Use this instead of generic task() for ODF workflow delegation.`,
       const gatedPhase = args.phase === "IMPLEMENT" || args.phase === "VERIFY"
       let registry: ODFRegistry | null = null
       if (gatedPhase && !args.workflow_advance) {
-        registry = await loadRegistry()
-        if (registry?.flags?.strict_workflow === true) {
-          return blockWorkflow(
-            "strict-workflow-proof-required",
-            "Strict workflow mode requires workflow_advance for IMPLEMENT/VERIFY; legacy omissions are allowed only when flags.strict_workflow is false.",
-            null,
-          )
-        }
+        return blockWorkflow(
+          "strict-workflow-proof-required",
+          "IMPLEMENT/VERIFY require workflow_advance; the proof-optional legacy omission is no longer accepted.",
+          null,
+        )
       }
 
       const workspaceRoot = resolveSelectedWorkspaceRoot(args.workspace_dir, canonicalDirectory)

@@ -89,8 +89,9 @@ const odfResultText = (overrides: Record<string, unknown> = {}) => {
   )].join("\n")
 }
 
-// T6: these describes exercise post-gate gated-phase internals that predate the
-// strict_workflow default; they run under the sanctioned legacy opt-out flag.
+// Gated-phase internals run through the canonical proof-backed path: IMPLEMENT
+// and VERIFY always carry a bound state, workflow_advance, artifact_store, and
+// attempt_id. `writeRegistryFlags` only sets unrelated flags.
 const writeRegistryFlags = async (home: string, flags: Record<string, boolean>): Promise<void> => {
   const registryPath = path.join(home, ".config", "opencode", "odf-registry.json")
   const registry = JSON.parse(await fs.readFile(registryPath, "utf8"))
@@ -4475,6 +4476,106 @@ describe("source authority adapter", () => {
   })
 })
 
+const workflowAdvance = (phase: "IMPLEMENT" | "VERIFY", workType: "feature" | "small-change" = "feature") => {
+  if (phase === "IMPLEMENT") {
+    return workType === "small-change"
+      ? {
+          work_type: "small-change" as const,
+          completed_stages: [] as CanonicalStage[],
+          candidate_stage: "DECIDE" as const,
+          phase_result_status: "ok" as const,
+          validation_status: "not-required" as const,
+          receipt_state: "none" as const,
+          resumable_state: true,
+          archived_state: false,
+        }
+      : {
+          work_type: "feature" as const,
+          completed_stages: ["DECIDE"] as CanonicalStage[],
+          candidate_stage: "PLAN" as const,
+          phase_result_status: "ok" as const,
+          validation_status: "not-required" as const,
+          receipt_state: "none" as const,
+          resumable_state: true,
+          archived_state: false,
+        }
+  }
+  return workType === "small-change"
+    ? {
+        work_type: "small-change" as const,
+        completed_stages: ["DECIDE"] as CanonicalStage[],
+        candidate_stage: "BUILD" as const,
+        phase_result_status: "ok" as const,
+        validation_status: "verified" as const,
+        receipt_state: "none" as const,
+        resumable_state: true,
+        archived_state: false,
+      }
+    : {
+        work_type: "feature" as const,
+        completed_stages: ["DECIDE", "PLAN"] as CanonicalStage[],
+        candidate_stage: "BUILD" as const,
+        phase_result_status: "ok" as const,
+        validation_status: "verified" as const,
+        receipt_state: "none" as const,
+        resumable_state: true,
+        archived_state: false,
+      }
+}
+
+/**
+ * Seed a canonical state for a proof-backed BUILD or VERIFY delegation.
+ * Mirrors the shape `prepareWorkflowState` writes inside the delegate suite so
+ * the standalone blocks can start from the canonical path instead of a bypass.
+ */
+async function seedCanonicalWorkflowState(
+  workspace: string,
+  change: string,
+  phase: "IMPLEMENT" | "VERIFY",
+  workType = "feature",
+) {
+  const completed = workType === "small-change"
+    ? phase === "IMPLEMENT" ? ["DECIDE"] : ["DECIDE", "BUILD"]
+    : phase === "IMPLEMENT" ? ["DECIDE", "PLAN"] : ["DECIDE", "PLAN", "BUILD"]
+  const changeDir = path.join(workspace, "openspec", "changes", change)
+  await fs.mkdir(changeDir, { recursive: true })
+  await fs.writeFile(path.join(changeDir, "state.yaml"), YAML.stringify({
+    work_type: workType,
+    canonical_stage: phase === "IMPLEMENT" ? "BUILD" : "VERIFY",
+    completed_canonical_stages: completed,
+    resumable: true,
+  }), "utf8")
+  if (phase === "IMPLEMENT") {
+    await fs.writeFile(path.join(changeDir, "implement-progress.md"), "- [x] implementation\n", "utf8")
+  } else {
+    await fs.writeFile(path.join(changeDir, "verify.yaml"), "status: passed\n", "utf8")
+    await fs.writeFile(path.join(changeDir, "verify-report.yaml"), "status: passed\n", "utf8")
+  }
+}
+
+/** Persist the frozen policy gate and validation evidence a VERIFY run needs. */
+async function seedVerifyEvidence(workspace: string, change: string) {
+  const head = gitHead(workspace)!
+  const digest = computeCandidateDigest(buildCandidateManifest(workspace))
+  await fs.mkdir(path.join(workspace, ".odf"), { recursive: true })
+  await fs.writeFile(path.join(workspace, ".odf", `policy-gate-${change}.json`), JSON.stringify({
+    change, phase: "VERIFY", gate: "allow", reason: "test gate",
+    tdd: { global: false, local_readable: true, local_off: false, effective: "off" },
+    risk_tier: "MEDIUM", frozen_diff_ref: head, candidate_digest: digest, base_head: head,
+    changed_lines: 1, correction_budget_lines: 1, changed_paths: ["README.md"],
+    resolved_at: new Date().toISOString(),
+  }))
+  await fs.writeFile(path.join(workspace, ".odf", `validation-evidence-${change}.json`), JSON.stringify({
+    change, phase: "VERIFY", batch: 1, risk_tier: "MEDIUM", frozen_diff_ref: head,
+    candidate_digest: digest, executor: "odoo_qa_engineer", test_identity: "test_module test suite",
+    resolved_at: new Date().toISOString(),
+    commands: [
+      { name: "odoo-tests", command: "odoo-bin -d odf_test_db -i test_module --test-enable --stop-after-init", database: "odf_test_db", exit_code: 0, output_tail: "12 passed, 0 failed" },
+      { name: "git-diff-check", command: "git diff --check", database: "odf_test_db", exit_code: 0, output_tail: "no whitespace errors" },
+    ],
+  }))
+}
+
 describe("createODFDelegate", () => {
   const originalHome = process.env.HOME
   let tempHome: string
@@ -4498,53 +4599,6 @@ describe("createODFDelegate", () => {
     await fs.rm(tempHome, { recursive: true, force: true })
     vi.restoreAllMocks()
   })
-
-  const workflowAdvance = (phase: "IMPLEMENT" | "VERIFY", workType: "feature" | "small-change" = "feature") => {
-    if (phase === "IMPLEMENT") {
-      return workType === "small-change"
-        ? {
-            work_type: "small-change" as const,
-            completed_stages: [] as CanonicalStage[],
-            candidate_stage: "DECIDE" as const,
-            phase_result_status: "ok" as const,
-            validation_status: "not-required" as const,
-            receipt_state: "none" as const,
-            resumable_state: true,
-            archived_state: false,
-          }
-        : {
-            work_type: "feature" as const,
-            completed_stages: ["DECIDE"] as CanonicalStage[],
-            candidate_stage: "PLAN" as const,
-            phase_result_status: "ok" as const,
-            validation_status: "not-required" as const,
-            receipt_state: "none" as const,
-            resumable_state: true,
-            archived_state: false,
-          }
-    }
-    return workType === "small-change"
-      ? {
-          work_type: "small-change" as const,
-          completed_stages: ["DECIDE"] as CanonicalStage[],
-          candidate_stage: "BUILD" as const,
-          phase_result_status: "ok" as const,
-          validation_status: "verified" as const,
-          receipt_state: "none" as const,
-          resumable_state: true,
-          archived_state: false,
-        }
-      : {
-          work_type: "feature" as const,
-          completed_stages: ["DECIDE", "PLAN"] as CanonicalStage[],
-          candidate_stage: "BUILD" as const,
-          phase_result_status: "ok" as const,
-          validation_status: "verified" as const,
-          receipt_state: "none" as const,
-          resumable_state: true,
-          archived_state: false,
-        }
-  }
 
   const archiveProof = {
     work_type: "feature" as const,
@@ -4860,13 +4914,21 @@ ${overrides}`
     if (phase === "IMPLEMENT") {
       initGitRepo(tempHome)
       commitFile(tempHome, "README.md", 1)
-      await setRegistryFlags({ strict_workflow: false })
+      await prepareWorkflowState("unrelated-implement", "IMPLEMENT")
+      await writeValidationEvidence("unrelated-implement")
     }
     const taskResult = { status: "ok", design_closed: true, executive_summary: "model work" }
     const taskApi = vi.fn().mockResolvedValue(taskResult)
     const output = JSON.parse(await createODFDelegate(undefined, tempHome).execute({
       phase,
-      change: phase === "IMPLEMENT" ? "unrelated-implement" : undefined,
+      ...(phase === "IMPLEMENT"
+        ? {
+            change: "unrelated-implement",
+            artifact_store: "openspec" as const,
+            attempt_id: "unrelated-implement-1",
+            workflow_advance: workflowAdvance("IMPLEMENT"),
+          }
+        : { change: undefined }),
       prompt: "Implement a Python model constraint",
       context_files: ["models/x.py"],
     }, { sessionID: `unrelated-${phase}`, task: taskApi } as any) as string)
@@ -5129,12 +5191,16 @@ ${overrides}`
     const { createODFDelegate } = await import("./odf-delegation.js")
     initGitRepo(tempHome)
     commitFile(tempHome, "README.md", 1)
-    await setRegistryFlags({ strict_workflow: false })
+    await prepareWorkflowState("authority-mismatch", "IMPLEMENT")
+    await writeValidationEvidence("authority-mismatch")
     const source = path.join(sourcePrecisionFixtureRoot, "odoo-19.0")
     const taskApi = vi.fn().mockResolvedValue(sourceAuthorityResult(source, "account.view_account_move_filter"))
     const output = JSON.parse(await createODFDelegate(undefined, tempHome).execute({
       phase: "IMPLEMENT",
       change: "authority-mismatch",
+      artifact_store: "openspec",
+      attempt_id: "authority-mismatch-1",
+      workflow_advance: workflowAdvance("IMPLEMENT"),
       prompt: "Implement view inheritance with search_view_id for account.action_account_move",
       context_files: [],
       odoo_source_root: source,
@@ -5148,12 +5214,16 @@ ${overrides}`
     const { createODFDelegate } = await import("./odf-delegation.js")
     initGitRepo(tempHome)
     commitFile(tempHome, "README.md", 1)
-    await setRegistryFlags({ strict_workflow: false })
+    await prepareWorkflowState("authority-valid", "IMPLEMENT")
+    await writeValidationEvidence("authority-valid")
     const source = path.join(sourcePrecisionFixtureRoot, "odoo-19.0")
     const taskResult = sourceAuthorityResult(source)
     const output = JSON.parse(await createODFDelegate(undefined, tempHome).execute({
       phase: "IMPLEMENT",
       change: "authority-valid",
+      artifact_store: "openspec",
+      attempt_id: "authority-valid-1",
+      workflow_advance: workflowAdvance("IMPLEMENT"),
       prompt: "Implement view inheritance with search_view_id for account.action_account_move",
       context_files: [],
       odoo_source_root: source,
@@ -5171,13 +5241,17 @@ ${overrides}`
     const { createODFDelegate } = await import("./odf-delegation.js")
     initGitRepo(tempHome)
     commitFile(tempHome, "README.md", 1)
-    await setRegistryFlags({ strict_workflow: false })
+    await prepareWorkflowState("inherit-authority-valid", "IMPLEMENT")
+    await writeValidationEvidence("inherit-authority-valid")
     const source = await createViewAuthorityFixture()
     const taskApi = vi.fn().mockResolvedValue(viewAuthorityResult(source))
     try {
       const output = JSON.parse(await createODFDelegate(undefined, tempHome).execute({
         phase: "IMPLEMENT",
         change: "inherit-authority-valid",
+        artifact_store: "openspec",
+        attempt_id: "inherit-authority-valid-1",
+        workflow_advance: workflowAdvance("IMPLEMENT"),
         prompt: "Implement view inheritance with inherit_id for custom.view_child",
         context_files: [],
         odoo_source_root: source,
@@ -6120,7 +6194,7 @@ ${overrides}`
     expect(fsSync.existsSync(path.join(tempHome, ".odf"))).toBe(false)
   })
 
-  it("requires attempt_id for explicit workflow delegation and reports strict_workflow default true", async () => {
+  it("requires attempt_id for explicit workflow delegation and keeps no workflow opt-out flag", async () => {
     const { createODFDelegate } = await import("./odf-delegation.js")
     const taskApi = vi.fn().mockResolvedValue({ status: "ok" })
     const delegateTool = createODFDelegate(undefined, tempHome)
@@ -6136,11 +6210,10 @@ ${overrides}`
     expect(taskApi).not.toHaveBeenCalled()
 
     const installedRegistry = JSON.parse(await fs.readFile(path.join(tempHome, ".config", "opencode", "odf-registry.json"), "utf8"))
-    expect(installedRegistry.flags.strict_workflow).toBe(true)
+    expect(installedRegistry.flags.strict_workflow).toBeUndefined()
   })
 
   it.each(["IMPLEMENT", "VERIFY"] as const)("strict mode blocks %s without proof before task, ledger, or policy gate", async phase => {
-    await setRegistryFlags({ strict_workflow: true })
     const { createODFDelegate } = await import("./odf-delegation.js")
     const taskApi = vi.fn().mockResolvedValue({ status: "ok" })
     const delegateTool = createODFDelegate(undefined, tempHome)
@@ -6158,7 +6231,7 @@ ${overrides}`
     expect(envelope).toMatchObject({
       status: "blocked",
       reason: "strict-workflow-proof-required",
-      message: "Strict workflow mode requires workflow_advance for IMPLEMENT/VERIFY; legacy omissions are allowed only when flags.strict_workflow is false.",
+      message: "IMPLEMENT/VERIFY require workflow_advance; the proof-optional legacy omission is no longer accepted.",
       workflow_advance: null,
       policy_gate: null,
       receipt: null,
@@ -6185,7 +6258,7 @@ ${overrides}`
       expect(envelope).toMatchObject({
         status: "blocked",
         reason: "strict-workflow-proof-required",
-        message: "Strict workflow mode requires workflow_advance for IMPLEMENT/VERIFY; legacy omissions are allowed only when flags.strict_workflow is false.",
+        message: "IMPLEMENT/VERIFY require workflow_advance; the proof-optional legacy omission is no longer accepted.",
         workflow_advance: null,
         policy_gate: null,
         receipt: null,
@@ -6195,7 +6268,7 @@ ${overrides}`
     }
   })
 
-  it("strict-opt-out-allows-legacy: strict_workflow false preserves the legacy omission self-service exit", async () => {
+  it("strict-opt-out-removed: a legacy strict_workflow flag no longer bypasses the proof requirement", async () => {
     await setRegistryFlags({ strict_workflow: false })
     const { createODFDelegate } = await import("./odf-delegation.js")
     const taskApi = vi.fn().mockResolvedValue({ status: "ok" })
@@ -6203,11 +6276,11 @@ ${overrides}`
     const output = await delegateTool.execute({
       phase: "IMPLEMENT",
       change: "strict-opt-out",
-      prompt: "Implement the legacy call under opt-out",
+      prompt: "Implement the legacy call under the removed opt-out",
       context_files: [],
     }, { sessionID: "s1", task: taskApi } as any)
-    expect(JSON.parse(output as string).status).toBe("delegated")
-    expect(taskApi).toHaveBeenCalledTimes(1)
+    expect(JSON.parse(output as string)).toMatchObject({ status: "blocked", reason: "strict-workflow-proof-required" })
+    expect(taskApi).not.toHaveBeenCalled()
     expect(fsSync.existsSync(path.join(tempHome, ".odf", "attempt-ledger-strict-opt-out.jsonl"))).toBe(false)
   })
 
@@ -6242,7 +6315,6 @@ ${overrides}`
   })
 
   it.each(["IMPLEMENT", "VERIFY"] as const)("strict-happy-path: strict mode delegates valid %s with workflow_advance, artifact_store, and attempt_id", async phase => {
-    await setRegistryFlags({ strict_workflow: true })
     const { createODFDelegate } = await import("./odf-delegation.js")
     const taskApi = vi.fn().mockResolvedValue({ status: "ok", executive_summary: "completed" })
     const delegateTool = createODFDelegate(undefined, tempHome)
@@ -8716,11 +8788,11 @@ ${overrides}`
   })
 
   it("uses an explicit workspace directory for policy and evidence lookup", async () => {
-    await setRegistryFlags({ strict_workflow: false })
     const { createODFDelegate } = await import("./odf-delegation.js")
     const workspace = path.join(tempHome, "isolated-worktree")
     initGitRepo(workspace)
     commitFile(workspace, "README.md", 1)
+    await prepareWorkflowState("explicit-dir", "IMPLEMENT", "feature", workspace)
     await fs.mkdir(path.join(workspace, ".odf"), { recursive: true })
     await fs.writeFile(
       path.join(workspace, ".odf", "validation-evidence-explicit-dir.json"),
@@ -8742,7 +8814,15 @@ ${overrides}`
     const taskApi = vi.fn().mockResolvedValue({ status: "ok", executive_summary: "implemented" })
     const delegateTool = createODFDelegate(undefined, workspace)
     const output = await delegateTool.execute(
-      { phase: "IMPLEMENT", change: "explicit-dir", prompt: "Implement the task", context_files: [] },
+      {
+        phase: "IMPLEMENT",
+        change: "explicit-dir",
+        artifact_store: "openspec",
+        attempt_id: "explicit-dir-1",
+        workflow_advance: workflowAdvance("IMPLEMENT"),
+        prompt: "Implement the task",
+        context_files: [],
+      },
       { sessionID: "s1", task: taskApi } as any
     )
 
@@ -9764,7 +9844,6 @@ describe("odf_delegate policy gate hook", () => {
       path.resolve(process.cwd(), "odf-registry.json"),
       path.join(configDir, "odf-registry.json")
     )
-    await writeRegistryFlags(tempHome, { strict_workflow: false })
     vi.resetModules()
   })
 
@@ -9777,13 +9856,25 @@ describe("odf_delegate policy gate hook", () => {
 
   it("injects the frozen policy gate into the VERIFY delegation", async () => {
     const { createODFDelegate } = await import("./odf-delegation.js")
+    const change = "hook-test"
+    await seedCanonicalWorkflowState(workspace, change, "VERIFY")
+    await seedVerifyEvidence(workspace, change)
     const taskResult = { status: "ok", executive_summary: "verified" }
     const taskApi = vi.fn().mockResolvedValue(taskResult)
     const toolCtx = { sessionID: "s1", task: taskApi } as any
 
     const delegateTool = createODFDelegate(undefined, workspace)
     const output = await delegateTool.execute(
-      { phase: "VERIFY", prompt: "Change name: hook-test\nVerify the implementation", context_files: [], workspace_dir: workspace },
+      {
+        phase: "VERIFY",
+        change,
+        artifact_store: "openspec",
+        attempt_id: "hook-test-verify-1",
+        workflow_advance: workflowAdvance("VERIFY"),
+        prompt: "Verify the implementation",
+        context_files: [],
+        workspace_dir: workspace,
+      },
       toolCtx
     )
 
@@ -10265,7 +10356,6 @@ describe("odf_delegate stop-validation seal", () => {
       path.resolve(process.cwd(), "odf-registry.json"),
       path.join(configDir, "odf-registry.json")
     )
-    await writeRegistryFlags(tempHome, { strict_workflow: false })
     vi.resetModules()
   })
 
@@ -10278,12 +10368,22 @@ describe("odf_delegate stop-validation seal", () => {
 
   it("stamps validation=missing on IMPLEMENT when no evidence file exists", async () => {
     const { createODFDelegate } = await import("./odf-delegation.js")
+    await seedCanonicalWorkflowState(workspace, "seal-test", "IMPLEMENT")
     const taskApi = vi.fn().mockResolvedValue({ status: "ok", executive_summary: "done" })
     const toolCtx = { sessionID: "s1", task: taskApi } as any
 
     const delegateTool = createODFDelegate(undefined, workspace)
     const output = await delegateTool.execute(
-      { phase: "IMPLEMENT", prompt: "Change name: seal-test\nImplement tasks", context_files: [], workspace_dir: workspace },
+      {
+        phase: "IMPLEMENT",
+        change: "seal-test",
+        artifact_store: "openspec",
+        attempt_id: "seal-test-missing-1",
+        workflow_advance: workflowAdvance("IMPLEMENT"),
+        prompt: "Implement tasks",
+        context_files: [],
+        workspace_dir: workspace,
+      },
       toolCtx
     )
 
@@ -10294,6 +10394,7 @@ describe("odf_delegate stop-validation seal", () => {
 
   it("stamps validation=verified on IMPLEMENT when evidence passes", async () => {
     const { createODFDelegate } = await import("./odf-delegation.js")
+    await seedCanonicalWorkflowState(workspace, "seal-test", "IMPLEMENT")
     const odfDir = path.join(workspace, ".odf")
     await fs.mkdir(odfDir, { recursive: true })
     await fs.writeFile(
@@ -10316,7 +10417,16 @@ describe("odf_delegate stop-validation seal", () => {
 
     const delegateTool = createODFDelegate(undefined, workspace)
     const output = await delegateTool.execute(
-      { phase: "IMPLEMENT", prompt: "Change name: seal-test\nImplement tasks", context_files: [], workspace_dir: workspace },
+      {
+        phase: "IMPLEMENT",
+        change: "seal-test",
+        artifact_store: "openspec",
+        attempt_id: "seal-test-verified-1",
+        workflow_advance: workflowAdvance("IMPLEMENT"),
+        prompt: "Implement tasks",
+        context_files: [],
+        workspace_dir: workspace,
+      },
       toolCtx
     )
 
@@ -10436,7 +10546,6 @@ describe("odf_delegate receipt auto-seal on error", () => {
       path.resolve(process.cwd(), "odf-registry.json"),
       path.join(configDir, "odf-registry.json")
     )
-    await writeRegistryFlags(tempHome, { strict_workflow: false })
     vi.resetModules()
   })
 
@@ -10449,12 +10558,22 @@ describe("odf_delegate receipt auto-seal on error", () => {
 
   it("writes a failed receipt when the task API rejects", async () => {
     const { createODFDelegate } = await import("./odf-delegation.js")
+    await seedCanonicalWorkflowState(workspace, "rseal", "IMPLEMENT")
     const taskApi = vi.fn().mockRejectedValue(new Error("task() timed out after 120000ms"))
     const toolCtx = { sessionID: "s1", task: taskApi } as any
 
     const delegateTool = createODFDelegate(undefined, workspace)
     const output = await delegateTool.execute(
-      { phase: "IMPLEMENT", prompt: "Change name: rseal\nImplement tasks", context_files: [], workspace_dir: workspace },
+      {
+        phase: "IMPLEMENT",
+        change: "rseal",
+        artifact_store: "openspec",
+        attempt_id: "rseal-1",
+        workflow_advance: workflowAdvance("IMPLEMENT"),
+        prompt: "Implement tasks",
+        context_files: [],
+        workspace_dir: workspace,
+      },
       toolCtx
     )
 
