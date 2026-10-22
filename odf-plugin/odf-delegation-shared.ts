@@ -247,7 +247,6 @@ export const ODF_REGISTERED_TOOLS = [
   "odf_skill_resolve",
   "odf_community_tool_detect",
   "odf_community_tool_install",
-  "odf_status",
   "odf_workflow_status",
   "odf_feedback_submit",
   "odf_policy_gate",

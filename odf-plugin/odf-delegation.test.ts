@@ -31,8 +31,6 @@ import {
   classifyRiskTierWithContent,
   computePolicyGate,
   savePolicyGateJson,
-  loadEngramStatus,
-  createODFStatus,
   createODFWorkflowStatus,
   createODFWorkflowArchive,
   createODFHealth,
@@ -3765,7 +3763,7 @@ if (args[0] === "export") {
   }
 }
 
-describe("loadEngramStatus", () => {
+describe("odf_workflow_status discovery and Engram fallback", () => {
   let tmp: string
 
   beforeEach(async () => {
@@ -3774,27 +3772,6 @@ describe("loadEngramStatus", () => {
 
   afterEach(async () => {
     await fs.rm(tmp, { recursive: true, force: true })
-  })
-
-  it("selects the change with the newest artifact timestamp and recognizes propose", async () => {
-    const workspace = path.join(tmp, "repo")
-    initGitRepo(workspace)
-    commitFile(workspace, "README.md", 1)
-    const cleanup = await configureEngramExport([
-      { topic_key: "odf/older/assess", content: "", created_at: "2026-07-31T10:00:00Z" },
-      { topic_key: "odf/older/design", content: "", created_at: "2026-07-31T10:01:00Z" },
-      { topic_key: "odf/older/verify-report", content: "", created_at: "2026-07-31T10:02:00Z" },
-      { topic_key: "odf/newer/propose", content: "", created_at: "2026-07-31T11:00:00Z" },
-    ])
-
-    try {
-      const status = await loadEngramStatus(workspace)
-      expect(status?.change).toBe("newer")
-      expect(status?.phase).toBe("propose")
-      expect(status?.lastUpdated).toBe("2026-07-31T11:00:00Z")
-    } finally {
-      await cleanup()
-    }
   })
 
   it("excludes archived Engram-only changes from latest-active discovery", async () => {
@@ -3996,13 +3973,11 @@ describe("loadEngramStatus", () => {
     ])
 
     try {
-      const canonical = await loadEngramStatus(workspace, "canonical")
-      expect(canonical?.change).toBe("canonical")
-      expect(canonical?.applyProgress).toEqual({ completed: 1, total: 2 })
+      const canonical = JSON.parse(await createODFWorkflowStatus().execute({ change_name: "canonical" }, { directory: workspace } as any) as string)
+      expect(canonical).toMatchObject({ status: "found", change: "canonical", applyProgress: { completed: 1, total: 2 } })
 
-      const legacy = await loadEngramStatus(workspace, "legacy")
-      expect(legacy?.change).toBe("legacy")
-      expect(legacy?.applyProgress).toEqual({ completed: 1, total: 2 })
+      const legacy = JSON.parse(await createODFWorkflowStatus().execute({ change_name: "legacy" }, { directory: workspace } as any) as string)
+      expect(legacy).toMatchObject({ status: "found", change: "legacy", applyProgress: { completed: 1, total: 2 } })
       expect(fsSync.existsSync(path.join(process.cwd(), "--project"))).toBe(false)
     } finally {
       await cleanup()
@@ -4019,14 +3994,39 @@ describe("loadEngramStatus", () => {
     ])
 
     try {
-      const status = await loadEngramStatus(workspace, "remote-scoped")
-      expect(status?.change).toBe("remote-scoped")
+      const status = JSON.parse(await createODFWorkflowStatus().execute({ change_name: "remote-scoped" }, { directory: workspace } as any) as string)
+      expect(status).toMatchObject({ status: "found", change: "remote-scoped" })
     } finally {
       await cleanup()
     }
   })
 
-  it("adds observability to legacy odf_status without removing legacy fields", async () => {
+  it("derives an Engram-only change through the canonical builder", async () => {
+    const workspace = path.join(tmp, "repo")
+    initGitRepo(workspace)
+    commitFile(workspace, "README.md", 1)
+    const cleanup = await configureEngramExport([
+      { topic_key: "odf/engram-only/propose", content: "proposal", created_at: "2026-07-31T11:00:00Z" },
+      { topic_key: "odf/engram-only/implement-progress", content: "- [x] first\n- [ ] second", created_at: "2026-07-31T11:01:00Z" },
+    ])
+
+    try {
+      const status = JSON.parse(await createODFWorkflowStatus().execute({ change_name: "engram-only" }, { directory: workspace } as any) as string)
+      expect(status).toMatchObject({
+        status: "found",
+        change: "engram-only",
+        state_kind: "legacy-artifacts",
+        source: { state: "engram" },
+        artifacts: { propose: "done", "implement-progress": "in-progress" },
+        applyProgress: { completed: 1, total: 2 },
+      })
+      expect(status.warnings).toContain("OpenSpec state was not read; status is derived from Engram artifacts.")
+    } finally {
+      await cleanup()
+    }
+  })
+
+  it("keeps observability on the canonical status output", async () => {
     const workspace = path.join(tmp, "repo")
     initGitRepo(workspace)
     commitFile(workspace, "README.md", 1)
@@ -4035,12 +4035,9 @@ describe("loadEngramStatus", () => {
     ])
 
     try {
-      const output = await createODFStatus().execute({ change_name: "legacy-output", workspace_dir: workspace }, {} as any)
-      const result = JSON.parse(output as string)
+      const result = JSON.parse(await createODFWorkflowStatus().execute({ change_name: "legacy-output" }, { directory: workspace } as any) as string)
       expect(result).toMatchObject({
         status: "found",
-        deprecated: true,
-        replacement: "odf_workflow_status",
         change: "legacy-output",
         phase: "propose",
         artifacts: { propose: "done" },
