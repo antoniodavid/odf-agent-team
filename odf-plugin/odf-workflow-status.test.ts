@@ -737,8 +737,10 @@ describe("odf_workflow_status tool", () => {
         resumable: false,
         work_type: null,
         source: { state: "none" },
-        artifacts: { expectations: "done" },
       })
+      for (const removed of ["phase", "artifacts", "applyProgress", "lastUpdated"]) {
+        expect(result).not.toHaveProperty(removed)
+      }
     } finally {
       await cleanup()
       await fs.rm(root, { recursive: true, force: true })
@@ -763,8 +765,10 @@ describe("odf_workflow_status tool", () => {
         resumable: false,
         work_type: null,
         source: { state: "none" },
-        artifacts: { expectations: "done" },
       })
+      for (const removed of ["phase", "artifacts", "applyProgress", "lastUpdated"]) {
+        expect(result).not.toHaveProperty(removed)
+      }
     } finally {
       await cleanup()
       await fs.rm(root, { recursive: true, force: true })
@@ -882,7 +886,7 @@ describe("odf_workflow_status tool", () => {
     }
   })
 
-  it("returns canonical fields and preserves legacy status fields", async () => {
+  it("returns canonical fields without the legacy status projection", async () => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), "odf-workflow-tool-"))
     const bin = await fs.mkdtemp(path.join(os.tmpdir(), "odf-engram-tool-"))
     const cli = path.join(bin, "engram")
@@ -907,10 +911,11 @@ await fs.writeFile(cli, "#!/bin/sh\nprintf '{\"observations\":%s}' \"$ODF_TEST_E
       expect(result.state_kind).toBe("legacy-artifacts")
       expect(result.recovery_work_type_required).toBe(true)
       expect(result.resumable).toBe(true)
-      expect(result.phase).toBe("implement")
-      expect(result.applyProgress).toEqual({ completed: 1, total: 2 })
-      // Presence alone is not completion: partial progress renders as in-progress.
-      expect(result.artifacts["implement-progress"]).toBe("in-progress")
+      expect(result.progress).toMatchObject({ completed: 1, total: 2, known: true, source: "implement-progress" })
+      // Presence alone is not completion: the progress keeps the real ratio.
+      for (const removed of ["phase", "artifacts", "applyProgress", "lastUpdated"]) {
+        expect(result).not.toHaveProperty(removed)
+      }
       expect(result.source.state).toBe("engram")
       expect(result.warnings).toContain("OpenSpec state was not read; status is derived from Engram artifacts.")
       expect(result.status).toBe("found")
@@ -921,8 +926,8 @@ await fs.writeFile(cli, "#!/bin/sh\nprintf '{\"observations\":%s}' \"$ODF_TEST_E
       ])
       const completeOutput = await createODFWorkflowStatus().execute({ change_name: "tool-change", workspace_dir: root }, {} as any)
       const completeResult = JSON.parse(completeOutput as string)
-      expect(completeResult.applyProgress).toEqual({ completed: 2, total: 2 })
-      expect(completeResult.artifacts["implement-progress"]).toBe("done")
+      expect(completeResult.progress).toMatchObject({ completed: 2, total: 2 })
+      expect(completeResult).not.toHaveProperty("artifacts")
 
       expect(result.observability).toMatchObject({
         schema_version: 1,

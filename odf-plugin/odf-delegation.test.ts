@@ -2493,7 +2493,7 @@ describe("createODFWorkflowBind", () => {
         source: { state: "openspec" },
       })
       expect(status.artifact_refs.VERIFY).toContain(`openspec/changes/archive/2026-09-29-${change}/verify-report.md`)
-      expect(status.artifacts["verify-report"]).toBe("done")
+      expect(status).not.toHaveProperty("artifacts")
     } finally {
       await fs.rm(root, { recursive: true, force: true })
     }
@@ -2520,7 +2520,8 @@ describe("createODFWorkflowBind", () => {
 
     try {
       const status = JSON.parse(await createODFWorkflowStatus().execute({ change_name: change, workspace_dir: root }, {} as any) as string)
-      expect(status.artifacts.verify).toBe("done")
+      expect(status.artifact_refs.VERIFY).toContain(`odf/${change}/verify`)
+      expect(status).not.toHaveProperty("artifacts")
       const calls = JSON.parse(await fs.readFile(fake.logPath, "utf8")) as string[][]
       expect(calls.filter(call => call[0] === "export")).toHaveLength(1)
     } finally {
@@ -2592,7 +2593,7 @@ describe("createODFWorkflowBind", () => {
       fake.setFailureTopic(null)
       const partialStatus = JSON.parse(await createODFWorkflowStatus().execute({ change_name: change, workspace_dir: root }, {} as any) as string)
       expect(partialStatus).toMatchObject({ status: "found", state_present: true, work_type: "feature" })
-      expect(partialStatus.artifacts.expectations).toBeUndefined()
+      expect(partialStatus.warnings).toContain("missing-expectations")
 
       const retry = JSON.parse(await bind.execute(args, context) as string)
       expect(retry).toMatchObject({ status: "bound", state_action: "reused", expectations_action: "persisted" })
@@ -2600,7 +2601,8 @@ describe("createODFWorkflowBind", () => {
       // First attempt: state save. Retry: expectations save + state save (marker cleared).
       expect(calls.filter(call => call[0] === "save" && call[1] === `odf/${change}/state`)).toHaveLength(2)
       const completeStatus = JSON.parse(await createODFWorkflowStatus().execute({ change_name: change, workspace_dir: root }, {} as any) as string)
-      expect(completeStatus).toMatchObject({ state_present: true, work_type: "feature", artifacts: { expectations: "done" } })
+      expect(completeStatus).toMatchObject({ state_present: true, work_type: "feature" })
+      expect(completeStatus.warnings).not.toContain("missing-expectations")
     } finally {
       await fake.cleanup()
       await fs.rm(root, { recursive: true, force: true })
@@ -3974,10 +3976,10 @@ describe("odf_workflow_status discovery and Engram fallback", () => {
 
     try {
       const canonical = JSON.parse(await createODFWorkflowStatus().execute({ change_name: "canonical" }, { directory: workspace } as any) as string)
-      expect(canonical).toMatchObject({ status: "found", change: "canonical", applyProgress: { completed: 1, total: 2 } })
+      expect(canonical).toMatchObject({ status: "found", change: "canonical", progress: { completed: 1, total: 2, source: "implement-progress" } })
 
       const legacy = JSON.parse(await createODFWorkflowStatus().execute({ change_name: "legacy" }, { directory: workspace } as any) as string)
-      expect(legacy).toMatchObject({ status: "found", change: "legacy", applyProgress: { completed: 1, total: 2 } })
+      expect(legacy).toMatchObject({ status: "found", change: "legacy", progress: { completed: 1, total: 2, source: "apply-progress" } })
       expect(fsSync.existsSync(path.join(process.cwd(), "--project"))).toBe(false)
     } finally {
       await cleanup()
@@ -4017,9 +4019,11 @@ describe("odf_workflow_status discovery and Engram fallback", () => {
         change: "engram-only",
         state_kind: "legacy-artifacts",
         source: { state: "engram" },
-        artifacts: { propose: "done", "implement-progress": "in-progress" },
-        applyProgress: { completed: 1, total: 2 },
+        progress: { completed: 1, total: 2, known: true, source: "implement-progress" },
       })
+      for (const removed of ["phase", "artifacts", "applyProgress", "lastUpdated"]) {
+        expect(status).not.toHaveProperty(removed)
+      }
       expect(status.warnings).toContain("OpenSpec state was not read; status is derived from Engram artifacts.")
     } finally {
       await cleanup()
@@ -4039,10 +4043,12 @@ describe("odf_workflow_status discovery and Engram fallback", () => {
       expect(result).toMatchObject({
         status: "found",
         change: "legacy-output",
-        phase: "propose",
-        artifacts: { propose: "done" },
+        legacy_phase: "PROPOSE",
         observability: { schema_version: 1, change: "legacy-output" },
       })
+      for (const removed of ["phase", "artifacts", "applyProgress", "lastUpdated"]) {
+        expect(result).not.toHaveProperty(removed)
+      }
     } finally {
       await cleanup()
     }
