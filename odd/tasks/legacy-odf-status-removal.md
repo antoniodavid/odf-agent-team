@@ -101,4 +101,3 @@ GREEN evidence:
 Deferred by this change:
 - `legacyArtifactState` survives because the canonical tool still emits the documented `artifacts` compatibility map (`command/odf-status.md` lists `phase`, `artifacts`, `applyProgress`, `lastUpdated` as legacy fields of the canonical output). Removing it belongs to a change that drops those fields from `odf_workflow_status`.
 - Runtime effect still requires reinstalling the pack into `~/.config/opencode` and running `/odf-registry-refresh` in an Odoo project.
-
