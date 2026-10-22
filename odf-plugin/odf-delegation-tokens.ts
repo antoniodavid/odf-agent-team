@@ -16,8 +16,13 @@ import * as nodeCrypto from "node:crypto"
 import { CHANGE_NAME_PATTERN, canonicalWorkspaceRoot, isWithinRoot } from "./odf-delegation-shared.js"
 import type { ObservedSessionStatus } from "./odf-session-status.js"
 import { ARTIFACT_STORES, type ArtifactStore } from "./odf-artifact-contract.js"
+import {
+  resolveDelegationTarget,
+  type DelegationRole,
+  type DelegationStage,
+} from "./odf-delegation-contract.js"
 
-export const DELEGATION_TOKEN_SCHEMA_VERSION = 1 as const
+export const DELEGATION_TOKEN_SCHEMA_VERSION = 2 as const
 export const DELEGATION_TOKEN_TTL_MS = 2 * 60 * 60 * 1000
 export const DELEGATION_TOKEN_PATTERN = /^odf-tok-[a-f0-9]{32}$/
 
@@ -74,7 +79,8 @@ export interface NativeChildLaunch {
 
 export interface DelegationTokenInput {
   change: string
-  phase: DelegationPhase
+  stage: DelegationStage
+  role?: DelegationRole
   agent: string
   /** Pre-minted token (obtained with newDelegationToken) so the prompt marker can carry it. */
   token?: string
@@ -115,10 +121,11 @@ export interface DelegationTokenInput {
 }
 
 export interface DelegationTokenRecord {
-  schema_version: 1
+  schema_version: 2
   token: string
   change: string
-  phase: DelegationPhase
+  stage: DelegationStage
+  role: DelegationRole | null
   agent: string
   artifact_store?: DelegationArtifactStore
   /** Canonical workspace root the token is bound to. */
@@ -170,7 +177,8 @@ export type DelegationTokenReadResult =
 
 export interface DelegationTokenDiagnostic {
   change: string
-  phase: DelegationPhase
+  stage: DelegationStage
+  role: DelegationRole | null
   agent: string
   attempt_id?: string
   branch_id?: string
@@ -286,9 +294,9 @@ export function newDelegationToken(): string {
 export function createDelegationTokenRecord(input: DelegationTokenInput): DelegationTokenRecord | null {
   const change = typeof input.change === "string" && CHANGE_NAME_PATTERN.test(input.change.trim()) ? input.change.trim() : null
   const agent = safeLabel(input.agent)
-  const phase = DELEGATION_PHASES.includes(input.phase) ? input.phase : null
+  const target = resolveDelegationTarget(input.stage, input.role)
   const workspace = canonicalWorkspace(input.workspace)
-  if (!change || !agent || !phase || !workspace) return null
+  if (!change || !agent || !target.ok || !workspace) return null
   const task = safeTask(input.task)
   if (!task) return null
   if (input.parent_session_id !== undefined && !safeSessionId(input.parent_session_id)) return null
@@ -325,7 +333,8 @@ export function createDelegationTokenRecord(input: DelegationTokenInput): Delega
     schema_version: DELEGATION_TOKEN_SCHEMA_VERSION,
     token,
     change,
-    phase,
+    stage: target.stage,
+    role: target.role,
     agent,
     ...(input.artifact_store ? { artifact_store: input.artifact_store } : {}),
     workspace,
@@ -404,7 +413,7 @@ function isDelegationTokenRecord(value: unknown, allowLegacyFields = false): val
   const record = value as Record<string, unknown>
   const hasProposalEvidence = record.proposal_artifact_ref !== undefined || record.proposal_digest !== undefined || record.proposal_session_id !== undefined
   const proposalEvidenceValid = !hasProposalEvidence || (
-    record.phase === "PROPOSE" &&
+    record.stage === "DECIDE" && record.role === "PROPOSE" &&
     record.proposal_artifact_ref === `openspec/changes/${String(record.change)}/proposal.md` &&
     typeof record.proposal_digest === "string" && PROMPT_DIGEST_PATTERN.test(record.proposal_digest) &&
     typeof record.proposal_session_id === "string" && record.proposal_session_id.length > 0 &&
@@ -426,7 +435,7 @@ function isDelegationTokenRecord(value: unknown, allowLegacyFields = false): val
   return record.schema_version === DELEGATION_TOKEN_SCHEMA_VERSION &&
     typeof record.token === "string" && DELEGATION_TOKEN_PATTERN.test(record.token) &&
     typeof record.change === "string" && CHANGE_NAME_PATTERN.test(record.change) &&
-    typeof record.phase === "string" && (DELEGATION_PHASES as readonly string[]).includes(record.phase) &&
+    resolveDelegationTarget(record.stage, record.role).ok &&
     safeLabel(record.agent) !== null &&
     (record.artifact_store === undefined || typeof record.artifact_store === "string" && ARTIFACT_STORES.includes(record.artifact_store as ArtifactStore)) &&
     typeof record.workspace === "string" && record.workspace.length > 0 &&
@@ -570,7 +579,11 @@ export function readDelegationToken(workspace: string, change: string, token: st
     return { record: null, error: "delegation-token-malformed" }
   }
   if (!isDelegationTokenRecord(parsed)) {
-    return { record: null, error: isDelegationTokenRecord(parsed, true) ? "delegation-token-legacy" : "delegation-token-malformed" }
+    const schemaVersion = parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>).schema_version
+      : undefined
+    const legacy = schemaVersion === 1 || isDelegationTokenRecord(parsed, true)
+    return { record: null, error: legacy ? "delegation-token-legacy" : "delegation-token-malformed" }
   }
   if (parsed.token !== token || parsed.change !== change) return { record: null, error: "delegation-token-mismatch" }
   return { record: parsed, error: null }
@@ -635,7 +648,8 @@ function diagnosticForToken(record: DelegationTokenRecord): DelegationTokenDiagn
 
   return {
     change: record.change,
-    phase: record.phase,
+    stage: record.stage,
+    role: record.role,
     agent: record.agent,
     ...(record.attempt_id ? { attempt_id: record.attempt_id } : {}),
     ...(record.branch_id ? { branch_id: record.branch_id } : {}),

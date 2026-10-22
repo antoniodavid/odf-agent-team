@@ -127,7 +127,6 @@ import {
   readDelegationTokenDiagnostics,
   recordDelegationTokenTimestamp,
   writeDelegationToken,
-  type DelegationPhase,
   type DelegationTokenBranch,
   type DelegationTokenRecord,
   type NativeChildLaunch,
@@ -196,7 +195,7 @@ import {
 } from "../odf-plugin/odf-workflow.js"
 import {
   resolveDelegationTarget,
-  delegationTargetForPhase,
+  delegationPhase,
 } from "../odf-plugin/odf-delegation-contract.js"
 import {
   deriveWorkflowStatus,
@@ -1865,7 +1864,8 @@ Use this instead of generic task() for ODF workflow delegation.`,
           status: "blocked",
           reason,
           stop_disposition: classifyODFStop(reason),
-          phase: phase,
+          stage: target.stage,
+          role: target.role,
           agent: null,
           skills_injected: [],
           profile: null,
@@ -1979,7 +1979,8 @@ Use this instead of generic task() for ODF workflow delegation.`,
             status: "error",
             reason: "change-name-required",
             stop_disposition: classifyODFStop("change-name-required"),
-            phase: phase,
+            stage: target.stage,
+            role: target.role,
             agent: null,
             skills_injected: [],
             profile: null,
@@ -2022,7 +2023,8 @@ Use this instead of generic task() for ODF workflow delegation.`,
           status: "error",
           reason: "change-name-required",
           stop_disposition: classifyODFStop("change-name-required"),
-          phase: phase,
+          stage: target.stage,
+          role: target.role,
           agent: null,
           skills_injected: [],
           profile: null,
@@ -2095,7 +2097,8 @@ Use this instead of generic task() for ODF workflow delegation.`,
            })
           return JSON.stringify({
             status: "delegated",
-            phase: phase,
+            stage: target.stage,
+            role: target.role,
             agent: null,
             skills_injected: [],
             profile: null,
@@ -2391,10 +2394,10 @@ Use this instead of generic task() for ODF workflow delegation.`,
           // validated relative context paths resolve against it. With no
           // workspace_dir this equals the host session's directory, so the
           // behaviour is unchanged.
-          const delegationTitle = `ODF ${phase} → ${agentName}${changeName ? ` · ${changeName}` : ""}`
+          const delegationTitle = `ODF ${target.stage}${target.role ? ` ${target.role}` : ""} → ${agentName}${changeName ? ` · ${changeName}` : ""}`
           emitTaskProgress(toolCtx, {
             title: delegationTitle,
-            metadata: { phase: phase, agent: agentName, ...(changeName ? { change: changeName } : {}) },
+            metadata: { stage: target.stage, role: target.role, agent: agentName, ...(changeName ? { change: changeName } : {}) },
           })
           const taskResult = await invokeTask(taskApiInfo.taskApi, agentName, delegationPrompt, contextValidation.relativePaths, timeoutMs, toolCtx.abort, workspaceRoot, delegationTitle, executionOptions.branch_id)
           const taskSessionId = taskSessionIdOf(taskResult.result)
@@ -2464,7 +2467,8 @@ Use this instead of generic task() for ODF workflow delegation.`,
               status: "blocked",
               reason,
               stop_disposition: stopDisposition,
-              phase: phase,
+              stage: target.stage,
+              role: target.role,
               agent: agentName,
               skills_injected: skills.map(s => s.name),
               profile: profilePayload,
@@ -2568,7 +2572,8 @@ Use this instead of generic task() for ODF workflow delegation.`,
                 status: "error",
                 reason: "attempt-settlement-failed",
                 stop_disposition: classifyODFStop("attempt-settlement-failed"),
-                phase: phase,
+                stage: target.stage,
+                role: target.role,
                 agent: agentName,
                 policy_gate: policyGate,
                 validation,
@@ -2589,7 +2594,8 @@ Use this instead of generic task() for ODF workflow delegation.`,
           })
           return JSON.stringify({
             status: "delegated",
-            phase: phase,
+            stage: target.stage,
+            role: target.role,
             agent: agentName,
             skills_injected: skills.map(s => s.name),
             profile: profilePayload,
@@ -2665,7 +2671,8 @@ Use this instead of generic task() for ODF workflow delegation.`,
             status: isTimeout ? "timeout" : isCancelled || isEmpty ? "blocked" : "error",
             reason,
             stop_disposition: classifyODFStop(isTimeout ? "task-timeout" : reason || "task-error"),
-            phase: phase,
+            stage: target.stage,
+            role: target.role,
             agent: agentName,
             skills_injected: skills.map(s => s.name),
             profile: profilePayload,
@@ -2692,7 +2699,8 @@ Use this instead of generic task() for ODF workflow delegation.`,
         status: "blocked",
         reason: "task-api-unavailable",
         stop_disposition: classifyODFStop("task-api-unavailable"),
-        phase: phase,
+        stage: target.stage,
+        role: target.role,
         agent: agentName,
         skills_injected: skills.map(s => s.name),
         profile: profilePayload,
@@ -3055,7 +3063,8 @@ async function sealProofBackedDelegation(opts: {
     status: "blocked",
     reason,
     stop_disposition: classifyODFStop(reason),
-    phase: opts.record.phase,
+    stage: opts.record.stage,
+    role: opts.record.role,
     agent: opts.record.agent,
     token: opts.record.token,
     task_api_source: opts.record.launch ? "sdk.v2" : "subagent",
@@ -3065,10 +3074,10 @@ async function sealProofBackedDelegation(opts: {
   }, null, 2)
 
   if (!opts.record.attempt_id) {
-    return blocked("delegation-token-malformed", "The prepared token has no attempt_id for a proof-backed phase.")
+    return blocked("delegation-token-malformed", "The prepared token has no attempt_id for a proof-backed stage.")
   }
   if (!opts.record.policy_gate) {
-    return blocked("delegation-token-malformed", "The prepared token has no policy gate for a proof-backed phase.")
+    return blocked("delegation-token-malformed", "The prepared token has no policy gate for a proof-backed stage.")
   }
 
   // The attempt was acquired by prepare; reconstruct its ledger handle so the
@@ -3092,12 +3101,11 @@ async function sealProofBackedDelegation(opts: {
 
   const delegate = createODFDelegate(undefined, opts.canonicalDirectory)
   const stubTask = async (): Promise<unknown> => opts.childResult
-  const replayTarget = delegationTargetForPhase(opts.record.phase)
   let envelopeRaw: string
   try {
     envelopeRaw = await delegate.execute({
-      stage: replayTarget.stage,
-      ...(replayTarget.role ? { role: replayTarget.role } : {}),
+      stage: opts.record.stage,
+      ...(opts.record.role ? { role: opts.record.role } : {}),
       change: opts.record.change,
       prompt: opts.record.task,
       context_files: opts.record.context_files,
@@ -3137,7 +3145,7 @@ async function sealProofBackedDelegation(opts: {
   recordMetrics({
     timestamp: new Date().toISOString(),
     session_id: opts.toolCtx.sessionID,
-    phase: opts.record.phase,
+    phase: delegationPhase(opts.record.stage, opts.record.role),
     agent: opts.record.agent,
     skills_injected: opts.record.skills_injected,
     skill_resolution: opts.record.skills_injected.length > 0 ? "injected" : "none",
@@ -3682,25 +3690,27 @@ function createODFDelegationLaunch(canonicalDirectory?: string): ReturnType<type
 
 function createODFDelegationPrepare(canonicalDirectory?: string): ReturnType<typeof tool> {
   return tool({
-    description: `Prepare a native ODF delegation: resolve the phase agent, skills, profile, policy gate and source-authority contract; return the exact enriched prompt plus a bounded token. Call odf_delegation_launch with that prompt to submit it through the V2 session API, then finish with odf_delegation_seal({ token, change, session_id }). Do not use the host subagent tool.`,
+    description: `Prepare a native ODF delegation: resolve the stage role agent, skills, profile, policy gate and source-authority contract; return the exact enriched prompt plus a bounded token. Call odf_delegation_launch with that prompt to submit it through the V2 session API, then finish with odf_delegation_seal({ token, change, session_id }). Do not use the host subagent tool.`,
     args: {
-      phase: tool.schema.string().describe("ODF phase: PROPOSE, ASSESS, QA-PLAN, DESIGN, IMPLEMENT, VERIFY, EXPLORE, FIX"),
+      stage: tool.schema.string().describe("Canonical stage: DECIDE, PLAN, BUILD, VERIFY, EXPLORE, FIX"),
+      role: tool.schema.string().optional().describe("Role inside a composite stage: DECIDE requires PROPOSE or ASSESS; PLAN requires QA-PLAN or DESIGN. Omit for BUILD, VERIFY, EXPLORE, and FIX."),
       change: tool.schema.string().describe("Change name (kebab-case)"),
-      prompt: tool.schema.string().describe("The full detailed phase prompt for the agent."),
-      agent: tool.schema.string().optional().describe("Optional explicit registered agent override; must be installed and eligible for the phase."),
+      prompt: tool.schema.string().describe("The full detailed stage role prompt for the agent."),
+      agent: tool.schema.string().optional().describe("Optional explicit registered agent override; must be installed and eligible for the resolved stage role."),
       context_files: tool.schema.array(tool.schema.string()).optional().describe("Files the agent will work with (for skill matching)"),
-      artifact_store: tool.schema.enum(["openspec", "engram", "hybrid"]).optional().describe("Authoritative workflow store; required for PROPOSE and proof-backed IMPLEMENT/VERIFY"),
+      artifact_store: tool.schema.enum(["openspec", "engram", "hybrid"]).optional().describe("Authoritative workflow store; required for PROPOSE and proof-backed BUILD/VERIFY"),
       odoo_source_root: tool.schema.string().optional().describe("Explicit Odoo source root required for view-authority DESIGN/IMPLEMENT tasks"),
       odoo_source_repos: tool.schema.string().optional().describe("Optional explicit active Odoo repos root for view-authority lookup"),
       profile: tool.schema.string().optional().describe("Optional SDD profile name override"),
-      target: tool.schema.enum(["oca"]).optional().describe("Persisted governance target (proof-backed phases)"),
-      attempt_id: tool.schema.string().optional().describe("Fresh opaque attempt token for gated IMPLEMENT/VERIFY execution"),
+      target: tool.schema.enum(["oca"]).optional().describe("Persisted governance target (proof-backed stages)"),
+      attempt_id: tool.schema.string().optional().describe("Fresh opaque attempt token for gated BUILD/VERIFY execution"),
       workflow_advance: workflowAdvanceSchema.optional().describe("Exact machine-checked transition proof for canonical BUILD/VERIFY starts"),
       governance_acknowledgment: governanceAcknowledgmentSchema.optional().describe("Explicit final human OCA acknowledgment bound to the current candidate digest"),
       workspace_dir: tool.schema.string().optional().describe("Absolute project root; omit it to use the current session's project directory."),
     },
     async execute(args: {
-      phase: string
+      stage: string
+      role?: string
       change: string
       prompt: string
       agent?: string
@@ -3720,7 +3730,8 @@ function createODFDelegationPrepare(canonicalDirectory?: string): ReturnType<typ
         status: "blocked",
         reason,
         stop_disposition: classifyODFStop(reason),
-        phase: args.phase,
+        stage: args.stage,
+        role: args.role ?? null,
         agent: null,
         token: null,
         task_api_source: "subagent",
@@ -3729,13 +3740,15 @@ function createODFDelegationPrepare(canonicalDirectory?: string): ReturnType<typ
         ...extra,
       }, null, 2)
 
-      if (!ALLOWED_PHASES.includes(args.phase)) {
-        return `❌ Invalid phase "${args.phase}". Allowed: ${ALLOWED_PHASES.join(", ")}`
+      const target = resolveDelegationTarget(args.stage, args.role)
+      if (!target.ok) {
+        return blocked(target.reason, target.message)
       }
-      if (args.phase === "PROPOSE" && !args.artifact_store) {
+      const phase = target.phase
+      if (phase === "PROPOSE" && !args.artifact_store) {
         return blocked("artifact-store-required", "Native PROPOSE delegation requires the selected artifact_store so proposal persistence is bound to the workflow.")
       }
-      const gatedPhase = args.phase === "IMPLEMENT" || args.phase === "VERIFY"
+      const gated = target.stage === "BUILD" || target.stage === "VERIFY"
 
       const workspaceRoot = resolveSelectedWorkspaceRoot(args.workspace_dir, canonicalDirectory)
       if (!workspaceRoot) {
@@ -3763,7 +3776,7 @@ function createODFDelegationPrepare(canonicalDirectory?: string): ReturnType<typ
       if (inputSafety.blocked) {
         return blocked(
           "pre-tool-safety",
-          `Pre-tool safety blocked ${args.phase} delegation: ${inputSafety.classes.join(", ")}. ${inputSafety.safe_continuation || "Request explicit user consent for the exact target."}`,
+          `Pre-tool safety blocked ${target.stage}${target.role ? ` ${target.role}` : ""} delegation: ${inputSafety.classes.join(", ")}. ${inputSafety.safe_continuation || "Request explicit user consent for the exact target."}`,
           { classes: inputSafety.classes, matched_rules: inputSafety.matched_rules, safe_continuation: inputSafety.safe_continuation },
         )
       }
@@ -3779,7 +3792,7 @@ function createODFDelegationPrepare(canonicalDirectory?: string): ReturnType<typ
       let policyGate: PolicyGateDecision | null = null
       let acquiredAttempt: AcquiredAttempt | null = null
       let admittedWorkflowAdvance: ODFDelegateWorkflowAdvance | null = null
-      if (gatedPhase) {
+      if (gated) {
         if (!args.artifact_store) {
           return blocked("artifact-store-required", "Proof-backed IMPLEMENT/VERIFY delegation requires an explicit artifact_store: openspec, engram, or hybrid.")
         }
@@ -3794,12 +3807,12 @@ function createODFDelegationPrepare(canonicalDirectory?: string): ReturnType<typ
           ...(args.target ? { target: args.target } : {}),
           ...(args.governance_acknowledgment ? { governance_acknowledgment: args.governance_acknowledgment } : {}),
         } as ODFDelegateWorkflowAdvance
-        const expectedStage: "BUILD" | "VERIFY" = args.phase === "IMPLEMENT" ? "BUILD" : "VERIFY"
+        const expectedStage: "BUILD" | "VERIFY" = target.stage as "BUILD" | "VERIFY"
         const admission = await resolveProofBackedAdmission({
           workspaceRoot,
           changeName,
           artifactStore: args.artifact_store,
-          phase: args.phase as "IMPLEMENT" | "VERIFY",
+          phase: phase as "IMPLEMENT" | "VERIFY",
           attemptId: args.attempt_id,
           proof,
         })
@@ -3822,17 +3835,17 @@ function createODFDelegationPrepare(canonicalDirectory?: string): ReturnType<typ
         }
         policyGate = computePolicyGate({
           change: changeName,
-          phase: args.phase as "IMPLEMENT" | "VERIFY",
+          phase: phase as "IMPLEMENT" | "VERIFY",
           workspaceDir: workspaceRoot,
           registry,
         })
         if (policyGate && policyGate.gate === "block") {
-          return blocked(policyGate.reason, `Policy gate blocked ${args.phase} before delegation: ${policyGate.reason}`)
+          return blocked(policyGate.reason, `Policy gate blocked ${target.stage} before delegation: ${policyGate.reason}`)
         }
         const acquisition = acquireAttempt({
           workspaceDir: workspaceRoot,
           change: changeName,
-          phase: args.phase as AttemptLedgerPhase,
+          phase: phase as AttemptLedgerPhase,
           nextStage: expectedStage,
           attemptId: args.attempt_id,
           trackLiveness: false,
@@ -3853,7 +3866,7 @@ function createODFDelegationPrepare(canonicalDirectory?: string): ReturnType<typ
         return blocked(reason, message, extra)
       }
 
-      const sourceAuthorityRequired = isViewAuthorityWork(args.phase, args.prompt, args.context_files || [])
+      const sourceAuthorityRequired = isViewAuthorityWork(phase, args.prompt, args.context_files || [])
       let sourceAuthorityRoots: SourceAuthorityRoots | null = null
       if (sourceAuthorityRequired) {
         const roots = establishSourceAuthorityRoots({
@@ -3870,7 +3883,7 @@ function createODFDelegationPrepare(canonicalDirectory?: string): ReturnType<typ
       }
 
       const odooVersion = await detectOdooVersion(workspaceRoot)
-      const skills = matchSkills(registry, args.phase, {
+      const skills = matchSkills(registry, phase, {
         files: args.context_files,
         task: args.prompt,
         odooVersion,
@@ -3878,19 +3891,19 @@ function createODFDelegationPrepare(canonicalDirectory?: string): ReturnType<typ
       const keywords = args.prompt.split(/\s+/)
       let agentName: string | null
       if (args.agent !== undefined) {
-        const selection = validateAgentSelection(registry, args.phase, args.agent)
+        const selection = validateAgentSelection(registry, phase, args.agent)
         if (!selection.valid) {
-          return fail(selection.reason, `Explicit agent "${args.agent}" is not registered, installed, and phase-eligible for ${args.phase}.`)
+          return fail(selection.reason, `Explicit agent "${args.agent}" is not registered, installed, and eligible for ${target.stage}${target.role ? ` ${target.role}` : ""}.`)
         }
         agentName = selection.agent.name
       } else {
-        agentName = resolveAgent(registry, args.phase, keywords)
+        agentName = resolveAgent(registry, phase, keywords)
       }
       if (!agentName) {
-        return fail("agent-routing-unavailable", `No registered, installed, phase-eligible agent is available for ${args.phase}.`)
+        return fail("agent-routing-unavailable", `No registered, installed, eligible agent is available for ${target.stage}${target.role ? ` ${target.role}` : ""}.`)
       }
-      const profile = await getProfileByPhase(registry, args.phase, args.profile)
-      const profileBlock = profile ? formatProfileBlock(profile, args.phase) : ""
+      const profile = await getProfileByPhase(registry, phase, args.profile)
+      const profileBlock = profile ? formatProfileBlock(profile, phase) : ""
       const profilePayload = profile
         ? { name: profile.name, model: profile.model, temperature: profile.temperature, reasoning: profile.reasoning }
         : null
@@ -3902,7 +3915,7 @@ function createODFDelegationPrepare(canonicalDirectory?: string): ReturnType<typ
         : ""
       const delegationPrompt = buildDelegationPrompt({ enrichedPrompt, sourceAuthorityPrompt, policyGate })
       const token = newDelegationToken()
-      const marker = `<!-- ODF-DELEGATION ${JSON.stringify({ change: changeName, phase: args.phase, agent: agentName, token })} -->`
+      const marker = `<!-- ODF-DELEGATION ${JSON.stringify({ change: changeName, stage: target.stage, role: target.role, agent: agentName, token })} -->`
       const finalPrompt = `${marker}\n\n${delegationPrompt}`
       const safety = inspectToolArgs({
         tool: "subagent",
@@ -3919,7 +3932,8 @@ function createODFDelegationPrepare(canonicalDirectory?: string): ReturnType<typ
       const workflowAdvance = admittedWorkflowAdvance || args.workflow_advance
       const record = createDelegationTokenRecord({
         change: changeName,
-        phase: args.phase as DelegationPhase,
+        stage: target.stage,
+        role: target.role ?? undefined,
         agent: agentName,
         token,
         skills_injected: skills.map(s => s.name),
@@ -3950,7 +3964,7 @@ function createODFDelegationPrepare(canonicalDirectory?: string): ReturnType<typ
       recordMetrics({
         timestamp: new Date().toISOString(),
         session_id: toolCtx.sessionID,
-        phase: args.phase,
+        phase: phase,
         agent: agentName,
         skills_injected: skills.map(s => s.name),
         skill_resolution: skills.length > 0 ? "injected" : "none",
@@ -3971,12 +3985,13 @@ function createODFDelegationPrepare(canonicalDirectory?: string): ReturnType<typ
       return JSON.stringify({
         status: "prepared",
         change: changeName,
-        phase: args.phase,
+        stage: target.stage,
+        role: target.role,
         agent: agentName,
         token,
         delegation: {
           agent: agentName,
-          description: `ODF ${args.phase} → ${agentName} · ${changeName}`,
+          description: `ODF ${target.stage}${target.role ? ` ${target.role}` : ""} → ${agentName} · ${changeName}`,
           prompt: finalPrompt,
         },
         skills_injected: skills.map(s => s.name),
@@ -4063,7 +4078,7 @@ function createODFProposalWrite(canonicalDirectory?: string): ReturnType<typeof 
       const record = read.record
       if (record.status !== "prepared") return blocked("delegation-token-already-sealed", "The proposal token is no longer writable.")
       if (isDelegationTokenExpired(record)) return blocked("delegation-token-expired", "The proposal token expired; prepare a fresh delegation.")
-      if (record.phase !== "PROPOSE") return blocked("proposal-writer-phase-mismatch", "odf_proposal_write is available only for PROPOSE delegations.")
+      if (record.stage !== "DECIDE" || record.role !== "PROPOSE") return blocked("proposal-writer-stage-mismatch", "odf_proposal_write is available only for DECIDE PROPOSE delegations.")
       if (record.agent !== toolCtx.agent) return blocked("proposal-writer-agent-mismatch", "The active child agent does not match the prepared proposal agent.")
       if (record.workspace !== workspaceRoot) return blocked("proposal-writer-workspace-mismatch", "The active child workspace does not match the prepared proposal workspace.")
       if (record.artifact_store !== args.artifact_store) return blocked("proposal-writer-store-mismatch", "The requested store does not match the selected store bound to the delegation token.")
@@ -4139,7 +4154,7 @@ function recordRecoveryMetric(input: {
 
 function createODFLateSealCapabilityPrepare(canonicalDirectory?: string): ReturnType<typeof tool> {
   return tool({
-    description: `Prepare (without sealing or changing workflow state) a single-use, ten-minute late-seal capability for one expired native IMPLEMENT/VERIFY token. Requires the original running attempt and independently verifies the exact parent, child, agent, workspace, idle state, and prepared prompt. Then call odf_delegation_seal with the same token/change/session_id and the returned late_seal_capability. Never relaunch the child or edit the original token expiry.`,
+    description: `Prepare (without sealing or changing workflow state) a single-use, ten-minute late-seal capability for one expired native BUILD/VERIFY token. Requires the original running attempt and independently verifies the exact parent, child, agent, workspace, idle state, and prepared prompt. Then call odf_delegation_seal with the same token/change/session_id and the returned late_seal_capability. Never relaunch the child or edit the original token expiry.`,
     args: {
       token: tool.schema.string().describe("Original delegation token; it is not refreshed or modified."),
       change: tool.schema.string().describe("Change name (kebab-case) the original token belongs to."),
@@ -4185,8 +4200,8 @@ function createODFLateSealCapabilityPrepare(canonicalDirectory?: string): Return
       attemptId = record.attempt_id
       if (record.status !== "prepared") return recordBlocked("delegation-token-already-sealed", "Late-seal recovery is only available for an unsealed original token.")
       if (!isDelegationTokenExpired(record)) return recordBlocked("late-seal-not-required", "The original delegation token has not expired; use the normal seal flow.")
-      if ((record.phase !== "IMPLEMENT" && record.phase !== "VERIFY") || !record.attempt_id) {
-        return recordBlocked("late-seal-token-not-recoverable", "Late-seal recovery requires an expired native proof-backed IMPLEMENT/VERIFY token with its original attempt.")
+      if ((record.stage !== "BUILD" && record.stage !== "VERIFY") || !record.attempt_id) {
+        return recordBlocked("late-seal-token-not-recoverable", "Late-seal recovery requires an expired native proof-backed BUILD/VERIFY token with its original attempt.")
       }
       if (record.parent_session_id !== toolCtx.sessionID || record.launch?.parent_session_id !== toolCtx.sessionID) {
         return recordBlocked("delegation-parent-mismatch", "Late-seal capability preparation must run in the original parent session.")
@@ -4277,7 +4292,8 @@ function createODFLateSealCapabilityPrepare(canonicalDirectory?: string): Return
       return JSON.stringify({
         status: "recovery-capability-issued",
         change: record.change,
-        phase: record.phase,
+        stage: record.stage,
+        role: record.role,
         attempt_id: record.attempt_id,
         task_session_id: args.session_id,
         late_seal_capability: issued.capability,
@@ -4290,7 +4306,7 @@ function createODFLateSealCapabilityPrepare(canonicalDirectory?: string): Return
 
 function createODFDelegationSeal(canonicalDirectory?: string): ReturnType<typeof tool> {
   return tool({
-    description: `Seal a native ODF delegation started with odf_delegation_prepare: parallel branch tokens must use odf_parallel_seal instead. Verify the child session against the token, wait until its V2 session loop is idle, read its ODF Result, run the phase gates (source authority, design closure, artifact refs and PLAN materialization; proof revalidation, validation-evidence seal, workflow commit and attempt settlement for IMPLEMENT/VERIFY) and return the standard delegation envelope. If the original token expired after launch, first call odf_delegation_late_seal_prepare for the same token and child, then pass its late_seal_capability here; the original expiry is never changed.`,
+    description: `Seal a native ODF delegation started with odf_delegation_prepare: parallel branch tokens must use odf_parallel_seal instead. Verify the child session against the token, wait until its V2 session loop is idle, read its ODF Result, run the stage gates (source authority, design closure, artifact refs and PLAN materialization; proof revalidation, validation-evidence seal, workflow commit and attempt settlement for BUILD/VERIFY) and return the standard delegation envelope. If the original token expired after launch, first call odf_delegation_late_seal_prepare for the same token and child, then pass its late_seal_capability here; the original expiry is never changed.`,
     args: {
       token: tool.schema.string().describe("Delegation token returned by odf_delegation_prepare."),
       change: tool.schema.string().describe("Change name (kebab-case) the token belongs to."),
@@ -4339,7 +4355,7 @@ function createODFDelegationSeal(canonicalDirectory?: string): ReturnType<typeof
         return blocked(
           "delegation-parallel-token-requires-parallel-seal",
           "Parallel delegation tokens must be sealed through odf_parallel_seal so every branch and the aggregate join are validated together.",
-          { phase: record.phase, change: record.change, task_session_id: args.session_id },
+          { stage: record.stage, role: record.role, change: record.change, task_session_id: args.session_id },
         )
       }
       let lateSealBinding: LateSealCapabilityBinding | null = null
@@ -4350,14 +4366,16 @@ function createODFDelegationSeal(canonicalDirectory?: string): ReturnType<typeof
       let causalTimestampWarning: string | null = null
       if (record.parent_session_id !== toolCtx.sessionID) {
         return blocked("delegation-parent-mismatch", "The seal must run in the parent session that prepared this programmatic delegation.", {
-          phase: record.phase,
+          stage: record.stage,
+          role: record.role,
           change: record.change,
           task_session_id: args.session_id,
         })
       }
       if (!record.launch || !record.launch.child_session_id || ["reserved", "created", "sending"].includes(record.launch.state)) {
         return blocked("delegation-launch-not-submitted", "The programmatic launch has not reached a state that can be verified by the seal; retry odf_delegation_launch only if it is still in the created state.", {
-          phase: record.phase,
+          stage: record.stage,
+          role: record.role,
           change: record.change,
           task_session_id: args.session_id,
           launch: record.launch ? { state: record.launch.state, child_session_id: record.launch.child_session_id ?? null } : null,
@@ -4365,20 +4383,23 @@ function createODFDelegationSeal(canonicalDirectory?: string): ReturnType<typeof
       }
       if (record.launch && record.launch.parent_session_id !== toolCtx.sessionID) {
         return blocked("delegation-parent-mismatch", "The launched child belongs to a different parent session.", {
-          phase: record.phase,
+          stage: record.stage,
+          role: record.role,
           change: record.change,
           task_session_id: args.session_id,
         })
       }
       if (record.launch?.child_session_id && record.launch.child_session_id !== args.session_id) {
         return blocked("delegation-child-mismatch", "The supplied child session ID does not match the durable programmatic launch record.", {
-          phase: record.phase,
+          stage: record.stage,
+          role: record.role,
           change: record.change,
           task_session_id: args.session_id,
         })
       }
       const withRecord = (extra: Record<string, unknown> = {}): Record<string, unknown> => ({
-        phase: record.phase,
+        stage: record.stage,
+        role: record.role,
         agent: record.agent,
         skills_injected: record.skills_injected,
         profile: record.profile,
@@ -4414,8 +4435,8 @@ function createODFDelegationSeal(canonicalDirectory?: string): ReturnType<typeof
         if (!args.late_seal_capability) {
           return blocked("delegation-token-expired", "The token expired after launch. Do not relaunch or edit its expiry; first obtain the separate late-seal recovery capability for this exact child.", withRecord())
         }
-        if (!record.attempt_id || (record.phase !== "IMPLEMENT" && record.phase !== "VERIFY")) {
-          return blocked("late-seal-token-not-recoverable", "Late-seal recovery is limited to proof-backed IMPLEMENT/VERIFY attempts.", withRecord())
+        if (!record.attempt_id || (record.stage !== "BUILD" && record.stage !== "VERIFY")) {
+          return blocked("late-seal-token-not-recoverable", "Late-seal recovery is limited to proof-backed BUILD/VERIFY attempts.", withRecord())
         }
         lateSealBinding = {
           change: record.change,
@@ -4660,7 +4681,7 @@ function createODFDelegationSeal(canonicalDirectory?: string): ReturnType<typeof
             receipt = persistWorkflowFailureReceipt(
               workspaceRoot,
               record.change,
-              record.phase as ODFReceipt["phase"],
+              delegationPhase(record.stage, record.role) as ODFReceipt["phase"],
               message,
               record.policy_gate as unknown as PolicyGateDecision,
               [],
@@ -4681,7 +4702,7 @@ function createODFDelegationSeal(canonicalDirectory?: string): ReturnType<typeof
       // Proof-backed BUILD/VERIFY: replay the authoritative delegate with the
       // child result as the task outcome (proof revalidation, prepared policy
       // gate, validation-evidence seal, workflow commit, attempt settlement).
-      if (record.phase === "IMPLEMENT" || record.phase === "VERIFY") {
+      if (record.stage === "BUILD" || record.stage === "VERIFY") {
         try {
           const result = await sealProofBackedDelegation({
             record,
@@ -4698,7 +4719,7 @@ function createODFDelegationSeal(canonicalDirectory?: string): ReturnType<typeof
         }
       }
 
-      const requiresOpenSpecProposal = record.phase === "PROPOSE" &&
+      const requiresOpenSpecProposal = record.stage === "DECIDE" && record.role === "PROPOSE" &&
         (record.artifact_store === undefined || record.artifact_store === "openspec" || record.artifact_store === "hybrid")
       const proposalFailure = innerDisposition.accepted && requiresOpenSpecProposal
         ? proposalArtifactFailure(record, args.session_id, childResult, workspaceRoot)
@@ -4706,7 +4727,7 @@ function createODFDelegationSeal(canonicalDirectory?: string): ReturnType<typeof
       const outcome: CompositeGateOutcome = proposalFailure
         ? { result: childResult, warnings: [], materialization: null, failure: proposalFailure }
         : await applyCompositeResultGates({
-          phase: record.phase,
+          phase: delegationPhase(record.stage, record.role),
           task: record.task,
           rawResult: childResult,
           contextFiles: record.context_files,
@@ -4722,7 +4743,7 @@ function createODFDelegationSeal(canonicalDirectory?: string): ReturnType<typeof
       recordMetrics({
         timestamp: new Date().toISOString(),
         session_id: toolCtx.sessionID,
-        phase: record.phase,
+        phase: delegationPhase(record.stage, record.role),
         agent: record.agent,
         skills_injected: record.skills_injected,
         skill_resolution: record.skills_injected.length > 0 ? "injected" : "none",
@@ -4745,7 +4766,8 @@ function createODFDelegationSeal(canonicalDirectory?: string): ReturnType<typeof
 
       return persistSealResult(JSON.stringify({
         status: "delegated",
-        phase: record.phase,
+        stage: record.stage,
+        role: record.role,
         agent: record.agent,
         skills_injected: record.skills_injected,
         profile: record.profile,
@@ -4986,7 +5008,7 @@ function createODFParallelPrepare(canonicalDirectory?: string): ReturnType<typeo
 
       const record = createDelegationTokenRecord({
         change: changeName,
-        phase: "IMPLEMENT",
+        stage: "BUILD",
         agent: "scheduler",
         token,
         skills_injected: [],
@@ -5116,7 +5138,8 @@ function createODFParallelSeal(canonicalDirectory?: string): ReturnType<typeof t
       const idleChildSessions = new Map<string, { session_id: string; idle_at: string }>()
       const sessions = new Map<string, string>()
       const withRecord = (extra: Record<string, unknown> = {}): Record<string, unknown> => ({
-        phase: record.phase,
+        stage: record.stage,
+        role: record.role,
         agent: record.agent,
         change: record.change,
         child_sessions_idle: Object.fromEntries(idleChildSessions),

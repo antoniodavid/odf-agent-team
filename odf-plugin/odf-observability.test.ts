@@ -279,7 +279,8 @@ describe("O2 observability timeline", () => {
   it("builds an ordered causal sequence from sanitized token evidence and names missing timestamps", () => {
     const delegation: DelegationTokenDiagnostic = {
       change: "target-change",
-      phase: "IMPLEMENT",
+      stage: "BUILD",
+      role: null,
       agent: "odoo_backend_engineer",
       attempt_id: "attempt-causal",
       created_at: "2026-08-24T10:00:00.000Z",
@@ -358,7 +359,8 @@ describe("O2 observability timeline", () => {
     })
     expect(timeline.causal_sequence[4]).toMatchObject({ stage: "VERIFY", status: "committed", timestamp: "2026-08-24T10:04:59.000Z" })
     expect(timeline.delegation_status[0]).toMatchObject({
-      phase: "IMPLEMENT",
+      stage: "BUILD",
+      role: null,
       child_session: { liveness: "unknown", result: "recorded-with-seal" },
       handoff_integrity: "verified",
       seal_status: "accepted",
@@ -374,7 +376,8 @@ describe("O2 observability timeline", () => {
     const baseWorkflow = workflow("target-change")
     const delegation: DelegationTokenDiagnostic = {
       change: "target-change",
-      phase: "IMPLEMENT",
+      stage: "BUILD",
+      role: null,
       agent: "odoo_backend_engineer",
       attempt_id: "attempt-running",
       created_at: "2026-08-24T10:00:00.000Z",
@@ -418,7 +421,8 @@ describe("O2 observability timeline", () => {
   it("reports bounded prepared/dispatched/received prompt differences without prompt text", () => {
     const delegation: DelegationTokenDiagnostic = {
       change: "target-change",
-      phase: "IMPLEMENT",
+      stage: "BUILD",
+      role: null,
       agent: "odoo_backend_engineer",
       created_at: "2026-08-24T10:00:00.000Z",
       expires_at: "2026-08-24T12:00:00.000Z",

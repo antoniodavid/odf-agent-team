@@ -34,7 +34,7 @@ afterEach(async () => {
 function validInput(overrides: Record<string, unknown> = {}) {
   return {
     change: "demo-change",
-    phase: "IMPLEMENT" as const,
+    stage: "BUILD" as const,
     agent: "odoo_batch_implementer",
     workspace,
     prompt: "# ODF IMPLEMENT — demo-change\nbody",
@@ -77,7 +77,7 @@ describe("delegation tokens", () => {
   it("rejects unsafe or malformed token input", () => {
     expect(createDelegationTokenRecord(validInput({ change: "../escape" }))).toBeNull()
     expect(createDelegationTokenRecord(validInput({ agent: "bad agent" }))).toBeNull()
-    expect(createDelegationTokenRecord(validInput({ phase: "NOT-A-PHASE" }))).toBeNull()
+    expect(createDelegationTokenRecord(validInput({ stage: "NOT-A-STAGE" }))).toBeNull()
     expect(createDelegationTokenRecord(validInput({ attempt_id: "bad id" }))).toBeNull()
     expect(createDelegationTokenRecord(validInput({ workspace: path.join(workspace, "missing") }))).toBeNull()
     expect(createDelegationTokenRecord(validInput({ task: "" }))).toBeNull()
@@ -126,7 +126,7 @@ describe("delegation tokens", () => {
 
     const read = readDelegationToken(workspace, record.change, record.token)
     expect(read.error).toBeNull()
-    expect(read.record).toMatchObject({ token: record.token, change: record.change, phase: "IMPLEMENT" })
+    expect(read.record).toMatchObject({ token: record.token, change: record.change, stage: "BUILD", role: null })
   })
 
   it("fails closed for unknown, mismatched and malformed tokens", async () => {
@@ -139,7 +139,7 @@ describe("delegation tokens", () => {
 
     const filePath = delegationTokenPath(workspace, record.change, record.token)!
     await fs.writeFile(filePath, '{"schema_version":1,"token":"odf-tok-bad"}', "utf8")
-    expect(readDelegationToken(workspace, record.change, record.token)).toMatchObject({ error: "delegation-token-malformed" })
+    expect(readDelegationToken(workspace, record.change, record.token)).toMatchObject({ error: "delegation-token-legacy" })
   })
 
   it("rejects records written before the programmatic launch contract", async () => {
@@ -218,7 +218,8 @@ describe("delegation tokens", () => {
     const diagnostics = readDelegationTokenDiagnostics(workspace, record.change)
     expect(diagnostics).toMatchObject({ records_read: 1, warnings: [] })
     expect(diagnostics.records[0]).toMatchObject({
-      phase: "IMPLEMENT",
+      stage: "BUILD",
+      role: null,
       attempt_id: "impl-r1",
       prepared_prompt_digest_prefix: record.prompt_digest.slice(0, 12),
       parent_session_id: "parent-session",

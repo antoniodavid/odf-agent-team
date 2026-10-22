@@ -141,6 +141,16 @@ export function resolveDelegationTarget(stageInput: unknown, roleInput?: unknown
 }
 
 /**
+ * Internal phase for an already-resolved stage/role pair. Throws on an invalid
+ * pair; callers that accept untrusted input use `resolveDelegationTarget`.
+ */
+export function delegationPhase(stage: DelegationStage, role: DelegationRole | null): LegacyPhase {
+  const target = resolveDelegationTarget(stage, role)
+  if (!target.ok) throw new Error(target.message)
+  return target.phase
+}
+
+/**
  * Project an internal phase back onto the public stage/role pair. Used by the
  * native replay paths, which persist the internal phase on their token record
  * but must call the public contract with stages.

@@ -4928,7 +4928,8 @@ ${overrides}`
 
     const envelope = JSON.parse(output as string)
     expect(envelope.status).toBe("delegated")
-    expect(envelope.phase).toBe("ASSESS")
+    expect(envelope.stage).toBe("DECIDE")
+    expect(envelope.role).toBe("ASSESS")
     expect(envelope.agent).toBe("odoo_functional_consultant")
     expect(envelope.task_api_source).toBe("toolCtx.task")
     expect(envelope.result).toEqual(taskResult)
@@ -5227,7 +5228,7 @@ ${overrides}`
       result: { status: "ok", design_closed: true },
     })
     expect(metadata).toHaveBeenCalledWith(expect.objectContaining({
-      title: expect.stringContaining("ODF DESIGN →"),
+      title: expect.stringContaining("ODF PLAN DESIGN →"),
     }))
   })
 
@@ -8617,7 +8618,8 @@ ${overrides}`
 
     const envelope = JSON.parse(output as string)
     expect(envelope.status).toBe("delegated")
-    expect(envelope.phase).toBe("FIX")
+    expect(envelope.stage).toBe("FIX")
+    expect(envelope.role).toBeNull()
     expect(envelope.agent).toBe("odoo_backend_engineer")
     expect(envelope.policy_gate).toBeNull()
     expect(envelope.task_api_source).toBe("toolCtx.task")
@@ -8641,7 +8643,8 @@ ${overrides}`
     expect(envelope.message).toContain("Missing change name")
     for (const key of [
       "status",
-      "phase",
+      "stage",
+      "role",
       "agent",
       "skills_injected",
       "profile",
@@ -9045,7 +9048,8 @@ ${overrides}`
 
     const envelope = JSON.parse(output as string)
     expect(envelope.status).toBe("delegated")
-    expect(envelope.phase).toBe("EXPLORE")
+    expect(envelope.stage).toBe("EXPLORE")
+    expect(envelope.role).toBeNull()
     expect(envelope.agent).toBe("odoo_functional_consultant")
 
     const metrics = getMetricsBuffer()
@@ -9067,7 +9071,8 @@ ${overrides}`
 
     const envelope = JSON.parse(output as string)
     expect(envelope.status).toBe("delegated")
-    expect(envelope.phase).toBe("PROPOSE")
+    expect(envelope.stage).toBe("DECIDE")
+    expect(envelope.role).toBe("PROPOSE")
     expect(envelope.agent).toBe("odoo_proposer")
     expect(getMetricsBuffer()[0].phase).toBe("PROPOSE")
   })
