@@ -142,6 +142,16 @@ describe("delegation tokens", () => {
     expect(readDelegationToken(workspace, record.change, record.token)).toMatchObject({ error: "delegation-token-malformed" })
   })
 
+  it("rejects records written before the programmatic launch contract", async () => {
+    const record = createDelegationTokenRecord(validInput({ parent_session_id: "parent-session" }))!
+    const legacy = { ...record } as Record<string, unknown>
+    delete legacy.launch_mode
+    delete legacy.prompt_byte_length
+    expect(writeDelegationToken(workspace, legacy as any)).toBeNull()
+
+    expect(readDelegationToken(workspace, record.change, record.token)).toMatchObject({ error: "delegation-token-legacy" })
+  })
+
   it("detects expiry", () => {
     const record = createDelegationTokenRecord(validInput({ now: new Date("2026-09-28T12:00:00.000Z"), ttl_ms: 60_000 }))!
     expect(isDelegationTokenExpired(record, new Date("2026-09-28T12:00:30.000Z"))).toBe(false)
@@ -274,7 +284,7 @@ describe("delegation tokens", () => {
 
   it("never treats an interrupted launch record as idle evidence and preserves its child session id", async () => {
     const token = "odf-tok-0123456789abcdef0123456789abcdef"
-    const record = createDelegationTokenRecord(validInput({ token, launch_mode: "programmatic", parent_session_id: "tokens-cancel-parent" }))!
+    const record = createDelegationTokenRecord(validInput({ token, parent_session_id: "tokens-cancel-parent" }))!
     const launched = {
       ...record,
       launch: {

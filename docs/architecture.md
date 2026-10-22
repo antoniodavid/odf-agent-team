@@ -137,7 +137,7 @@ The ODF delegation engine and plugin entrypoint. Exposes tools such as
 `odf_workflow_override`, `odf_workflow_bind`, `odf_entry_triage`,
 `odf_skill_inject`, `odf_skill_resolve`, `odf_registry_read`,
 `odf_profile_select`, `odf_notebooklm_lookup`, `odf_policy_gate`,
-`odf_receipt`, and `odf_status`.
+`odf_receipt`, and the deprecated `odf_status`.
 
 `odf_delegation_prepare`/`odf_delegation_launch`/`odf_delegation_seal` implement
 the native prepare/launch/seal route (roadmap #55): prepare resolves the agent,

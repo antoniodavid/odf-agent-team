@@ -53,8 +53,8 @@ export interface DelegationTokenBranch {
   agent: string
   attempt_id: string
   prompt_digest: string
-  /** UTF-8 byte length of the exact prepared prompt; absent on legacy records. */
-  prompt_byte_length?: number
+  /** UTF-8 byte length of the exact prepared prompt. */
+  prompt_byte_length: number
   task: string
   context_files: string[]
   launch?: NativeChildLaunch
@@ -86,8 +86,6 @@ export interface DelegationTokenInput {
   workspace: string
   /** Enriched prompt the orchestrator must pass to the host subagent tool verbatim. */
   prompt: string
-  /** Native prepared prompts are dispatched through the V2 session API. */
-  launch_mode?: "programmatic"
   /** Parent session that prepared this delegation. */
   parent_session_id?: string
   /**
@@ -127,11 +125,11 @@ export interface DelegationTokenRecord {
   workspace: string
   /** SHA-256 of the enriched prompt the child session must have received. */
   prompt_digest: string
-  /** UTF-8 byte length of the exact prepared prompt; absent on legacy records. */
-  prompt_byte_length?: number
-  /** Present for newly prepared records that use programmatic V2 dispatch. */
-  launch_mode?: "programmatic"
-  /** Parent session that prepared this delegation; absent on legacy records. */
+  /** UTF-8 byte length of the exact prepared prompt. */
+  prompt_byte_length: number
+  /** Prepared records always use programmatic V2 dispatch. */
+  launch_mode: "programmatic"
+  /** Parent session that prepared this delegation. */
   parent_session_id?: string
   /** Durable idempotency/recovery pointer for a programmatically launched child. */
   launch?: NativeChildLaunch
@@ -293,7 +291,6 @@ export function createDelegationTokenRecord(input: DelegationTokenInput): Delega
   if (!change || !agent || !phase || !workspace) return null
   const task = safeTask(input.task)
   if (!task) return null
-  if (input.launch_mode !== undefined && input.launch_mode !== "programmatic") return null
   if (input.parent_session_id !== undefined && !safeSessionId(input.parent_session_id)) return null
   const token = input.token === undefined ? newDelegationToken() : (DELEGATION_TOKEN_PATTERN.test(input.token) ? input.token : null)
   if (!token) return null
@@ -334,7 +331,7 @@ export function createDelegationTokenRecord(input: DelegationTokenInput): Delega
     workspace,
     prompt_digest: delegationPromptDigest(input.prompt),
     prompt_byte_length: delegationPromptByteLength(input.prompt),
-    ...(input.launch_mode ? { launch_mode: input.launch_mode } : {}),
+    launch_mode: "programmatic",
     ...(input.parent_session_id ? { parent_session_id: input.parent_session_id } : {}),
     task,
     ...(input.source_root ? { source_root: input.source_root } : {}),
@@ -355,15 +352,18 @@ export function createDelegationTokenRecord(input: DelegationTokenInput): Delega
   }
 }
 
-function isTokenBranch(value: unknown): value is DelegationTokenBranch {
+function isTokenBranch(value: unknown, allowLegacyFields = false): value is DelegationTokenBranch {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false
   const branch = value as Record<string, unknown>
+  const promptByteLengthValid = allowLegacyFields
+    ? branch.prompt_byte_length === undefined ||
+      (Number.isSafeInteger(branch.prompt_byte_length) && (branch.prompt_byte_length as number) >= 0)
+    : Number.isSafeInteger(branch.prompt_byte_length) && (branch.prompt_byte_length as number) >= 0
   return safeLabel(branch.branch_id) !== null &&
     safeLabel(branch.agent) !== null &&
     safeLabel(branch.attempt_id) !== null &&
     typeof branch.prompt_digest === "string" && PROMPT_DIGEST_PATTERN.test(branch.prompt_digest) &&
-    (branch.prompt_byte_length === undefined ||
-      (Number.isSafeInteger(branch.prompt_byte_length) && (branch.prompt_byte_length as number) >= 0)) &&
+    promptByteLengthValid &&
     safeTask(branch.task) !== null &&
     Array.isArray(branch.context_files) && branch.context_files.every(file => typeof file === "string") &&
     (branch.launch === undefined || isNativeChildLaunch(branch.launch))
@@ -399,7 +399,7 @@ function buildBranches(inputs: DelegationTokenBranchInput[]): DelegationTokenBra
   return branches
 }
 
-function isDelegationTokenRecord(value: unknown): value is DelegationTokenRecord {
+function isDelegationTokenRecord(value: unknown, allowLegacyFields = false): value is DelegationTokenRecord {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false
   const record = value as Record<string, unknown>
   const hasProposalEvidence = record.proposal_artifact_ref !== undefined || record.proposal_digest !== undefined || record.proposal_session_id !== undefined
@@ -410,9 +410,13 @@ function isDelegationTokenRecord(value: unknown): value is DelegationTokenRecord
     typeof record.proposal_session_id === "string" && record.proposal_session_id.length > 0 &&
     record.proposal_session_id.length <= 256 && !/[\0\r\n]/.test(record.proposal_session_id)
   )
-  const promptByteLengthValid = record.prompt_byte_length === undefined ||
-    (Number.isSafeInteger(record.prompt_byte_length) && (record.prompt_byte_length as number) >= 0)
-  const launchModeValid = record.launch_mode === undefined || record.launch_mode === "programmatic"
+  const promptByteLengthValid = allowLegacyFields
+    ? record.prompt_byte_length === undefined ||
+      (Number.isSafeInteger(record.prompt_byte_length) && (record.prompt_byte_length as number) >= 0)
+    : Number.isSafeInteger(record.prompt_byte_length) && (record.prompt_byte_length as number) >= 0
+  const launchModeValid = allowLegacyFields
+    ? record.launch_mode === undefined || record.launch_mode === "programmatic"
+    : record.launch_mode === "programmatic"
   const parentSessionValid = record.parent_session_id === undefined || safeSessionId(record.parent_session_id)
   const launchValid = record.launch === undefined || isNativeChildLaunch(record.launch)
   const sealedResultValid = record.sealed_result === undefined ||
@@ -436,7 +440,7 @@ function isDelegationTokenRecord(value: unknown): value is DelegationTokenRecord
     (record.policy_gate === undefined || record.policy_gate === null || (typeof record.policy_gate === "object" && !Array.isArray(record.policy_gate))) &&
     (record.target === undefined || record.target === "oca") &&
     (record.governance_acknowledgment === undefined || (typeof record.governance_acknowledgment === "object" && !Array.isArray(record.governance_acknowledgment))) &&
-    (record.branches === undefined || (Array.isArray(record.branches) && record.branches.length >= 2 && record.branches.length <= 3 && record.branches.every(isTokenBranch))) &&
+    (record.branches === undefined || (Array.isArray(record.branches) && record.branches.length >= 2 && record.branches.length <= 3 && record.branches.every(branch => isTokenBranch(branch, allowLegacyFields)))) &&
     Array.isArray(record.skills_injected) && record.skills_injected.every(name => safeLabel(name) !== null) &&
     (record.profile === null || (typeof record.profile === "object" && !Array.isArray(record.profile))) &&
     Array.isArray(record.context_files) && record.context_files.every(file => typeof file === "string") &&
@@ -565,7 +569,9 @@ export function readDelegationToken(workspace: string, change: string, token: st
   } catch {
     return { record: null, error: "delegation-token-malformed" }
   }
-  if (!isDelegationTokenRecord(parsed)) return { record: null, error: "delegation-token-malformed" }
+  if (!isDelegationTokenRecord(parsed)) {
+    return { record: null, error: isDelegationTokenRecord(parsed, true) ? "delegation-token-legacy" : "delegation-token-malformed" }
+  }
   if (parsed.token !== token || parsed.change !== change) return { record: null, error: "delegation-token-mismatch" }
   return { record: parsed, error: null }
 }

@@ -817,8 +817,6 @@ export async function readV2SessionConversation(input: {
   }
 }
 
-const OPENCODE_SUBAGENT_USER_PREFIX = "You are a subagent spawned by another session.\n"
-
 /**
  * Bounded transcript view for the native seal path: the first user text is
  * the delegated prompt and the latest assistant text is the phase result.
@@ -881,16 +879,14 @@ export function readV2ContextConversation(response: unknown): V2ContextConversat
 
 /**
  * Return the exact prepared prompt represented by the first user message.
- * Only legacy host-subagent transcripts may remove the one known fixed prefix.
+ * Programmatic children receive the prepared bytes verbatim, so the transcript
+ * must match without stripping any host prefix.
  */
 export function preparedPromptFromV2Conversation(
   conversation: Pick<V2ContextConversation, "userTexts" | "userTextExact">,
-  allowLegacyHostPrefix: boolean,
 ): string | null {
   if (!conversation.userTextExact || conversation.userTexts.length === 0) return null
-  const first = conversation.userTexts[0]
-  if (!allowLegacyHostPrefix || !first.startsWith(OPENCODE_SUBAGENT_USER_PREFIX)) return first
-  return first.slice(OPENCODE_SUBAGENT_USER_PREFIX.length)
+  return conversation.userTexts[0]
 }
 
 type V2TaskInvocation = { childID?: string; abortRequested: boolean; aborting?: Promise<void> }

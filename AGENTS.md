@@ -105,7 +105,7 @@ escalation.
 | `odf_notebooklm_lookup` | Search NotebookLM notebooks for reference material |
 | `odf_community_tool_detect` | Check if a community tool (e.g., CodeGraph) is available |
 | `odf_community_tool_install` | Install and wire a community tool |
-| `odf_status` | Resolve ODF change status from Engram observations |
+| `odf_status` | Deprecated legacy status from Engram; use `odf_workflow_status` |
 | `odf_workflow_status` | Read canonical workflow status (stages, receipts, resumability) |
 | `odf_feedback_submit` | Preview or submit one explicitly confirmed, privacy-bounded feedback aggregate |
 | `odf_policy_gate` | Resolve + persist the TDD/risk Policy Gate before IMPLEMENT/VERIFY |

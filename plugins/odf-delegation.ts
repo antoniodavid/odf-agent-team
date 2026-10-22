@@ -1872,14 +1872,11 @@ Use this instead of generic task() for ODF workflow delegation.`,
       const gatedPhase = args.phase === "IMPLEMENT" || args.phase === "VERIFY"
       let registry: ODFRegistry | null = null
       if (gatedPhase && !args.workflow_advance) {
-        registry = await loadRegistry()
-        if (registry?.flags?.strict_workflow === true) {
-          return blockWorkflow(
-            "strict-workflow-proof-required",
-            "Strict workflow mode requires workflow_advance for IMPLEMENT/VERIFY; legacy omissions are allowed only when flags.strict_workflow is false.",
-            null,
-          )
-        }
+        return blockWorkflow(
+          "strict-workflow-proof-required",
+          "IMPLEMENT/VERIFY require workflow_advance; the proof-optional legacy omission is no longer accepted.",
+          null,
+        )
       }
 
       const workspaceRoot = resolveSelectedWorkspaceRoot(args.workspace_dir, canonicalDirectory)
@@ -3443,7 +3440,7 @@ function createODFDelegationLaunch(canonicalDirectory?: string): ReturnType<type
       const change = args.change?.trim()
       if (!change) return blocked("delegation-token-invalid", "Launch requires the change name bound to the token.")
       const read = readDelegationToken(workspaceRoot, change, args.token)
-      if (!read.record || read.error) return blocked(read.error || "delegation-token-unknown", "The prepared token could not be read safely.")
+      if (!read.record || read.error) return blocked(read.error || "delegation-token-unknown", delegationTokenReadMessage(read.error))
       const record = read.record
       if (record.status !== "prepared") return blocked("delegation-token-already-sealed", "A sealed token cannot launch another child.")
       if (isDelegationTokenExpired(record)) return blocked("delegation-token-expired", "The prepared token expired before launch; prepare a fresh delegation.")
@@ -3916,7 +3913,6 @@ function createODFDelegationPrepare(canonicalDirectory?: string): ReturnType<typ
         profile: profilePayload,
         workspace: workspaceRoot,
         prompt: finalPrompt,
-        launch_mode: "programmatic",
         parent_session_id: toolCtx.sessionID,
         task: args.prompt,
         ...(sourceAuthorityRoots
@@ -4050,7 +4046,7 @@ function createODFProposalWrite(canonicalDirectory?: string): ReturnType<typeof 
       if (!changeName || changeName !== args.change) return blocked("unsafe-change-name", "The change name must exactly match the prepared delegation.")
 
       const read = readDelegationToken(workspaceRoot, changeName, args.token)
-      if (read.error || !read.record) return blocked(read.error || "delegation-token-unknown", "The prepared proposal token could not be read.")
+      if (read.error || !read.record) return blocked(read.error || "delegation-token-unknown", delegationTokenReadMessage(read.error))
       const record = read.record
       if (record.status !== "prepared") return blocked("delegation-token-already-sealed", "The proposal token is no longer writable.")
       if (isDelegationTokenExpired(record)) return blocked("delegation-token-expired", "The proposal token expired; prepare a fresh delegation.")
@@ -4171,12 +4167,12 @@ function createODFLateSealCapabilityPrepare(canonicalDirectory?: string): Return
       if (!workspaceRoot) return recordBlocked("unsafe-workspace-path", "The workspace directory does not resolve to a safe existing root.")
       const change = args.change?.trim()
       const tokenRead = change ? readDelegationToken(workspaceRoot, change, args.token) : { record: null, error: "delegation-token-invalid" }
-      if (!tokenRead.record) return recordBlocked(tokenRead.error || "delegation-token-invalid", "The original delegation token could not be read safely.")
+      if (!tokenRead.record) return recordBlocked(tokenRead.error || "delegation-token-invalid", delegationTokenReadMessage(tokenRead.error))
       const record = tokenRead.record
       attemptId = record.attempt_id
       if (record.status !== "prepared") return recordBlocked("delegation-token-already-sealed", "Late-seal recovery is only available for an unsealed original token.")
       if (!isDelegationTokenExpired(record)) return recordBlocked("late-seal-not-required", "The original delegation token has not expired; use the normal seal flow.")
-      if ((record.phase !== "IMPLEMENT" && record.phase !== "VERIFY") || !record.attempt_id || record.launch_mode !== "programmatic") {
+      if ((record.phase !== "IMPLEMENT" && record.phase !== "VERIFY") || !record.attempt_id) {
         return recordBlocked("late-seal-token-not-recoverable", "Late-seal recovery requires an expired native proof-backed IMPLEMENT/VERIFY token with its original attempt.")
       }
       if (record.parent_session_id !== toolCtx.sessionID || record.launch?.parent_session_id !== toolCtx.sessionID) {
@@ -4241,7 +4237,7 @@ function createODFLateSealCapabilityPrepare(canonicalDirectory?: string): Return
       if (!promptView) {
         return recordBlocked("delegation-child-unreadable", "The child transcript exposes no readable user prompt; no recovery capability was issued.")
       }
-      const observedPrompt = preparedPromptFromV2Conversation(promptView, false)
+      const observedPrompt = preparedPromptFromV2Conversation(promptView)
       if (observedPrompt === null || delegationPromptDigest(observedPrompt) !== record.prompt_digest ||
         (record.prompt_byte_length !== undefined && delegationPromptByteLength(observedPrompt) !== record.prompt_byte_length)) {
         return recordBlocked("delegation-prompt-mismatch", "The child transcript does not prove receipt of the exact original prepared prompt; no recovery capability was issued.")
@@ -4323,7 +4319,7 @@ function createODFDelegationSeal(canonicalDirectory?: string): ReturnType<typeof
       }
       const read = readDelegationToken(workspaceRoot, changeName, args.token)
       if (read.error || !read.record) {
-        return blocked(read.error || "delegation-token-unknown", `The delegation token could not be read: ${read.error}.`)
+        return blocked(read.error || "delegation-token-unknown", delegationTokenReadMessage(read.error))
       }
       const record = read.record
       if (record.branches) {
@@ -4339,15 +4335,14 @@ function createODFDelegationSeal(canonicalDirectory?: string): ReturnType<typeof
       let childIdentityBound = false
       let childIdentityObserved = false
       let causalTimestampWarning: string | null = null
-      if (record.launch_mode === "programmatic" && record.parent_session_id !== toolCtx.sessionID) {
+      if (record.parent_session_id !== toolCtx.sessionID) {
         return blocked("delegation-parent-mismatch", "The seal must run in the parent session that prepared this programmatic delegation.", {
           phase: record.phase,
           change: record.change,
           task_session_id: args.session_id,
         })
       }
-      if (record.launch_mode === "programmatic" &&
-        (!record.launch || !record.launch.child_session_id || ["reserved", "created", "sending"].includes(record.launch.state))) {
+      if (!record.launch || !record.launch.child_session_id || ["reserved", "created", "sending"].includes(record.launch.state)) {
         return blocked("delegation-launch-not-submitted", "The programmatic launch has not reached a state that can be verified by the seal; retry odf_delegation_launch only if it is still in the created state.", {
           phase: record.phase,
           change: record.change,
@@ -4563,7 +4558,7 @@ function createODFDelegationSeal(canonicalDirectory?: string): ReturnType<typeof
         // prepared prompt before binding so an unreadable transcript keeps its
         // child identity unverified instead of trusted.
         const observedPrompt = conversationRead.prompt
-          ? preparedPromptFromV2Conversation(conversationRead.prompt, record.launch_mode === undefined)
+          ? preparedPromptFromV2Conversation(conversationRead.prompt)
           : null
         const promptVerified = observedPrompt !== null &&
           delegationPromptDigest(observedPrompt) === record.prompt_digest &&
@@ -4601,7 +4596,7 @@ function createODFDelegationSeal(canonicalDirectory?: string): ReturnType<typeof
         }))
       }
       persistLifecycleTimestamp("child_result_observed_at")
-      const observedPrompt = preparedPromptFromV2Conversation(conversation, record.launch_mode === undefined)
+      const observedPrompt = preparedPromptFromV2Conversation(conversation)
       if (observedPrompt === null ||
         delegationPromptDigest(observedPrompt) !== record.prompt_digest ||
         (record.prompt_byte_length !== undefined && delegationPromptByteLength(observedPrompt) !== record.prompt_byte_length)) {
@@ -4985,7 +4980,6 @@ function createODFParallelPrepare(canonicalDirectory?: string): ReturnType<typeo
         profile: profilePayload,
         workspace: workspaceRoot,
         prompt: `parallel:${changeName}:${prepared.map(branch => branch.branch_id).join(",")}`,
-        launch_mode: "programmatic",
         parent_session_id: toolCtx.sessionID,
         task: `parallel ${changeName}`,
         ...(sourceAuthorityRoots
@@ -5102,7 +5096,7 @@ function createODFParallelSeal(canonicalDirectory?: string): ReturnType<typeof t
       }
       const read = readDelegationToken(workspaceRoot, changeName, args.token)
       if (read.error || !read.record) {
-        return blocked(read.error || "delegation-token-unknown", `The parallel delegation token could not be read: ${read.error}.`)
+        return blocked(read.error || "delegation-token-unknown", delegationTokenReadMessage(read.error))
       }
       const record = read.record
       const tokenBranches = record.branches
@@ -5126,7 +5120,7 @@ function createODFParallelSeal(canonicalDirectory?: string): ReturnType<typeof t
       if (isDelegationTokenExpired(record)) {
         return blocked("delegation-token-expired", "The parallel delegation token expired before seal; prepare a fresh delegation.", withRecord())
       }
-      if (record.launch_mode === "programmatic" && record.parent_session_id !== toolCtx.sessionID) {
+      if (record.parent_session_id !== toolCtx.sessionID) {
         return blocked("delegation-parent-mismatch", "Parallel seal must run in the parent session that prepared this programmatic delegation.", withRecord())
       }
 
@@ -5152,8 +5146,7 @@ function createODFParallelSeal(canonicalDirectory?: string): ReturnType<typeof t
       const sessionByBranch = new Map<string, string>()
       for (const branch of tokenBranches) {
         const sessionId = sessions.get(branch.branch_id)!
-        if (record.launch_mode === "programmatic" &&
-          (!branch.launch || !branch.launch.child_session_id || ["reserved", "created", "sending"].includes(branch.launch.state))) {
+        if (!branch.launch || !branch.launch.child_session_id || ["reserved", "created", "sending"].includes(branch.launch.state)) {
           return blocked("delegation-launch-not-submitted", `Branch "${branch.branch_id}" has not reached a state that can be verified by the seal.`, withRecord({ branch_id: branch.branch_id }))
         }
         if (branch.launch && branch.launch.parent_session_id !== toolCtx.sessionID) {
@@ -5228,7 +5221,7 @@ function createODFParallelSeal(canonicalDirectory?: string): ReturnType<typeof t
             withRecord({ branch_id: branch.branch_id, task_session_id: sessionId, conversation_read: conversationRead.diagnostic }),
           )
         }
-        const observedPrompt = preparedPromptFromV2Conversation(conversation, record.launch_mode === undefined)
+        const observedPrompt = preparedPromptFromV2Conversation(conversation)
         if (observedPrompt === null ||
           delegationPromptDigest(observedPrompt) !== branch.prompt_digest ||
           (branch.prompt_byte_length !== undefined && delegationPromptByteLength(observedPrompt) !== branch.prompt_byte_length)) {
@@ -8897,12 +8890,14 @@ async function discoverActiveWorkflowCandidates(workspaceRoot: string): Promise<
 
 function createODFStatus(canonicalDirectory?: string): ReturnType<typeof tool> {
   return tool({
-    description: `Show ODF change status by resolving from Engram observations.
+    description: `Deprecated: use odf_workflow_status instead.
 
-Returns structured JSON with current phase, artifact states, task progress,
-and timestamps. Useful for legacy Engram-only status when no openspec/ directory
-exists. For canonical progress, continuation readiness, receipts, or parallel
-join state, use odf_workflow_status instead.`,
+Show ODF change status by resolving from Engram observations. Returns
+structured JSON with current phase, artifact states, task progress, and
+timestamps, plus deprecated: true and replacement: "odf_workflow_status".
+Kept callable this release for legacy Engram-only summaries; it is not a
+supported primary path. For canonical progress, continuation readiness,
+receipts, or parallel join state, use odf_workflow_status.`,
     args: {
       change_name: tool.schema
         .string()
@@ -8920,10 +8915,10 @@ join state, use odf_workflow_status instead.`,
       }
       const status = await loadEngramStatus(workspace, args.change_name)
       if (!status) {
-        return JSON.stringify({ status: "not-found", message: "No ODF changes found in Engram" }, null, 2)
+        return JSON.stringify({ status: "not-found", deprecated: true, replacement: "odf_workflow_status", message: "No ODF changes found in Engram" }, null, 2)
       }
       const { workflowStatus: _workflowStatus, ...legacyStatus } = status
-      return JSON.stringify({ status: "found", ...legacyStatus }, null, 2)
+      return JSON.stringify({ status: "found", deprecated: true, replacement: "odf_workflow_status", ...legacyStatus }, null, 2)
     },
   })
 }
@@ -9245,6 +9240,37 @@ function canonicalWorkflowValue(value: unknown): string {
   return JSON.stringify(canonicalLoopGuardValue(value))
 }
 
+/**
+ * Explanation for a token read failure. Legacy records stay readable only as a
+ * typed rejection: the programmatic launch contract is the only accepted shape.
+ */
+function delegationTokenReadMessage(error: string | null | undefined): string {
+  return error === "delegation-token-legacy"
+    ? "This prepared token predates the programmatic launch contract and is no longer accepted. Re-run odf_delegation_prepare to issue a current token."
+    : `The delegation token could not be read: ${error}.`
+}
+
+/**
+ * Persisted route projection. `legacy_phases` is an in-memory compatibility
+ * alias consumed by status derivation; persisted state carries only the
+ * routing metadata that binds the change to a canonical route.
+ */
+function routeStateProjection(route: WorkflowRoute): Record<string, unknown> {
+  const { legacy_phases: _legacyPhases, ...projection } = route
+  return projection
+}
+
+/**
+ * Route comparison value. States written before the projection change still
+ * carry `legacy_phases`; ignoring that single alias keeps them bindable, while
+ * every other route difference keeps conflicting.
+ */
+function comparableRouteState(route: unknown): unknown {
+  if (!route || typeof route !== "object" || Array.isArray(route)) return route
+  const { legacy_phases: _legacyPhases, ...rest } = route as Record<string, unknown>
+  return rest
+}
+
 function saveEngramTopic(workspaceRoot: string, project: string, topicKey: string, content: string): string | null {
   try {
     execFileSync("engram", [
@@ -9507,7 +9533,8 @@ only after canonical state exists. Existing state and Expectations are reused on
         if (args.target !== undefined && requestedTarget === null) return { error: "invalid-workflow-target" }
         if (currentTarget && requestedTarget && currentTarget !== requestedTarget) return { error: "workflow-target-conflict" }
         if (preflight && current.artifact_store !== undefined && current.artifact_store !== stateArtifactStore) return { error: "artifact-store-conflict" }
-        if (preflight && current.route !== undefined && canonicalWorkflowValue(current.route) !== canonicalWorkflowValue(route)) {
+        if (preflight && current.route !== undefined &&
+          canonicalWorkflowValue(comparableRouteState(current.route)) !== canonicalWorkflowValue(routeStateProjection(route))) {
           return { error: "route-conflict" }
         }
         const hasStoredEntryRouteBinding = Object.prototype.hasOwnProperty.call(current, "entry_route_binding")
@@ -9565,7 +9592,10 @@ only after canonical state exists. Existing state and Expectations are reused on
           document.set("change", changeName)
           document.set("artifact_store", stateArtifactStore)
           document.set("preflight", persistedPreflight)
-          document.set("route", route)
+          // A state that already carries a route keeps its persisted bytes: only
+          // a new state (or one without a route node) receives the projection,
+          // so an existing change is never rewritten by this normalization.
+          if (!existed || current.route === undefined) document.set("route", routeStateProjection(route))
         } else if (isMap(existingPreflightNode)) {
           existingPreflightNode.set("work_type", args.work_type)
         }
@@ -10821,7 +10851,7 @@ export const ODF_SYSTEM_RULES = `<odf-system>
 ODF is a control-plane API, not a codebase to reverse-engineer during customer-project work.
 
 - Use the registered ODF tool descriptions and these rules as the contract. Do not inspect or search the installed ODF runtime source (plugin entrypoint, support code, or internal scripts under \`$ODF_CONFIG_DIR\` / the OpenCode config directory) to learn how to operate it. Resolve skill guidance through ODF's skill tools/injection, not filesystem searches. Inspect harness source only when the user explicitly asks to develop or debug ODF itself.
-- For current progress, continuation readiness, pending receipts, or parallel joins, make one \`odf_workflow_status\` call and reuse its result. Use \`odf_status\` only when a legacy Engram-only summary is specifically needed or canonical status is unavailable.
+- For current progress, continuation readiness, pending receipts, or parallel joins, make one \`odf_workflow_status\` call and reuse its result. \`odf_status\` is deprecated; it remains callable only as a last-resort legacy Engram summary when canonical status is unavailable.
 - Call \`odf_health\` for the exact \`/odf-new\` entry gate or an explicit health request, not as a routine check before every phase.
 - If state is missing or inconsistent, use the relevant ODF status/receipt tool and the documented recovery path once. If still unresolved, stop and report the returned evidence; never switch to shell/grep/source inspection or bypass a gate to guess.
 - Read customer-project code and referenced workflow artifacts only as needed for the approved task. Keep routine tool plumbing out of user-facing narration; give concise progress and results in the user's language without skipping required approvals or dispositions.
