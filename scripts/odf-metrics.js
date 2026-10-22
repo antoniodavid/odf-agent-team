@@ -215,21 +215,48 @@ function coverageStats(records, predicate) {
   }
 }
 
-function phaseBaseline(records) {
-  const byPhase = new Map()
+// Historical metric events carry `phase`; new events carry `stage` and `role`.
+// Project both onto the same label so the dashboard aggregates one timeline.
+const HISTORICAL_PHASE_TARGET = {
+  PROPOSE: ["DECIDE", "PROPOSE"],
+  ASSESS: ["DECIDE", "ASSESS"],
+  "QA-PLAN": ["PLAN", "QA-PLAN"],
+  DESIGN: ["PLAN", "DESIGN"],
+  IMPLEMENT: ["BUILD", null],
+  VERIFY: ["VERIFY", null],
+  EXPLORE: ["EXPLORE", null],
+  FIX: ["FIX", null],
+}
+
+export function recordStageRole(record) {
+  const stage = safeToken(record.stage)
+  if (stage) return { stage, role: safeToken(record.role) }
+  const phase = safeToken(record.phase)
+  if (["DECIDE", "PLAN", "BUILD", "VERIFY", "EXPLORE", "FIX"].includes(phase)) return { stage: phase, role: null }
+  const mapped = HISTORICAL_PHASE_TARGET[phase]
+  return mapped ? { stage: mapped[0], role: mapped[1] } : { stage: "unknown", role: null }
+}
+
+export function recordStageRoleLabel(record) {
+  const target = recordStageRole(record)
+  return target.role ? `${target.stage} ${target.role}` : target.stage
+}
+
+function stageBaseline(records) {
+  const byStage = new Map()
   for (const record of records) {
-    const phase = safeToken(record.phase) || "unknown"
-    if (!byPhase.has(phase)) byPhase.set(phase, [])
-    byPhase.get(phase).push(record)
+    const label = recordStageRoleLabel(record)
+    if (!byStage.has(label)) byStage.set(label, [])
+    byStage.get(label).push(record)
   }
-  return Object.fromEntries([...byPhase.entries()]
+  return Object.fromEntries([...byStage.entries()]
     .sort(([a], [b]) => a.localeCompare(b))
-    .map(([phase, phaseRecords]) => [
-      phase,
+    .map(([label, stageRecords]) => [
+      label,
       {
-        calls: phaseRecords.length,
-        duration: durationStats(phaseRecords),
-        outcomes: outcomeStats(phaseRecords),
+        calls: stageRecords.length,
+        duration: durationStats(stageRecords),
+        outcomes: outcomeStats(stageRecords),
       },
     ]))
 }
@@ -280,7 +307,7 @@ export function baselineSummary(records, days = 1) {
     sample_count: samples.length,
     duration: durationStats(samples),
     outcomes: outcomeStats(samples),
-    by_phase: phaseBaseline(samples),
+    by_phase: stageBaseline(samples),
     coverage,
     coverage_gaps: [...new Set(coverageGaps)],
     entry_to_final_gate: gate,

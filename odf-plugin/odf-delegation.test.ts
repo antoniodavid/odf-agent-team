@@ -66,6 +66,13 @@ import {
   validateSourceAuthority,
 } from "./odf-source-authority.js"
 import { authorityLookup } from "../scripts/odf-toolkit.js"
+import { delegationTargetForPhase } from "./odf-delegation-contract.js"
+
+/** Public stage/role arguments for an internal phase, omitting an absent role. */
+function stageRole(phase: Parameters<typeof delegationTargetForPhase>[0]): { stage: string; role?: string } {
+  const target = delegationTargetForPhase(phase)
+  return target.role ? { stage: target.stage, role: target.role } : { stage: target.stage }
+}
 
 const validOdfResult = (overrides: Record<string, unknown> = {}) => ({
   status: "ok",
@@ -707,7 +714,7 @@ describe("createODFWorkflowOverride", () => {
     const ledgerPath = path.join(root, ".odf", "attempt-ledger-ov-change.jsonl")
     await fs.mkdir(path.dirname(ledgerPath), { recursive: true })
     await fs.writeFile(ledgerPath, JSON.stringify({
-      attempt_id: "stale-1", branch_id: "default", change: "ov-change", phase: "IMPLEMENT", next_stage: "BUILD",
+      attempt_id: "stale-1", branch_id: "default", change: "ov-change", stage: "BUILD", next_stage: "BUILD",
       status: "running", started_at: "2026-09-21T20:00:00.000Z", updated_at: "2026-09-21T20:00:00.000Z",
       settled_at: null, reason: "acquired", result_status: "running", candidate_digest: null,
     }) + "\n", "utf8")
@@ -720,7 +727,7 @@ describe("createODFWorkflowOverride", () => {
       attempt_id: "stale-1",
       confirm_no_active_run: true,
     }), {} as any) as string)
-    expect(output).toMatchObject({ status: "settled", action: "settle-attempt", attempt_id: "stale-1", phase: "IMPLEMENT" })
+    expect(output).toMatchObject({ status: "settled", action: "settle-attempt", attempt_id: "stale-1", stage: "BUILD" })
 
     const records = (await fs.readFile(ledgerPath, "utf8")).trim().split("\n").map(line => JSON.parse(line))
     expect(records).toHaveLength(2)
@@ -737,7 +744,7 @@ describe("createODFWorkflowOverride", () => {
     const ledgerPath = path.join(root, ".odf", "attempt-ledger-ov-change.jsonl")
     await fs.mkdir(path.dirname(ledgerPath), { recursive: true })
     const nativeAttempt = {
-      attempt_id: "native-stale-1", branch_id: "default", change: "ov-change", phase: "IMPLEMENT", next_stage: "BUILD",
+      attempt_id: "native-stale-1", branch_id: "default", change: "ov-change", stage: "BUILD", next_stage: "BUILD",
       status: "running", started_at: "2026-09-21T20:00:00.000Z", updated_at: "2026-09-21T20:00:00.000Z",
       settled_at: null, reason: "acquired", result_status: "running", candidate_digest: null,
       native_parent_session_id: "native-parent",
@@ -818,14 +825,14 @@ describe("createODFWorkflowOverride", () => {
     const ledgerPath = path.join(root, ".odf", "attempt-ledger-ov-change.jsonl")
     await fs.mkdir(path.dirname(ledgerPath), { recursive: true })
     await fs.writeFile(ledgerPath, JSON.stringify({
-      attempt_id: attemptId, branch_id: "default", change: "ov-change", phase: "IMPLEMENT", next_stage: "BUILD",
+      attempt_id: attemptId, branch_id: "default", change: "ov-change", stage: "BUILD", next_stage: "BUILD",
       status: "running", started_at: startedAt, updated_at: startedAt, settled_at: null,
       reason: "acquired", result_status: "running", candidate_digest: null,
       native_parent_session_id: parentSessionId,
     }) + "\n", "utf8")
 
     const safetyBlock = {
-      status: "blocked", reason: "pre-tool-safety", phase: "IMPLEMENT", agent: null, token: null,
+      status: "blocked", reason: "pre-tool-safety", stage: "BUILD", agent: null, token: null,
       task_api_source: "subagent", result: null, classes: ["destructive"], matched_rules: ["destructive-dropdb"],
     }
     const context = [{
@@ -836,7 +843,7 @@ describe("createODFWorkflowOverride", () => {
         type: "tool", id: "call-code", name: "execute",
         state: {
           status: "completed",
-          input: { code: `return await tools.odf_delegation_prepare({ phase: "IMPLEMENT", change: "ov-change", attempt_id: "${attemptId}" })` },
+          input: { code: `return await tools.odf_delegation_prepare({ stage: "BUILD", change: "ov-change", attempt_id: "${attemptId}" })` },
           content: [{ type: "text", text: JSON.stringify(safetyBlock) }],
         },
       }],
@@ -896,7 +903,7 @@ describe("createODFWorkflowOverride", () => {
     const ledgerPath = path.join(root, ".odf", "attempt-ledger-ov-change.jsonl")
     await fs.mkdir(path.dirname(ledgerPath), { recursive: true })
     await fs.writeFile(ledgerPath, JSON.stringify({
-      attempt_id: attemptId, branch_id: "default", change: "ov-change", phase: "IMPLEMENT", next_stage: "BUILD",
+      attempt_id: attemptId, branch_id: "default", change: "ov-change", stage: "BUILD", next_stage: "BUILD",
       status: "running", started_at: startedAt, updated_at: startedAt, settled_at: null,
       reason: "acquired", result_status: "running", candidate_digest: null,
       native_parent_session_id: parentSessionId,
@@ -904,11 +911,11 @@ describe("createODFWorkflowOverride", () => {
 
     const token = "odf-tok-prepared-123"
     const preparedResult = {
-      status: "prepared", change: "ov-change", phase: "IMPLEMENT", attempt_id: attemptId,
+      status: "prepared", change: "ov-change", stage: "BUILD", attempt_id: attemptId,
       agent: "odoo_batch_implementer", token,
       delegation: {
         agent: "odoo_batch_implementer",
-        prompt: `<!-- ODF-DELEGATION {"change":"ov-change","phase":"IMPLEMENT","agent":"odoo_batch_implementer","token":"${token}"} -->\nTask body`,
+        prompt: `<!-- ODF-DELEGATION {"change":"ov-change","stage":"BUILD","role":null,"agent":"odoo_batch_implementer","token":"${token}"} -->\nTask body`,
       },
     }
     const context = [
@@ -920,7 +927,7 @@ describe("createODFWorkflowOverride", () => {
           type: "tool", id: "call-prepare", name: "execute",
           state: {
             status: "completed",
-            input: { code: `const result = await tools.odf_delegation_prepare({ phase: "IMPLEMENT", change: "ov-change", attempt_id: "${attemptId}" });\nreturn result;` },
+            input: { code: `const result = await tools.odf_delegation_prepare({ stage: "BUILD", change: "ov-change", attempt_id: "${attemptId}" });\nreturn result;` },
             content: [{ type: "text", text: JSON.stringify(preparedResult) }],
           },
         }],
@@ -995,18 +1002,18 @@ describe("createODFWorkflowOverride", () => {
     const startedAt = "2026-09-21T20:00:00.000Z"
     const startedMs = Date.parse(startedAt)
     const token = "odf-tok-bind-failure-123"
-    const prompt = `<!-- ODF-DELEGATION {"change":"ov-change","phase":"IMPLEMENT","agent":"odoo_batch_implementer","token":"${token}"} -->\nTask body`
+    const prompt = `<!-- ODF-DELEGATION {"change":"ov-change","stage":"BUILD","role":null,"agent":"odoo_batch_implementer","token":"${token}"} -->\nTask body`
     const ledgerPath = path.join(root, ".odf", "attempt-ledger-ov-change.jsonl")
     await fs.mkdir(path.dirname(ledgerPath), { recursive: true })
     await fs.writeFile(ledgerPath, JSON.stringify({
-      attempt_id: attemptId, branch_id: "default", change: "ov-change", phase: "IMPLEMENT", next_stage: "BUILD",
+      attempt_id: attemptId, branch_id: "default", change: "ov-change", stage: "BUILD", next_stage: "BUILD",
       status: "running", started_at: startedAt, updated_at: startedAt, settled_at: null,
       reason: "acquired", result_status: "running", candidate_digest: null,
       native_parent_session_id: parentSessionId,
     }) + "\n", "utf8")
 
     const preparedResult = {
-      status: "prepared", change: "ov-change", phase: "IMPLEMENT", attempt_id: attemptId,
+      status: "prepared", change: "ov-change", stage: "BUILD", attempt_id: attemptId,
       agent: "odoo_batch_implementer", token,
       delegation: { agent: "odoo_batch_implementer", prompt },
     }
@@ -1019,7 +1026,7 @@ describe("createODFWorkflowOverride", () => {
           type: "tool", id: "call-prepare", name: "execute",
           state: {
             status: "completed",
-            input: { code: `return await tools.odf_delegation_prepare({ phase: "IMPLEMENT", change: "ov-change", attempt_id: "${attemptId}" })` },
+            input: { code: `return await tools.odf_delegation_prepare({ stage: "BUILD", change: "ov-change", attempt_id: "${attemptId}" })` },
             content: [{ type: "text", text: JSON.stringify(preparedResult) }],
           },
         }],
@@ -1128,17 +1135,17 @@ describe("createODFWorkflowOverride", () => {
     const startedAt = "2026-09-21T20:00:00.000Z"
     const startedMs = Date.parse(startedAt)
     const token = "odf-tok-bind-failure-456"
-    const prompt = `<!-- ODF-DELEGATION {"change":"ov-change","phase":"IMPLEMENT","agent":"odoo_batch_implementer","token":"${token}"} -->\nTask body`
+    const prompt = `<!-- ODF-DELEGATION {"change":"ov-change","stage":"BUILD","role":null,"agent":"odoo_batch_implementer","token":"${token}"} -->\nTask body`
     const ledgerPath = path.join(root, ".odf", "attempt-ledger-ov-change.jsonl")
     await fs.mkdir(path.dirname(ledgerPath), { recursive: true })
     await fs.writeFile(ledgerPath, JSON.stringify({
-      attempt_id: attemptId, branch_id: "default", change: "ov-change", phase: "IMPLEMENT", next_stage: "BUILD",
+      attempt_id: attemptId, branch_id: "default", change: "ov-change", stage: "BUILD", next_stage: "BUILD",
       status: "running", started_at: startedAt, updated_at: startedAt, settled_at: null,
       reason: "acquired", result_status: "running", candidate_digest: null,
       native_parent_session_id: parentSessionId,
     }) + "\n", "utf8")
     const preparedResult = {
-      status: "prepared", change: "ov-change", phase: "IMPLEMENT", attempt_id: attemptId,
+      status: "prepared", change: "ov-change", stage: "BUILD", attempt_id: attemptId,
       agent: "odoo_batch_implementer", token, delegation: { agent: "odoo_batch_implementer", prompt },
     }
     const parentContext = [
@@ -1146,7 +1153,7 @@ describe("createODFWorkflowOverride", () => {
         id: "msg-prepare", type: "assistant", time: { created: startedMs - 1_000, completed: startedMs + 1_000 },
         content: [{
           type: "tool", id: "call-prepare", name: "odf_delegation_prepare",
-          state: { status: "completed", input: { attempt_id: attemptId, change: "ov-change", phase: "IMPLEMENT" }, content: [{ type: "text", text: JSON.stringify(preparedResult) }] },
+          state: { status: "completed", input: { attempt_id: attemptId, change: "ov-change", stage: "BUILD" }, content: [{ type: "text", text: JSON.stringify(preparedResult) }] },
         }],
       },
       {
@@ -1203,7 +1210,7 @@ describe("createODFWorkflowOverride", () => {
     const ledgerPath = path.join(root, ".odf", "attempt-ledger-ov-change.jsonl")
     await fs.mkdir(path.dirname(ledgerPath), { recursive: true })
     await fs.writeFile(ledgerPath, JSON.stringify({
-      attempt_id: attemptId, branch_id: "default", change: "ov-change", phase: "IMPLEMENT", next_stage: "BUILD",
+      attempt_id: attemptId, branch_id: "default", change: "ov-change", stage: "BUILD", next_stage: "BUILD",
       status: "running", started_at: startedAt, updated_at: startedAt, settled_at: null,
       reason: "acquired", result_status: "running", candidate_digest: null,
       native_parent_session_id: "native-parent",
@@ -1251,7 +1258,7 @@ describe("createODFWorkflowOverride", () => {
     const ledgerPath = path.join(root, ".odf", "attempt-ledger-ov-change.jsonl")
     await fs.mkdir(path.dirname(ledgerPath), { recursive: true })
     await fs.writeFile(ledgerPath, JSON.stringify({
-      attempt_id: "stale-2", change: "ov-change", phase: "IMPLEMENT", next_stage: "BUILD",
+      attempt_id: "stale-2", change: "ov-change", stage: "BUILD", next_stage: "BUILD",
       status: "failed", started_at: "2026-09-21T20:00:00.000Z", updated_at: "2026-09-21T20:10:00.000Z",
       settled_at: "2026-09-21T20:10:00.000Z", reason: "task-cancelled", result_status: "cancelled",
     }) + "\n", "utf8")
@@ -1751,12 +1758,42 @@ describe("createODFWorkflowBind", () => {
     }
   })
 
+  it("rejects a legacy phase argument and names the canonical stages", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "odf-stage-contract-"))
+    try {
+      const { createODFDelegate } = await import("./odf-delegation.js")
+      const output = await createODFDelegate(undefined, root).execute({
+        phase: "IMPLEMENT",
+        prompt: "Build the change",
+      } as any, { sessionID: "stage-contract", task: vi.fn() } as any) as string
+      expect(output).toContain("Missing stage")
+      expect(output).toContain("DECIDE, PLAN, BUILD, VERIFY, EXPLORE, FIX")
+    } finally {
+      await fs.rm(root, { recursive: true, force: true })
+    }
+  })
+
+  it("requires a role for DECIDE and rejects a role for BUILD", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "odf-stage-contract-"))
+    try {
+      const { createODFDelegate } = await import("./odf-delegation.js")
+      const delegate = createODFDelegate(undefined, root)
+      const context = { sessionID: "stage-contract", task: vi.fn() } as any
+      await expect(delegate.execute({ stage: "DECIDE", prompt: "Decide" } as any, context))
+        .resolves.toContain("Stage DECIDE requires a role. Allowed roles: PROPOSE, ASSESS")
+      await expect(delegate.execute({ stage: "BUILD", role: "DESIGN", prompt: "Build" } as any, context))
+        .resolves.toContain("Stage BUILD does not accept a role. Omit role.")
+    } finally {
+      await fs.rm(root, { recursive: true, force: true })
+    }
+  })
+
   it("blocks BUILD without state and offers a safe continuation", async () => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), "odf-missing-state-"))
     try {
       const { createODFDelegate } = await import("./odf-delegation.js")
       const output = JSON.parse(await createODFDelegate(undefined, root).execute({
-        phase: "IMPLEMENT",
+        stage: "BUILD",
         change: "missing-state",
         artifact_store: "openspec",
         attempt_id: "missing-state-attempt",
@@ -3342,7 +3379,8 @@ describe("recordMetrics", () => {
   const makeMetric = (overrides: Partial<Parameters<typeof recordMetrics>[0]> = {}) => ({
     timestamp: new Date().toISOString(),
     session_id: "session-abc-123",
-    phase: "DESIGN",
+    stage: "PLAN",
+    role: "DESIGN",
     agent: "odoo_backend_engineer",
     skills_injected: ["odf-design"],
     skill_resolution: "injected" as const,
@@ -3420,14 +3458,14 @@ describe("recordMetrics", () => {
   })
 
   it("maps lifecycle calls to the six bounded end-to-end stages", () => {
-    expect(resolveFlowStage("PROPOSE", "started")).toBe("entry_started")
-    expect(resolveFlowStage("PROPOSE", "finished", "ok")).toBe("intent_approved")
-    expect(resolveFlowStage("ASSESS", "started")).toBeUndefined()
-    expect(resolveFlowStage("ASSESS", "finished", "ok")).toBe("policy_selected")
-    expect(resolveFlowStage("IMPLEMENT", "started")).toBe("build_started")
-    expect(resolveFlowStage("VERIFY", "started")).toBe("verify_started")
-    expect(resolveFlowStage("VERIFY", "finished", "warning")).toBe("verified_completed")
-    expect(resolveFlowStage("VERIFY", "finished", "blocked")).toBeUndefined()
+    expect(resolveFlowStage("DECIDE", "PROPOSE", "started")).toBe("entry_started")
+    expect(resolveFlowStage("DECIDE", "PROPOSE", "finished", "ok")).toBe("intent_approved")
+    expect(resolveFlowStage("DECIDE", "ASSESS", "started")).toBeUndefined()
+    expect(resolveFlowStage("DECIDE", "ASSESS", "finished", "ok")).toBe("policy_selected")
+    expect(resolveFlowStage("BUILD", null, "started")).toBe("build_started")
+    expect(resolveFlowStage("VERIFY", null, "started")).toBe("verify_started")
+    expect(resolveFlowStage("VERIFY", null, "finished", "warning")).toBe("verified_completed")
+    expect(resolveFlowStage("VERIFY", null, "finished", "blocked")).toBeUndefined()
   })
 
   it("sanitizes lifecycle identity fields and preserves start/finish correlation", () => {
@@ -4074,7 +4112,7 @@ describe("computePolicyGate", () => {
   })
 
   it("resolves TDD on when global is true and no local marker", () => {
-    const d = computePolicyGate({ change: "tdd-on", phase: "IMPLEMENT", workspaceDir: tmp, registry: registryWithTdd(true) })
+    const d = computePolicyGate({ change: "tdd-on", stage: "BUILD", workspaceDir: tmp, registry: registryWithTdd(true) })
     expect(d.gate).toBe("allow")
     expect(d.tdd.global).toBe(true)
     expect(d.tdd.local_readable).toBe(true)
@@ -4085,26 +4123,26 @@ describe("computePolicyGate", () => {
   it("resolves TDD off when the local marker exists", async () => {
     await fs.mkdir(path.join(tmp, ".odf"), { recursive: true })
     await fs.writeFile(path.join(tmp, ".odf", "tdd.off"), "off", "utf8")
-    const d = computePolicyGate({ change: "tdd-off", phase: "IMPLEMENT", workspaceDir: tmp, registry: registryWithTdd(true) })
+    const d = computePolicyGate({ change: "tdd-off", stage: "BUILD", workspaceDir: tmp, registry: registryWithTdd(true) })
     expect(d.tdd.effective).toBe("off")
     expect(d.tdd.local_off).toBe(true)
   })
 
   it("resolves TDD off when the global flag is false", () => {
-    const d = computePolicyGate({ change: "tdd-global-off", phase: "IMPLEMENT", workspaceDir: tmp, registry: registryWithTdd(false) })
+    const d = computePolicyGate({ change: "tdd-global-off", stage: "BUILD", workspaceDir: tmp, registry: registryWithTdd(false) })
     expect(d.tdd.global).toBe(false)
     expect(d.tdd.effective).toBe("off")
   })
 
   it("fails closed when the local source is unreadable", async () => {
     await fs.writeFile(path.join(tmp, ".odf"), "not-a-directory", "utf8")
-    const d = computePolicyGate({ change: "tdd-failclosed", phase: "IMPLEMENT", workspaceDir: tmp, registry: registryWithTdd(true) })
+    const d = computePolicyGate({ change: "tdd-failclosed", stage: "BUILD", workspaceDir: tmp, registry: registryWithTdd(true) })
     expect(d.tdd.local_readable).toBe(false)
     expect(d.tdd.effective).toBe("off")
   })
 
   it("blocks on a missing change name", () => {
-    const d = computePolicyGate({ change: "", phase: "IMPLEMENT", workspaceDir: tmp, registry: registryWithTdd(true) })
+    const d = computePolicyGate({ change: "", stage: "BUILD", workspaceDir: tmp, registry: registryWithTdd(true) })
     expect(d.gate).toBe("block")
     expect(d.reason).toContain("missing change name")
   })
@@ -4116,7 +4154,7 @@ describe("computePolicyGate", () => {
     try {
       const decision = computePolicyGate({
         change: "persist-failure",
-        phase: "IMPLEMENT",
+        stage: "BUILD",
         workspaceDir: tmp,
         registry: registryWithTdd(true),
       })
@@ -4133,7 +4171,7 @@ describe("computePolicyGate", () => {
 
   it.each(["", "   ", "missing-workspace"]) ("fails closed before creating .odf for an invalid workspace root (%j)", workspaceDir => {
     const selectedWorkspace = workspaceDir.trim() ? path.join(tmp, workspaceDir) : workspaceDir
-    const d = computePolicyGate({ change: "invalid-root", phase: "IMPLEMENT", workspaceDir: selectedWorkspace, registry: registryWithTdd(true) })
+    const d = computePolicyGate({ change: "invalid-root", stage: "BUILD", workspaceDir: selectedWorkspace, registry: registryWithTdd(true) })
     expect(d).toMatchObject({ gate: "block", reason: expect.stringContaining("unsafe-workspace-path") })
     expect(fsSync.existsSync(path.join(tmp, "missing-workspace", ".odf"))).toBe(false)
     expect(fsSync.existsSync(path.join(tmp, ".odf"))).toBe(false)
@@ -4144,7 +4182,7 @@ describe("computePolicyGate", () => {
     initGitRepo(repo)
     commitFile(repo, "a.py", 10)
     appendLines(repo, "a.py", 100)
-    const d = computePolicyGate({ change: "budget-100", phase: "VERIFY", workspaceDir: repo, registry: registryWithTdd(false) })
+    const d = computePolicyGate({ change: "budget-100", stage: "VERIFY", workspaceDir: repo, registry: registryWithTdd(false) })
     expect(d.frozen_diff_ref).toBeTruthy()
     expect(d.changed_lines).toBe(100)
     expect(d.correction_budget_lines).toBe(50)
@@ -4155,7 +4193,7 @@ describe("computePolicyGate", () => {
     initGitRepo(repo)
     commitFile(repo, "a.py", 10)
     appendLines(repo, "a.py", 500)
-    const d = computePolicyGate({ change: "budget-500", phase: "VERIFY", workspaceDir: repo, registry: registryWithTdd(false) })
+    const d = computePolicyGate({ change: "budget-500", stage: "VERIFY", workspaceDir: repo, registry: registryWithTdd(false) })
     expect(d.changed_lines).toBe(500)
     expect(d.correction_budget_lines).toBe(200)
   })
@@ -4165,17 +4203,17 @@ describe("computePolicyGate", () => {
     initGitRepo(repo)
     commitFile(repo, "a.py", 10)
     appendLines(repo, "a.py", 100)
-    const first = computePolicyGate({ change: "idem", phase: "VERIFY", workspaceDir: repo, registry: registryWithTdd(false) })
+    const first = computePolicyGate({ change: "idem", stage: "VERIFY", workspaceDir: repo, registry: registryWithTdd(false) })
     expect(first.candidate_digest).toBeTruthy()
 
-    const reused = computePolicyGate({ change: "idem", phase: "VERIFY", workspaceDir: repo, registry: registryWithTdd(false) })
+    const reused = computePolicyGate({ change: "idem", stage: "VERIFY", workspaceDir: repo, registry: registryWithTdd(false) })
     expect(reused.frozen_diff_ref).toBe(first.frozen_diff_ref)
     expect(reused.candidate_digest).toBe(first.candidate_digest)
     expect(reused.changed_lines).toBe(100)
     expect(reused.correction_budget_lines).toBe(50)
 
     appendLines(repo, "a.py", 200)
-    const recomputed = computePolicyGate({ change: "idem", phase: "VERIFY", workspaceDir: repo, registry: registryWithTdd(false) })
+    const recomputed = computePolicyGate({ change: "idem", stage: "VERIFY", workspaceDir: repo, registry: registryWithTdd(false) })
     expect(recomputed.candidate_digest).not.toBe(first.candidate_digest)
     expect(recomputed.changed_lines).toBe(300)
   })
@@ -4185,14 +4223,14 @@ describe("computePolicyGate", () => {
     initGitRepo(repo)
     commitFile(repo, "a.py", 10)
     appendLines(repo, "a.py", 100)
-    const first = computePolicyGate({ change: "mutation-gate", phase: "VERIFY", workspaceDir: repo, registry: registryWithTdd(false) })
+    const first = computePolicyGate({ change: "mutation-gate", stage: "VERIFY", workspaceDir: repo, registry: registryWithTdd(false) })
     expect(first.candidate_digest).toBeTruthy()
 
-    const reused = computePolicyGate({ change: "mutation-gate", phase: "VERIFY", workspaceDir: repo, registry: registryWithTdd(false) })
+    const reused = computePolicyGate({ change: "mutation-gate", stage: "VERIFY", workspaceDir: repo, registry: registryWithTdd(false) })
     expect(reused.candidate_digest).toBe(first.candidate_digest)
 
     appendLines(repo, "a.py", 1)
-    const recomputed = computePolicyGate({ change: "mutation-gate", phase: "VERIFY", workspaceDir: repo, registry: registryWithTdd(false) })
+    const recomputed = computePolicyGate({ change: "mutation-gate", stage: "VERIFY", workspaceDir: repo, registry: registryWithTdd(false) })
     expect(recomputed.candidate_digest).not.toBe(first.candidate_digest)
     expect(recomputed.resolved_at).not.toBe(first.resolved_at)
     expect(recomputed.changed_lines).toBe(first.changed_lines! + 1)
@@ -4203,19 +4241,19 @@ describe("computePolicyGate", () => {
     initGitRepo(repo)
     commitFile(repo, "security/ir.model.access.csv", 5)
     appendLines(repo, "security/ir.model.access.csv", 5)
-    const d = computePolicyGate({ change: "tier-sec", phase: "VERIFY", workspaceDir: repo, registry: registryWithTdd(false) })
+    const d = computePolicyGate({ change: "tier-sec", stage: "VERIFY", workspaceDir: repo, registry: registryWithTdd(false) })
     expect(d.risk_tier).toBe("HIGH")
 
     const repoLow = path.join(tmp, "repo-tier-low")
     initGitRepo(repoLow)
     commitFile(repoLow, "views/sale_form.xml", 5)
     appendLines(repoLow, "views/sale_form.xml", 5)
-    const low = computePolicyGate({ change: "tier-low", phase: "VERIFY", workspaceDir: repoLow, registry: registryWithTdd(false) })
+    const low = computePolicyGate({ change: "tier-low", stage: "VERIFY", workspaceDir: repoLow, registry: registryWithTdd(false) })
     expect(low.risk_tier).toBe("LOW")
   })
 
   it("fail-closed: blocks VERIFY without git instead of failing open to LOW", () => {
-    const d = computePolicyGate({ change: "no-git", phase: "VERIFY", workspaceDir: tmp, registry: registryWithTdd(true) })
+    const d = computePolicyGate({ change: "no-git", stage: "VERIFY", workspaceDir: tmp, registry: registryWithTdd(true) })
     expect(d.frozen_diff_ref).toBeNull()
     expect(d.changed_lines).toBeNull()
     expect(d.candidate_digest).toBeNull()
@@ -4231,7 +4269,7 @@ describe("savePolicyGateJson", () => {
     try {
       const decision: PolicyGateDecision = {
         change: "save-test",
-        phase: "IMPLEMENT",
+        stage: "BUILD",
         gate: "allow",
         reason: "test",
         tdd: { global: false, local_readable: true, local_off: false, effective: "off" },
@@ -4885,13 +4923,14 @@ ${overrides}`
 
     const delegateTool = createODFDelegate(undefined)
     const output = await delegateTool.execute(
-      { phase: "ASSESS", prompt: "Assess a new sales feature", context_files: ["models/sale.py"] },
+      { stage: "DECIDE", role: "ASSESS", prompt: "Assess a new sales feature", context_files: ["models/sale.py"] },
       toolCtx
     )
 
     const envelope = JSON.parse(output as string)
     expect(envelope.status).toBe("delegated")
-    expect(envelope.phase).toBe("ASSESS")
+    expect(envelope.stage).toBe("DECIDE")
+    expect(envelope.role).toBe("ASSESS")
     expect(envelope.agent).toBe("odoo_functional_consultant")
     expect(envelope.task_api_source).toBe("toolCtx.task")
     expect(envelope.result).toEqual(taskResult)
@@ -4908,7 +4947,8 @@ ${overrides}`
     ])
     expect(metrics[1]).toMatchObject({
       status: "ok",
-      phase: "ASSESS",
+      stage: "DECIDE",
+      role: "ASSESS",
       agent: "odoo_functional_consultant",
       task_api_source: "toolCtx.task",
       run_id: expect.any(String),
@@ -4927,7 +4967,7 @@ ${overrides}`
     const taskResult = { status: "ok", design_closed: true, executive_summary: "model work" }
     const taskApi = vi.fn().mockResolvedValue(taskResult)
     const output = JSON.parse(await createODFDelegate(undefined, tempHome).execute({
-      phase,
+      ...stageRole(phase),
       ...(phase === "IMPLEMENT"
         ? {
             change: "unrelated-implement",
@@ -4953,7 +4993,7 @@ ${overrides}`
       const taskApi = vi.fn().mockResolvedValue({ status: "ok", design_closed: true })
 
       await createODFDelegate(undefined, "/host/session/dir").execute({
-        phase: "DESIGN",
+        stage: "PLAN", role: "DESIGN",
         prompt: "Design a Python model",
         context_files: ["context.txt"],
         workspace_dir: workspace,
@@ -4974,7 +5014,7 @@ ${overrides}`
     const taskApi = vi.fn().mockResolvedValue({ status: "ok", design_closed: true })
 
     await createODFDelegate(undefined, tempHome).execute({
-      phase: "DESIGN",
+      stage: "PLAN", role: "DESIGN",
       prompt: "Design a Python model",
       context_files: [],
     }, { sessionID: "default-directory", task: taskApi } as any)
@@ -4987,7 +5027,7 @@ ${overrides}`
     const taskApi = vi.fn().mockResolvedValue({ status: "ok", design_closed: true })
 
     const output = JSON.parse(await createODFDelegate(undefined, "/host/session/dir").execute({
-      phase: "DESIGN",
+      stage: "PLAN", role: "DESIGN",
       prompt: "Design a Python model",
       context_files: [],
       workspace_dir: getOdfConfigDir(),
@@ -5017,7 +5057,7 @@ ${overrides}`
       const taskApi = vi.fn().mockResolvedValue({ status: "ok", design_closed: true })
 
       const output = JSON.parse(await createODFDelegate(undefined, "/host/session/dir").execute({
-        phase: "DESIGN",
+        stage: "PLAN", role: "DESIGN",
         prompt: "Design a Python model",
         context_files: [],
         workspace_dir: pack,
@@ -5042,7 +5082,7 @@ ${overrides}`
       const taskApi = vi.fn().mockResolvedValue({ status: "ok", design_closed: true })
 
       const output = JSON.parse(await createODFDelegate(undefined, "/host/session/dir").execute({
-        phase: "DESIGN",
+        stage: "PLAN", role: "DESIGN",
         prompt: "Design a Python model",
         context_files: [],
         workspace_dir: path.join(pack, "skills"),
@@ -5059,7 +5099,7 @@ ${overrides}`
     const { createODFDelegate } = await import("./odf-delegation.js")
     const taskApi = vi.fn().mockResolvedValue({ status: "ok", design_closed: true })
     const output = JSON.parse(await createODFDelegate(undefined, tempHome).execute({
-      phase: "DESIGN",
+      stage: "PLAN", role: "DESIGN",
       agent: "odoo_frontend_engineer",
       prompt: "Design a Python model",
       context_files: [],
@@ -5076,7 +5116,7 @@ ${overrides}`
     const { createODFDelegate } = await import("./odf-delegation.js")
     const taskApi = vi.fn().mockResolvedValue({ status: "ok", design_closed: true })
     const output = JSON.parse(await createODFDelegate(undefined, tempHome).execute({
-      phase: "DESIGN",
+      stage: "PLAN", role: "DESIGN",
       agent,
       prompt: "Design a model",
       context_files: [],
@@ -5091,7 +5131,7 @@ ${overrides}`
     const { createODFDelegate } = await import("./odf-delegation.js")
     const taskApi = vi.fn().mockResolvedValue({ status: "ok", design_closed: true })
     const output = JSON.parse(await createODFDelegate(undefined, tempHome).execute({
-      phase: "DESIGN",
+      stage: "PLAN", role: "DESIGN",
       agent: "odoo_frontend_engineer",
       prompt: "Design a frontend component",
       context_files: [],
@@ -5107,14 +5147,14 @@ ${overrides}`
     const delegateTool = createODFDelegate(undefined, tempHome)
 
     const domainOutput = JSON.parse(await delegateTool.execute({
-      phase: "FIX",
+      stage: "FIX",
       prompt: "Fix a backend model bug",
       context_files: [],
     }, { sessionID: "fix-domain", task: taskApi } as any) as string)
     expect(domainOutput).toMatchObject({ status: "delegated", agent: "odoo_backend_engineer" })
 
     const ambiguousOutput = JSON.parse(await delegateTool.execute({
-      phase: "FIX",
+      stage: "FIX",
       prompt: "Fix the bug",
       context_files: [],
     }, { sessionID: "fix-ambiguous", task: taskApi } as any) as string)
@@ -5126,7 +5166,7 @@ ${overrides}`
     const { createODFDelegate } = await import("./odf-delegation.js")
     const taskApi = vi.fn().mockResolvedValue({ status: "ok", design_closed: true })
     const output = JSON.parse(await createODFDelegate(undefined, tempHome).execute({
-      phase: "DESIGN",
+      stage: "PLAN", role: "DESIGN",
       prompt: "Design view inheritance with search_view_id for account.action_account_move",
       context_files: [],
       odoo_source_root: path.join(sourcePrecisionFixtureRoot, "odoo-19.0"),
@@ -5150,7 +5190,7 @@ ${overrides}`
       },
     })
     const output = JSON.parse(await createODFDelegate(undefined, tempHome).execute({
-      phase: "DESIGN",
+      stage: "PLAN", role: "DESIGN",
       prompt: "Design the cycle-count list assets and resolve any view XML ID claims as not applicable",
       context_files: [],
       odoo_source_root: path.join(sourcePrecisionFixtureRoot, "odoo-19.0"),
@@ -5179,7 +5219,7 @@ ${overrides}`
     const metadata = vi.fn()
 
     const output = JSON.parse(await createODFDelegate(undefined, tempHome).execute({
-      phase: "DESIGN",
+      stage: "PLAN", role: "DESIGN",
       prompt: "Design the standalone list assets",
       context_files: [],
     }, { sessionID: "delegate-visibility", task: bridge, metadata } as any) as string)
@@ -5190,7 +5230,7 @@ ${overrides}`
       result: { status: "ok", design_closed: true },
     })
     expect(metadata).toHaveBeenCalledWith(expect.objectContaining({
-      title: expect.stringContaining("ODF DESIGN →"),
+      title: expect.stringContaining("ODF PLAN DESIGN →"),
     }))
   })
 
@@ -5203,7 +5243,7 @@ ${overrides}`
     const source = path.join(sourcePrecisionFixtureRoot, "odoo-19.0")
     const taskApi = vi.fn().mockResolvedValue(sourceAuthorityResult(source, "account.view_account_move_filter"))
     const output = JSON.parse(await createODFDelegate(undefined, tempHome).execute({
-      phase: "IMPLEMENT",
+      stage: "BUILD",
       change: "authority-mismatch",
       artifact_store: "openspec",
       attempt_id: "authority-mismatch-1",
@@ -5226,7 +5266,7 @@ ${overrides}`
     const source = path.join(sourcePrecisionFixtureRoot, "odoo-19.0")
     const taskResult = sourceAuthorityResult(source)
     const output = JSON.parse(await createODFDelegate(undefined, tempHome).execute({
-      phase: "IMPLEMENT",
+      stage: "BUILD",
       change: "authority-valid",
       artifact_store: "openspec",
       attempt_id: "authority-valid-1",
@@ -5254,7 +5294,7 @@ ${overrides}`
     const taskApi = vi.fn().mockResolvedValue(viewAuthorityResult(source))
     try {
       const output = JSON.parse(await createODFDelegate(undefined, tempHome).execute({
-        phase: "IMPLEMENT",
+        stage: "BUILD",
         change: "inherit-authority-valid",
         artifact_store: "openspec",
         attempt_id: "inherit-authority-valid-1",
@@ -5286,7 +5326,7 @@ ${overrides}`
     const before = await fs.readFile(statePath, "utf8")
     const source = path.join(sourcePrecisionFixtureRoot, "odoo-19.0")
     const output = JSON.parse(await createODFDelegate(undefined, tempHome).execute({
-      phase: "IMPLEMENT",
+      stage: "BUILD",
       change,
       artifact_store: "openspec",
       attempt_id: "authority-proof-1",
@@ -5315,7 +5355,7 @@ ${overrides}`
     })
 
     const output = await createODFDelegate(undefined, tempHome).execute(
-      { phase: "ASSESS", change: "o1-change", attempt_id: "attempt-1", prompt: "Assess the change", context_files: [] },
+      { stage: "DECIDE", role: "ASSESS", change: "o1-change", attempt_id: "attempt-1", prompt: "Assess the change", context_files: [] },
       { sessionID: "secret-session", task: taskApi } as any,
     )
     expect(JSON.parse(output as string).status).toBe("delegated")
@@ -5343,7 +5383,7 @@ ${overrides}`
     }
     const delegateTool = createODFDelegate({ session } as any, tempHome)
     const output = await delegateTool.execute(
-      { phase: "ASSESS", prompt: "Assess a sales feature", context_files: ["models/sale.py"] },
+      { stage: "DECIDE", role: "ASSESS", prompt: "Assess a sales feature", context_files: ["models/sale.py"] },
       { sessionID: "parent-1", directory: tempHome, abort: new AbortController().signal } as any,
     )
 
@@ -5383,7 +5423,7 @@ ${overrides}`
       abort: vi.fn().mockResolvedValue(true),
     }
     const output = await createODFDelegate({ session } as any, tempHome).execute(
-      { phase: "ASSESS", prompt: "Assess a modeled feature", context_files: [] },
+      { stage: "DECIDE", role: "ASSESS", prompt: "Assess a modeled feature", context_files: [] },
       { sessionID: "parent-model", directory: tempHome, model: hostModel, metadata } as any,
     )
 
@@ -5421,7 +5461,7 @@ ${overrides}`
       abort: vi.fn().mockResolvedValue(true),
     }
     const output = await createODFDelegate({ session } as any, tempHome).execute(
-      { phase: "ASSESS", prompt: "Assess a sales feature", context_files: [] },
+      { stage: "DECIDE", role: "ASSESS", prompt: "Assess a sales feature", context_files: [] },
       { sessionID: "parent-result", directory: tempHome, abort: new AbortController().signal } as any,
     )
 
@@ -5439,7 +5479,7 @@ ${overrides}`
       abort: vi.fn().mockResolvedValue(true),
     }
     const output = await createODFDelegate({ session } as any, tempHome).execute(
-      { phase: "ASSESS", prompt: "Assess a sales feature", context_files: [], timeout_ms: 10 },
+      { stage: "DECIDE", role: "ASSESS", prompt: "Assess a sales feature", context_files: [], timeout_ms: 10 },
       { sessionID: "parent-timeout", directory: tempHome, abort: new AbortController().signal } as any,
     )
 
@@ -5460,7 +5500,7 @@ ${overrides}`
       }
       const started = Date.now()
       const output = await createODFDelegate({ session } as any, tempHome).execute(
-        { phase: "ASSESS", prompt: "Assess a sales feature", context_files: [], timeout_ms: 10 },
+        { stage: "DECIDE", role: "ASSESS", prompt: "Assess a sales feature", context_files: [], timeout_ms: 10 },
         { sessionID: "parent-abort-hang", directory: tempHome, abort: new AbortController().signal } as any,
       )
 
@@ -5481,7 +5521,7 @@ ${overrides}`
       abort: vi.fn().mockResolvedValue(true),
     }
     const pending = createODFDelegate({ session } as any, tempHome).execute(
-      { phase: "ASSESS", prompt: "Assess a sales feature", context_files: [] },
+      { stage: "DECIDE", role: "ASSESS", prompt: "Assess a sales feature", context_files: [] },
       { sessionID: "parent-cancelled", directory: tempHome, abort: controller.signal } as any,
     )
     await new Promise(resolve => setTimeout(resolve, 0))
@@ -5505,7 +5545,7 @@ ${overrides}`
       interrupt: vi.fn().mockRejectedValue(new Error("interrupt failed")),
     }
     const output = await createODFDelegate({ v2: { session } } as any, tempHome).execute(
-      { phase: "ASSESS", prompt: "Assess a sales feature", context_files: [], timeout_ms: 10 },
+      { stage: "DECIDE", role: "ASSESS", prompt: "Assess a sales feature", context_files: [], timeout_ms: 10 },
       { sessionID: "parent-v2-timeout", directory: tempHome, abort: new AbortController().signal } as any,
     )
 
@@ -5527,7 +5567,7 @@ ${overrides}`
       }
       const started = Date.now()
       const output = await createODFDelegate({ v2: { session } } as any, tempHome).execute(
-        { phase: "ASSESS", prompt: "Assess a sales feature", context_files: [], timeout_ms: 10 },
+        { stage: "DECIDE", role: "ASSESS", prompt: "Assess a sales feature", context_files: [], timeout_ms: 10 },
         { sessionID: "parent-v2-abort-hang", directory: tempHome, abort: new AbortController().signal } as any,
       )
 
@@ -5551,7 +5591,7 @@ ${overrides}`
       interrupt: vi.fn().mockRejectedValue(new Error("interrupt failed")),
     }
     const pending = createODFDelegate({ v2: { session } } as any, tempHome).execute(
-      { phase: "ASSESS", prompt: "Assess a sales feature", context_files: [] },
+      { stage: "DECIDE", role: "ASSESS", prompt: "Assess a sales feature", context_files: [] },
       { sessionID: "parent-v2-cancelled", directory: tempHome, abort: controller.signal } as any,
     )
     await new Promise(resolve => setTimeout(resolve, 0))
@@ -5575,11 +5615,11 @@ ${overrides}`
     const delegateTool = createODFDelegate({ session } as any, tempHome)
     const [first, second] = await Promise.all([
       delegateTool.execute(
-        { phase: "ASSESS", prompt: "Assess one", context_files: [] },
+        { stage: "DECIDE", role: "ASSESS", prompt: "Assess one", context_files: [] },
         { sessionID: "parent-a", directory: tempHome, abort: new AbortController().signal } as any,
       ),
       delegateTool.execute(
-        { phase: "ASSESS", prompt: "Assess two", context_files: [] },
+        { stage: "DECIDE", role: "ASSESS", prompt: "Assess two", context_files: [] },
         { sessionID: "parent-b", directory: tempHome, abort: new AbortController().signal } as any,
       ),
     ])
@@ -5599,7 +5639,7 @@ ${overrides}`
 
     const output = await delegateTool.execute(
       {
-        phase: "IMPLEMENT",
+        stage: "BUILD",
         change: "gate-build",
         artifact_store: "openspec",
         attempt_id: "build-1",
@@ -5645,7 +5685,7 @@ ${overrides}`
     })
 
     const output = JSON.parse(await createODFDelegate(undefined, tempHome).execute({
-      phase: "IMPLEMENT",
+      stage: "BUILD",
       change,
       artifact_store: "openspec",
       attempt_id: "fast-lane-build-1",
@@ -5680,7 +5720,7 @@ ${overrides}`
     const taskApi = vi.fn().mockResolvedValue({ status: "ok", executive_summary: "standard implementation" })
 
     const output = JSON.parse(await createODFDelegate(undefined, tempHome).execute({
-      phase: "IMPLEMENT",
+      stage: "BUILD",
       change,
       artifact_store: "openspec",
       attempt_id: "fast-lane-disabled-1",
@@ -5703,7 +5743,7 @@ ${overrides}`
     const taskApi = vi.fn().mockResolvedValue({ status: "ok" })
 
     const output = JSON.parse(await createODFDelegate(undefined, tempHome).execute({
-      phase: "IMPLEMENT",
+      stage: "BUILD",
       change,
       artifact_store: "openspec",
       attempt_id: "fast-lane-no-digest-delegate-1",
@@ -5734,7 +5774,7 @@ ${overrides}`
     })
 
     const output = JSON.parse(await createODFDelegate(undefined, tempHome).execute({
-      phase: "VERIFY",
+      stage: "VERIFY",
       change,
       artifact_store: "openspec",
       attempt_id: "fast-lane-verify-1",
@@ -5781,7 +5821,7 @@ ${overrides}`
     if (label === "ok" || label === "warning") await writeValidationEvidence(change)
     const taskApi = vi.fn().mockResolvedValue(taskResult)
     const output = await createODFDelegate(undefined, tempHome).execute({
-      phase: "IMPLEMENT",
+      stage: "BUILD",
       change,
       artifact_store: "openspec",
       attempt_id: `${change}-attempt`,
@@ -5836,7 +5876,7 @@ ${overrides}`
     clearMetricsBuffer()
     const taskApi = vi.fn().mockResolvedValue({ status: "failed", message: "legacy failure" })
     const output = await createODFDelegate(undefined, tempHome).execute({
-      phase: "DESIGN",
+      stage: "PLAN", role: "DESIGN",
       prompt: "Design the change",
       context_files: [],
     }, { sessionID: "legacy-invalid-inner", task: taskApi } as any)
@@ -5851,7 +5891,7 @@ ${overrides}`
     clearMetricsBuffer()
      const taskApi = vi.fn().mockResolvedValue({ status: "ok", design_closed: true })
     const output = await createODFDelegate(undefined, tempHome).execute({
-      phase: "DESIGN",
+      stage: "PLAN", role: "DESIGN",
       prompt: "Run DROP DATABASE mydb; and start over",
       context_files: [],
     }, { sessionID: "t11-destructive", task: taskApi } as any)
@@ -5875,7 +5915,7 @@ ${overrides}`
     clearMetricsBuffer()
     const taskApi = vi.fn().mockResolvedValue({ status: "ok", design_closed: true })
     const output = await createODFDelegate(undefined, tempHome).execute({
-      phase: "DESIGN",
+      stage: "PLAN", role: "DESIGN",
       prompt: "Design a new res.partner extension with a computed field",
       context_files: [],
     }, { sessionID: "t11-benign", task: taskApi } as any)
@@ -5894,7 +5934,7 @@ ${overrides}`
     const taskApi = vi.fn().mockResolvedValue({ status: "ok" })
 
     const output = JSON.parse(await createODFDelegate(undefined, tempHome).execute({
-      phase: "IMPLEMENT",
+      stage: "BUILD",
       change,
       artifact_store: "openspec",
       attempt_id: "pending-receipt-attempt",
@@ -5919,7 +5959,7 @@ ${overrides}`
     const proof = { ...workflowAdvance("IMPLEMENT"), receipt_state: "pending" as const }
 
     const output = JSON.parse(await createODFDelegate(undefined, tempHome).execute({
-      phase: "IMPLEMENT",
+      stage: "BUILD",
       change,
       artifact_store: "openspec",
       attempt_id: "retry-receipt-attempt",
@@ -5941,7 +5981,7 @@ ${overrides}`
     const taskApi = vi.fn().mockResolvedValue({ status: "ok" })
 
     const output = JSON.parse(await createODFDelegate(undefined, tempHome).execute({
-      phase: "IMPLEMENT",
+      stage: "BUILD",
       change,
       artifact_store: "openspec",
       attempt_id: `${change}-attempt`,
@@ -5964,7 +6004,7 @@ ${overrides}`
     const taskApi = vi.fn().mockResolvedValue({ status: "ok" })
 
     const output = JSON.parse(await createODFDelegate(undefined, tempHome).execute({
-      phase: "IMPLEMENT",
+      stage: "BUILD",
       change,
       artifact_store: "openspec",
       attempt_id: "malformed-receipt-attempt",
@@ -5985,7 +6025,7 @@ ${overrides}`
     const delegateTool = createODFDelegate(undefined, tempHome)
 
     await delegateTool.execute({
-      phase: "IMPLEMENT",
+      stage: "BUILD",
       change: "attempt-first",
       artifact_store: "openspec",
       attempt_id: "attempt-1",
@@ -5997,7 +6037,7 @@ ${overrides}`
     const ledgerPath = path.join(tempHome, ".odf", "attempt-ledger-attempt-first.jsonl")
     const records = (await fs.readFile(ledgerPath, "utf8")).trim().split("\n").map(line => JSON.parse(line))
     expect(records.map(record => record.status)).toEqual(["running", "completed"])
-    expect(records[0]).toMatchObject({ attempt_id: "attempt-1", change: "attempt-first", phase: "IMPLEMENT", next_stage: "BUILD" })
+    expect(records[0]).toMatchObject({ attempt_id: "attempt-1", change: "attempt-first", stage: "BUILD", next_stage: "BUILD" })
     expect(records[1].result_status).toBe("delegated")
     expect(await fs.readFile(ledgerPath, "utf8")).not.toContain("secret")
     expect(fsSync.existsSync(`${ledgerPath}.lock`)).toBe(false)
@@ -6011,7 +6051,7 @@ ${overrides}`
     await writeValidationEvidence("attempt-duplicate")
     const delegateTool = createODFDelegate(undefined, tempHome)
     const input = {
-      phase: "IMPLEMENT",
+      ...stageRole("IMPLEMENT"),
       change: "attempt-duplicate",
       artifact_store: "openspec",
       attempt_id: "duplicate-1",
@@ -6031,7 +6071,7 @@ ${overrides}`
     const taskApi = vi.fn().mockResolvedValue({ status: "ok" })
     await verifyEvidenceFor("attempt-complete")
     const delegateTool = createODFDelegate(undefined, tempHome)
-    const base = { phase: "VERIFY", change: "attempt-complete", artifact_store: "openspec" as const, prompt: "Verify the change", context_files: [], workflow_advance: workflowAdvance("VERIFY") }
+    const base = { ...stageRole("VERIFY"), change: "attempt-complete", artifact_store: "openspec" as const, prompt: "Verify the change", context_files: [], workflow_advance: workflowAdvance("VERIFY") }
 
     await delegateTool.execute({ ...base, attempt_id: "verify-1" }, { sessionID: "s1", task: taskApi } as any)
     const blocked = JSON.parse(await delegateTool.execute({ ...base, attempt_id: "verify-2" }, { sessionID: "s1", task: taskApi } as any) as string)
@@ -6047,7 +6087,7 @@ ${overrides}`
     await writeValidationEvidence("attempt-running")
     const delegateTool = createODFDelegate(undefined, tempHome)
     const first = delegateTool.execute({
-      phase: "IMPLEMENT",
+      stage: "BUILD",
       change: "attempt-running",
       artifact_store: "openspec",
       attempt_id: "running-1",
@@ -6059,7 +6099,7 @@ ${overrides}`
     await vi.waitFor(() => expect(taskApi).toHaveBeenCalledTimes(1))
 
     const blocked = JSON.parse(await delegateTool.execute({
-      phase: "IMPLEMENT",
+      stage: "BUILD",
       change: "attempt-running",
       artifact_store: "openspec",
       attempt_id: "running-2",
@@ -6067,7 +6107,7 @@ ${overrides}`
       context_files: [],
       workflow_advance: workflowAdvance("IMPLEMENT"),
     }, { sessionID: "s1", task: taskApi } as any) as string)
-    expect(blocked).toMatchObject({ status: "blocked", reason: "attempt-phase-running" })
+    expect(blocked).toMatchObject({ status: "blocked", reason: "attempt-stage-running" })
     expect(taskApi).toHaveBeenCalledTimes(1)
     resolveTask({ status: "ok" })
     await first
@@ -6081,7 +6121,7 @@ ${overrides}`
     await writeValidationEvidence("attempt-live-recovery")
     const delegateTool = createODFDelegate(undefined, tempHome)
     const first = delegateTool.execute({
-      phase: "IMPLEMENT",
+      stage: "BUILD",
       change: "attempt-live-recovery",
       artifact_store: "openspec",
       attempt_id: "live-1",
@@ -6120,7 +6160,7 @@ ${overrides}`
     await fs.writeFile(lockPath, "held\n")
 
     const output = await delegateTool.execute({
-      phase: "IMPLEMENT",
+      stage: "BUILD",
       change: "lock-contention",
       artifact_store: "openspec",
       attempt_id: "lock-1",
@@ -6141,7 +6181,7 @@ ${overrides}`
       .mockResolvedValueOnce({ status: "ok" })
     await prepareWorkflowState("attempt-failed", "IMPLEMENT")
     const delegateTool = createODFDelegate(undefined, tempHome)
-    const base = { phase: "IMPLEMENT", change: "attempt-failed", artifact_store: "openspec" as const, prompt: "Implement the change", context_files: [], workflow_advance: workflowAdvance("IMPLEMENT") }
+    const base = { ...stageRole("IMPLEMENT"), change: "attempt-failed", artifact_store: "openspec" as const, prompt: "Implement the change", context_files: [], workflow_advance: workflowAdvance("IMPLEMENT") }
 
     const first = JSON.parse(await delegateTool.execute({ ...base, attempt_id: "failed-1" }, { sessionID: "s1", task: taskApi } as any) as string)
     await fs.rm(path.join(tempHome, ".odf", "receipt-attempt-failed.json"), { force: true })
@@ -6162,7 +6202,7 @@ ${overrides}`
     await prepareWorkflowState("validation-retry", "IMPLEMENT")
     const stateBeforeValidationFailure = await fs.readFile(path.join(tempHome, "openspec", "changes", "validation-retry", "state.yaml"), "utf8")
     const delegateTool = createODFDelegate(undefined, tempHome)
-    const base = { phase: "IMPLEMENT", change: "validation-retry", artifact_store: "openspec" as const, prompt: "Implement the change", context_files: [], workflow_advance: workflowAdvance("IMPLEMENT") }
+    const base = { ...stageRole("IMPLEMENT"), change: "validation-retry", artifact_store: "openspec" as const, prompt: "Implement the change", context_files: [], workflow_advance: workflowAdvance("IMPLEMENT") }
 
     const first = JSON.parse(await delegateTool.execute({ ...base, attempt_id: "validation-retry-1" }, { sessionID: "s1", task: taskApi } as any) as string)
     expect(first).toMatchObject({ status: "blocked", reason: "workflow-evidence-invalid", validation: { status: "missing" } })
@@ -6187,7 +6227,7 @@ ${overrides}`
     const taskApi = vi.fn().mockResolvedValue({ status: "ok" })
     const delegateTool = createODFDelegate(undefined, tempHome)
     const output = await delegateTool.execute({
-      phase: "IMPLEMENT",
+      stage: "BUILD",
       change,
       artifact_store: "openspec",
       attempt_id: attemptId,
@@ -6206,7 +6246,7 @@ ${overrides}`
     const taskApi = vi.fn().mockResolvedValue({ status: "ok" })
     const delegateTool = createODFDelegate(undefined, tempHome)
     const gatedOutput = await delegateTool.execute({
-      phase: "IMPLEMENT",
+      stage: "BUILD",
       change: "explicit-attempt-required",
       artifact_store: "openspec",
       prompt: "Implement the explicitly gated call",
@@ -6227,7 +6267,7 @@ ${overrides}`
     const change = `strict-missing-${phase.toLowerCase()}`
 
     const output = await delegateTool.execute({
-      phase,
+      ...stageRole(phase),
       change,
       artifact_store: "openspec",
       prompt: `Run strict ${phase}`,
@@ -6238,7 +6278,7 @@ ${overrides}`
     expect(envelope).toMatchObject({
       status: "blocked",
       reason: "strict-workflow-proof-required",
-      message: "IMPLEMENT/VERIFY require workflow_advance; the proof-optional legacy omission is no longer accepted.",
+      message: "BUILD/VERIFY require workflow_advance; the proof-optional legacy omission is no longer accepted.",
       workflow_advance: null,
       policy_gate: null,
       receipt: null,
@@ -6256,7 +6296,7 @@ ${overrides}`
     for (const phase of ["IMPLEMENT", "VERIFY"] as const) {
       const change = `strict-default-${phase.toLowerCase()}`
       const output = await delegateTool.execute({
-        phase,
+        ...stageRole(phase),
         change,
         prompt: `Run ${phase} without proof`,
         context_files: [],
@@ -6265,7 +6305,7 @@ ${overrides}`
       expect(envelope).toMatchObject({
         status: "blocked",
         reason: "strict-workflow-proof-required",
-        message: "IMPLEMENT/VERIFY require workflow_advance; the proof-optional legacy omission is no longer accepted.",
+        message: "BUILD/VERIFY require workflow_advance; the proof-optional legacy omission is no longer accepted.",
         workflow_advance: null,
         policy_gate: null,
         receipt: null,
@@ -6281,7 +6321,7 @@ ${overrides}`
     const taskApi = vi.fn().mockResolvedValue({ status: "ok" })
     const delegateTool = createODFDelegate(undefined, tempHome)
     const output = await delegateTool.execute({
-      phase: "IMPLEMENT",
+      stage: "BUILD",
       change: "strict-opt-out",
       prompt: "Implement the legacy call under the removed opt-out",
       context_files: [],
@@ -6298,7 +6338,7 @@ ${overrides}`
     const parallelTool = createODFParallelDelegate(undefined, tempHome)
     const output = await parallelTool.execute({
       work_type: "cross-domain",
-      phase: "IMPLEMENT",
+      stage: "BUILD",
       change: "parallel-strict-missing-proof",
       artifact_store: "openspec",
       branches: parallelBranches("strict"),
@@ -6334,7 +6374,7 @@ ${overrides}`
     }
 
     const output = await delegateTool.execute({
-      phase,
+      ...stageRole(phase),
       change,
       artifact_store: "openspec",
       attempt_id: `strict-${phase.toLowerCase()}-1`,
@@ -6348,7 +6388,7 @@ ${overrides}`
     const ledgerPath = path.join(tempHome, ".odf", `attempt-ledger-${change}.jsonl`)
     const records = (await fs.readFile(ledgerPath, "utf8")).trim().split("\n").map(line => JSON.parse(line))
     expect(records.map(record => record.status)).toEqual(["running", "completed"])
-    expect(records[0]).toMatchObject({ phase, change, attempt_id: `strict-${phase.toLowerCase()}-1` })
+    expect(records[0]).toMatchObject({ stage: phase === "IMPLEMENT" ? "BUILD" : "VERIFY", change, attempt_id: `strict-${phase.toLowerCase()}-1` })
   })
 
   it.each([
@@ -6361,7 +6401,7 @@ ${overrides}`
     await verifyEvidenceFor(change)
     const taskApi = vi.fn().mockResolvedValue({ status: "ok" })
     const output = await createODFDelegate(undefined, tempHome).execute({
-      phase: "VERIFY", change, artifact_store: "openspec", attempt_id: `${change}-1`,
+      stage: "VERIFY", change, artifact_store: "openspec", attempt_id: `${change}-1`,
       prompt: "Verify the change", context_files: [], workflow_advance: workflowAdvance("VERIFY"),
     }, { sessionID: "s1", task: taskApi } as any)
     expect(JSON.parse(output as string)).toMatchObject({
@@ -6379,7 +6419,7 @@ ${overrides}`
     await verifyEvidenceFor(change)
     const taskApi = vi.fn().mockResolvedValue({ status: "ok" })
     const output = await createODFDelegate(undefined, tempHome).execute({
-      phase: "VERIFY", change, artifact_store: "openspec", attempt_id: `${change}-1`,
+      stage: "VERIFY", change, artifact_store: "openspec", attempt_id: `${change}-1`,
       prompt: "Verify the change", context_files: [], workflow_advance: workflowAdvance("VERIFY"),
     }, { sessionID: "s1", task: taskApi } as any)
     expect(JSON.parse(output as string)).toMatchObject({
@@ -6396,7 +6436,7 @@ ${overrides}`
     clearMetricsBuffer()
     const taskApi = vi.fn().mockResolvedValue({ status: "ok" })
     const output = await createODFDelegate(undefined, tempHome).execute({
-      phase: "VERIFY", change, artifact_store: "openspec", attempt_id: `${change}-1`,
+      stage: "VERIFY", change, artifact_store: "openspec", attempt_id: `${change}-1`,
       prompt: "Verify the change", context_files: [], workflow_advance: workflowAdvance("VERIFY"),
     }, { sessionID: "s1", task: taskApi } as any)
     expect(JSON.parse(output as string)).toMatchObject({ status: "delegated", warnings: ["missing-expectations"] })
@@ -6412,7 +6452,7 @@ ${overrides}`
     await prepareWorkflowState("verify-no-git", "VERIFY")
     const delegateTool = createODFDelegate(undefined, tempHome)
     const output = await delegateTool.execute({
-      phase: "VERIFY",
+      stage: "VERIFY",
       change: "verify-no-git",
       artifact_store: "openspec",
       attempt_id: "verify-no-git-1",
@@ -6450,7 +6490,7 @@ ${overrides}`
     const delegateTool = createODFDelegate(undefined, tempHome)
 
     const output = await delegateTool.execute({
-      phase: "IMPLEMENT",
+      stage: "BUILD",
       change: "legacy-record",
       artifact_store: "openspec",
       attempt_id: "new-attempt",
@@ -6459,7 +6499,7 @@ ${overrides}`
       workflow_advance: workflowAdvance("IMPLEMENT"),
     }, { sessionID: "s1", task: taskApi } as any)
 
-    expect(JSON.parse(output as string)).toMatchObject({ status: "blocked", reason: "attempt-phase-running" })
+    expect(JSON.parse(output as string)).toMatchObject({ status: "blocked", reason: "attempt-stage-running" })
     expect(taskApi).not.toHaveBeenCalled()
   })
 
@@ -6491,7 +6531,7 @@ ${overrides}`
     const taskApi = vi.fn().mockResolvedValue({ status: "ok" })
 
     const output = JSON.parse(await createODFDelegate(undefined, tempHome).execute({
-      phase: "IMPLEMENT",
+      stage: "BUILD",
       change,
       artifact_store: "openspec",
       attempt_id: "b2-attempt",
@@ -6512,7 +6552,7 @@ ${overrides}`
     await fs.writeFile(progressPath, "- [x] implementation batch 1\n- [x] implementation batch 2\n", "utf8")
     await writeValidationEvidence(change)
     const finalBatch = JSON.parse(await createODFDelegate(undefined, tempHome).execute({
-      phase: "IMPLEMENT",
+      stage: "BUILD",
       change,
       artifact_store: "openspec",
       attempt_id: "b3-attempt",
@@ -6535,7 +6575,7 @@ ${overrides}`
     const delegateTool = createODFDelegate(undefined, tempHome)
 
     const blocked = JSON.parse(await delegateTool.execute({
-      phase: "IMPLEMENT",
+      stage: "BUILD",
       change,
       artifact_store: "openspec",
       attempt_id: "safety-1",
@@ -6553,7 +6593,7 @@ ${overrides}`
     expect(records.at(-1)).toMatchObject({ status: "failed", result_status: "validation-failed" })
 
     const retried = JSON.parse(await delegateTool.execute({
-      phase: "IMPLEMENT",
+      stage: "BUILD",
       change,
       artifact_store: "openspec",
       attempt_id: "safety-2",
@@ -6576,7 +6616,7 @@ ${overrides}`
 
     const output = await delegateTool.execute(
       {
-        phase: "VERIFY",
+        stage: "VERIFY",
         change: "gate-verify",
         artifact_store: "openspec",
         attempt_id: "verify-1",
@@ -6613,7 +6653,7 @@ ${overrides}`
 
     const output = await delegateTool.execute(
       {
-        phase: "VERIFY",
+        stage: "VERIFY",
         change: "gate-verify-only",
         artifact_store: "openspec",
         attempt_id: "verify-only-1",
@@ -6670,7 +6710,7 @@ ${overrides}`
     const { createODFDelegate } = await import("./odf-delegation.js")
     const taskApi = vi.fn().mockResolvedValue({ status: "ok", ...(designClosed === undefined ? {} : { design_closed: designClosed }) })
     const output = JSON.parse(await createODFDelegate(undefined, tempHome).execute({
-      phase: "DESIGN",
+      stage: "PLAN", role: "DESIGN",
       prompt: "Close the technical design",
       context_files: [],
     }, { sessionID: `design-open-${String(designClosed)}`, task: taskApi } as any) as string)
@@ -6682,7 +6722,7 @@ ${overrides}`
     const { createODFDelegate } = await import("./odf-delegation.js")
     const taskApi = vi.fn().mockResolvedValue({ status: "ok", design_closed: true, executive_summary: "closed" })
     const output = JSON.parse(await createODFDelegate(undefined, tempHome).execute({
-      phase: "DESIGN",
+      stage: "PLAN", role: "DESIGN",
       prompt: "Close the technical design",
       context_files: [],
     }, { sessionID: "design-closed", task: taskApi } as any) as string)
@@ -6713,7 +6753,7 @@ ${overrides}`
     const delegate = createODFDelegate(undefined, tempHome)
 
     const assess = JSON.parse(await delegate.execute({
-      phase: "ASSESS",
+      stage: "DECIDE", role: "ASSESS",
       change,
       prompt: "Assess the requested feature",
       context_files: [],
@@ -6723,13 +6763,13 @@ ${overrides}`
       workflow_materialization: { status: "committed", canonical_stage: "DECIDE", completed_stages: ["DECIDE"] },
     })
     expect(YAML.parse(await fs.readFile(path.join(changeDir, "state.yaml"), "utf8"))).toMatchObject({
-      phase: "ASSESS",
+      phase: "preflight",
       canonical_stage: "DECIDE",
       completed_canonical_stages: ["DECIDE"],
     })
 
     const repeatedAssess = JSON.parse(await delegate.execute({
-      phase: "ASSESS",
+      stage: "DECIDE", role: "ASSESS",
       change,
       prompt: "Assess the requested feature again",
       context_files: [],
@@ -6741,7 +6781,7 @@ ${overrides}`
 
     await fs.writeFile(path.join(changeDir, "design.yaml"), "status: passed\n", "utf8")
     const design = JSON.parse(await delegate.execute({
-      phase: "DESIGN",
+      stage: "PLAN", role: "DESIGN",
       change,
       prompt: "Design the requested feature",
       context_files: [],
@@ -6751,14 +6791,14 @@ ${overrides}`
       workflow_materialization: { status: "committed", canonical_stage: "PLAN", completed_stages: ["DECIDE", "PLAN"] },
     })
     expect(YAML.parse(await fs.readFile(path.join(changeDir, "state.yaml"), "utf8"))).toMatchObject({
-      phase: "DESIGN",
+      phase: "preflight",
       canonical_stage: "PLAN",
       completed_canonical_stages: ["DECIDE", "PLAN"],
     })
     expect(taskApi).toHaveBeenCalledTimes(3)
   })
 
-  it("blocks legacy materialization when the phase artifact is not terminal", async () => {
+  it("blocks the stage commit when the role artifact is not terminal", async () => {
     const { createODFDelegate } = await import("./odf-delegation.js")
     const change = "legacy-boundary-nonterminal"
     const changeDir = path.join(tempHome, "openspec", "changes", change)
@@ -6776,7 +6816,7 @@ ${overrides}`
 
     const taskApi = vi.fn().mockResolvedValue({ status: "ok", executive_summary: "assessed" })
     const output = JSON.parse(await createODFDelegate(undefined, tempHome).execute({
-      phase: "ASSESS",
+      stage: "DECIDE", role: "ASSESS",
       change,
       prompt: "Assess the requested feature",
       context_files: [],
@@ -6784,7 +6824,7 @@ ${overrides}`
 
     expect(output).toMatchObject({
       status: "blocked",
-      reason: "workflow-assess-artifact-not-terminal",
+      reason: "workflow-decide-artifact-not-terminal",
       workflow_materialization: { status: "blocked" },
     })
     expect((output as any).workflow_materialization.artifacts_seen).toEqual(
@@ -6815,7 +6855,7 @@ ${overrides}`
 
     const taskApi = vi.fn().mockResolvedValue({ status: "ok", executive_summary: phase.toLowerCase() })
     const output = JSON.parse(await createODFDelegate(undefined, tempHome).execute({
-      phase,
+      ...stageRole(phase),
       change,
       prompt: `${phase} the requested feature`,
       context_files: [],
@@ -6854,7 +6894,7 @@ ${overrides}`
 
       const taskApi = vi.fn().mockResolvedValue({ status: "ok", executive_summary: "assessed" })
       const output = JSON.parse(await createODFDelegate(undefined, tempHome).execute({
-        phase: "ASSESS",
+        stage: "DECIDE", role: "ASSESS",
         change,
         prompt: "Assess the requested feature",
         context_files: [],
@@ -6897,7 +6937,7 @@ ${overrides}`
       ])
 
       const output = JSON.parse(await createODFDelegate(undefined, tempHome).execute({
-        phase: "ASSESS",
+        stage: "DECIDE", role: "ASSESS",
         change,
         prompt: "Assess the requested feature",
         context_files: [],
@@ -6917,7 +6957,7 @@ ${overrides}`
     const { createODFDelegate } = await import("./odf-delegation.js")
     const taskApi = vi.fn().mockResolvedValue({ status: "ok", design_closed: designClosed, executive_summary: "closed" })
     const output = JSON.parse(await createODFDelegate(undefined, tempHome).execute({
-      phase: "DESIGN",
+      stage: "PLAN", role: "DESIGN",
       prompt: "Close the technical design",
       context_files: [],
     }, { sessionID: `design-string-${designClosed}`, task: taskApi } as any) as string)
@@ -6931,7 +6971,7 @@ ${overrides}`
       artifacts_saved: [{ name: "design", artifact_ref: { store: "openspec", ref: "openspec/changes/chg/design.md" } }],
     })
     const output = JSON.parse(await createODFDelegate(undefined, tempHome).execute({
-      phase: "DESIGN",
+      stage: "PLAN", role: "DESIGN",
       prompt: "Close the technical design",
       context_files: [],
     }, { sessionID: "design-ref-missing", task: taskApi } as any) as string)
@@ -6942,7 +6982,7 @@ ${overrides}`
     const { createODFDelegate } = await import("./odf-delegation.js")
     const taskApi = vi.fn().mockResolvedValue({ status: "ok", design_closed: true, executive_summary: "closed" })
     const output = JSON.parse(await createODFDelegate(undefined, tempHome).execute({
-      phase: "DESIGN",
+      stage: "PLAN", role: "DESIGN",
       prompt: "Close the technical design",
       context_files: [],
     }, { sessionID: "design-no-refs", task: taskApi } as any) as string)
@@ -7764,7 +7804,7 @@ ${overrides}`
     const delegateTool = createODFDelegate(undefined, tempHome)
 
     const output = await delegateTool.execute({
-      phase: "IMPLEMENT",
+      stage: "BUILD",
       change,
       artifact_store: "openspec",
       attempt_id: "attempt-digest-1",
@@ -7914,7 +7954,7 @@ ${overrides}`
     await fs.writeFile(path.join(changeDir, "state.yaml"), "work_type: bugfix\ncanonical_stage: BUILD\ncompleted_canonical_stages: [FIX]\n", "utf8")
     const taskApi = vi.fn().mockResolvedValue({ status: "ok" })
     const output = await createODFDelegate(undefined, tempHome).execute({
-      phase: "IMPLEMENT",
+      stage: "BUILD",
       change,
       artifact_store: "openspec",
       attempt_id: "stale-state-1",
@@ -7931,7 +7971,7 @@ ${overrides}`
     const { createODFDelegate } = await import("./odf-delegation.js")
     const taskApi = vi.fn().mockResolvedValue({ status: "ok" })
     const output = await createODFDelegate(undefined, tempHome).execute({
-      phase: "IMPLEMENT",
+      stage: "BUILD",
       change: "missing-artifact-store",
       attempt_id: "missing-store-1",
       prompt: "Implement the change",
@@ -7956,7 +7996,7 @@ ${overrides}`
       await fs.writeFile(path.join(openSpecDir, "implement-progress.md"), "- [x] implementation\n", "utf8")
       await writeEvidenceAt(openSpecRoot, change)
       const openOutput = JSON.parse(await createODFDelegate(undefined, openSpecRoot).execute({
-        phase: "IMPLEMENT", change, artifact_store: "openspec", attempt_id: "openspec-build-1", prompt: "Build", context_files: [], workflow_advance: workflowAdvance("IMPLEMENT"),
+        stage: "BUILD", change, artifact_store: "openspec", attempt_id: "openspec-build-1", prompt: "Build", context_files: [], workflow_advance: workflowAdvance("IMPLEMENT"),
       }, { sessionID: "open", task: vi.fn().mockResolvedValue({ status: "ok" }) } as any) as string)
       expect(openOutput.workflow_commit).toMatchObject({ status: "committed", store: "openspec" })
       expect(fsSync.existsSync(path.join(openSpecRoot, "openspec", "changes", change, "state.yaml"))).toBe(true)
@@ -7975,7 +8015,7 @@ ${overrides}`
        }])
       await writeEvidenceAt(engramRoot, engramChange)
       const engramOutput = JSON.parse(await createODFDelegate(undefined, engramRoot).execute({
-        phase: "IMPLEMENT", change: engramChange, artifact_store: "engram", attempt_id: "engram-build-1", prompt: "Build", context_files: [], workflow_advance: workflowAdvance("IMPLEMENT"),
+        stage: "BUILD", change: engramChange, artifact_store: "engram", attempt_id: "engram-build-1", prompt: "Build", context_files: [], workflow_advance: workflowAdvance("IMPLEMENT"),
       }, { sessionID: "engram", task: vi.fn().mockResolvedValue({ status: "ok" }) } as any) as string)
       expect(engramOutput.workflow_commit).toMatchObject({ status: "committed", store: "engram" })
       expect(fsSync.existsSync(path.join(engramRoot, "openspec"))).toBe(false)
@@ -8324,7 +8364,7 @@ ${overrides}`
 
     try {
       const output = JSON.parse(await createODFDelegate(undefined, tempHome).execute({
-        phase: "IMPLEMENT",
+        stage: "BUILD",
         change,
         artifact_store: "openspec",
         attempt_id: "state-write-failure-1",
@@ -8356,7 +8396,7 @@ ${overrides}`
 
     const output = await delegateTool.execute(
       {
-        phase: "IMPLEMENT",
+        stage: "BUILD",
         change: "gate-order",
         artifact_store: "openspec",
         attempt_id: "order-1",
@@ -8394,7 +8434,7 @@ ${overrides}`
 
     const output = await delegateTool.execute(
       {
-        phase: "VERIFY",
+        stage: "VERIFY",
         artifact_store: "openspec",
         attempt_id: "mismatch-1",
         prompt: "Verify the implementation",
@@ -8436,7 +8476,7 @@ ${overrides}`
     const delegateTool = createODFDelegate(undefined, tempHome)
 
     const output = JSON.parse(await delegateTool.execute({
-      phase: "IMPLEMENT",
+      stage: "BUILD",
       change,
       artifact_store: "openspec",
       attempt_id: "reentry-1",
@@ -8470,7 +8510,7 @@ ${overrides}`
     const delegateTool = createODFDelegate(undefined, tempHome)
 
     const output = JSON.parse(await delegateTool.execute({
-      phase: "IMPLEMENT",
+      stage: "BUILD",
       change,
       artifact_store: "openspec",
       attempt_id: "unsealed-build-1",
@@ -8508,7 +8548,7 @@ ${overrides}`
     const delegateTool = createODFDelegate(undefined, tempHome)
 
     const output = JSON.parse(await delegateTool.execute({
-      phase: "IMPLEMENT",
+      stage: "BUILD",
       change: "issue-28-invalid",
       artifact_store: "openspec",
       attempt_id: "invalid-1",
@@ -8528,11 +8568,11 @@ ${overrides}`
 
     expect(output.status).toBe("blocked")
     expect(output.reason).toBe("workflow-phase-mismatch")
-    expect(output.message).toContain("To start IMPLEMENT")
+    expect(output.message).toContain("To start BUILD")
     expect(taskApi).not.toHaveBeenCalled()
   })
 
-  it("blocks a supplied workflow gate for composite legacy adapters", async () => {
+  it("blocks a supplied workflow gate for non-gated stages", async () => {
     const { createODFDelegate, clearMetricsBuffer, getMetricsBuffer } = await import("./odf-delegation.js")
     clearMetricsBuffer()
     const taskApi = vi.fn().mockResolvedValue({ status: "ok" })
@@ -8540,7 +8580,7 @@ ${overrides}`
 
     const output = await delegateTool.execute(
       {
-        phase: "DESIGN",
+        stage: "PLAN", role: "DESIGN",
         artifact_store: "openspec",
         attempt_id: "design-1",
         prompt: "Design the implementation",
@@ -8561,8 +8601,8 @@ ${overrides}`
 
     const envelope = JSON.parse(output as string)
     expect(envelope.status).toBe("blocked")
-    expect(envelope.reason).toBe("workflow-gate-unsupported-phase")
-    expect(envelope.message).toContain("DESIGN is a composite legacy adapter")
+    expect(envelope.reason).toBe("workflow-gate-unsupported-stage")
+    expect(envelope.message).toContain("PLAN DESIGN is not a gated stage")
     expect(taskApi).not.toHaveBeenCalled()
     expect(getMetricsBuffer()[0].status).toBe("blocked")
   })
@@ -8574,20 +8614,21 @@ ${overrides}`
 
     const delegateTool = createODFDelegate(undefined)
     const output = await delegateTool.execute(
-      { phase: "FIX", prompt: "Diagnose a backend bug", context_files: [] },
+      { stage: "FIX", prompt: "Diagnose a backend bug", context_files: [] },
       toolCtx
     )
 
     const envelope = JSON.parse(output as string)
     expect(envelope.status).toBe("delegated")
-    expect(envelope.phase).toBe("FIX")
+    expect(envelope.stage).toBe("FIX")
+    expect(envelope.role).toBeNull()
     expect(envelope.agent).toBe("odoo_backend_engineer")
     expect(envelope.policy_gate).toBeNull()
     expect(envelope.task_api_source).toBe("toolCtx.task")
     expect(taskApi).toHaveBeenCalledTimes(1)
   })
 
-  it.each(["IMPLEMENT", "VERIFY"])("blocks %s when change is missing without invoking task()", async phase => {
+  it.each(["IMPLEMENT", "VERIFY"] as const)("blocks %s when change is missing without invoking task()", async phase => {
     const { createODFDelegate, clearMetricsBuffer } = await import("./odf-delegation.js")
     clearMetricsBuffer()
     const taskApi = vi.fn().mockResolvedValue({ status: "ok" })
@@ -8595,7 +8636,7 @@ ${overrides}`
 
     const delegateTool = createODFDelegate(undefined)
     const output = await delegateTool.execute(
-      { phase, prompt: "Run the phase without a change identifier", context_files: [], artifact_store: "openspec", workflow_advance: workflowAdvance(phase as "IMPLEMENT" | "VERIFY") },
+      { ...stageRole(phase), prompt: "Run the phase without a change identifier", context_files: [], artifact_store: "openspec", workflow_advance: workflowAdvance(phase as "IMPLEMENT" | "VERIFY") },
       toolCtx
     )
 
@@ -8604,7 +8645,8 @@ ${overrides}`
     expect(envelope.message).toContain("Missing change name")
     for (const key of [
       "status",
-      "phase",
+      "stage",
+      "role",
       "agent",
       "skills_injected",
       "profile",
@@ -8627,7 +8669,7 @@ ${overrides}`
 
     const delegateTool = createODFDelegate(undefined)
     const output = await delegateTool.execute(
-      { phase: "DESIGN", prompt: "Design the implementation", context_files: [] },
+      { stage: "PLAN", role: "DESIGN", prompt: "Design the implementation", context_files: [] },
       toolCtx
     )
 
@@ -8642,7 +8684,7 @@ ${overrides}`
 
     const delegateTool = createODFDelegate(undefined)
     const output = await delegateTool.execute(
-      { phase: "DESIGN", prompt: "Design a new model", context_files: [] },
+      { stage: "PLAN", role: "DESIGN", prompt: "Design a new model", context_files: [] },
       toolCtx
     )
 
@@ -8668,7 +8710,7 @@ ${overrides}`
     const delegateTool = createODFDelegate(undefined, tempHome)
 
     await delegateTool.execute(
-      { phase: "VERIFY", change: "boundary-test", artifact_store: "openspec", attempt_id: "boundary-verify-1", workflow_advance: workflowAdvance("VERIFY"), prompt: "Verify the implementation", context_files: [] },
+      { stage: "VERIFY", change: "boundary-test", artifact_store: "openspec", attempt_id: "boundary-verify-1", workflow_advance: workflowAdvance("VERIFY"), prompt: "Verify the implementation", context_files: [] },
       { sessionID: "s1", task: taskApi } as any
     )
 
@@ -8687,7 +8729,7 @@ ${overrides}`
 
     const delegateTool = createODFDelegate(undefined)
     const output = await delegateTool.execute(
-      { phase: "DESIGN", prompt: "Design a new model", context_files: [] },
+      { stage: "PLAN", role: "DESIGN", prompt: "Design a new model", context_files: [] },
       toolCtx
     )
 
@@ -8701,18 +8743,18 @@ ${overrides}`
     expect(metrics.at(-2)).toMatchObject({ event: "span", status: "error", error: expect.stringContaining("task service down"), lifecycle: "finished" })
   })
 
-  it("rejects invalid phases", async () => {
+  it("rejects invalid stages", async () => {
     const { createODFDelegate } = await import("./odf-delegation.js")
     const toolCtx = { sessionID: "s1" } as any
 
     const delegateTool = createODFDelegate(undefined)
     const output = await delegateTool.execute(
-      { phase: "INVALID", prompt: "Do something", context_files: [] },
+      { stage: "INVALID", prompt: "Do something", context_files: [] },
       toolCtx
     )
 
-    expect(output).toContain("Invalid phase")
-    expect(output).toContain(ALLOWED_PHASES.join(", "))
+    expect(output).toContain("Invalid stage")
+    expect(output).toContain("DECIDE, PLAN, BUILD, VERIFY, EXPLORE, FIX")
   })
 
   it("rejects context_files that escape the workspace root", async () => {
@@ -8721,7 +8763,7 @@ ${overrides}`
 
     const delegateTool = createODFDelegate(undefined)
     const output = await delegateTool.execute(
-      { phase: "DESIGN", prompt: "Design a model", context_files: ["/etc/passwd"] },
+      { stage: "PLAN", role: "DESIGN", prompt: "Design a model", context_files: ["/etc/passwd"] },
       toolCtx
     )
 
@@ -8735,7 +8777,7 @@ ${overrides}`
 
     const delegateTool = createODFDelegate(undefined)
     const output = await delegateTool.execute(
-      { phase: "DESIGN", prompt: "Design a model", context_files: ["models/../../secret.py"] },
+      { stage: "PLAN", role: "DESIGN", prompt: "Design a model", context_files: ["models/../../secret.py"] },
       toolCtx
     )
 
@@ -8751,7 +8793,7 @@ ${overrides}`
       await fs.mkdir(path.join(workspace, "plugins"), { recursive: true })
       const delegateTool = createODFDelegate(undefined, workspace)
       const output = await delegateTool.execute(
-        { phase: "DESIGN", prompt: "Design a model", context_files: ["plugins"], workspace_dir: workspace },
+        { stage: "PLAN", role: "DESIGN", prompt: "Design a model", context_files: ["plugins"], workspace_dir: workspace },
         { sessionID: "s1" } as any
       )
 
@@ -8783,7 +8825,7 @@ ${overrides}`
 
     const delegateTool = createODFDelegate(client)
     const output = await delegateTool.execute(
-      { phase: "DESIGN", prompt: "Design a new model", context_files: [] },
+      { stage: "PLAN", role: "DESIGN", prompt: "Design a new model", context_files: [] },
       toolCtx
     )
 
@@ -8822,7 +8864,7 @@ ${overrides}`
     const delegateTool = createODFDelegate(undefined, workspace)
     const output = await delegateTool.execute(
       {
-        phase: "IMPLEMENT",
+        stage: "BUILD",
         change: "explicit-dir",
         artifact_store: "openspec",
         attempt_id: "explicit-dir-1",
@@ -8853,7 +8895,7 @@ ${overrides}`
 
       expect((delegateTool as any).args).toHaveProperty("workspace_dir")
       const output = JSON.parse(await delegateTool.execute({
-        phase: "DESIGN",
+        stage: "PLAN", role: "DESIGN",
         workspace_dir: workspace,
         prompt: "Design view inheritance with inherit_id for custom.view_child",
         context_files: ["context.txt"],
@@ -8881,7 +8923,7 @@ ${overrides}`
     const delegateTool = createODFDelegate(undefined, tempHome)
 
     const invalidWorkspace = JSON.parse(await delegateTool.execute({
-      phase: "DESIGN",
+      stage: "PLAN", role: "DESIGN",
       workspace_dir: path.join(tempHome, "missing-workspace"),
       prompt: "Design a model",
       context_files: [],
@@ -8889,7 +8931,7 @@ ${overrides}`
     expect(invalidWorkspace).toMatchObject({ status: "blocked", reason: "unsafe-workspace-path" })
 
     const invalidSource = JSON.parse(await delegateTool.execute({
-      phase: "DESIGN",
+      stage: "PLAN", role: "DESIGN",
       workspace_dir: tempHome,
       prompt: "Design view inheritance with inherit_id for custom.view_child",
       context_files: [],
@@ -8909,7 +8951,7 @@ ${overrides}`
       await fs.symlink(outside, odfPath, "dir")
       const taskApi = vi.fn().mockResolvedValue({ status: "ok", executive_summary: "should not run" })
       const result = JSON.parse(await createODFDelegate(undefined, tempHome).execute({
-        phase: "IMPLEMENT",
+        stage: "BUILD",
         change: "unsafe-ledger",
         prompt: "Implement the task",
         context_files: [],
@@ -8935,7 +8977,7 @@ ${overrides}`
 
     const delegateTool = createODFDelegate(undefined)
     const output = await delegateTool.execute(
-      { phase: "DESIGN", prompt: "Design a new model", context_files: [], timeout_ms: 50 },
+      { stage: "PLAN", role: "DESIGN", prompt: "Design a new model", context_files: [], timeout_ms: 50 },
       toolCtx
     )
 
@@ -8957,7 +8999,7 @@ ${overrides}`
 
     const delegateTool = createODFDelegate(undefined)
     const output = await delegateTool.execute(
-      { phase: "DESIGN", prompt: "Design a new model", context_files: [] },
+      { stage: "PLAN", role: "DESIGN", prompt: "Design a new model", context_files: [] },
       toolCtx
     )
 
@@ -8981,7 +9023,7 @@ ${overrides}`
 
     const delegateTool = createODFDelegate(undefined)
     const output = await delegateTool.execute(
-      { phase: "ASSESS", prompt: "Assess a new feature", context_files: [], profile: "cheap" },
+      { stage: "DECIDE", role: "ASSESS", prompt: "Assess a new feature", context_files: [], profile: "cheap" },
       toolCtx
     )
 
@@ -9002,18 +9044,19 @@ ${overrides}`
 
     const delegateTool = createODFDelegate(undefined)
     const output = await delegateTool.execute(
-      { phase: "EXPLORE", prompt: "Explore how Odoo computes taxes", context_files: [] },
+      { stage: "EXPLORE", prompt: "Explore how Odoo computes taxes", context_files: [] },
       toolCtx
     )
 
     const envelope = JSON.parse(output as string)
     expect(envelope.status).toBe("delegated")
-    expect(envelope.phase).toBe("EXPLORE")
+    expect(envelope.stage).toBe("EXPLORE")
+    expect(envelope.role).toBeNull()
     expect(envelope.agent).toBe("odoo_functional_consultant")
 
     const metrics = getMetricsBuffer()
     expect(metrics.filter(metric => metric.event === "run")).toHaveLength(1)
-    expect(metrics.find(metric => metric.event === "run")).toMatchObject({ phase: "EXPLORE", agent: "odoo_functional_consultant" })
+    expect(metrics.find(metric => metric.event === "run")).toMatchObject({ stage: "EXPLORE", role: null, agent: "odoo_functional_consultant" })
   })
 
   it("accepts PROPOSE phase and delegates to the proposal agent", async () => {
@@ -9024,15 +9067,17 @@ ${overrides}`
 
     const delegateTool = createODFDelegate(undefined)
     const output = await delegateTool.execute(
-      { phase: "PROPOSE", prompt: "Frame the business proposal", context_files: [] },
+      { stage: "DECIDE", role: "PROPOSE", prompt: "Frame the business proposal", context_files: [] },
       toolCtx
     )
 
     const envelope = JSON.parse(output as string)
     expect(envelope.status).toBe("delegated")
-    expect(envelope.phase).toBe("PROPOSE")
+    expect(envelope.stage).toBe("DECIDE")
+    expect(envelope.role).toBe("PROPOSE")
     expect(envelope.agent).toBe("odoo_proposer")
-    expect(getMetricsBuffer()[0].phase).toBe("PROPOSE")
+    expect(getMetricsBuffer()[0].stage).toBe("DECIDE")
+    expect(getMetricsBuffer()[0].role).toBe("PROPOSE")
   })
 
   it("runs two independent cross-domain BUILD branches and completes the join", async () => {
@@ -9047,7 +9092,7 @@ ${overrides}`
 
     const output = await parallelTool.execute({
       work_type: "cross-domain",
-      phase: "IMPLEMENT",
+      stage: "BUILD",
       change: "parallel-success",
       artifact_store: "openspec",
       workflow_advance: parallelWorkflowAdvance(),
@@ -9106,7 +9151,7 @@ ${overrides}`
       schema_version: 1,
       change: "parallel-success",
       work_type: "cross-domain",
-      phase: "IMPLEMENT",
+      stage: "BUILD",
       join: { status: "complete", expected: 2, completed: 2, failed: 0 },
     })
     expect(joinArtifact.branches[0].descriptor.prompt).toContain("backend")
@@ -9145,7 +9190,7 @@ ${overrides}`
       expect((parallelTool as any).args).toHaveProperty("workspace_dir")
       const output = JSON.parse(await parallelTool.execute({
         work_type: "cross-domain",
-        phase: "IMPLEMENT",
+        stage: "BUILD",
         change,
         workspace_dir: workspace,
         artifact_store: "openspec",
@@ -9182,7 +9227,7 @@ ${overrides}`
 
     const result = JSON.parse(await parallelTool.execute({
       work_type: "cross-domain",
-      phase: "IMPLEMENT",
+      stage: "BUILD",
       change,
       artifact_store: "openspec",
       workflow_advance: parallelWorkflowAdvance(),
@@ -9220,7 +9265,7 @@ ${overrides}`
 
     const result = JSON.parse(await parallelTool.execute({
       work_type: "cross-domain",
-      phase: "IMPLEMENT",
+      stage: "BUILD",
       change: "parallel-too-many",
       artifact_store: "openspec",
       workflow_advance: parallelWorkflowAdvance(),
@@ -9243,7 +9288,7 @@ ${overrides}`
 
     const result = JSON.parse(await parallelTool.execute({
       work_type: "cross-domain",
-      phase: "IMPLEMENT",
+      stage: "BUILD",
       change: "parallel-invalid-input",
       artifact_store: "openspec",
       workflow_advance: parallelWorkflowAdvance(),
@@ -9267,7 +9312,7 @@ ${overrides}`
     const parallelTool = createODFParallelDelegate(undefined, tempHome)
     const run = parallelTool.execute({
       work_type: "cross-domain",
-      phase: "IMPLEMENT",
+      stage: "BUILD",
       change: "parallel-running",
       artifact_store: "openspec",
       workflow_advance: parallelWorkflowAdvance(),
@@ -9300,7 +9345,7 @@ ${overrides}`
     const parallelTool = createODFParallelDelegate(undefined, tempHome)
     const run = parallelTool.execute({
       work_type: "cross-domain",
-      phase: "IMPLEMENT",
+      stage: "BUILD",
       change,
       artifact_store: "openspec",
       workflow_advance: parallelWorkflowAdvance(),
@@ -9316,7 +9361,7 @@ ${overrides}`
 
     const resumed = JSON.parse(await createODFParallelDelegate(undefined, tempHome).execute({
       work_type: "cross-domain",
-      phase: "IMPLEMENT",
+      stage: "BUILD",
       change,
       artifact_store: "openspec",
       workflow_advance: parallelWorkflowAdvance(),
@@ -9362,7 +9407,7 @@ ${overrides}`
       schema_version: 1,
       change,
       work_type: "cross-domain",
-      phase: "IMPLEMENT",
+      stage: "BUILD",
       timestamp: "2026-09-28T00:00:00.000Z",
       join: { status: "running", expected: 2, completed: 1, failed: 0, running: 1, validation_verified: false },
       branches: [
@@ -9441,7 +9486,7 @@ ${overrides}`
     const taskApi = vi.fn().mockResolvedValue({ status: "ok", executive_summary: "branch done" })
     const resumed = JSON.parse(await createODFParallelDelegate(undefined, tempHome).execute({
       work_type: "cross-domain",
-      phase: "IMPLEMENT",
+      stage: "BUILD",
       change,
       artifact_store: "openspec",
       workflow_advance: parallelWorkflowAdvance(),
@@ -9466,7 +9511,7 @@ ${overrides}`
       .mockReturnValueOnce(new Promise(resolve => { resolveSecond = resolve }))
     const run = createODFParallelDelegate(undefined, tempHome).execute({
       work_type: "cross-domain",
-      phase: "IMPLEMENT",
+      stage: "BUILD",
       change,
       artifact_store: "openspec",
       workflow_advance: parallelWorkflowAdvance(),
@@ -9519,7 +9564,7 @@ ${overrides}`
 
     const result = JSON.parse(await createODFParallelDelegate(undefined, tempHome).execute({
       work_type: "cross-domain",
-      phase: "IMPLEMENT",
+      stage: "BUILD",
       change,
       artifact_store: "openspec",
       workflow_advance: parallelWorkflowAdvance(),
@@ -9547,7 +9592,7 @@ ${overrides}`
     const parallelTool = createODFParallelDelegate(undefined, tempHome)
     const first = await parallelTool.execute({
       work_type: "cross-domain",
-      phase: "IMPLEMENT",
+      stage: "BUILD",
       change: "parallel-branch-ledger",
       artifact_store: "openspec",
       workflow_advance: parallelWorkflowAdvance(),
@@ -9557,7 +9602,7 @@ ${overrides}`
 
     const sameBranch = JSON.parse(await parallelTool.execute({
       work_type: "cross-domain",
-      phase: "IMPLEMENT",
+      stage: "BUILD",
       change: "parallel-branch-ledger",
       artifact_store: "openspec",
       workflow_advance: parallelWorkflowAdvance(),
@@ -9583,7 +9628,7 @@ ${overrides}`
 
     const result = JSON.parse(await parallelTool.execute({
       work_type: "cross-domain",
-      phase: "IMPLEMENT",
+      stage: "BUILD",
       change: "parallel-failure",
       artifact_store: "openspec",
       workflow_advance: parallelWorkflowAdvance(),
@@ -9613,7 +9658,7 @@ ${overrides}`
 
     const result = JSON.parse(await parallelTool.execute({
       work_type: "cross-domain",
-      phase: "IMPLEMENT",
+      stage: "BUILD",
       change: "parallel-no-validation",
       artifact_store: "openspec",
       workflow_advance: parallelWorkflowAdvance(),
@@ -9646,7 +9691,7 @@ ${overrides}`
 
     const result = JSON.parse(await parallelTool.execute({
       work_type: "cross-domain",
-      phase: "IMPLEMENT",
+      stage: "BUILD",
       change: "parallel-inner-failure",
       artifact_store: "openspec",
       workflow_advance: parallelWorkflowAdvance(),
@@ -9683,7 +9728,7 @@ ${overrides}`
 
     const first = JSON.parse(await parallelTool.execute({
       work_type: "cross-domain",
-      phase: "IMPLEMENT",
+      stage: "BUILD",
       change,
       artifact_store: "openspec",
       workflow_advance: parallelWorkflowAdvance(),
@@ -9699,7 +9744,7 @@ ${overrides}`
 
     const resumed = JSON.parse(await parallelTool.execute({
       work_type: "cross-domain",
-      phase: "IMPLEMENT",
+      stage: "BUILD",
       change,
       artifact_store: "openspec",
       workflow_advance: parallelWorkflowAdvance(),
@@ -9725,7 +9770,7 @@ ${overrides}`
     const parallelTool = createODFParallelDelegate(undefined, tempHome)
     await parallelTool.execute({
       work_type: "cross-domain",
-      phase: "IMPLEMENT",
+      stage: "BUILD",
       change,
       artifact_store: "openspec",
       workflow_advance: parallelWorkflowAdvance(),
@@ -9735,7 +9780,7 @@ ${overrides}`
 
     const resumed = JSON.parse(await parallelTool.execute({
       work_type: "cross-domain",
-      phase: "IMPLEMENT",
+      stage: "BUILD",
       change,
       artifact_store: "openspec",
       workflow_advance: parallelWorkflowAdvance(),
@@ -9752,7 +9797,7 @@ ${overrides}`
     const parallelTool = createODFParallelDelegate(undefined, tempHome)
     const result = JSON.parse(await parallelTool.execute({
       work_type: "cross-domain",
-      phase: "IMPLEMENT",
+      stage: "BUILD",
       change: "parallel-one-fresh",
       artifact_store: "openspec",
       workflow_advance: parallelWorkflowAdvance(),
@@ -9775,7 +9820,7 @@ ${overrides}`
     const parallelTool = createODFParallelDelegate(undefined, tempHome)
     const result = JSON.parse(await parallelTool.execute({
       work_type: "cross-domain",
-      phase: "IMPLEMENT",
+      stage: "BUILD",
       change: "parallel-join-invalid",
       artifact_store: "openspec",
       workflow_advance: parallelWorkflowAdvance(),
@@ -9817,11 +9862,11 @@ describe("createODFPolicyGate", () => {
     await fs.mkdir(workspace, { recursive: true })
 
     const gateTool = createODFPolicyGate()
-    const output = await gateTool.execute({ change: "my-change", phase: "IMPLEMENT", workspace_dir: workspace }, {} as any)
+    const output = await gateTool.execute({ change: "my-change", stage: "BUILD", workspace_dir: workspace }, {} as any)
     const decision = JSON.parse(output as string)
     expect(decision.gate).toBe("allow")
     expect(decision.change).toBe("my-change")
-    expect(decision.phase).toBe("IMPLEMENT")
+    expect(decision.stage).toBe("BUILD")
     expect(decision.tdd.effective).toBe("off")
 
     const saved = JSON.parse(
@@ -9873,7 +9918,7 @@ describe("odf_delegate policy gate hook", () => {
     const delegateTool = createODFDelegate(undefined, workspace)
     const output = await delegateTool.execute(
       {
-        phase: "VERIFY",
+        stage: "VERIFY",
         change,
         artifact_store: "openspec",
         attempt_id: "hook-test-verify-1",
@@ -9888,7 +9933,7 @@ describe("odf_delegate policy gate hook", () => {
     const envelope = JSON.parse(output as string)
     expect(envelope.status).toBe("delegated")
     expect(envelope.policy_gate).toBeDefined()
-    expect(envelope.policy_gate.phase).toBe("VERIFY")
+    expect(envelope.policy_gate.stage).toBe("VERIFY")
     expect(envelope.policy_gate.frozen_diff_ref).toBeTruthy()
 
     const calledPrompt = taskApi.mock.calls[0][0].prompt
@@ -10382,7 +10427,7 @@ describe("odf_delegate stop-validation seal", () => {
     const delegateTool = createODFDelegate(undefined, workspace)
     const output = await delegateTool.execute(
       {
-        phase: "IMPLEMENT",
+        stage: "BUILD",
         change: "seal-test",
         artifact_store: "openspec",
         attempt_id: "seal-test-missing-1",
@@ -10425,7 +10470,7 @@ describe("odf_delegate stop-validation seal", () => {
     const delegateTool = createODFDelegate(undefined, workspace)
     const output = await delegateTool.execute(
       {
-        phase: "IMPLEMENT",
+        stage: "BUILD",
         change: "seal-test",
         artifact_store: "openspec",
         attempt_id: "seal-test-verified-1",
@@ -10449,7 +10494,7 @@ describe("odf_delegate stop-validation seal", () => {
 
     const delegateTool = createODFDelegate(undefined, workspace)
     const output = await delegateTool.execute(
-      { phase: "DESIGN", prompt: "Design the change", context_files: [], workspace_dir: workspace },
+      { stage: "PLAN", role: "DESIGN", prompt: "Design the change", context_files: [], workspace_dir: workspace },
       toolCtx
     )
 
@@ -10572,7 +10617,7 @@ describe("odf_delegate receipt auto-seal on error", () => {
     const delegateTool = createODFDelegate(undefined, workspace)
     const output = await delegateTool.execute(
       {
-        phase: "IMPLEMENT",
+        stage: "BUILD",
         change: "rseal",
         artifact_store: "openspec",
         attempt_id: "rseal-1",
@@ -10628,7 +10673,7 @@ describe("createODFReceipt tool", () => {
 
     const receiptTool = createODFReceipt()
     const output = await receiptTool.execute(
-      { change: "my-change", phase: "VERIFY", status: "failed", cause: "validation-failed", evidence_summary: "compliance failed", failing: ["odoo-tests"], refs: ["odf/my-change/verify-report"], workspace_dir: workspace },
+      { change: "my-change", stage: "VERIFY", status: "failed", cause: "validation-failed", evidence_summary: "compliance failed", failing: ["odoo-tests"], refs: ["odf/my-change/verify-report"], workspace_dir: workspace },
       {} as any
     )
     const receipt = JSON.parse(output as string)

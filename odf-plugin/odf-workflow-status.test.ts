@@ -75,7 +75,7 @@ function parallelJoin(change: string, status: "complete" | "blocked" = "complete
     schema_version: 1,
     change,
     work_type: "cross-domain",
-    phase: "IMPLEMENT",
+    stage: "BUILD",
     timestamp: "2026-08-06T12:00:00.000Z",
     join: {
       status,

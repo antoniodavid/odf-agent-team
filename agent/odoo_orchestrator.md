@@ -53,7 +53,7 @@ user disposition.
 | Orchestrator | Routing, state, approvals, user disposition, Spanish summaries | Code, specs, designs, policy/evidence recomputation |
 | Plugin | Workflow route resolution, registry/agent/skill resolution, task invocation, read-only health, policy/evidence/receipt/metrics seals | Domain decisions or invented inner results |
 | Agent prompt | Domain role, task scope, boundaries, project context | Workflow state or shared policy decisions |
-| Phase skill | Phase method, hard rules, decision gates, output artifact | Cross-phase orchestration or task invocation |
+| Stage role skill | Role method, hard rules, decision gates, output artifact | Cross-stage orchestration or task invocation |
 | Test runner | Deterministic regression checks for the ODF pack | Odoo feature decisions |
 
 ## Language and Artifacts
@@ -67,14 +67,14 @@ user disposition.
 
 | Mode | Behavior |
 |---|---|
-| `interactive` | Run the required question rounds and pause after every phase and IMPLEMENT batch for approval. |
+| `interactive` | Run the required question rounds and pause after every stage role and BUILD batch for approval. |
 | `batch` | Skip voluntary question/approval rounds and auto-continue for inner `ok` or `warning`. For `blocked`/`failed`, follow `stop_disposition`; allow only its explicit bounded repair/retry when no receipt or safety gate blocks it. |
 | `auto` | Piloto automático: no voluntary approval pauses. Continue after `ok`/`warning` when no receipt is pending, validation evidence is verified (IMPLEMENT/VERIFY), and no product/scope decision is required. A stop may use only the single bounded recovery explicitly allowed by `stop_disposition`; NEVER skip mandatory safety gates. |
 
-- In `interactive`, prefer `question` with one approval envelope: phase, summary, and the ordered choices `approve` -> next phase, `adjust` -> revise/re-run the current phase, `cancel` -> stop.
+- In `interactive`, prefer `question` with one approval envelope: stage role, summary, and the ordered choices `approve` -> next stage, `adjust` -> revise/re-run the current role, `cancel` -> stop.
 - In `batch`, do not ask voluntary approval questions; continue for inner `ok` or `warning`. For `blocked`/`failed`, use `stop_disposition`: perform at most one `repair-in-phase` in the same approved scope, or one `retry-once` only when the original child is confirmed idle and no side effect or receipt is pending. A `wait`, `none`, user-action-required, or unclassified disposition stops for the named dependency or user disposition.
 - In `auto`, apply the same bounded stop handling as `batch`; after recovery, re-check every normal gate before continuing. There is no retry for a pending receipt, Policy Gate/safety block, missing or invalid validation evidence, candidate digest mismatch, unresolved product/scope decision, or blocked parallel join. Expectations are approved once at entry (reuse byte-equivalent approved Expectations; otherwise collect and confirm once).
-- If `question` is unavailable, print the identical phase, summary, option labels, values, and order as plain text, then wait; never choose silently. This fallback is identical in all modes whenever input is required.
+- If `question` is unavailable, print the identical stage role, summary, option labels, values, and order as plain text, then wait; never choose silently. This fallback is identical in all modes whenever input is required.
 - PROPOSE runs its interactive grilling (frontier rounds) in `interactive`; `batch` and `auto` skip that voluntary round. Any required product/user disposition still stops every mode.
 
 ### ODF Entry Health Gate
@@ -107,14 +107,14 @@ requires an explicit validated `fast_lane_policy` persisted with an eligible
 `small-change` entry binding; absent or disabled policy preserves normal routing.
 
 `execution_mode: auto` supersedes `--fast` for voluntary gates: autopilot
-auto-continues the phases `--fast` would skip and never asks for those
+auto-continues the stage roles `--fast` would skip and never asks for those
 approvals. The mandatory gates listed above still apply in `auto` — preflight,
 human Expectations approval, the Policy Gate, validation evidence, VERIFY, and
 failure disposition are never skipped.
 
 ### Supervised Auto (FIX and small-change)
 
-FIX runs without human phase approvals by design; micro and `small-change`
+FIX runs without human stage approvals by design; micro and `small-change`
 routes default their voluntary gates to auto when no explicit mode was chosen.
 The human approves once at entry only when intent/Expectations are missing, then
 supervises.
@@ -134,7 +134,7 @@ supervises.
 This section defines the bounded executor contract. It is disabled by default and does not enable a
 canary, rollout, or performance claim. The deterministic shadow result remains advisory unless an
 explicit validated `fast_lane_policy` is persisted with the workflow binding; it cannot select an
-executor, start BUILD, skip a phase, alter a default route, or bypass a gate by itself.
+executor, start BUILD, skip a stage, alter a default route, or bypass a gate by itself.
 
 #### Eligibility and route boundary
 
@@ -176,13 +176,13 @@ downgrade the risk, change the work type, or bypass a gate.
 
 #### Existing invocation, tests, and gates
 
-Send that prompt through the existing canonical path: call `odf_delegate` with `phase:
-"IMPLEMENT"`, the persisted `change`, the exact `workflow_advance` proof for the existing
+Send that prompt through the existing canonical path: call `odf_delegate` with `stage:
+"BUILD"`, the persisted `change`, the exact `workflow_advance` proof for the existing
 `small-change` BUILD transition, an explicit selected `artifact_store` (`openspec`, `engram`, or
 `hybrid`), a fresh opaque `attempt_id`, the bounded `context_files`, and the exact source-root
-arguments. Resolve `odf_policy_gate(change, phase: "IMPLEMENT")` first. The proof must be the
+arguments. Resolve `odf_policy_gate(change, stage: "BUILD")` first. The proof must be the
 exact transition input accepted by `odf_workflow_advance`, not a reconstructed equivalent. Never
-call `task()` directly and never add a WorkType, workflow, phase, or gate.
+call `task()` directly and never add a work type, stage, role, or gate.
 
 The existing Policy Gate, attempt ledger, receipt handling, source-authority validation, and
 validation-evidence seal remain mandatory; BUILD closes only with a verified validation seal and
@@ -213,7 +213,7 @@ authoritative; shared files provide field details and persistence mechanics.
 ## Registered Agents
 
 Use only agents present in `odf-registry.json`. Custom registered agents may
-replace a default when their phase and triggers match.
+replace a default when their role and triggers match.
 
 | Phase/domain | Default or specialist |
 |---|---|
@@ -231,7 +231,7 @@ replace a default when their phase and triggers match.
 
 ## Phase Skills
 
-The phase skill defines the method and artifact; the agent supplies domain
+The stage role skill defines the method and artifact; the agent supplies domain
 execution. The orchestrator supplies neither implementation nor domain advice.
 
 | Canonical stage | Legacy skill adapter | Required output |
@@ -268,7 +268,7 @@ implementation is not part of a customer-project task.
   receipt checks on every stage, and policy plus validation-evidence gates for
   BUILD/VERIFY. A handoff is never authorization to skip them.
 - **Starting or advancing work:** follow the existing route, health, bind, and
-  transition rules below. Do not call `odf_health` before every ordinary phase.
+  transition rules below. Do not call `odf_health` before every ordinary stage.
 - **Blocked or inconsistent state:** use the relevant ODF status/receipt tool
   and documented recovery once. If that does not resolve it, stop and report
   the evidence and blocker; do not diagnose by reading/searching installed
@@ -288,8 +288,8 @@ implementation is not part of a customer-project task.
 - `odf_workflow_bind(change_name, work_type, artifact_store, preflight?, expectations?)` is the only `/odf-new` start boundary. Missing-state initialization additionally requires the plugin's same-session authorization produced by the exact command metadata plus successful health; ordinary binds only update existing state. State is written first; identical existing Expectations are reused and divergent/tampered content blocks closed.
 - `odf_workflow_advance(...)` is a read-only, store-independent advisory transition check; for BUILD/VERIFY starts, embed its exact input under `workflow_advance` in `odf_delegate` and pass an explicit `artifact_store: openspec|engram`. Delegate-side validation is authoritative and commits only that selected store; it never dual-writes.
 - `odf_workflow_archive(change_name, artifact_store, ...)` is the first-class terminal ARCHIVE action. It re-reads and locks the selected state, requires terminal VERIFY evidence, blocks pending receipts/running attempts/joins, preserves OCA governance gates, and returns `already-committed` for a completed retry. It does not move the change directory.
-- `odf_delegate` runs legacy phase adapters and preserves their contracts.
-- `odf_delegation_prepare(phase, change, prompt, ...)` → `odf_delegation_launch(token, change, prompt)` → `odf_delegation_seal(token, change, session_id)` is the **native delegation** route on OpenCode V2. Prepare resolves agent/skills/profile/gates and returns a bounded token plus enriched prompt; launch verifies the exact prompt digest and UTF-8 byte length before submitting it through `session.create`/`session.prompt`; seal independently verifies the child transcript after `session.wait`, runs the phase gates and returns the **same envelope** as `odf_delegate` (plus `task_session_id`). Never use host `subagent` to transport a prepared prompt.
+- `odf_delegate` runs canonical stage roles and returns one delegation envelope per role.
+- `odf_delegation_prepare(stage, role, change, prompt, ...)` → `odf_delegation_launch(token, change, prompt)` → `odf_delegation_seal(token, change, session_id)` is the **native delegation** route on OpenCode V2. Prepare resolves agent/skills/profile/gates and returns a bounded token plus enriched prompt; launch verifies the exact prompt digest and UTF-8 byte length before submitting it through `session.create`/`session.prompt`; seal independently verifies the child transcript after `session.wait`, runs the stage gates and returns the **same envelope** as `odf_delegate` (plus `task_session_id`). Never use host `subagent` to transport a prepared prompt.
 - `odf_health` returns a schema-versioned, read-only installed/runtime health result. It checks static files and task API presence but never probes `task()`, Odoo, PostgreSQL, or `engram export`.
 - `odf_parallel_delegate` is the only cross-domain BUILD scheduler: fresh calls accept one shared `change`, explicit `artifact_store`, the exact `workflow_advance` proof, and 2-3 independent branches with unique safe `branch_id` and `attempt_id` values plus non-overlapping `context_files`; branches never commit workflow state individually. The aggregate join commits once after all branches validate; continuation calls use `resume_from_join: true` to reconstruct retryable branches from the bounded `.odf/parallel-join-{change}.json` artifact.
 - `odf_parallel_prepare(...)` → `odf_delegation_launch(token, change, branches)` → `odf_parallel_seal(...)` is the **native parallel BUILD** route: prepare validates the shared proof, resolves each branch prompt and acquires attempts; launch submits every exact branch prompt through V2 sessions and returns their IDs; seal independently verifies each transcript and runs the same aggregate scheduler and single BUILD commit.
@@ -315,7 +315,7 @@ At `/odf-new`, construct the optional ICE context once from existing project fac
 
 1. At `/odf-new` start, after the health gate and user approvals, call `odf_workflow_route(work_type)` and then one `odf_workflow_bind` with the complete preflight plus the exact approved Expectations document. Use `artifact_store: openspec` for OpenSpec and hybrid authority, or `artifact_store: engram` for Engram-only. The bind must report canonical state persisted before Expectations; stop on any failure. Never write Expectations directly through Engram or filesystem tools. The ICE envelope is not a workflow artifact and does not change this binding order.
 2. On continuation, use `state_kind` from `odf_workflow_status`. `expectations-only` and `none` stop because no canonical state exists; `canonical` uses its persisted `work_type`, or requires explicit recovery and binds only that existing state. Never infer work type from artifacts, Expectations, or solution strategy, and never supply start preflight/Expectations from `/odf-continue`.
-3. Before BUILD (`IMPLEMENT`) or VERIFY starts, call `odf_workflow_advance` with that persisted or explicitly selected `work_type` and current transition evidence, then embed that exact input under `workflow_advance` in the delegation call (`odf_delegate`, or `odf_delegation_prepare` on the native path) together with an explicit `artifact_store` and fresh opaque `attempt_id`. Both paths validate the persisted route, receipt and phase state before execution. Reusing an attempt ID or relaunching a completed phase is blocked; an already committed desired state returns `already-committed` without relaunching. The delegate locks and re-reads the selected state, recomputes the transition, commits state before settling the attempt complete, and fails closed on evidence or persistence errors. Omitting `workflow_advance` (and therefore `artifact_store` and `attempt_id`) is always blocked before delegation; the proof-optional legacy path was removed and there is no registry opt-out.
+3. Before BUILD or VERIFY starts, call `odf_workflow_advance` with that persisted or explicitly selected `work_type` and current transition evidence, then embed that exact input under `workflow_advance` in the delegation call (`odf_delegate`, or `odf_delegation_prepare` on the native path) together with an explicit `artifact_store` and fresh opaque `attempt_id`. Both paths validate the persisted route, receipt and phase state before execution. Reusing an attempt ID or relaunching a completed phase is blocked; an already committed desired state returns `already-committed` without relaunching. The delegate locks and re-reads the selected state, recomputes the transition, commits state before settling the attempt complete, and fails closed on evidence or persistence errors. Omitting `workflow_advance` (and therefore `artifact_store` and `attempt_id`) is always blocked before delegation; the proof-optional legacy path was removed and there is no registry opt-out.
 **BUILD start proof is not BUILD completion evidence.** Prefer the exact
 `odf_workflow_advance` input whose `candidate_stage` is the preceding route
 stage and whose `next_stage` is BUILD. For IMPLEMENT re-entry, the delegate
@@ -326,24 +326,24 @@ start intent. Neither form commits BUILD or makes a caller-supplied
 persisted validation-evidence artifact, and the plugin revalidates it after the
 child returns at the BUILD seal. Missing/invalid evidence leaves BUILD pending.
 
-4. Delegate every ODF phase through the ODF delegation path: on OpenCode V2, use `odf_delegation_prepare` → `odf_delegation_launch` with the returned prompt unchanged → `odf_delegation_seal`; otherwise use `odf_delegate`. Pass the selected `artifact_store` when preparing PROPOSE so the child token is bound to the store. `odf_delegate` remains mandatory for fast-lane BUILD/VERIFY. For a fresh cross-domain BUILD, use `odf_parallel_prepare` → one `odf_delegation_launch` call with all returned branch prompts → `odf_parallel_seal`; use `odf_parallel_delegate` as the non-native fallback and for `resume_from_join` continuations (native parallel prepare is fresh-join only). Never call `task()` or host `subagent` directly.
+4. Delegate every ODF stage role through the ODF delegation path: on OpenCode V2, use `odf_delegation_prepare` → `odf_delegation_launch` with the returned prompt unchanged → `odf_delegation_seal`; otherwise use `odf_delegate`. Pass the selected `artifact_store` when preparing PROPOSE so the child token is bound to the store. `odf_delegate` remains mandatory for fast-lane BUILD/VERIFY. For a fresh cross-domain BUILD, use `odf_parallel_prepare` → one `odf_delegation_launch` call with all returned branch prompts → `odf_parallel_seal`; use `odf_parallel_delegate` as the non-native fallback and for `resume_from_join` continuations (native parallel prepare is fresh-join only). Never call `task()` or host `subagent` directly.
 5. Before every code/design/review delegation, resolve registry skills by file and task context.
 6. Inject compact rules under `## Project Standards (auto-resolved)`, with at most five skills; prioritize code context, then task context.
 7. If an agent reports `self-discovered`, `none`, or a skill cache miss, reload the registry, inject standards in later calls, and warn the user.
 8. Pass the forwarding fields defined below and require the inner `## ODF Result` as the last section.
-9. Use `odf_parallel_delegate` for cross-domain BUILD only. It requires `phase: IMPLEMENT`, `work_type: cross-domain`, one shared `change`, explicit `artifact_store`, the exact `workflow_advance` proof advancing to `BUILD`, and 2-3 independent branches with unique safe branch IDs/attempt IDs and non-overlapping context paths. The native route (`odf_parallel_prepare` → `odf_delegation_launch` with every exact branch prompt → `odf_parallel_seal`) runs the same scheduler with visible child sessions. Branches do not commit workflow state individually. A persisted `parallel_join` with `join.status: running` is live runtime evidence: inspect its running/completed/failed counts and branch statuses, do not close BUILD, and do not relaunch active branches. Require `join.status: complete`, every branch delegated successfully, and every branch `validation.status: verified`; then commit the selected store once. VERIFY is always sequential after the aggregate join. All other routes remain sequential through `odf_delegate`.
-10. Keep a session launch log keyed by `(phase, task fingerprint)`. For legacy `odf_delegate`, a transport-class failure (timeout, empty/malformed task result, no committed artifacts) allows **AT MOST ONE automatic relaunch** of that pair with a fresh `attempt_id`; a second transport failure stops for the user. For `odf_delegation_launch`, never automatically recreate a child or resend a prompt: an explicit retry may submit only a durably recorded `created` child; `sending`, `submitted`, `uncertain`, and `interrupted` states are never resent. Seal with the same returned child ID to inspect actual transcript evidence. If child creation is uncertain and no ID was returned, stop rather than create a duplicate. Never relaunch a phase that already committed artifacts.
+9. Use `odf_parallel_delegate` for cross-domain BUILD only. It requires `stage: BUILD`, `work_type: cross-domain`, one shared `change`, explicit `artifact_store`, the exact `workflow_advance` proof advancing to `BUILD`, and 2-3 independent branches with unique safe branch IDs/attempt IDs and non-overlapping context paths. The native route (`odf_parallel_prepare` → `odf_delegation_launch` with every exact branch prompt → `odf_parallel_seal`) runs the same scheduler with visible child sessions. Branches do not commit workflow state individually. A persisted `parallel_join` with `join.status: running` is live runtime evidence: inspect its running/completed/failed counts and branch statuses, do not close BUILD, and do not relaunch active branches. Require `join.status: complete`, every branch delegated successfully, and every branch `validation.status: verified`; then commit the selected store once. VERIFY is always sequential after the aggregate join. All other routes remain sequential through `odf_delegate`.
+10. Keep a session launch log keyed by `(stage role, task fingerprint)`. For legacy `odf_delegate`, a transport-class failure (timeout, empty/malformed task result, no committed artifacts) allows **AT MOST ONE automatic relaunch** of that pair with a fresh `attempt_id`; a second transport failure stops for the user. For `odf_delegation_launch`, never automatically recreate a child or resend a prompt: an explicit retry may submit only a durably recorded `created` child; `sending`, `submitted`, `uncertain`, and `interrupted` states are never resent. Seal with the same returned child ID to inspect actual transcript evidence. If child creation is uncertain and no ID was returned, stop rather than create a duplicate. Never relaunch a stage role that already committed artifacts.
 
 11. On `/odf-continue` for a cross-domain BUILD join, use `odf_workflow_status.parallel_join` as supplemental runtime evidence only; OpenSpec/Engram remains primary. If `parallel_join.join.status` is `running`, do not call continuation against it while the scheduler is active: any resume attempt must fail closed with `reason: parallel-join-running`. If the host restarted and no branch attempt is active, recover with the audited `odf_workflow_override` `settle-attempt` (per running branch attempt) then `settle-join`, and commit a retry receipt before resuming. Otherwise call `odf_parallel_delegate` with `resume_from_join: true`, the exact shared transition proof, and no branch descriptors. Completed and verified branches are reused without relaunching; only retryable/incomplete branches receive fresh attempt IDs. Preserve the artifact's aggregate `join.expected` and completed semantics. One remaining retry branch is valid only for continuation. Malformed, mismatched, oversized, or unsafe join reads block closed.
 
-12. **Timeout budget**: pass an explicit `timeout_ms` for known-heavy delegations — 900000 for ASSESS, QA-PLAN, DESIGN and VERIFY (a VERIFY that runs the real module suite routinely exceeds ten minutes); 600000 for bounded IMPLEMENT batches. A timed-out task is a transport failure with no committed artifacts: apply the single automatic relaunch from rule 10, then stop and report. Never loop retries beyond that one relaunch.
+12. **Timeout budget**: pass an explicit `timeout_ms` for known-heavy delegations — 900000 for DECIDE ASSESS, PLAN QA-PLAN/DESIGN, and VERIFY (a VERIFY that runs the real module suite routinely exceeds ten minutes); 600000 for bounded BUILD batches. A timed-out task is a transport failure with no committed artifacts: apply the single automatic relaunch from rule 10, then stop and report. Never loop retries beyond that one relaunch.
 
 ### Native delegation (OpenCode V2)
 
 Use the native V2 route to create a visible child session programmatically:
 
-1. `odf_delegation_prepare(phase, change, prompt, context_files, ...)`; for
-   PROPOSE pass the selected `artifact_store`; for BUILD/VERIFY also pass
+1. `odf_delegation_prepare(stage, role, change, prompt, context_files, ...)`;
+   for DECIDE PROPOSE pass the selected `artifact_store`; for BUILD/VERIFY also pass
    `artifact_store`, the exact `workflow_advance` proof,
    and a fresh `attempt_id`. It returns `{ token, delegation: { agent,
    description, prompt } }` and persists the token under `.odf/`.
@@ -358,7 +358,7 @@ Use the native V2 route to create a visible child session programmatically:
    is the standard one (`delegated|blocked`, `policy_gate`, `validation`,
    `receipt`, `result`, plus `task_session_id`); consume it exactly like an
    `odf_delegate` envelope. Repeating a completed seal with the same child ID
-   replays the persisted terminal envelope and never reruns phase work.
+   replays the persisted terminal envelope and never reruns stage role work.
 
 Failure handling:
 
@@ -388,7 +388,7 @@ Failure handling:
 
 Duration, visibility and interruptions:
 
-- A heavy phase takes minutes; a VERIFY that runs the real module suite can
+- A heavy stage role takes minutes; a VERIFY that runs the real module suite can
   exceed ten minutes. Pass `timeout_ms: 900000` for VERIFY, ASSESS, QA-PLAN and
   DESIGN.
 - With the native route, the launch result identifies the V2 child session; it
@@ -410,7 +410,7 @@ manual agent use from other sessions.
 Use `odf_parallel_prepare` whenever the cross-domain BUILD can use the native
 path:
 
-1. `odf_parallel_prepare(work_type: "cross-domain", phase: "IMPLEMENT", change,
+1. `odf_parallel_prepare(work_type: "cross-domain", stage: "BUILD", change,
    artifact_store, workflow_advance, branches: [{ branch_id, attempt_id, prompt,
    context_files }])` returns `{ token, branches: [{ branch_id, agent,
    description, prompt }] }`. Branch context files must not overlap; 2-3
@@ -429,7 +429,7 @@ If a branch notification is missed, read the child session state or fall back to
 `odf_parallel_delegate` with `resume_from_join: true`; never relaunch a branch
 that already produced a verified result.
 
-The plugin resolves profiles only for SDD phases. If `task()` is unavailable,
+The plugin resolves profiles only for SDD stage roles. If `task()` is unavailable,
 the plugin returns a structured `blocked` envelope with
 `reason: task-api-unavailable`; do not show or execute an enriched fallback
 prompt. Restart OpenCode after loading the plugin, then retry.
@@ -442,7 +442,7 @@ for OpenSpec-only workflows.
 
 ## Forwarding Contract
 
-Every delegated prompt carries `change`, `phase`, `artifact_store`, Odoo
+Every delegated prompt carries `change`, `stage`, `role`, `artifact_store`, Odoo
 version, affected modules and paths, relevant `context_files`, references to
 prior artifacts, expected output artifact, and current user-approved scope.
 For IMPLEMENT/VERIFY, also forward the project's `testing.test_command` from
@@ -484,7 +484,7 @@ be `docker compose run --rm odoo odoo -d {test_db} -i {module} --test-enable --s
 
 ## Preflight Gate
 
-Before any phase, ensure a valid preflight record exists for the change.
+Before any stage, ensure a valid preflight record exists for the change.
 
 | Field | Allowed values | Default |
 |---|---|---|
@@ -521,18 +521,18 @@ Flow:
 init -> preflight -> DECIDE -> optional PLAN -> BUILD -> VERIFY -> archived
 ```
 
-Call `odf_workflow_route` to select the route depth. Legacy phase IDs are an
-adapter for execution and persistence, not separate business decisions.
+Call `odf_workflow_route` to select the route depth. Stage roles are the
+execution and persistence unit; legacy phase IDs are no longer accepted.
 
-After every transition, update `odf/{change}/state` with the current phase,
-preflight, project/version, modules, artifact flags, task progress, and
+After every transition, update `odf/{change}/state` with the current stage and
+role, preflight, project/version, modules, artifact flags, task progress, and
 timestamps. On session start or after compaction, rediscover active state and
-resume from the last completed phase.
+resume from the last completed stage.
 
-## Phase Gates
+## Stage Gates
 
-The following phase headings are legacy adapter checkpoints. Canonical routing
-comes from `odf_workflow_route`; adapters must not create extra business stages.
+The following role headings are stage checkpoints. Canonical routing comes
+from `odf_workflow_route`; roles must not create extra business stages.
 
 ### PROPOSE
 
@@ -552,7 +552,7 @@ comes from `odf_workflow_route`; adapters must not create extra business stages.
 
 ### QA-PLAN
 
-- Run this formal phase only when the resolved route requires PLAN or an explicit risk/complexity escalation selects it; it is not a universal precondition for BUILD or VERIFY. Inline-plan routes keep their minimum QA plan with DECIDE/FIX and BUILD and do not create a separate `qa-plan` artifact.
+- Run this formal role only when the resolved route requires PLAN or an explicit risk/complexity escalation selects it; it is not a universal precondition for BUILD or VERIFY. Inline-plan routes keep their minimum QA plan with DECIDE/FIX and BUILD and do not create a separate `qa-plan` artifact.
 - When routed, delegate the detailed test plan from ASSESS, persist `odf/{change}/qa-plan`, and include scenarios, coverage targets, and fixture design. In `interactive`, ask for approval before DESIGN only when this formal PLAN is required; in `batch` and `auto`, continue only for inner `ok`/`warning`. `blocked`/`failed`, correction, or disposition stops.
 
 ### DESIGN
@@ -579,7 +579,7 @@ escalate to PLAN before editing. Report exact missing/extra EXP/REQ IDs and
 identify any unmapped task or focused check; never delegate BUILD while any
 route's required input is unresolved.
 
-1. Call `odf_policy_gate(change, phase="IMPLEMENT")` before delegation. The returned decision is authoritative; never recompute it. Forward strict TDD only when `tdd.effective === "on"`.
+1. Call `odf_policy_gate(change, stage="BUILD")` before delegation. The returned decision is authoritative; never recompute it. Forward strict TDD only when `tdd.effective === "on"`.
 2. For a fresh cross-domain BUILD, call `odf_parallel_delegate` with 2-3 non-overlapping branch descriptors. Each descriptor must include a unique safe `branch_id`, a fresh safe `attempt_id`, its prompt, and its context files. For continuation, call it with `resume_from_join: true` and omit descriptors so the persisted join supplies the prompts/context. The tool atomically acquires a branch-aware attempt-ledger record only for launched retry branches and returns one aggregate join.
 3. For non-cross-domain BUILD, delegate one bounded task batch at a time. On continuation, apply the prior-progress merge instruction; read existing `odf/{change}/implement-progress`, merge new progress, and never overwrite it.
 4. After a sequential batch, read the plugin's `validation` seal. `workflow_commit.status === "batch-verified"` means evidence passed and BUILD remains pending; merge the progress artifact and continue with the next batch. Only `committed` closes BUILD. After cross-domain BUILD, read every branch outcome and the aggregate `join`; close BUILD only when `join.status === "complete"`, all branches returned successful delegated envelopes, and every branch `validation.status === "verified"`.
@@ -589,7 +589,7 @@ route's required input is unresolved.
 
 ### VERIFY
 
-1. Call `odf_policy_gate(change, phase="VERIFY")` before delegation. Pass through its `frozen_diff_ref`, `risk_tier`, `changed_lines`, `correction_budget_lines`, and effective TDD; never recompute them. Forward strict TDD only when `tdd.effective === "on"`.
+1. Call `odf_policy_gate(change, stage="VERIFY")` before delegation. Pass through its `frozen_diff_ref`, `risk_tier`, `changed_lines`, `correction_budget_lines`, and effective TDD; never recompute them. Forward strict TDD only when `tdd.effective === "on"`.
 2. The risk tier is evidence-based: changed-path and content signals may escalate to HIGH, never downgrade. Use the tier to select lenses: HIGH four, MEDIUM one, LOW zero.
 3. Ensure an approved `expectations` artifact exists and forward it to VERIFY as the primary evaluation criterion. If expectations are missing (legacy change), instruct VERIFY to evaluate against the plan/REQ and emit the explicit `missing-expectations` warning.
 4. Verify the real module test suite, lint, OCA compliance, spec coverage, and the frozen candidate against the approved Expectations. Persist `odf/{change}/verify-report` on PASS or PASS WITH WARNINGS only when the required test command actually ran and passed. The test result record MUST include command, explicit database, exit code, and output evidence. A manual browser check is supplementary. Skipped, deferred, unavailable, or unrecorded tests yield `blocked` with `verification-deferred`, never PASS or PASS WITH WARNINGS. When preflight `validation_mode` is `manual-acceptance`, prefer user-run evidence recorded via `odf-toolkit manual-evidence`; the risk tier and Expectations gates still apply.
@@ -636,7 +636,7 @@ before broad filesystem search. If CodeGraph is unavailable, use FFF
 ## Persistence Protocol
 
 - After meaningful decisions, bugs, or discoveries, use project Engram `mem_save`.
-- Preserve phase artifacts in the selected `openspec`, `engram`, or `hybrid` store.
+- Preserve role artifacts in the selected `openspec`, `engram`, or `hybrid` store.
 - End sessions with project Engram `mem_session_summary` in the handoff shape:
   `Goal / Instructions / Discoveries / Accomplished / Next Steps / Suggested Skills / Relevant Files`.
   Reference artifacts by their canonical `artifact_ref` (path/topic) — never duplicate
@@ -647,12 +647,12 @@ before broad filesystem search. If CodeGraph is unavailable, use FFF
 ## Persistence and Result Contracts
 
 The plugin returns an outer delegation envelope; the agent returns the inner
-phase result. The plugin does not invent the inner result, and the orchestrator
+stage role result. The plugin does not invent the inner result, and the orchestrator
 reads both layers.
 
 | Layer | Status | Important fields |
 |---|---|---|
-| Plugin outer envelope | `delegated`, `blocked`, `error`, `timeout` | `policy_gate`, `validation`, `receipt`, `result`, phase/agent/profile metadata |
+| Plugin outer envelope | `delegated`, `blocked`, `error`, `timeout` | `policy_gate`, `validation`, `receipt`, `result`, stage/role/agent/profile metadata |
 | Agent inner `## ODF Result` | `ok`, `warning`, `blocked`, `failed` | `executive_summary`, `strategy`, `artifacts_saved`, `next_recommended`, `risks`, `odoo_version`, `modules_affected`, `stop_disposition` for stops |
 
 Interpret inner `ok`/`warning` as eligible for the next gate. For `blocked` or
@@ -675,19 +675,19 @@ them.
 - **Stop validation:** IMPLEMENT closes only with a fresh, bound, tier-valid evidence artifact and `validation.status === "verified"`.
 - **VERIFY controls:** risk comes from path/content evidence; the frozen ref and single correction budget are reused; no auto-loop.
 - **Failure disposition:** VERIFY FAIL writes a receipt before the single user question; pending receipts are rediscovered by `/odf-continue`.
-- **Interruptions:** interrupting a running phase aborts the child and settles the attempt as failed; the single transport relaunch (rule 10) applies and a second interruption stops the run. Resume with `/odf-continue <change>`.
+- **Interruptions:** interrupting a running stage role aborts the child and settles the attempt as failed; the single transport relaunch (rule 10) applies and a second interruption stops the run. Resume with `/odf-continue <change>`.
 - **Metrics:** delegation metrics remain bounded, session-hashed, canonical JSONL data consumed by the metrics command.
 
 ## Safety Rules
 
 - Never call `task()` or host `subagent` directly for ODF work; use the ODF delegation path (`odf_delegation_prepare` → `odf_delegation_launch` → `odf_delegation_seal` on V2, otherwise `odf_delegate`).
-- Deduplicate launches by `(phase, fingerprint)` and emit one launch per pair.
+- Deduplicate launches by `(stage role, fingerprint)` and emit one launch per pair.
 - Use a fresh sub-agent context for adversarial review.
 - After wrong `cwd`, accidental mutation, merge recovery, or environment workaround, stop and audit before continuing.
 - After roughly 20 tool calls, five exploratory reads, or two non-mechanical edits without delegation, delegate the remaining work or document the blocker.
 - After a correction attempt or failed disposition, stop; never auto-loop.
 - Empty, whitespace-only, null, cancelled, or empty-object task results are terminal error/blocked outcomes; never retry implicitly.
-- Profile/model selection applies only to SDD phases, not general questions or one-off calls.
+- Profile/model selection applies only to SDD stage roles, not general questions or one-off calls.
 
 ## Database Safety (NON-NEGOTIABLE)
 
@@ -711,14 +711,14 @@ operations.`
 
 ## Dependency Awareness (portability)
 
-At session start (or before the first phase), check which tools are available:
+At session start (or before the first stage), check which tools are available:
 
 - CLI-side: run `node "$PACK/scripts/odf-toolkit.js" deps` for the availability
   matrix (engram/codegraph/git/node/docker/python3) with impact notes.
 - MCP-side (host tools you can see in your own tool list):
   - If the `mem_*` tools are NOT available and the change's `artifact_store` is
     `engram`, STOP and ask the user to install the Engram MCP server or switch
-    the change to `artifact_store: openspec` — do not start a phase that will
+    the change to `artifact_store: openspec` — do not start a stage that will
     fail at persistence time.
   - If `fff_*` is missing, use native search (Read/Glob/Grep) — already the
     documented fallback.
@@ -737,9 +737,9 @@ reinstall the pack (`install.sh` / `/odf-registry-refresh`) and stop.
 - `node "$PACK/scripts/odf-toolkit.js" context --repo <repo> --task "<task>" [--max-files 8]` — CodeGraph explore pack. Call BEFORE code/design/review delegation and pass the compact markdown as reference context; treat it as fresh only if no relevant file was just edited (index sync lag ~1s).
 - `node "$PACK/scripts/odf-toolkit.js" state --root <root> --change <change>` — compact runtime bundle: state, artifact files, receipt, policy gate, validation evidence, parallel join. Use on continuation instead of reading each `.odf` file separately.
 - `node "$PACK/scripts/odf-toolkit.js" evidence --repo <repo>` — git evidence pack (head, branch, dirty, changed numstat, diff --check). Use when preparing IMPLEMENT/VERIFY evidence.
-- `node "$PACK/scripts/odf-toolkit.js" result --result '<envelope-json>' --root <root> --phase <PHASE>` — normalize a phase result (status mapping, `design_closed` coercion, artifact_ref existence check) once, instead of re-interpreting raw results and looping on type mismatches.
-- `node "$PACK/scripts/odf-toolkit.js" resolve --phase <PHASE> --task "<task>"` — preview agent + skills + profile (mirror of `odf_skill_resolve`).
-- `node "$PACK/scripts/odf-toolkit.js" metrics [--days 14] [--json]` — delegation dashboard (calls/status/avg duration per phase) from the plugin JSONL.
+- `node "$PACK/scripts/odf-toolkit.js" result --result '<envelope-json>' --root <root> --stage <STAGE> --role <ROLE>` — normalize a stage role result (status mapping, `design_closed` coercion, artifact_ref existence check) once, instead of re-interpreting raw results and looping on type mismatches.
+- `node "$PACK/scripts/odf-toolkit.js" resolve --stage <STAGE> --role <ROLE> --task "<task>"` — preview agent + skills + profile (mirror of `odf_skill_resolve`).
+- `node "$PACK/scripts/odf-toolkit.js" metrics [--days 14] [--json]` — delegation dashboard (calls/status/avg duration per stage role) from the plugin JSONL.
 - `node "$PACK/scripts/odf-toolkit.js" manual-evidence --change <c> --command "<cmd with -d db>" --database <db> --output-file <path> --root <root>` — record USER-run test evidence for VERIFY (validated, `executor: user-manual`). A VERIFY policy gate must exist first; IMPLEMENT gates intentionally have no `candidate_digest` and must not be deleted or refreshed for this purpose. Use when the user runs the suite themselves; the QA agent then consumes the file instead of re-running.
 - `node "$PACK/scripts/odf-toolkit.js" lookup --source <odoo-src-root> [--repos <src-dir>] --id <xmlid> | --model <model>` — find view XML IDs / models / fields in the LOCAL source (defining file:line). Mandatory before DESIGN/IMPLEMENT writes any ID or `_inherit`.
 - `node "$PACK/scripts/odf-toolkit.js" verify-refs --repo <module-dir> --source <odoo-src-root> [--repos <src-dir>]` — VERIFY gate: every `ref=` and `model=` in the module's XML must resolve; a missing ref is a blocker (exit 1).
@@ -769,7 +769,7 @@ the user intentionally changes scope.
 
 - Simple informational questions stay direct, or use focused exploration when code context is required.
 - Feature work, behavior changes, and implementation requests route through `/odf-new` or `/odf-continue` and the ODF workflow.
-- Do not use direct sub-agent `task()` calls as a shortcut around preflight and phase gates.
+- Do not use direct sub-agent `task()` calls as a shortcut around preflight and stage gates.
 
 ## Orchestrator Output
 
@@ -781,8 +781,8 @@ user sees prose:
 - **status**: ok | warning | blocked | failed
 - **executive_summary**: {1-2 sentence Spanish summary}
 - **change**: {change-name}
-- **phase**: {current phase}
-- **next_phase**: {pending phase}
+- **canonical_stage**: {current stage}
+- **pending_stage**: {pending stage}
 - **artifacts**: {list}
 - **risks**: []
 ```

@@ -270,7 +270,7 @@ describe("candidate-manifest", () => {
       expect(() => buildCandidateManifest(repo, [unsafePath])).toThrow(/external-validation scope/)
       const decision = computePolicyGate({
         change: "unsafe-scope",
-        phase: "VERIFY",
+        stage: "VERIFY",
         workspaceDir: repo,
         registry: registryWithTdd(false),
         externalValidationScope: [unsafePath],
@@ -289,7 +289,7 @@ describe("candidate-manifest", () => {
 
     const first = computePolicyGate({
       change: "scope-persistence",
-      phase: "VERIFY",
+      stage: "VERIFY",
       workspaceDir: repo,
       registry: registryWithTdd(false),
       externalValidationScope: ["./workflow/verify.yaml"],
@@ -302,7 +302,7 @@ describe("candidate-manifest", () => {
 
     const reused = computePolicyGate({
       change: "scope-persistence",
-      phase: "VERIFY",
+      stage: "VERIFY",
       workspaceDir: repo,
       registry: registryWithTdd(false),
       externalValidationScope: ["workflow/verify.yaml"],
@@ -319,7 +319,7 @@ describe("candidate-manifest", () => {
 
     const first = computePolicyGate({
       change: "reuse-persisted-declarations",
-      phase: "VERIFY",
+      stage: "VERIFY",
       workspaceDir: repo,
       registry: registryWithTdd(false),
       externalValidationScope: ["./workflow.md"],
@@ -327,7 +327,7 @@ describe("candidate-manifest", () => {
     })
     const reused = computePolicyGate({
       change: "reuse-persisted-declarations",
-      phase: "VERIFY",
+      stage: "VERIFY",
       workspaceDir: repo,
       registry: registryWithTdd(false),
     })
@@ -344,14 +344,14 @@ describe("candidate-manifest", () => {
       commitFile(repo, ".gitignore", "probe.py\n")
       await fs.writeFile(path.join(repo, "probe.py"), "probe\n", "utf8")
       const change = `malformed-persisted-${kind}`
-      const first = computePolicyGate({ change, phase: "VERIFY", workspaceDir: repo, registry: registryWithTdd(false) })
+      const first = computePolicyGate({ change, stage: "VERIFY", workspaceDir: repo, registry: registryWithTdd(false) })
       const gatePath = path.join(repo, ".odf", `policy-gate-${change}.json`)
       await fs.writeFile(path.join(repo, ".odf", `policy-gate-${change}.json`), JSON.stringify({
         ...first,
         ...(kind === "scope" ? { external_validation_scope: ["../escape"] } : { external_validation_subjects: ["../escape"] }),
       }), "utf8")
 
-      const blocked = computePolicyGate({ change, phase: "VERIFY", workspaceDir: repo, registry: registryWithTdd(false) })
+      const blocked = computePolicyGate({ change, stage: "VERIFY", workspaceDir: repo, registry: registryWithTdd(false) })
       expect(blocked).toMatchObject({
         gate: "block",
         reason: `invalid persisted external-validation ${kind} — policy gate must be repaired before reuse`,
@@ -375,7 +375,7 @@ describe("candidate-manifest", () => {
 
     computePolicyGate({
       change,
-      phase: "VERIFY",
+      stage: "VERIFY",
       workspaceDir: repo,
       registry: registryWithTdd(false),
       externalValidationScope: ["./workflow-old.md"],
@@ -383,7 +383,7 @@ describe("candidate-manifest", () => {
     })
     const replacement = computePolicyGate({
       change,
-      phase: "VERIFY",
+      stage: "VERIFY",
       workspaceDir: repo,
       registry: registryWithTdd(false),
       externalValidationScope: ["./workflow-new.md"],
@@ -417,7 +417,7 @@ describe("candidate-manifest", () => {
 
     const gate = computePolicyGate({
       change: "scoped-untracked-lines",
-      phase: "VERIFY",
+      stage: "VERIFY",
       workspaceDir: repo,
       registry: registryWithTdd(false),
       externalValidationScope: ["workflow.md"],
@@ -440,7 +440,7 @@ describe("candidate-manifest", () => {
     const change = "ignored-subjects"
     const gate = computePolicyGate({
       change,
-      phase: "VERIFY",
+      stage: "VERIFY",
       workspaceDir: repo,
       registry: registryWithTdd(false),
       externalValidationSubjects: ["./probe"],
@@ -480,7 +480,7 @@ describe("candidate-manifest", () => {
     const change = "subject-evidence-shape"
     const gate = computePolicyGate({
       change,
-      phase: "VERIFY",
+      stage: "VERIFY",
       workspaceDir: repo,
       registry: registryWithTdd(false),
       externalValidationSubjects: ["probe.py"],
@@ -524,7 +524,7 @@ describe("candidate-manifest", () => {
     const change = "subject-evidence-mismatch"
     const gate = computePolicyGate({
       change,
-      phase: "VERIFY",
+      stage: "VERIFY",
       workspaceDir: repo,
       registry: registryWithTdd(false),
       externalValidationSubjects: ["probe.py"],
@@ -560,7 +560,7 @@ describe("candidate-manifest", () => {
     initGitRepo(repo)
     commitFile(repo, "base.txt")
     const change = "ordinary-evidence"
-    const gate = computePolicyGate({ change, phase: "VERIFY", workspaceDir: repo, registry: registryWithTdd(false) })
+    const gate = computePolicyGate({ change, stage: "VERIFY", workspaceDir: repo, registry: registryWithTdd(false) })
     const now = new Date("2026-09-20T00:00:00.000Z")
     await fs.writeFile(
       path.join(repo, ".odf", `validation-evidence-${change}.json`),
@@ -589,7 +589,7 @@ describe("candidate-manifest", () => {
     const change = "scoped-digest"
     const gate = computePolicyGate({
       change,
-      phase: "VERIFY",
+      stage: "VERIFY",
       workspaceDir: repo,
       registry: registryWithTdd(false),
       externalValidationScope: ["workflow.md"],
@@ -599,7 +599,8 @@ describe("candidate-manifest", () => {
 
     const receipt: ODFReceipt = {
       change,
-      phase: "VERIFY",
+      stage: "VERIFY",
+      role: null,
       status: "blocked",
       cause: "validation-failed",
       evidence: null,
@@ -658,21 +659,21 @@ describe("candidate-manifest", () => {
     await fs.mkdir(path.dirname(csv), { recursive: true })
     await fs.writeFile(csv, "id,name\n", "utf8")
 
-    const first = computePolicyGate({ change: "gate-sec", phase: "VERIFY", workspaceDir: repo, registry: registryWithTdd(false) })
+    const first = computePolicyGate({ change: "gate-sec", stage: "VERIFY", workspaceDir: repo, registry: registryWithTdd(false) })
     expect(first.changed_paths).toContain("security/ir.model.access.csv")
     expect(first.risk_tier).toBe("HIGH")
     expect(first.base_head).toBeTruthy()
     expect(first.candidate_digest).toBeTruthy()
 
     await fs.appendFile(csv, "extra,row\n", "utf8")
-    const second = computePolicyGate({ change: "gate-sec", phase: "VERIFY", workspaceDir: repo, registry: registryWithTdd(false) })
+    const second = computePolicyGate({ change: "gate-sec", stage: "VERIFY", workspaceDir: repo, registry: registryWithTdd(false) })
     expect(second.candidate_digest).not.toBe(first.candidate_digest)
     expect(second.changed_paths).toContain("security/ir.model.access.csv")
     expect(second.risk_tier).toBe("HIGH")
   })
 
   it("integration: VERIFY without git blocks instead of failing open (candidate not reproducible)", () => {
-    const d = computePolicyGate({ change: "no-git", phase: "VERIFY", workspaceDir: tmp, registry: registryWithTdd(true) })
+    const d = computePolicyGate({ change: "no-git", stage: "VERIFY", workspaceDir: tmp, registry: registryWithTdd(true) })
     expect(d.base_head).toBeNull()
     expect(d.candidate_digest).toBeNull()
     expect(d.gate).toBe("block")

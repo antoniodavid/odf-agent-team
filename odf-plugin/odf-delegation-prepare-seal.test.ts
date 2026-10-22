@@ -138,7 +138,7 @@ describe("native prepare/seal delegation", () => {
   const prepareDesign = async (change = "native-design", sessionId = "parent-session") => {
     const { odf_delegation_prepare } = await tools()
     return JSON.parse(await odf_delegation_prepare.execute({
-      phase: "DESIGN",
+      stage: "PLAN", role: "DESIGN",
       change,
       prompt: "Design the requested feature",
       context_files: [],
@@ -220,10 +220,10 @@ describe("native prepare/seal delegation", () => {
   it("prepares a composite delegation with a bounded token and no session launch", async () => {
     const output = await prepareDesign()
 
-    expect(output).toMatchObject({ status: "prepared", change: "native-design", phase: "DESIGN" })
+    expect(output).toMatchObject({ status: "prepared", change: "native-design", stage: "PLAN", role: "DESIGN" })
     expect(output.token).toMatch(/^odf-tok-[a-f0-9]{32}$/)
     expect(output.delegation.agent).toBe(output.agent)
-    expect(output.delegation.description).toContain("ODF DESIGN →")
+    expect(output.delegation.description).toContain("ODF PLAN DESIGN →")
     expect(output.delegation.description).toContain("native-design")
     expect(output.delegation.prompt).toContain("<!-- ODF-DELEGATION ")
     expect(output.delegation.prompt).toContain("Design the requested feature")
@@ -332,7 +332,7 @@ describe("native prepare/seal delegation", () => {
     await writeImplementState(workspace, change)
     const { odf_delegation_prepare, odf_delegation_launch } = await tools(workspace)
     const prepared = JSON.parse(await odf_delegation_prepare.execute({
-      phase: "IMPLEMENT",
+      stage: "BUILD",
       change,
       prompt: "Implement the planned change",
       context_files: [],
@@ -446,7 +446,7 @@ describe("native prepare/seal delegation", () => {
   it("requires the selected store for native PROPOSE", async () => {
     const { odf_delegation_prepare } = await tools()
     const result = JSON.parse(await odf_delegation_prepare.execute({
-      phase: "PROPOSE",
+      stage: "DECIDE", role: "PROPOSE",
       change: "native-propose-no-store",
       prompt: "Draft the proposal",
     }, { sessionID: "prepare-propose" } as any) as string)
@@ -457,7 +457,7 @@ describe("native prepare/seal delegation", () => {
   it("returns a bounded blocked envelope when an explicit agent is ineligible", async () => {
     const { odf_delegation_prepare } = await tools()
     const result = JSON.parse(await odf_delegation_prepare.execute({
-      phase: "PROPOSE",
+      stage: "DECIDE", role: "PROPOSE",
       change: "native-propose-ineligible-agent",
       prompt: "Draft the proposal",
       agent: "odoo_backend_engineer",
@@ -467,7 +467,8 @@ describe("native prepare/seal delegation", () => {
     expect(result).toMatchObject({
       status: "blocked",
       reason: "agent-phase-ineligible",
-      phase: "PROPOSE",
+      stage: "DECIDE",
+      role: "PROPOSE",
       agent: null,
       task_api_source: "subagent",
     })
@@ -478,7 +479,7 @@ describe("native prepare/seal delegation", () => {
     const changeDir = await writeProposalState(tempHome, change)
     const { odf_delegation_prepare, odf_proposal_write, odf_delegation_seal } = await tools()
     const prepared = JSON.parse(await odf_delegation_prepare.execute({
-      phase: "PROPOSE",
+      stage: "DECIDE", role: "PROPOSE",
       change,
       prompt: "Draft the approved proposal",
       artifact_store: "openspec",
@@ -536,10 +537,10 @@ describe("native prepare/seal delegation", () => {
       session_id: "ses_child",
     }, { sessionID: "parent-session", [ODF_V2_SESSION]: session } as any) as string)
 
-    expect(output).toMatchObject({ status: "delegated", phase: "PROPOSE" })
+    expect(output).toMatchObject({ status: "delegated", stage: "DECIDE", role: "PROPOSE" })
     const sealed = readDelegationToken(tempHome, change, prepared.token)
     expect(sealed.record).toMatchObject({ status: "sealed", sealed_session_id: "ses_child" })
-    expect(JSON.parse(sealed.record!.sealed_result!)).toMatchObject({ status: "delegated", phase: "PROPOSE" })
+    expect(JSON.parse(sealed.record!.sealed_result!)).toMatchObject({ status: "delegated", stage: "DECIDE", role: "PROPOSE" })
 
     const replay = await odf_delegation_seal.execute({
       token: prepared.token,
@@ -555,7 +556,8 @@ describe("native prepare/seal delegation", () => {
     const changeDir = await writeProposalState(tempHome, change)
     const expired = createDelegationTokenRecord({
       change,
-      phase: "PROPOSE",
+      stage: "DECIDE",
+      role: "PROPOSE",
       agent: "odoo_proposer",
       artifact_store: "openspec",
       workspace: tempHome,
@@ -583,7 +585,7 @@ describe("native prepare/seal delegation", () => {
     await writeProposalState(tempHome, change)
     const { odf_delegation_prepare, odf_delegation_seal } = await tools()
     const prepared = JSON.parse(await odf_delegation_prepare.execute({
-      phase: "PROPOSE",
+      stage: "DECIDE", role: "PROPOSE",
       change,
       prompt: "Draft the approved proposal",
       artifact_store: "openspec",
@@ -609,7 +611,7 @@ describe("native prepare/seal delegation", () => {
   it("blocks a proof-backed prepare without store, proof or attempt", async () => {
     const { odf_delegation_prepare } = await tools()
     const base = {
-      phase: "IMPLEMENT",
+      stage: "BUILD",
       change: "native-implement",
       prompt: "Implement the requested feature",
       context_files: [],
@@ -632,7 +634,7 @@ describe("native prepare/seal delegation", () => {
     await writeImplementState(tempHome, change)
 
     const output = JSON.parse(await odf_delegation_prepare.execute({
-      phase: "IMPLEMENT",
+      stage: "BUILD",
       change,
       prompt: "Run DROP DATABASE odf_test_db;",
       context_files: [],
@@ -651,7 +653,7 @@ describe("native prepare/seal delegation", () => {
     const change = "native-implement-stale-proof"
     await writeImplementState(tempHome, change)
     const output = JSON.parse(await odf_delegation_prepare.execute({
-      phase: "IMPLEMENT",
+      stage: "BUILD",
       change,
       prompt: "Implement the planned change",
       context_files: [],
@@ -676,7 +678,7 @@ describe("native prepare/seal delegation", () => {
     }), "utf8")
 
     const output = JSON.parse(await odf_delegation_prepare.execute({
-      phase: "IMPLEMENT",
+      stage: "BUILD",
       change,
       prompt: "Implement the planned change",
       context_files: [],
@@ -699,7 +701,7 @@ describe("native prepare/seal delegation", () => {
     await writeImplementState(tempHome, change)
 
     const prepared = JSON.parse(await odf_delegation_prepare.execute({
-      phase: "IMPLEMENT",
+      stage: "BUILD",
       change,
       prompt: "Implement the planned change\n\nAcceptance criteria:\n- Preserve approved scope.\n- Add focused tests.",
       context_files: [],
@@ -708,7 +710,7 @@ describe("native prepare/seal delegation", () => {
       workflow_advance: implementProof(),
     }, { sessionID: parentSessionId } as any) as string)
 
-    expect(prepared).toMatchObject({ status: "prepared", change, phase: "IMPLEMENT", attempt_id: attemptId })
+    expect(prepared).toMatchObject({ status: "prepared", change, stage: "BUILD", attempt_id: attemptId })
     expect(prepared.policy_gate).toMatchObject({ gate: "allow" })
     await markLaunched(tempHome, change, prepared.token, childSessionId, parentSessionId)
 
@@ -763,7 +765,7 @@ describe("native prepare/seal delegation", () => {
     const childSessionId = "aborted-child"
     await writeImplementState(tempHome, change)
     const prepared = JSON.parse(await odf_delegation_prepare.execute({
-      phase: "IMPLEMENT",
+      stage: "BUILD",
       change,
       prompt: "Implement the planned change",
       context_files: [],
@@ -844,7 +846,7 @@ describe("native prepare/seal delegation", () => {
     const childSessionId = "expired-child"
     await writeImplementState(tempHome, change)
     const prepared = JSON.parse(await odf_delegation_prepare.execute({
-      phase: "IMPLEMENT",
+      stage: "BUILD",
       change,
       prompt: "Implement the planned change",
       context_files: [],
@@ -950,7 +952,7 @@ describe("native prepare/seal delegation", () => {
     const childSessionId = "expired-child"
     await writeImplementState(tempHome, change)
     const prepared = JSON.parse(await odf_delegation_prepare.execute({
-      phase: "IMPLEMENT",
+      stage: "BUILD",
       change,
       prompt: "Implement the planned change",
       context_files: [],
@@ -1014,7 +1016,7 @@ describe("native prepare/seal delegation", () => {
     const attemptId = "invalid-result-attempt"
     await writeImplementState(tempHome, change)
     const prepared = JSON.parse(await odf_delegation_prepare.execute({
-      phase: "IMPLEMENT",
+      stage: "BUILD",
       change,
       prompt: "Implement the planned change",
       context_files: [],
@@ -1048,7 +1050,7 @@ describe("native prepare/seal delegation", () => {
     const change = "native-implement-idle-recovery"
     await writeImplementState(tempHome, change)
     const prepared = JSON.parse(await odf_delegation_prepare.execute({
-      phase: "IMPLEMENT",
+      stage: "BUILD",
       change,
       prompt: "Implement the planned change",
       context_files: [],
@@ -1098,7 +1100,7 @@ describe("native prepare/seal delegation", () => {
     const attemptId = "native-wrapped-context-1"
     await writeImplementState(tempHome, change)
     const prepared = JSON.parse(await odf_delegation_prepare.execute({
-      phase: "IMPLEMENT",
+      stage: "BUILD",
       change,
       prompt: "Implement the planned change",
       context_files: [],
@@ -1154,7 +1156,7 @@ describe("native prepare/seal delegation", () => {
     const attemptId = "native-unreadable-child-1"
     await writeImplementState(tempHome, change)
     const prepared = JSON.parse(await odf_delegation_prepare.execute({
-      phase: "IMPLEMENT",
+      stage: "BUILD",
       change,
       prompt: "Implement the planned change",
       context_files: [],
@@ -1202,7 +1204,7 @@ describe("native prepare/seal delegation", () => {
     const attemptId = "native-aborted-child-1"
     await writeImplementState(tempHome, change)
     const prepared = JSON.parse(await odf_delegation_prepare.execute({
-      phase: "IMPLEMENT",
+      stage: "BUILD",
       change,
       prompt: "Implement the planned change",
       context_files: [],
@@ -1256,7 +1258,7 @@ describe("native prepare/seal delegation", () => {
     const attemptId = "native-no-result-child-1"
     await writeImplementState(tempHome, change)
     const prepared = JSON.parse(await odf_delegation_prepare.execute({
-      phase: "IMPLEMENT",
+      stage: "BUILD",
       change,
       prompt: "Implement the planned change",
       context_files: [],
@@ -1302,7 +1304,7 @@ describe("native prepare/seal delegation", () => {
     await writeImplementState(tempHome, change)
 
     const prepared = JSON.parse(await odf_delegation_prepare.execute({
-      phase: "IMPLEMENT",
+      stage: "BUILD",
       change,
       prompt: "Implement the planned change",
       context_files: [],
@@ -1349,7 +1351,8 @@ describe("native prepare/seal delegation", () => {
 
     expect(output).toMatchObject({
       status: "delegated",
-      phase: "DESIGN",
+      stage: "PLAN",
+      role: "DESIGN",
       agent: prepared.agent,
       task_api_source: "sdk.v2",
       task_session_id: "ses_child",
@@ -1405,7 +1408,7 @@ describe("native prepare/seal delegation", () => {
 
     const { odf_delegation_prepare, odf_delegation_seal, odf_workflow_status } = await tools()
     const prepared = JSON.parse(await odf_delegation_prepare.execute({
-      phase: "ASSESS",
+      stage: "DECIDE", role: "ASSESS",
       change,
       prompt: "Assess the approved requirements",
       context_files: [],
@@ -1476,7 +1479,8 @@ describe("native prepare/seal delegation", () => {
 
     const expired = createDelegationTokenRecord({
       change: "native-design",
-      phase: "DESIGN",
+      stage: "PLAN",
+      role: "DESIGN",
       agent: prepared.agent,
       workspace: tempHome,
       prompt: prepared.delegation.prompt,
@@ -1598,7 +1602,7 @@ describe("native prepare/seal delegation", () => {
 
   it("keeps full envelope parity with odf_delegate for a DESIGN success", async () => {
     const { delegateRoot, sealRoot } = await parityRoots(writeDesignBoundaryFixture)
-    const args = { phase: "DESIGN", change: "parity-change", prompt: "Design the requested feature", context_files: [] }
+    const args = { stage: "PLAN", role: "DESIGN", change: "parity-change", prompt: "Design the requested feature", context_files: [] }
     const childResult = { status: "ok", design_closed: true, executive_summary: "closed" }
 
     const delegateEnv = await runDelegate(delegateRoot, args, childResult)
@@ -1610,7 +1614,7 @@ describe("native prepare/seal delegation", () => {
 
   it("keeps reason and result parity when DESIGN is not closed", async () => {
     const { delegateRoot, sealRoot } = await parityRoots(writeDesignBoundaryFixture)
-    const args = { phase: "DESIGN", change: "parity-change", prompt: "Design the requested feature", context_files: [] }
+    const args = { stage: "PLAN", role: "DESIGN", change: "parity-change", prompt: "Design the requested feature", context_files: [] }
     const childResult = { status: "ok", design_closed: false }
 
     const delegateEnv = await runDelegate(delegateRoot, args, childResult)
@@ -1624,7 +1628,8 @@ describe("native prepare/seal delegation", () => {
   it("keeps reason parity when source-authority evidence is missing", async () => {
     const { delegateRoot, sealRoot } = await parityRoots(writeDesignBoundaryFixture)
     const args = {
-      phase: "DESIGN",
+      stage: "PLAN",
+      role: "DESIGN",
       change: "parity-change",
       prompt: "Design view inheritance with inherit_id for the target view",
       context_files: [],
@@ -1646,7 +1651,7 @@ describe("native prepare/seal delegation", () => {
       await writeValidationEvidence(root, change)
     })
     const args = {
-      phase: "IMPLEMENT",
+      stage: "BUILD",
       change: "parity-change",
       prompt: "Implement the planned change",
       context_files: [],
@@ -1679,7 +1684,7 @@ describe("native prepare/seal delegation", () => {
   it("keeps reason parity when the IMPLEMENT validation evidence is missing", async () => {
     const { delegateRoot, sealRoot } = await parityRoots(writeImplementState)
     const args = {
-      phase: "IMPLEMENT",
+      stage: "BUILD",
       change: "parity-change",
       prompt: "Implement the planned change",
       context_files: [],
@@ -1703,7 +1708,7 @@ describe("native prepare/seal delegation", () => {
 
   it("keeps envelope parity when the inner phase result failed", async () => {
     const { delegateRoot, sealRoot } = await parityRoots(writeDesignBoundaryFixture)
-    const args = { phase: "DESIGN", change: "parity-change", prompt: "Design the requested feature", context_files: [] }
+    const args = { stage: "PLAN", role: "DESIGN", change: "parity-change", prompt: "Design the requested feature", context_files: [] }
     const childResult = { status: "failed", executive_summary: "could not close" }
 
     const delegateEnv = await runDelegate(delegateRoot, args, childResult)
@@ -1798,7 +1803,7 @@ describe("native prepare/seal delegation", () => {
 
     const prepared = JSON.parse(await odf_parallel_prepare.execute({
       work_type: "cross-domain",
-      phase: "IMPLEMENT",
+      stage: "BUILD",
       change,
       artifact_store: "openspec",
       workflow_advance: parallelWorkflowAdvance(),
@@ -1992,7 +1997,7 @@ describe("native prepare/seal delegation", () => {
     const { odf_parallel_prepare, odf_parallel_seal } = await tools(root)
     const prepared = JSON.parse(await odf_parallel_prepare.execute({
       work_type: "cross-domain",
-      phase: "IMPLEMENT",
+      stage: "BUILD",
       change,
       artifact_store: "openspec",
       workflow_advance: parallelWorkflowAdvance(),
@@ -2045,7 +2050,7 @@ describe("native prepare/seal delegation", () => {
     const { odf_parallel_prepare, odf_parallel_seal } = await tools(root)
     const prepared = JSON.parse(await odf_parallel_prepare.execute({
       work_type: "cross-domain",
-      phase: "IMPLEMENT",
+      stage: "BUILD",
       change,
       artifact_store: "openspec",
       workflow_advance: parallelWorkflowAdvance(),
@@ -2074,7 +2079,7 @@ describe("native prepare/seal delegation", () => {
     const { odf_parallel_prepare } = await tools()
     const base = {
       work_type: "cross-domain",
-      phase: "IMPLEMENT",
+      stage: "BUILD",
       change: "native-parallel-validation",
       artifact_store: "openspec",
       workflow_advance: parallelWorkflowAdvance(),

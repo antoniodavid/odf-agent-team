@@ -12,21 +12,23 @@ ODF runs the thin-spine workflow:
 health/preflight → one resolved route → only its required stages → archive when applicable
 ```
 
-Legacy phases remain as compatible adapters. This is the single vocabulary table:
+The delegation API accepts the canonical stage plus a role only for the two
+composite stages. This is the single vocabulary table:
 
-| Canonical stage | Legacy phases | Applies when | Phase artifacts |
-|-----------------|---------------|--------------|-----------------|
-| `DECIDE` | `PROPOSE` + `ASSESS` | routes that include DECIDE; terminal for standard config | canonical `decision`, or legacy `propose` + `assess`; `expectations` when delegated |
-| `PLAN` | `QA-PLAN` + `DESIGN` | only when the resolved route or risk requires formal planning | canonical `plan`, or legacy `design`; `qa-plan` when routed |
-| `BUILD` | `IMPLEMENT` | the route's required plan is closed | canonical `build`/`implement-progress`, with documented legacy progress aliases |
-| `VERIFY` | `VERIFY` | verification is required | `verify-report` |
-| `FIX` | `FIX` | bugfix route (terminal FIX, then BUILD/VERIFY) | `fix` |
-| `EXPLORE` | `EXPLORE` | investigation | `explore` |
+| Canonical stage | Roles | Applies when | Role artifacts |
+|-----------------|-------|--------------|----------------|
+| `DECIDE` | `PROPOSE` + `ASSESS` | routes that include DECIDE; terminal for standard config | canonical `decision`, or `propose` + `assess`; `expectations` when delegated |
+| `PLAN` | `QA-PLAN` + `DESIGN` | only when the resolved route or risk requires formal planning | canonical `plan`, or `design`; `qa-plan` when routed |
+| `BUILD` | — | the route's required plan is closed | canonical `build`/`implement-progress` |
+| `VERIFY` | — | verification is required | `verify-report` |
+| `FIX` | — | bugfix route (terminal FIX, then BUILD/VERIFY) | `fix` |
+| `EXPLORE` | — | investigation | `explore` |
 
-Rules: `state.yaml` (or `odf/{change}/state`) persists the canonical stage; legacy
-names are adapter-facing (commands, prompts, agent names) and are normalized by
-`odf_workflow_status`. A legacy name in a result or prompt is an alias, never a
-separate stage — when both appear, the canonical stage wins.
+Rules: `state.yaml` (or `odf/{change}/state`) persists the canonical stage. A
+composite stage requires one of its roles; single-role stages reject a role.
+Role identifiers still name the artifact and the agent capability inside the
+registry, but they are not a separate workflow stage and are never accepted as
+a top-level delegation stage.
 
 The executable artifact names, aliases, route completion alternatives, and
 OpenSpec discovery stems are centralized in `odf-plugin/odf-artifact-contract.ts`;
@@ -34,10 +36,10 @@ the store values and their supported subsets live in `odf-plugin/odf-artifact-st
 `odf_workflow_status` exposes a typed
 `next_handoff` built from that route, selected store, and persisted artifact
 references; the orchestrator forwards it unchanged instead of reconstructing
-the next phase's inputs from result prose.
+the next stage role's inputs from result prose.
 
 The user sees one route selected by `work_type`; triage level (`micro`,
-`standard`, `full`), canonical stages, and legacy phases are internal mappings,
+`standard`, `full`), canonical stages, and stage roles are internal mappings,
 not extra user-facing stages. The optional shadow prediction is advisory and
 does not change execution.
 
@@ -175,7 +177,7 @@ working unchanged.
    plugin uses a phase-aware canonical variant).
 3. Matches up to 5 relevant skills.
 4. Injects compact rules and the active SDD profile into the prompt.
-5. Enforces the authoritative TDD Policy Gate for IMPLEMENT/VERIFY, the
+5. Enforces the authoritative TDD Policy Gate for BUILD/VERIFY, the
    stop-validation evidence seal, `design_closed` coercion, and claimed
    `artifact_ref` existence.
 6. Uses the explicit native task adapter when the host exposes `toolCtx.task`;
@@ -281,7 +283,7 @@ Regression runner. It:
 3. If preflight is missing/invalid, the orchestrator asks preflight questions.
 4. Preflight record is written to `openspec/changes/{change}/state.yaml`.
 5. Orchestrator resolves the thin-spine route for the work type.
-6. It runs DECIDE through the compatible PROPOSE/ASSESS adapters via `odf_delegate`.
+6. It runs DECIDE through its PROPOSE and ASSESS roles via `odf_delegate`.
 7. Plugin resolves agent/skills, enforces gates, selects the native adapter or
    SDK child-session transport, and returns the result.
 8. Orchestrator updates state and shows an approval gate.
@@ -308,7 +310,7 @@ Regression runner. It:
 ### `/odf-explore`
 
 1. `command/odf-explore.md` parses topic, `--version`, and `--module`.
-2. Orchestrator delegates a short research task via `odf_delegate(phase=EXPLORE)`.
+2. Orchestrator delegates a short research task via `odf_delegate(stage="EXPLORE")`.
 3. Returns an exploration report and suggests `/odf-new` if needed.
 
 ## State Shape

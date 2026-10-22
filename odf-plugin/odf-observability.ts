@@ -2,6 +2,8 @@ import * as fsSync from "node:fs"
 import * as path from "node:path"
 import { getMetricsDir, type TelemetrySpanKind } from "./odf-delegation-metrics.js"
 import type { DelegationTokenDiagnostic, DelegationTokenDiagnosticsReadResult } from "./odf-delegation-tokens.js"
+import { PHASE_STAGE } from "./odf-delegation-contract.js"
+import type { LegacyPhase } from "./odf-workflow.js"
 import type { ParallelJoinArtifact } from "./odf-parallel-join.js"
 import type { WorkflowStatus } from "./odf-workflow-status.js"
 
@@ -57,7 +59,7 @@ export interface ObservabilityAttemptRecord {
   attempt_id: string
   branch_id?: string
   change: string
-  phase: "IMPLEMENT" | "VERIFY"
+  stage: "BUILD" | "VERIFY"
   next_stage: "BUILD" | "VERIFY"
   status: "running" | "completed" | "failed"
   started_at: string
@@ -70,7 +72,6 @@ export interface ObservabilityAttemptRecord {
 export interface ObservabilityAttemptSummary {
   attempt_id: string
   branch_id?: string
-  phase: "IMPLEMENT" | "VERIFY"
   stage: "BUILD" | "VERIFY"
   status: "running"
   started_at: string | null
@@ -133,7 +134,7 @@ export interface ObservabilityTimeline {
 }
 
 export interface DelegationStatusSummary {
-  phase: string
+  role: string | null
   agent: string
   attempt_id?: string
   branch_id?: string
@@ -380,17 +381,6 @@ function eventTimestamp(event: ObservabilityEvent): number {
   return event.timestamp ? Date.parse(event.timestamp) : Number.POSITIVE_INFINITY
 }
 
-const PHASE_STAGE: Record<DelegationTokenDiagnostic["phase"], keyof WorkflowStatus["artifact_refs"]> = {
-  PROPOSE: "DECIDE",
-  ASSESS: "DECIDE",
-  "QA-PLAN": "PLAN",
-  DESIGN: "PLAN",
-  IMPLEMENT: "BUILD",
-  VERIFY: "VERIFY",
-  EXPLORE: "EXPLORE",
-  FIX: "FIX",
-}
-
 function safeArtifactReference(value: string): string | null {
   if (!value || value.length > 256 || /[\0\r\n]/.test(value)) return null
   if (value.startsWith("/") || value.startsWith("\\") || value.startsWith("~") || /^[A-Za-z][A-Za-z0-9+.-]*:/.test(value)) return null
@@ -445,7 +435,7 @@ function handoffDigestCheck(delegation: DelegationTokenDiagnostic): HandoffDiges
 
 function contextualizeEvent(event: ObservabilityEvent, change: string, workflow: WorkflowStatus): ObservabilityEvent {
   const stageCandidate = event.stage || (event.phase && event.phase in PHASE_STAGE
-    ? PHASE_STAGE[event.phase as DelegationTokenDiagnostic["phase"]]
+    ? PHASE_STAGE[event.phase as LegacyPhase]
     : null)
   const stage = stageCandidate && Object.prototype.hasOwnProperty.call(workflow.artifact_refs, stageCandidate)
     ? stageCandidate as keyof WorkflowStatus["artifact_refs"]
@@ -462,7 +452,7 @@ function delegationStatusSummary(
   delegation: DelegationTokenDiagnostic,
   workflow: WorkflowStatus,
 ): DelegationStatusSummary {
-  const stage = PHASE_STAGE[delegation.phase]
+  const stage = delegation.stage as keyof WorkflowStatus["artifact_refs"]
   const stageArtifacts = (workflow.artifact_refs[stage] || [])
     .map(safeArtifactReference)
     .filter((reference): reference is string => reference !== null)
@@ -494,7 +484,7 @@ function delegationStatusSummary(
         : envelopeStatus === "error" || envelopeStatus === "timeout"
           ? "failed"
           : "unknown"
-  const requiresCanonicalCommit = delegation.phase === "IMPLEMENT" || delegation.phase === "VERIFY"
+  const requiresCanonicalCommit = delegation.stage === "BUILD" || delegation.stage === "VERIFY"
   const commitStatus = delegation.workflow_commit?.status
   const canonicalCommit: DelegationStatusSummary["canonical_commit"] = !requiresCanonicalCommit
     ? { status: "not-required", stage: delegation.workflow_commit?.canonical_stage || null, reason: delegation.workflow_commit?.reason || null }
@@ -529,7 +519,7 @@ function delegationStatusSummary(
   }
 
   return {
-    phase: delegation.phase,
+    role: delegation.role,
     agent: delegation.agent,
     ...(delegation.attempt_id ? { attempt_id: delegation.attempt_id } : {}),
     ...(delegation.branch_id ? { branch_id: delegation.branch_id } : {}),
@@ -610,7 +600,6 @@ export function buildObservabilityTimeline(input: BuildObservabilityInput): Obse
       source: "attempt-ledger",
       timestamp: safeTimestamp(record.updated_at),
       kind: "attempt",
-      phase: record.phase,
       stage: record.next_stage,
       attempt_id: record.attempt_id,
       ...(record.branch_id ? { branch_id: record.branch_id } : {}),
@@ -626,7 +615,6 @@ export function buildObservabilityTimeline(input: BuildObservabilityInput): Obse
     .map(record => ({
       attempt_id: record.attempt_id,
       ...(record.branch_id ? { branch_id: record.branch_id } : {}),
-      phase: record.phase,
       stage: record.next_stage,
       status: "running" as const,
       started_at: safeTimestamp(record.started_at),
@@ -654,7 +642,6 @@ export function buildObservabilityTimeline(input: BuildObservabilityInput): Obse
       source: "parallel-join",
       timestamp,
       kind: "join",
-      phase: "IMPLEMENT",
       stage: "BUILD",
       status: join.status,
       reason: `${join.completed}/${join.expected} branches complete; ${join.failed} failed; validation ${join.validation_verified ? "verified" : "pending"}`,
@@ -680,7 +667,8 @@ export function buildObservabilityTimeline(input: BuildObservabilityInput): Obse
   const delegationDiagnostics = input.delegation_tokens || { records: [], warnings: [], records_read: 0 }
   for (const [index, delegation] of delegationDiagnostics.records.entries()) {
     const common = {
-      phase: delegation.phase,
+      stage: delegation.stage,
+      role: delegation.role,
       agent: delegation.agent,
       ...(delegation.attempt_id ? { attempt_id: delegation.attempt_id } : {}),
       ...(delegation.branch_id ? { branch_id: delegation.branch_id } : {}),
@@ -770,7 +758,7 @@ export function buildObservabilityTimeline(input: BuildObservabilityInput): Obse
         ...(delegation.workflow_commit.reason ? { reason: delegation.workflow_commit.reason } : {}),
       }, index, 5)
       if (!commitAt) causalGaps.push("workflow-commit-timestamp-unavailable")
-    } else if ((delegation.phase === "IMPLEMENT" || delegation.phase === "VERIFY") && delegation.seal_result) {
+    } else if ((delegation.stage === "BUILD" || delegation.stage === "VERIFY") && delegation.seal_result) {
       causalGaps.push("workflow-commit-not-recorded")
     }
   }

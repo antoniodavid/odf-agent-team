@@ -279,7 +279,8 @@ describe("ODF online feedback submission", () => {
     recordMetrics({
       timestamp: now.toISOString(),
       session_id: sessionID,
-      phase: "VERIFY",
+      stage: "VERIFY",
+      role: null,
       agent: "odoo_qa_engineer",
       skills_injected: [],
       skill_resolution: "none",

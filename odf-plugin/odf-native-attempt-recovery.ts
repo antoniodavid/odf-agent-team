@@ -53,7 +53,7 @@ export interface NativePretoolSafetyEvidenceInput {
   parentSessionId: string
   attemptId: string
   change: string
-  phase: "IMPLEMENT" | "VERIFY"
+  stage: "BUILD" | "VERIFY"
   startedAt: string
 }
 
@@ -302,7 +302,7 @@ function exactPrepareSourceBinding(code: string, input: NativePretoolSafetyEvide
   return exactSourceToolBinding(code, "odf_delegation_prepare", new Map([
     ["attempt_id", input.attemptId],
     ["change", input.change],
-    ["phase", input.phase],
+    ["stage", input.stage],
   ]))
 }
 
@@ -321,7 +321,7 @@ function exactDirectStringFields(value: unknown, expected: Map<string, string>):
 
 function exactDirectBinding(args: unknown, input: NativePretoolSafetyEvidenceInput): boolean {
   if (!isRecord(args)) return false
-  return args.attempt_id === input.attemptId && args.change === input.change && args.phase === input.phase
+  return args.attempt_id === input.attemptId && args.change === input.change && args.stage === input.stage
 }
 
 function hasChildIdentity(value: RecordValue): boolean {
@@ -387,7 +387,7 @@ export function inspectNativePretoolSafetyBlock(
         return null
       }
       if (!isRecord(output) || output.status !== "blocked" || output.reason !== "pre-tool-safety" ||
-        output.phase !== input.phase || output.task_api_source !== "subagent" || output.token !== null || output.agent !== null || output.result !== null ||
+        output.stage !== input.stage || output.task_api_source !== "subagent" || output.token !== null || output.agent !== null || output.result !== null ||
         !Array.isArray(output.matched_rules) || output.matched_rules.length === 0 || hasChildIdentity(output)) {
         return null
       }
@@ -430,7 +430,7 @@ function preparedDelegationToken(state: RecordValue, input: NativePretoolSafetyE
     return null
   }
   if (!isRecord(output) || output.status !== "prepared" || output.attempt_id !== input.attemptId ||
-    output.change !== input.change || output.phase !== input.phase || !safeIdentifier(output.token) ||
+    output.change !== input.change || output.stage !== input.stage || !safeIdentifier(output.token) ||
     !/^[A-Za-z0-9][A-Za-z0-9_-]{0,255}$/.test(output.token) || !safeIdentifier(output.agent)) return null
   const delegation = isRecord(output.delegation) ? output.delegation : null
   if (!delegation || delegation.agent !== output.agent || typeof delegation.prompt !== "string") return null
@@ -442,7 +442,7 @@ function preparedDelegationToken(state: RecordValue, input: NativePretoolSafetyE
   } catch {
     return null
   }
-  if (!isRecord(identity) || identity.change !== input.change || identity.phase !== input.phase ||
+  if (!isRecord(identity) || identity.change !== input.change || identity.stage !== input.stage ||
     identity.agent !== output.agent || identity.token !== output.token) return null
   return { token: output.token, agent: output.agent, prompt: delegation.prompt }
 }

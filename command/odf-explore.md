@@ -36,7 +36,7 @@ Deep investigation of Odoo code or functionality. **It is NOT part of the formal
    registered as eligible for EXPLORE. Do not pass a DESIGN/IMPLEMENT/FIX-only
    specialist as an override.
 4. **Delegate the exploration** through the ODF path. When the host exposes
-   `subagent`, call `odf_delegation_prepare(phase=EXPLORE, change="explore-<safe-topic-slug>", prompt, context_files)`,
+   `subagent`, call `odf_delegation_prepare(stage="EXPLORE", change="explore-<safe-topic-slug>", prompt, context_files)`,
    launch `subagent` with the returned agent/description/prompt verbatim, then
    call `odf_delegation_seal` with the token and child `session_id`. The change
    label is ephemeral transport metadata only: do not bind workflow state or

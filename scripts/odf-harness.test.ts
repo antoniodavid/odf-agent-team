@@ -160,15 +160,15 @@ describe("harness smoke: CLI subcommands end-to-end", () => {
   })
 
   it("result: normalizes a string design_closed", () => {
-    const out = JSON.parse(runCli(TOOLKIT, ["result", "--result", JSON.stringify({ status: "ok", design_closed: "true" }), "--phase", "DESIGN"]))
+    const out = JSON.parse(runCli(TOOLKIT, ["result", "--result", JSON.stringify({ status: "ok", design_closed: "true" }), "--stage", "PLAN", "--role", "DESIGN"]))
     expect(out).toMatchObject({ status: "ok", design_closed: true })
   })
 
   it("resolve: real registry picks an agent", () => {
-    const out = JSON.parse(runCli(TOOLKIT, ["resolve", "--phase", "DESIGN", "--task", "Design the OWL frontend component"]))
+    const out = JSON.parse(runCli(TOOLKIT, ["resolve", "--stage", "PLAN", "--role", "DESIGN", "--task", "Design the OWL frontend component"]))
     expect(out.status).toBe("ok")
     expect(typeof out.agent).toBe("string")
-    const review = JSON.parse(runCli(TOOLKIT, ["resolve", "--phase", "VERIFY", "--task", "Please perform an explicit code review"]))
+    const review = JSON.parse(runCli(TOOLKIT, ["resolve", "--stage", "VERIFY", "--task", "Please perform an explicit code review"]))
     expect(review.agent).toBe("odoo_code_reviewer")
   })
 
@@ -201,7 +201,7 @@ describe("harness smoke: CLI subcommands end-to-end", () => {
     expect(evidence.commands[0].database).toBe("devel_test")
   })
 
-  it("manual-evidence: rejects an IMPLEMENT gate without mutating it", async () => {
+  it("manual-evidence: rejects a BUILD gate without mutating it", async () => {
     const gatePath = path.join(tmp, ".odf", "policy-gate-chg.json")
     const evidencePath = path.join(tmp, ".odf", "validation-evidence-chg.json")
     const gateText = JSON.stringify({ phase: "IMPLEMENT", risk_tier: "MEDIUM", frozen_diff_ref: null, candidate_digest: null })
@@ -215,7 +215,7 @@ describe("harness smoke: CLI subcommands end-to-end", () => {
     ], { encoding: "utf8", cwd: REPO, env: { ...process.env as Record<string, string> } })
 
     expect(result.status).toBe(1)
-    expect(result.stderr).toContain("IMPLEMENT gate intentionally has no candidate_digest")
+    expect(result.stderr).toContain("BUILD gate intentionally has no candidate_digest")
     expect(result.stderr).toContain("create a VERIFY policy gate before recording evidence")
     expect(await fs.readFile(gatePath, "utf8")).toBe(gateText)
     expect(fsSyncExists(evidencePath)).toBe(false)

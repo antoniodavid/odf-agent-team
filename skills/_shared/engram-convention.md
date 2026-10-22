@@ -63,7 +63,8 @@ mem_save(
   type: "architecture",
   project: "{project}",
   content: "change: {change-name}
-phase: {last-completed-phase}
+canonical_stage: {DECIDE|PLAN|BUILD|VERIFY|EXPLORE|FIX}
+completed_canonical_stages: [{completed-stages}]
 odoo_version: {16|17|18|19}
 module: {module_name}
 strategy: {standard|custom|pending}

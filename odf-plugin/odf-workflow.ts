@@ -24,7 +24,6 @@ export interface WorkflowRoute {
   work_type: WorkType
   entry: CanonicalStage
   stages: CanonicalStage[]
-  legacy_phases: LegacyPhase[]
   plan: PlanMode
   verification: VerificationMode
   parallel_build: boolean
@@ -60,7 +59,6 @@ const ROUTES: Record<WorkType, WorkflowRoute> = {
     work_type: "question",
     entry: "EXPLORE",
     stages: ["EXPLORE"],
-    legacy_phases: ["EXPLORE"],
     plan: "none",
     verification: "none",
     parallel_build: false,
@@ -70,7 +68,6 @@ const ROUTES: Record<WorkType, WorkflowRoute> = {
     work_type: "investigation",
     entry: "EXPLORE",
     stages: ["EXPLORE"],
-    legacy_phases: ["EXPLORE"],
     plan: "none",
     verification: "none",
     parallel_build: false,
@@ -80,7 +77,6 @@ const ROUTES: Record<WorkType, WorkflowRoute> = {
     work_type: "standard-config",
     entry: "DECIDE",
     stages: ["DECIDE"],
-    legacy_phases: ["PROPOSE", "ASSESS"],
     plan: "none",
     verification: "none",
     parallel_build: false,
@@ -90,7 +86,6 @@ const ROUTES: Record<WorkType, WorkflowRoute> = {
     work_type: "small-change",
     entry: "DECIDE",
     stages: ["DECIDE", "BUILD", "VERIFY"],
-    legacy_phases: ["PROPOSE", "ASSESS", "IMPLEMENT", "VERIFY"],
     plan: "inline",
     verification: "required",
     parallel_build: false,
@@ -100,7 +95,6 @@ const ROUTES: Record<WorkType, WorkflowRoute> = {
     work_type: "feature",
     entry: "DECIDE",
     stages: ["DECIDE", "PLAN", "BUILD", "VERIFY"],
-    legacy_phases: ["PROPOSE", "ASSESS", "QA-PLAN", "DESIGN", "IMPLEMENT", "VERIFY"],
     plan: "required",
     verification: "required",
     parallel_build: false,
@@ -110,7 +104,6 @@ const ROUTES: Record<WorkType, WorkflowRoute> = {
     work_type: "cross-domain",
     entry: "DECIDE",
     stages: ["DECIDE", "PLAN", "BUILD", "VERIFY"],
-    legacy_phases: ["PROPOSE", "ASSESS", "QA-PLAN", "DESIGN", "IMPLEMENT", "VERIFY"],
     plan: "required",
     verification: "required",
     parallel_build: true,
@@ -120,7 +113,6 @@ const ROUTES: Record<WorkType, WorkflowRoute> = {
     work_type: "bugfix",
     entry: "FIX",
     stages: ["FIX", "BUILD", "VERIFY"],
-    legacy_phases: ["FIX", "IMPLEMENT", "VERIFY"],
     plan: "inline",
     verification: "required",
     parallel_build: false,
@@ -130,7 +122,6 @@ const ROUTES: Record<WorkType, WorkflowRoute> = {
     work_type: "migration",
     entry: "DECIDE",
     stages: ["DECIDE", "PLAN", "BUILD", "VERIFY"],
-    legacy_phases: ["PROPOSE", "ASSESS", "QA-PLAN", "DESIGN", "IMPLEMENT", "VERIFY"],
     plan: "required",
     verification: "required",
     parallel_build: false,
@@ -140,7 +131,6 @@ const ROUTES: Record<WorkType, WorkflowRoute> = {
     work_type: "security",
     entry: "DECIDE",
     stages: ["DECIDE", "PLAN", "BUILD", "VERIFY"],
-    legacy_phases: ["PROPOSE", "ASSESS", "QA-PLAN", "DESIGN", "IMPLEMENT", "VERIFY"],
     plan: "required",
     verification: "required",
     parallel_build: false,
@@ -150,7 +140,6 @@ const ROUTES: Record<WorkType, WorkflowRoute> = {
     work_type: "verify-only",
     entry: "VERIFY",
     stages: ["VERIFY"],
-    legacy_phases: ["VERIFY"],
     plan: "none",
     verification: "required",
     parallel_build: false,
@@ -167,7 +156,6 @@ export function resolveWorkflowRoute(workType: WorkType): WorkflowRoute {
   return {
     ...route,
     stages: [...route.stages],
-    legacy_phases: [...route.legacy_phases],
   }
 }
 

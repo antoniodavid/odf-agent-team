@@ -9,6 +9,7 @@ import { tool } from "./odf-tool.js"
 import { filterStopWords, resolveAgent } from "../scripts/lib/agent-resolve.js"
 import { loadRegistry } from "./odf-registry-io.js"
 import { debugLog, type ODFRegistry, type ODFSkill } from "./odf-delegation-shared.js"
+import { resolveDelegationTarget } from "./odf-delegation-contract.js"
 
 // ==========================================
 // VERSION DETECTION
@@ -279,9 +280,13 @@ Use this for debugging:
 - "What skills would match?"
 - "Which profile applies?"`,
     args: {
-      phase: tool.schema
+      stage: tool.schema
         .string()
-        .describe("ODF phase: PROPOSE, ASSESS, QA-PLAN, DESIGN, IMPLEMENT, VERIFY, EXPLORE"),
+        .describe("Canonical stage: DECIDE, PLAN, BUILD, VERIFY, EXPLORE, FIX"),
+      role: tool.schema
+        .string()
+        .optional()
+        .describe("Role inside a composite stage: DECIDE requires PROPOSE or ASSESS; PLAN requires QA-PLAN or DESIGN. Omit for BUILD, VERIFY, EXPLORE, and FIX."),
       task: tool.schema
         .string()
         .describe("Task description to analyze"),
@@ -298,7 +303,11 @@ Use this for debugging:
         .optional()
         .describe("Odoo version (auto-detected if not provided)"),
     },
-    async execute(args: { phase: string; task: string; context_files?: string[]; target?: string; odoo_version?: number }): Promise<string> {
+    async execute(args: { stage: string; role?: string; task: string; context_files?: string[]; target?: string; odoo_version?: number }): Promise<string> {
+      const target = resolveDelegationTarget(args.stage, args.role)
+      if (!target.ok) {
+        return `❌ ${target.message}`
+      }
       const registry = await loadRegistry()
       if (!registry) {
         return "❌ ODF registry not found"
@@ -313,11 +322,11 @@ Use this for debugging:
 
       // Resolve agent
       const keywords = args.task.split(/\s+/).slice(0, 10)
-      const agentName = resolveAgent(registry, args.phase, keywords)
+      const agentName = resolveAgent(registry, target.phase, keywords)
       const agent = registry.agents.find(a => a.name === agentName)
 
       // Match skills
-       const skills = matchSkills(registry, args.phase, {
+       const skills = matchSkills(registry, target.phase, {
          files: args.context_files,
          task: args.task,
          target: args.target,
@@ -325,12 +334,12 @@ Use this for debugging:
       })
 
       // Get profile (named profile format)
-      const profile = await getProfileByPhase(registry, args.phase)
+      const profile = await getProfileByPhase(registry, target.phase)
 
       const lines: string[] = [
         "## ODF Skill Resolution (Preview)",
         "",
-        `**Phase:** ${args.phase}`,
+        `**Stage:** ${target.stage}${target.role ? ` ${target.role}` : ""}`,
         `**Odoo Version:** ${version || "not detected (no version filter applied)"}`,
         "",
         "### Agent Resolution",

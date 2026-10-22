@@ -6,12 +6,12 @@ The ODF plugin injects **30 tools** into the orchestrator's tool list at runtime
 
 | Tool | Kind | Purpose |
 |------|------|---------|
-| `odf_delegate` | write | Route a phase + prompt to the right sub-agent with skill injection |
+| `odf_delegate` | write | Route a stage role + prompt to the right sub-agent with skill injection |
 | `odf_delegation_prepare` | write | Resolve agent/skills/profile/prompt and mint a bounded delegation token |
 | `odf_delegation_launch` | write | Verify prepared prompt bytes against the token and submit them through the V2 session API |
 | `odf_delegation_late_seal_prepare` | write | Verify an expired original child and mint a token/attempt/parent/child-bound, single-use late-seal capability |
 | `odf_proposal_write` | write | Persist the token-bound PROPOSE artifact to its canonical OpenSpec path |
-| `odf_delegation_seal` | write | Bind the child session to the token, run the phase gates and return the standard envelope |
+| `odf_delegation_seal` | write | Bind the child session to the token, run the stage gates and return the standard envelope |
 | `odf_parallel_delegate` | write | Cross-domain BUILD as 2–3 parallel branches, one aggregate join |
 | `odf_parallel_prepare` | write | Prepare a native parallel BUILD: branch prompts + one token |
 | `odf_parallel_seal` | write | Seal a native parallel BUILD: verify branch sessions, run the aggregate scheduler, commit once |
@@ -27,7 +27,7 @@ The ODF plugin injects **30 tools** into the orchestrator's tool list at runtime
 | `odf_skill_inject` | read | Match and inject skill compact rules into a prompt |
 | `odf_skill_resolve` | read | Preview matching skills **without** executing |
 | `odf_registry_read` | read | Read + cache `odf-registry.json` (TTL + file watcher) |
-| `odf_profile_select` | read | Which model profile applies to a phase |
+| `odf_profile_select` | read | Which model profile applies to a stage role |
 | `odf_policy_gate` | write | Resolve + persist TDD/risk gate before IMPLEMENT/VERIFY |
 | `odf_receipt` | write | Persist a failure-disposition receipt |
 | `odf_notebooklm_lookup` | read | Search NotebookLM notebooks |
@@ -74,12 +74,12 @@ The entrypoint stays a monolith for the delegation core; self-contained concerns
 
 ```
 orchestrator
-   │  odf_delegate(phase, prompt, context_files)
+   │  odf_delegate(stage, role, prompt, context_files)
    ▼
 ┌─ plugin ─────────────────────────────────────────────┐
 │ 1. load odf-registry.json (TTL cache)                │
-│ 2. resolve agent  (phase + keywords → agent)         │
-│ 3. match ≤5 skills (phase-aware canonical matcher)   │
+│ 2. resolve agent  (stage role + keywords → agent)    │
+│ 3. match ≤5 skills (role-aware canonical matcher)    │
 │ 4. inject compact rules + active profile into prompt │
 │ 5. enforce Policy Gate / evidence seal / design_closed│
 │ 6. transport:                                         │
@@ -103,7 +103,7 @@ V2 API instead of handing prompt text to the host `subagent` tool:
 
 ```
 orchestrator
-   │ 1. odf_delegation_prepare(phase, change, prompt, …)
+   │ 1. odf_delegation_prepare(stage, role, change, prompt, …)
    │      → { token, delegation: { agent, description, prompt } }
    │ 2. odf_delegation_launch({ token, change, prompt })
    │      → session.prompt(text: exact prepared bytes) → child sessionID
@@ -237,7 +237,7 @@ provider-agnostic.
 metrics. It sends nothing until the user reviews the destination and values and
 confirms. The endpoint is operator-configured, HTTPS-only, and disabled by
 default. Only an explicit 1–5 rating and bounded aggregate counts, duration,
-latest phase status, and host-provided token/cost values are sent. Prompts,
+latest stage status, and host-provided token/cost values are sent. Prompts,
 outputs, free text, identifiers, paths, model/provider names, and estimates are
 excluded. There is no durable outbox or retry. The endpoint owner must enforce
 the configured 1–30-day retention; ODF cannot verify remote retention. See
@@ -247,7 +247,7 @@ payload and configuration contract.
 **Visibility and interruptions:** programmatic launch returns child session IDs;
 the parent transcript need not contain a host `subagent` row. With legacy
 `odf_delegate` the delegation runs inside the tool call, so the child session —
-titled `ODF <phase> → <agent> · <change>` — is visible under `/sessions` while
+titled `ODF <stage> <role> → <agent> · <change>` — is visible under `/sessions` while
 it runs. An interrupted or uncertain programmatic submission is never resent;
 retry the seal with that same session ID so it can independently wait for and
 inspect the transcript. If the prompt was not admitted, the seal fails closed.
