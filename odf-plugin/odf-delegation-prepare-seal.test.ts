@@ -16,6 +16,8 @@ import {
   writeDelegationToken,
 } from "./odf-delegation-tokens.js"
 import { readLateSealCapability } from "./odf-late-seal-capability.js"
+import { delegationTargetForPhase } from "./odf-delegation-contract.js"
+import type { DelegationPhase } from "./odf-delegation-tokens.js"
 
 // The pack resolver is env-driven, and this repository ships a registry of its
 // own, so tests that need their own pack must set ODF_CONFIG_DIR explicitly.
@@ -1556,6 +1558,10 @@ describe("native prepare/seal delegation", () => {
 
   const runDelegate = async (root: string, args: Record<string, unknown>, childResult: unknown) => {
     const { odf_delegate } = await tools(root)
+    // Parity fixtures still speak the prepare/seal contract (phase) until T3
+    // migrates it; translate only at the delegate boundary.
+    const { phase, ...rest } = args
+    const target = typeof phase === "string" ? delegationTargetForPhase(phase as DelegationPhase) : null
     const taskApi = vi.fn().mockResolvedValue({
       status: "ok",
       executive_summary: "Phase completed",
@@ -1571,7 +1577,7 @@ describe("native prepare/seal delegation", () => {
         : {}),
     })
     return JSON.parse(await odf_delegate.execute(
-      { ...args, workspace_dir: root } as any,
+      { ...rest, ...(target ? { stage: target.stage, ...(target.role ? { role: target.role } : {}) } : {}), workspace_dir: root } as any,
       { sessionID: "delegate-session", task: taskApi } as any,
     ) as string)
   }

@@ -141,6 +141,19 @@ export function resolveDelegationTarget(stageInput: unknown, roleInput?: unknown
 }
 
 /**
+ * Project an internal phase back onto the public stage/role pair. Used by the
+ * native replay paths, which persist the internal phase on their token record
+ * but must call the public contract with stages.
+ */
+export function delegationTargetForPhase(phase: LegacyPhase): { stage: DelegationStage; role: DelegationRole | null } {
+  const stage = PHASE_STAGE[phase]
+  const roles = STAGE_ROLES[stage]
+  return roles
+    ? { stage, role: phase as DelegationRole }
+    : { stage, role: null }
+}
+
+/**
  * True when the role completes its stage and may commit the canonical stage.
  * PROPOSE and QA-PLAN are intermediate roles and never commit on their own.
  */

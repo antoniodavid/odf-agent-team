@@ -195,6 +195,10 @@ import {
   type WorkflowRoute,
 } from "../odf-plugin/odf-workflow.js"
 import {
+  resolveDelegationTarget,
+  delegationTargetForPhase,
+} from "../odf-plugin/odf-delegation-contract.js"
+import {
   deriveWorkflowStatus,
   filterInvalidatedWorkflowArtifacts,
   normalizeArtifactKey,
@@ -601,7 +605,8 @@ export interface GovernanceAcknowledgment {
 }
 
 interface ODFDelegateArgs {
-  phase: string
+  stage: string
+  role?: string
   prompt: string
   agent?: string
   context_files?: string[]
@@ -1729,16 +1734,20 @@ This makes no claim to stop children after a SIGKILL of the host or of a child p
 parent cancellation is a no-op on runtimes that emit no session.execution.interrupted event.
 Use this instead of generic task() for ODF workflow delegation.`,
     args: {
-      phase: tool.schema
+      stage: tool.schema
         .string()
-        .describe("ODF phase: PROPOSE, ASSESS, QA-PLAN, DESIGN, IMPLEMENT, VERIFY, EXPLORE, FIX"),
+        .describe("Canonical stage: DECIDE, PLAN, BUILD, VERIFY, EXPLORE, FIX"),
+      role: tool.schema
+        .string()
+        .optional()
+        .describe("Role inside a composite stage: DECIDE requires PROPOSE or ASSESS; PLAN requires QA-PLAN or DESIGN. Omit for BUILD, VERIFY, EXPLORE, and FIX."),
       prompt: tool.schema
         .string()
         .describe("The full detailed prompt for the agent."),
       agent: tool.schema
         .string()
         .optional()
-        .describe("Optional explicit registered agent override; must be installed and eligible for the phase."),
+        .describe("Optional explicit registered agent override; must be installed and eligible for the resolved stage role."),
       context_files: tool.schema
         .array(tool.schema.string())
         .optional()
@@ -1766,7 +1775,7 @@ Use this instead of generic task() for ODF workflow delegation.`,
       change: tool.schema
         .string()
         .optional()
-        .describe("Change name (kebab-case) — used by the Policy Gate hook for IMPLEMENT/VERIFY"),
+        .describe("Change name (kebab-case) — used by the Policy Gate hook for BUILD/VERIFY"),
       timeout_ms: tool.schema
         .number()
         .optional()
@@ -1774,7 +1783,7 @@ Use this instead of generic task() for ODF workflow delegation.`,
       attempt_id: tool.schema
         .string()
         .optional()
-        .describe("Fresh opaque attempt token for gated IMPLEMENT/VERIFY execution"),
+        .describe("Fresh opaque attempt token for gated BUILD/VERIFY execution"),
       artifact_store: tool.schema
         .enum(["openspec", "engram", "hybrid"])
         .optional()
@@ -1807,9 +1816,11 @@ Use this instead of generic task() for ODF workflow delegation.`,
         ...hostTelemetryFromContext(toolCtx),
       }
 
-      if (!ALLOWED_PHASES.includes(args.phase)) {
-        return `❌ Invalid phase "${args.phase}". Allowed: ${ALLOWED_PHASES.join(", ")}`
+      const target = resolveDelegationTarget(args.stage, args.role)
+      if (!target.ok) {
+        return `❌ ${target.message}`
       }
+      const phase = target.phase
 
       const startTime = Date.now()
       const telemetryContext = executionOptions.telemetry_context || {
@@ -1838,7 +1849,7 @@ Use this instead of generic task() for ODF workflow delegation.`,
         metricsSink?.({
           timestamp: new Date().toISOString(),
           session_id: toolCtx.sessionID,
-          phase: args.phase,
+          phase: phase,
           agent: "unresolved",
           skills_injected: [],
           skill_resolution: "none",
@@ -1854,7 +1865,7 @@ Use this instead of generic task() for ODF workflow delegation.`,
           status: "blocked",
           reason,
           stop_disposition: classifyODFStop(reason),
-          phase: args.phase,
+          phase: phase,
           agent: null,
           skills_injected: [],
           profile: null,
@@ -1869,12 +1880,12 @@ Use this instead of generic task() for ODF workflow delegation.`,
         }, null, 2)
       }
 
-      const gatedPhase = args.phase === "IMPLEMENT" || args.phase === "VERIFY"
+      const gated = target.stage === "BUILD" || target.stage === "VERIFY"
       let registry: ODFRegistry | null = null
-      if (gatedPhase && !args.workflow_advance) {
+      if (gated && !args.workflow_advance) {
         return blockWorkflow(
           "strict-workflow-proof-required",
-          "IMPLEMENT/VERIFY require workflow_advance; the proof-optional legacy omission is no longer accepted.",
+          "BUILD/VERIFY require workflow_advance; the proof-optional legacy omission is no longer accepted.",
           null,
         )
       }
@@ -1903,7 +1914,7 @@ Use this instead of generic task() for ODF workflow delegation.`,
         )
       }
       const changeName = args.change?.trim() || extractChangeName(args.prompt)
-      const sourceAuthorityRequired = isViewAuthorityWork(args.phase, args.prompt, args.context_files || [])
+      const sourceAuthorityRequired = isViewAuthorityWork(phase, args.prompt, args.context_files || [])
 
       let workflowResult: ReturnType<typeof advanceWorkflow> | null = executionOptions.workflow_result || null
       let effectiveWorkflowAdvance: ODFDelegateWorkflowAdvance | null = null
@@ -1914,11 +1925,18 @@ Use this instead of generic task() for ODF workflow delegation.`,
         if (args.artifact_store === undefined) {
           return blockWorkflow(
             "artifact-store-required",
-            "Proof-backed IMPLEMENT/VERIFY delegation requires an explicit artifact_store: openspec, engram, or hybrid.",
+            "BUILD/VERIFY delegation requires an explicit artifact_store: openspec, engram, or hybrid.",
             null,
           )
         }
-        const expectedStage: "BUILD" | "VERIFY" = args.phase === "IMPLEMENT" ? "BUILD" : "VERIFY"
+        if (target.stage !== "BUILD" && target.stage !== "VERIFY") {
+          return blockWorkflow(
+            "workflow-gate-unsupported-stage",
+            `workflow_advance is supported only for BUILD and VERIFY starts; ${target.stage}${target.role ? ` ${target.role}` : ""} is not a gated stage. Omit workflow_advance for this call.`,
+            null,
+          )
+        }
+        const expectedStage: "BUILD" | "VERIFY" = target.stage
         const { work_type: callerWorkType, ...callerAdvanceInput } = args.workflow_advance
         const callerResult = advanceWorkflow({
           route: resolveWorkflowRoute(callerWorkType),
@@ -1929,30 +1947,23 @@ Use this instead of generic task() for ODF workflow delegation.`,
           archived_state: false,
         })
         workflowResult = callerResult
-        if (args.phase !== "IMPLEMENT" && args.phase !== "VERIFY") {
-          return blockWorkflow(
-            "workflow-gate-unsupported-phase",
-            `workflow_advance is supported only for IMPLEMENT and VERIFY starts; ${args.phase} is a composite legacy adapter. Omit workflow_advance for this call.`,
-            callerResult,
-          )
-        }
         if (callerResult.status !== "advanced") {
           return blockWorkflow("workflow-advance-blocked", callerResult.reason, callerResult)
         }
         if (callerResult.next_stage !== expectedStage && !isStageStartProof(resolveWorkflowRoute(callerWorkType), args.workflow_advance, expectedStage)) {
           return blockWorkflow(
             "workflow-phase-mismatch",
-            `Workflow next_stage ${callerResult.next_stage || "none"} does not match ${args.phase}; expected ${expectedStage}. To start ${args.phase}, pass the stage that precedes ${expectedStage} as candidate_stage so next_stage is ${expectedStage}.`,
+            `Workflow next_stage ${callerResult.next_stage || "none"} does not match ${target.stage}; expected ${expectedStage}. To start ${target.stage}, pass the stage that precedes ${expectedStage} as candidate_stage so next_stage is ${expectedStage}.`,
             callerResult,
           )
         }
         effectiveWorkflowAdvance = args.workflow_advance
-        if (gatedPhase && !changeName) {
-          const message = `Missing change name for ${args.phase}: provide args.change or include "Change name: <name>" in the prompt.`
+        if (gated && !changeName) {
+          const message = `Missing change name for ${phase}: provide args.change or include "Change name: <name>" in the prompt.`
           metricsSink?.({
             timestamp: new Date().toISOString(),
             session_id: toolCtx.sessionID,
-            phase: args.phase,
+            phase: phase,
             agent: "unresolved",
             skills_injected: [],
             skill_resolution: "none",
@@ -1968,7 +1979,7 @@ Use this instead of generic task() for ODF workflow delegation.`,
             status: "error",
             reason: "change-name-required",
             stop_disposition: classifyODFStop("change-name-required"),
-            phase: args.phase,
+            phase: phase,
             agent: null,
             skills_injected: [],
             profile: null,
@@ -1980,22 +1991,22 @@ Use this instead of generic task() for ODF workflow delegation.`,
             message,
           }, null, 2)
         }
-        if (gatedPhase && !acquiredAttempt && (!isSafeToken(changeName) || !isSafeToken(args.attempt_id))) {
+        if (gated && !acquiredAttempt && (!isSafeToken(changeName) || !isSafeToken(args.attempt_id))) {
           return blockWorkflow(
             !isSafeToken(changeName) ? "unsafe-change-name" : "attempt-id-required",
             !isSafeToken(changeName)
               ? "The change name must be a safe token of 1-64 letters, numbers, hyphens, or underscores."
-              : "Gated IMPLEMENT/VERIFY delegation requires a fresh safe attempt_id.",
+              : "Gated BUILD/VERIFY delegation requires a fresh safe attempt_id.",
             callerResult,
           )
         }
       }
-      if (gatedPhase && !changeName) {
-        const message = `Missing change name for ${args.phase}: provide args.change or include "Change name: <name>" in the prompt.`
+      if (gated && !changeName) {
+        const message = `Missing change name for ${phase}: provide args.change or include "Change name: <name>" in the prompt.`
         metricsSink?.({
           timestamp: new Date().toISOString(),
           session_id: toolCtx.sessionID,
-          phase: args.phase,
+          phase: phase,
           agent: "unresolved",
           skills_injected: [],
           skill_resolution: "none",
@@ -2011,7 +2022,7 @@ Use this instead of generic task() for ODF workflow delegation.`,
           status: "error",
           reason: "change-name-required",
           stop_disposition: classifyODFStop("change-name-required"),
-          phase: args.phase,
+          phase: phase,
           agent: null,
           skills_injected: [],
           profile: null,
@@ -2024,7 +2035,7 @@ Use this instead of generic task() for ODF workflow delegation.`,
         }, null, 2)
       }
 
-      if (gatedPhase && args.workflow_advance && !acquiredAttempt) {
+      if (gated && args.workflow_advance && !acquiredAttempt) {
         if (!isSafeToken(changeName)) {
           return blockWorkflow(
             "unsafe-change-name",
@@ -2035,7 +2046,7 @@ Use this instead of generic task() for ODF workflow delegation.`,
         if (!isSafeToken(args.attempt_id)) {
           return blockWorkflow(
             "attempt-id-required",
-            "Gated IMPLEMENT/VERIFY delegation requires a fresh safe attempt_id.",
+            "Gated BUILD/VERIFY delegation requires a fresh safe attempt_id.",
             workflowResult!,
           )
         }
@@ -2043,12 +2054,12 @@ Use this instead of generic task() for ODF workflow delegation.`,
 
       let transitionStart: TransitionInspection | null = null
       let proofAdmission: Extract<ProofBackedAdmission, { ok: true }> | null = null
-      if (gatedPhase && args.workflow_advance && workflowResult) {
+      if (gated && args.workflow_advance && workflowResult) {
         const admission = await resolveProofBackedAdmission({
           workspaceRoot,
           changeName: changeName!,
           artifactStore: args.artifact_store!,
-          phase: args.phase as "IMPLEMENT" | "VERIFY",
+          phase: phase as "IMPLEMENT" | "VERIFY",
           attemptId: args.attempt_id!,
           proof: args.workflow_advance,
         })
@@ -2071,7 +2082,7 @@ Use this instead of generic task() for ODF workflow delegation.`,
           metricsSink?.({
             timestamp: new Date().toISOString(),
             session_id: toolCtx.sessionID,
-            phase: args.phase,
+            phase: phase,
             agent: "unresolved",
             skills_injected: [],
             skill_resolution: "none",
@@ -2084,7 +2095,7 @@ Use this instead of generic task() for ODF workflow delegation.`,
            })
           return JSON.stringify({
             status: "delegated",
-            phase: args.phase,
+            phase: phase,
             agent: null,
             skills_injected: [],
             profile: null,
@@ -2149,7 +2160,7 @@ Use this instead of generic task() for ODF workflow delegation.`,
       }
 
       // Match skills (with version filter)
-      const skills = matchSkills(registry, args.phase, {
+      const skills = matchSkills(registry, phase, {
       files: args.context_files,
       task: args.prompt,
       target: args.target,
@@ -2167,7 +2178,7 @@ Use this instead of generic task() for ODF workflow delegation.`,
             workflowResult,
           )
         }
-        const selection = validateAgentSelection(registry, args.phase, FAST_LANE_EXECUTOR)
+        const selection = validateAgentSelection(registry, phase, FAST_LANE_EXECUTOR)
         if (!selection.valid) {
           return blockWorkflow(
             "fast-lane-executor-unavailable",
@@ -2177,35 +2188,35 @@ Use this instead of generic task() for ODF workflow delegation.`,
         }
         agentName = selection.agent.name
       } else if (args.agent !== undefined) {
-        const selection = validateAgentSelection(registry, args.phase, args.agent)
+        const selection = validateAgentSelection(registry, phase, args.agent)
         if (!selection.valid) {
           return blockWorkflow(
             selection.reason,
-            `Explicit agent "${args.agent}" is not registered, installed, and phase-eligible for ${args.phase}.`,
+            `Explicit agent "${args.agent}" is not registered, installed, and phase-eligible for ${phase}.`,
             workflowResult,
           )
         }
         agentName = selection.agent.name
       } else {
-        agentName = resolveAgent(registry, args.phase, keywords)
+        agentName = resolveAgent(registry, phase, keywords)
       }
       if (!agentName) {
         return blockWorkflow(
           "agent-routing-unavailable",
-          `No registered, installed, phase-eligible agent is available for ${args.phase}.`,
+          `No registered, installed, phase-eligible agent is available for ${phase}.`,
           workflowResult,
         )
       }
-      const profile = await getProfileByPhase(registry, args.phase, args.profile)
-      const profileBlock = profile ? formatProfileBlock(profile, args.phase) : ""
-      debugLog(`[odf-delegation] odf_delegate: phase=${args.phase} agent=${agentName} skills=${skills.length} version=${odooVersion || "auto"} profile=${profile?.name || "default"}`)
+      const profile = await getProfileByPhase(registry, phase, args.profile)
+      const profileBlock = profile ? formatProfileBlock(profile, phase) : ""
+      debugLog(`[odf-delegation] odf_delegate: phase=${phase} agent=${agentName} skills=${skills.length} version=${odooVersion || "auto"} profile=${profile?.name || "default"}`)
 
-      if (gatedPhase && args.workflow_advance && !acquiredAttempt) {
-        const expectedStage: "BUILD" | "VERIFY" = args.phase === "IMPLEMENT" ? "BUILD" : "VERIFY"
+      if (gated && args.workflow_advance && !acquiredAttempt) {
+        const expectedStage: "BUILD" | "VERIFY" = target.stage as "BUILD" | "VERIFY"
         const acquisition = acquireAttempt({
           workspaceDir: workspaceRoot,
           change: changeName!,
-          phase: args.phase as AttemptLedgerPhase,
+          phase: phase as AttemptLedgerPhase,
           nextStage: expectedStage,
           attemptId: args.attempt_id!,
           branchId: executionOptions.branch_id,
@@ -2216,18 +2227,18 @@ Use this instead of generic task() for ODF workflow delegation.`,
         acquiredAttempt = acquisition.handle
       }
 
-      // Policy Gate (chokepoint): resolve + persist before any IMPLEMENT/VERIFY
+      // Policy Gate (chokepoint): resolve + persist before any BUILD/VERIFY
       // delegation. The gate documents the decision; the sub-agent applies it
       // (never recomputes). Safety net — the orchestrator calls odf_policy_gate
       // explicitly; this re-runs the same decision and injects it.
-      if (gatedPhase) {
+      if (gated) {
         // The native prepare/seal path reuses the gate resolved at prepare time
         // so the frozen candidate cannot drift while the child works.
         const resolvedGate = executionOptions.pre_resolved_policy_gate !== undefined
           ? executionOptions.pre_resolved_policy_gate
           : computePolicyGate({
             change: changeName!,
-            phase: args.phase as "IMPLEMENT" | "VERIFY",
+            phase: phase as "IMPLEMENT" | "VERIFY",
             workspaceDir: workspaceRoot,
             registry,
           })
@@ -2235,7 +2246,7 @@ Use this instead of generic task() for ODF workflow delegation.`,
         if (policyGate && policyGate.gate === "block") {
           return blockWorkflow(
             policyGate.reason,
-            `Policy gate blocked ${args.phase} before delegation: ${policyGate.reason}`,
+            `Policy gate blocked ${phase} before delegation: ${policyGate.reason}`,
             workflowResult,
           )
         }
@@ -2248,7 +2259,7 @@ Use this instead of generic task() for ODF workflow delegation.`,
         ? buildSourceAuthorityPrompt(sourceAuthorityRoots)
         : ""
       const fastLanePrompt = fastLanePolicyActive
-        ? `## Fast-Lane Policy (authoritative, opt-in)\n${JSON.stringify(fastLanePolicy, null, 2)}\nThis policy is valid only for the persisted eligible small-change binding. Keep the canonical BUILD/VERIFY transition and every existing safety gate.\n${args.phase === "IMPLEMENT"
+        ? `## Fast-Lane Policy (authoritative, opt-in)\n${JSON.stringify(fastLanePolicy, null, 2)}\nThis policy is valid only for the persisted eligible small-change binding. Keep the canonical BUILD/VERIFY transition and every existing safety gate.\n${phase === "IMPLEMENT"
           ? `For this bounded BUILD, run only the targeted inner-loop validation and write ${fastLaneEvidenceRelativePath(changeName!, "targeted")} with every command marked kind: targeted. Do not substitute full-gate evidence for targeted evidence.`
           : `For this final VERIFY, run the configured full module/CI validation and write ${fastLaneEvidenceRelativePath(changeName!, "full")} with every command marked kind: full. Targeted evidence cannot substitute for this full gate.`}`
         : ""
@@ -2294,11 +2305,11 @@ Use this instead of generic task() for ODF workflow delegation.`,
         overrides: Partial<DelegationMetricInput> = {},
       ): void => {
         if (!taskSpanId) return
-        const flowStage = resolveFlowStage(args.phase, lifecycle, overrides.status)
+        const flowStage = resolveFlowStage(phase, lifecycle, overrides.status)
         metricsSink?.({
           timestamp: new Date().toISOString(),
           session_id: toolCtx.sessionID,
-          phase: args.phase,
+          phase: phase,
           agent: agentName,
           skills_injected: skills.map(s => s.name),
           skill_resolution: skills.length > 0 ? "injected" : "none",
@@ -2336,11 +2347,11 @@ Use this instead of generic task() for ODF workflow delegation.`,
       ): void => {
         if (lifecycle === "finished") finishTaskSpan(overrides)
         if (!emitTelemetryLifecycle) return
-        const flowStage = resolveFlowStage(args.phase, lifecycle, overrides.status)
+        const flowStage = resolveFlowStage(phase, lifecycle, overrides.status)
         const metric: DelegationMetricInput = {
           timestamp: new Date().toISOString(),
           session_id: toolCtx.sessionID,
-          phase: args.phase,
+          phase: phase,
           agent: agentName,
           skills_injected: skills.map(s => s.name),
           skill_resolution: skills.length > 0 ? "injected" : "none",
@@ -2380,10 +2391,10 @@ Use this instead of generic task() for ODF workflow delegation.`,
           // validated relative context paths resolve against it. With no
           // workspace_dir this equals the host session's directory, so the
           // behaviour is unchanged.
-          const delegationTitle = `ODF ${args.phase} → ${agentName}${changeName ? ` · ${changeName}` : ""}`
+          const delegationTitle = `ODF ${phase} → ${agentName}${changeName ? ` · ${changeName}` : ""}`
           emitTaskProgress(toolCtx, {
             title: delegationTitle,
-            metadata: { phase: args.phase, agent: agentName, ...(changeName ? { change: changeName } : {}) },
+            metadata: { phase: phase, agent: agentName, ...(changeName ? { change: changeName } : {}) },
           })
           const taskResult = await invokeTask(taskApiInfo.taskApi, agentName, delegationPrompt, contextValidation.relativePaths, timeoutMs, toolCtx.abort, workspaceRoot, delegationTitle, executionOptions.branch_id)
           const taskSessionId = taskSessionIdOf(taskResult.result)
@@ -2394,7 +2405,7 @@ Use this instead of generic task() for ODF workflow delegation.`,
           // legacy change path for sequential calls, branch-specific in parallel);
           // this plugin only validates the artifact — prose never counts.
           let validation: ValidationVerdict | null = null
-          if (args.phase === "IMPLEMENT" && policyGate) {
+          if (target.stage === "BUILD" && policyGate) {
             validation = validateValidationEvidence({
               workspaceDir: workspaceRoot,
               change: policyGate.change,
@@ -2409,7 +2420,7 @@ Use this instead of generic task() for ODF workflow delegation.`,
               } : {}),
             })
           }
-          const proofBacked = gatedPhase && args.workflow_advance !== undefined
+          const proofBacked = gated && args.workflow_advance !== undefined
            const innerDisposition = innerResultDisposition(taskResult.result)
            const actualResultStatus = innerDisposition.resultStatus
            let workflowCommit: WorkflowCommitResult | null = null
@@ -2427,7 +2438,7 @@ Use this instead of generic task() for ODF workflow delegation.`,
               ? persistWorkflowFailureReceipt(
                 workspaceRoot,
                 changeName!,
-                args.phase as ODFReceipt["phase"],
+                phase as ODFReceipt["phase"],
                 summary,
                 policyGate,
                validation ? [fastLaneBuild
@@ -2453,7 +2464,7 @@ Use this instead of generic task() for ODF workflow delegation.`,
               status: "blocked",
               reason,
               stop_disposition: stopDisposition,
-              phase: args.phase,
+              phase: phase,
               agent: agentName,
               skills_injected: skills.map(s => s.name),
               profile: profilePayload,
@@ -2472,7 +2483,7 @@ Use this instead of generic task() for ODF workflow delegation.`,
            }
 
             const composite = await applyCompositeResultGates({
-              phase: args.phase,
+              phase: phase,
               task: args.prompt,
               rawResult: taskResult.result,
               contextFiles: args.context_files,
@@ -2499,7 +2510,7 @@ Use this instead of generic task() for ODF workflow delegation.`,
             persistWorkflowFailureReceipt(
               workspaceRoot,
               changeName!,
-              args.phase as ODFReceipt["phase"],
+              phase as ODFReceipt["phase"],
               innerDisposition.message,
               policyGate,
               [],
@@ -2513,7 +2524,7 @@ Use this instead of generic task() for ODF workflow delegation.`,
               changeName: changeName!,
               artifactStore: args.artifact_store!,
               proof: effectiveWorkflowAdvance!,
-              expectedStage: args.phase === "IMPLEMENT" ? "BUILD" : "VERIFY",
+              expectedStage: target.stage as "BUILD" | "VERIFY",
               callerResult: workflowResult!,
               innerResultStatus: actualResultStatus,
                validationStatus: "verified",
@@ -2523,7 +2534,7 @@ Use this instead of generic task() for ODF workflow delegation.`,
                expectationsIds,
             })
             const preCommitFailure = !innerDisposition.accepted ||
-              args.phase === "IMPLEMENT" && validation?.status !== "verified"
+              target.stage === "BUILD" && validation?.status !== "verified"
             if (lifecycle.status === "blocked") {
               if (!preCommitFailure) workflowCommit = lifecycle
               return settleProofFailure(
@@ -2543,7 +2554,7 @@ Use this instead of generic task() for ODF workflow delegation.`,
                 ? persistWorkflowFailureReceipt(
                   workspaceRoot,
                   changeName!,
-                  args.phase as ODFReceipt["phase"],
+                  phase as ODFReceipt["phase"],
                   summary,
                   policyGate,
                   [],
@@ -2557,7 +2568,7 @@ Use this instead of generic task() for ODF workflow delegation.`,
                 status: "error",
                 reason: "attempt-settlement-failed",
                 stop_disposition: classifyODFStop("attempt-settlement-failed"),
-                phase: args.phase,
+                phase: phase,
                 agent: agentName,
                 policy_gate: policyGate,
                 validation,
@@ -2578,7 +2589,7 @@ Use this instead of generic task() for ODF workflow delegation.`,
           })
           return JSON.stringify({
             status: "delegated",
-            phase: args.phase,
+            phase: phase,
             agent: agentName,
             skills_injected: skills.map(s => s.name),
             profile: profilePayload,
@@ -2634,7 +2645,7 @@ Use this instead of generic task() for ODF workflow delegation.`,
           if (policyGate && !executionOptions.suppress_failure_receipt) {
             const receipt: ODFReceipt = {
               change: policyGate.change,
-              phase: args.phase as ODFReceipt["phase"],
+              phase: phase as ODFReceipt["phase"],
               status: isCancelled || isEmpty ? "blocked" : "failed",
               cause: isTimeout ? "timeout" : "error",
               evidence: {
@@ -2654,7 +2665,7 @@ Use this instead of generic task() for ODF workflow delegation.`,
             status: isTimeout ? "timeout" : isCancelled || isEmpty ? "blocked" : "error",
             reason,
             stop_disposition: classifyODFStop(isTimeout ? "task-timeout" : reason || "task-error"),
-            phase: args.phase,
+            phase: phase,
             agent: agentName,
             skills_injected: skills.map(s => s.name),
             profile: profilePayload,
@@ -2681,7 +2692,7 @@ Use this instead of generic task() for ODF workflow delegation.`,
         status: "blocked",
         reason: "task-api-unavailable",
         stop_disposition: classifyODFStop("task-api-unavailable"),
-        phase: args.phase,
+        phase: phase,
         agent: agentName,
         skills_injected: skills.map(s => s.name),
         profile: profilePayload,
@@ -3081,10 +3092,12 @@ async function sealProofBackedDelegation(opts: {
 
   const delegate = createODFDelegate(undefined, opts.canonicalDirectory)
   const stubTask = async (): Promise<unknown> => opts.childResult
+  const replayTarget = delegationTargetForPhase(opts.record.phase)
   let envelopeRaw: string
   try {
     envelopeRaw = await delegate.execute({
-      phase: opts.record.phase,
+      stage: replayTarget.stage,
+      ...(replayTarget.role ? { role: replayTarget.role } : {}),
       change: opts.record.change,
       prompt: opts.record.task,
       context_files: opts.record.context_files,
@@ -5990,7 +6003,7 @@ must not overlap. VERIFY remains sequential after the aggregate join is complete
                 emit_lifecycle: false,
               },
             }).execute({
-              phase: "IMPLEMENT",
+              stage: "BUILD",
               prompt: `${branch.prompt}\n\nStop-validation evidence: write \`${validationEvidenceRef}\`.`,
               context_files: branch.context_files,
               workspace_dir: workspaceRoot,

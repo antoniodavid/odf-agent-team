@@ -5,6 +5,7 @@ import {
   STAGE_ROLES,
   PHASE_STAGE,
   resolveDelegationTarget,
+  delegationTargetForPhase,
   isStageTerminalRole,
 } from "./odf-delegation-contract.js"
 
@@ -86,6 +87,17 @@ describe("delegation stage contract", () => {
   it("treats an empty role as absent", () => {
     expect(resolveDelegationTarget("BUILD", "   ")).toMatchObject({ ok: true, role: null })
     expect(resolveDelegationTarget("DECIDE", "")).toMatchObject({ ok: false, reason: "role-required" })
+  })
+
+  it("projects an internal phase back to its stage and role", () => {
+    expect(delegationTargetForPhase("PROPOSE")).toEqual({ stage: "DECIDE", role: "PROPOSE" })
+    expect(delegationTargetForPhase("ASSESS")).toEqual({ stage: "DECIDE", role: "ASSESS" })
+    expect(delegationTargetForPhase("QA-PLAN")).toEqual({ stage: "PLAN", role: "QA-PLAN" })
+    expect(delegationTargetForPhase("DESIGN")).toEqual({ stage: "PLAN", role: "DESIGN" })
+    expect(delegationTargetForPhase("IMPLEMENT")).toEqual({ stage: "BUILD", role: null })
+    expect(delegationTargetForPhase("VERIFY")).toEqual({ stage: "VERIFY", role: null })
+    expect(delegationTargetForPhase("EXPLORE")).toEqual({ stage: "EXPLORE", role: null })
+    expect(delegationTargetForPhase("FIX")).toEqual({ stage: "FIX", role: null })
   })
 
   it("knows the stage-terminal roles", () => {
