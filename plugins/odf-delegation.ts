@@ -196,6 +196,7 @@ import {
 import {
   resolveDelegationTarget,
   delegationPhase,
+  isStageTerminalRole,
   type DelegationRole,
   type DelegationStage,
 } from "../odf-plugin/odf-delegation-contract.js"
@@ -1605,24 +1606,26 @@ function buildDelegationPrompt(opts: {
 interface CompositeGateFailure {
   reason: string
   message: string
-  workflow_materialization?: LegacyWorkflowMaterialization
+  workflow_materialization?: WorkflowStageMaterialization
 }
 
 interface CompositeGateOutcome {
   result: unknown
   warnings: string[]
-  materialization: LegacyWorkflowMaterialization | null
+  materialization: WorkflowStageMaterialization | null
   failure: CompositeGateFailure | null
 }
 
 /**
  * Post-result gates shared by odf_delegate and odf_delegation_seal for the
- * composite phases: source authority, design closure, artifact refs and the
- * legacy PLAN boundary materialization. Never throws; failures are returned so
- * the caller keeps its own envelope and receipt semantics.
+ * composite stages: source authority, design closure, artifact refs and the
+ * canonical stage commit. Never throws; failures are returned so the caller
+ * keeps its own envelope and receipt semantics.
  */
 async function applyCompositeResultGates(opts: {
   phase: string
+  stage: DelegationStage
+  role: DelegationRole | null
   task: string
   rawResult: unknown
   contextFiles?: string[]
@@ -1635,7 +1638,7 @@ async function applyCompositeResultGates(opts: {
 }): Promise<CompositeGateOutcome> {
   let result: unknown = opts.rawResult
   const warnings: string[] = []
-  let materialization: LegacyWorkflowMaterialization | null = null
+  let materialization: WorkflowStageMaterialization | null = null
 
   if (opts.sourceAuthorityRequired && opts.innerAccepted && opts.sourceAuthorityRoots) {
     const authority = validateSourceAuthority({
@@ -1706,11 +1709,11 @@ async function applyCompositeResultGates(opts: {
     }
   }
 
-  if (opts.innerAccepted && (opts.phase === "ASSESS" || opts.phase === "DESIGN") && opts.changeName) {
-    materialization = await materializeLegacyCanonicalBoundary({
+  if (opts.innerAccepted && isStageTerminalRole(opts.stage, opts.role) && opts.changeName) {
+    materialization = await materializeStageCompletion({
       workspaceRoot: opts.workspaceRoot,
       changeName: opts.changeName,
-      phase: opts.phase,
+      stage: opts.stage as "DECIDE" | "PLAN",
       artifactStore: opts.artifactStore,
     })
     if (materialization?.status === "blocked") {
@@ -2446,7 +2449,7 @@ Use this instead of generic task() for ODF workflow delegation.`,
            const innerDisposition = innerResultDisposition(taskResult.result)
            const actualResultStatus = innerDisposition.resultStatus
            let workflowCommit: WorkflowCommitResult | null = null
-           let workflowMaterialization: LegacyWorkflowMaterialization | null = null
+           let workflowMaterialization: WorkflowStageMaterialization | null = null
            const settleProofFailure = (summary: string, reason: string, disposition?: InnerResultDisposition, extra: Record<string, unknown> = {}): string => {
             if (acquiredAttempt && !executionOptions.suppress_attempt_settlement) {
               settleAttempt(
@@ -2507,6 +2510,8 @@ Use this instead of generic task() for ODF workflow delegation.`,
 
             const composite = await applyCompositeResultGates({
               phase: phase,
+              stage: target.stage,
+              role: target.role,
               task: args.prompt,
               rawResult: taskResult.result,
               contextFiles: args.context_files,
@@ -4749,6 +4754,8 @@ function createODFDelegationSeal(canonicalDirectory?: string): ReturnType<typeof
         ? { result: childResult, warnings: [], materialization: null, failure: proposalFailure }
         : await applyCompositeResultGates({
           phase: delegationPhase(record.stage, record.role),
+          stage: record.stage,
+          role: record.role,
           task: record.task,
           rawResult: childResult,
           contextFiles: record.context_files,
@@ -6965,7 +6972,7 @@ export interface WorkflowCommitResult {
   workflow_result: ReturnType<typeof advanceWorkflow> | null
 }
 
-interface LegacyWorkflowMaterialization {
+interface WorkflowStageMaterialization {
   status: "committed" | "already-committed" | "blocked"
   reason: string
   message: string
@@ -6975,11 +6982,6 @@ interface LegacyWorkflowMaterialization {
   completed_stages: CanonicalStage[]
   /** P2 adapter diagnostics: what the harness saw when a phase boundary blocked. */
   artifacts_seen?: string[]
-}
-
-const LEGACY_CANONICAL_BOUNDARIES: Partial<Record<"ASSESS" | "DESIGN", CanonicalStage>> = {
-  ASSESS: "DECIDE",
-  DESIGN: "PLAN",
 }
 
 const WORKFLOW_LOCK_SUFFIX = ".workflow.lock"
@@ -7123,26 +7125,25 @@ function writeWorkflowState(
   return writeEngramWorkflowState(workspaceRoot, changeName, stateContent, workType, canonicalStage, completedStages)
 }
 
-async function materializeLegacyCanonicalBoundary(opts: {
+async function materializeStageCompletion(opts: {
   workspaceRoot: string
   changeName: string
-  phase: "ASSESS" | "DESIGN"
+  stage: "DECIDE" | "PLAN"
   artifactStore?: ArtifactStore
-}): Promise<LegacyWorkflowMaterialization | null> {
-  const target = LEGACY_CANONICAL_BOUNDARIES[opts.phase]
-  if (!target) return null
+}): Promise<WorkflowStageMaterialization | null> {
+  const target: CanonicalStage = opts.stage
 
   const store = await resolveBoundArtifactStore(opts.workspaceRoot, opts.changeName, opts.artifactStore)
   if (!store) return null
   const stateRef = workflowStateReference(store, opts.changeName)
 
-  const locked = await withWorkflowLock(opts.workspaceRoot, opts.changeName, async (): Promise<LegacyWorkflowMaterialization | null> => {
+  const locked = await withWorkflowLock(opts.workspaceRoot, opts.changeName, async (): Promise<WorkflowStageMaterialization | null> => {
     const read = await readSelectedWorkflowState(opts.workspaceRoot, opts.changeName, store)
     if (!read.snapshot) {
       return {
         status: "blocked",
         reason: read.error || "workflow-state-unavailable",
-        message: "The bound workflow state could not be read before materializing the legacy phase boundary.",
+        message: "The bound workflow state could not be read before committing the stage.",
         store,
         state_ref: stateRef,
         canonical_stage: null,
@@ -7155,7 +7156,7 @@ async function materializeLegacyCanonicalBoundary(opts: {
       return {
         status: "blocked",
         reason: "workflow-work-type-missing",
-        message: "The bound workflow state has no valid work_type; the legacy boundary cannot be materialized safely.",
+        message: "The bound workflow state has no valid work_type; the stage cannot be committed safely.",
         store,
         state_ref: stateRef,
         canonical_stage: null,
@@ -7182,10 +7183,13 @@ async function materializeLegacyCanonicalBoundary(opts: {
           ? `${normalized.original} (${normalized.type} → ${normalized.group})`
           : `${normalized.original} (unrecognized phase artifact)`
       }).slice(0, 12)
+      const requirement = expectedPrefix.length === 1
+        ? `${opts.stage} requires its terminal artifacts`
+        : `${opts.stage} requires terminal artifacts for ${expectedPrefix.slice(0, -1).join(" and ")}`
       return {
         status: "blocked",
-        reason: `workflow-${opts.phase.toLowerCase()}-artifact-not-terminal`,
-        message: `${opts.phase} requires terminal artifacts for ${expectedPrefix.join(" and ")}; persist and complete the phase artifacts before continuing. Artifacts seen: ${artifactsSeen.length ? artifactsSeen.join("; ") : "none"}`,
+        reason: `workflow-${opts.stage.toLowerCase()}-artifact-not-terminal`,
+        message: `${requirement} before continuing. Artifacts seen: ${artifactsSeen.length ? artifactsSeen.join("; ") : "none"}`,
         store,
         state_ref: stateRef,
         canonical_stage: read.snapshot.status.canonical_stage,
@@ -7202,14 +7206,11 @@ async function materializeLegacyCanonicalBoundary(opts: {
     const stateStage = typeof read.snapshot.state.canonical_stage === "string"
       ? read.snapshot.state.canonical_stage.toUpperCase()
       : ""
-    const statePhase = typeof read.snapshot.state.phase === "string"
-      ? read.snapshot.state.phase.toUpperCase()
-      : ""
-    if (sameStages(persisted, newCompleted) && stateStage === newStage && statePhase === opts.phase) {
+    if (sameStages(persisted, newCompleted) && stateStage === newStage) {
       return {
         status: "already-committed",
         reason: "already-committed",
-        message: `The ${opts.phase} boundary is already materialized.`,
+        message: `The ${opts.stage} stage is already committed.`,
         store,
         state_ref: stateRef,
         canonical_stage: newStage,
@@ -7222,7 +7223,7 @@ async function materializeLegacyCanonicalBoundary(opts: {
       return {
         status: "blocked",
         reason: "malformed-state",
-        message: "The bound workflow state is malformed and could not be materialized safely.",
+        message: "The bound workflow state is malformed and could not be committed safely.",
         store,
         state_ref: stateRef,
         canonical_stage: read.snapshot.status.canonical_stage,
@@ -7232,14 +7233,13 @@ async function materializeLegacyCanonicalBoundary(opts: {
     parsed.document.set("work_type", workType)
     parsed.document.set("canonical_stage", newStage)
     parsed.document.set("completed_canonical_stages", newCompleted)
-    if (newStageIndex === targetIndex) parsed.document.set("phase", opts.phase)
     parsed.document.set("last_updated", new Date().toISOString())
     const writeError = writeWorkflowState(store, opts.workspaceRoot, opts.changeName, serializeOpenSpecState(parsed.document), workType as WorkType, newStage, newCompleted)
     if (writeError) {
       return {
         status: "blocked",
         reason: writeError,
-        message: "The canonical legacy phase boundary could not be persisted.",
+        message: "The canonical stage could not be persisted.",
         store,
         state_ref: stateRef,
         canonical_stage: read.snapshot.status.canonical_stage,
@@ -7249,7 +7249,7 @@ async function materializeLegacyCanonicalBoundary(opts: {
     return {
       status: "committed",
       reason: "committed",
-      message: `Materialized ${opts.phase} as ${newStage} in ${store}.`,
+      message: `Committed ${newStage} in ${store}.`,
       store,
       state_ref: stateRef,
       canonical_stage: newStage,
@@ -7262,7 +7262,7 @@ async function materializeLegacyCanonicalBoundary(opts: {
     : {
       status: "blocked",
       reason: locked.error,
-      message: "The legacy workflow boundary could not acquire the workflow lock.",
+      message: "The workflow stage commit could not acquire the workflow lock.",
       store,
       state_ref: stateRef,
       canonical_stage: null,

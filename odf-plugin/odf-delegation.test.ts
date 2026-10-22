@@ -6761,7 +6761,7 @@ ${overrides}`
       workflow_materialization: { status: "committed", canonical_stage: "DECIDE", completed_stages: ["DECIDE"] },
     })
     expect(YAML.parse(await fs.readFile(path.join(changeDir, "state.yaml"), "utf8"))).toMatchObject({
-      phase: "ASSESS",
+      phase: "preflight",
       canonical_stage: "DECIDE",
       completed_canonical_stages: ["DECIDE"],
     })
@@ -6789,14 +6789,14 @@ ${overrides}`
       workflow_materialization: { status: "committed", canonical_stage: "PLAN", completed_stages: ["DECIDE", "PLAN"] },
     })
     expect(YAML.parse(await fs.readFile(path.join(changeDir, "state.yaml"), "utf8"))).toMatchObject({
-      phase: "DESIGN",
+      phase: "preflight",
       canonical_stage: "PLAN",
       completed_canonical_stages: ["DECIDE", "PLAN"],
     })
     expect(taskApi).toHaveBeenCalledTimes(3)
   })
 
-  it("blocks legacy materialization when the phase artifact is not terminal", async () => {
+  it("blocks the stage commit when the role artifact is not terminal", async () => {
     const { createODFDelegate } = await import("./odf-delegation.js")
     const change = "legacy-boundary-nonterminal"
     const changeDir = path.join(tempHome, "openspec", "changes", change)
@@ -6822,7 +6822,7 @@ ${overrides}`
 
     expect(output).toMatchObject({
       status: "blocked",
-      reason: "workflow-assess-artifact-not-terminal",
+      reason: "workflow-decide-artifact-not-terminal",
       workflow_materialization: { status: "blocked" },
     })
     expect((output as any).workflow_materialization.artifacts_seen).toEqual(
