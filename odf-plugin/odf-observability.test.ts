@@ -44,7 +44,7 @@ function attempt(overrides: Partial<ObservabilityAttemptRecord> = {}): Observabi
     attempt_id: "attempt-default",
     branch_id: "backend",
     change: "target-change",
-    phase: "IMPLEMENT",
+    stage: "BUILD",
     next_stage: "BUILD",
     status: "completed",
     started_at: "2026-08-24T10:00:00.000Z",

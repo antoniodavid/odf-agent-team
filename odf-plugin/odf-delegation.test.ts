@@ -714,7 +714,7 @@ describe("createODFWorkflowOverride", () => {
     const ledgerPath = path.join(root, ".odf", "attempt-ledger-ov-change.jsonl")
     await fs.mkdir(path.dirname(ledgerPath), { recursive: true })
     await fs.writeFile(ledgerPath, JSON.stringify({
-      attempt_id: "stale-1", branch_id: "default", change: "ov-change", phase: "IMPLEMENT", next_stage: "BUILD",
+      attempt_id: "stale-1", branch_id: "default", change: "ov-change", stage: "BUILD", next_stage: "BUILD",
       status: "running", started_at: "2026-09-21T20:00:00.000Z", updated_at: "2026-09-21T20:00:00.000Z",
       settled_at: null, reason: "acquired", result_status: "running", candidate_digest: null,
     }) + "\n", "utf8")
@@ -727,7 +727,7 @@ describe("createODFWorkflowOverride", () => {
       attempt_id: "stale-1",
       confirm_no_active_run: true,
     }), {} as any) as string)
-    expect(output).toMatchObject({ status: "settled", action: "settle-attempt", attempt_id: "stale-1", phase: "IMPLEMENT" })
+    expect(output).toMatchObject({ status: "settled", action: "settle-attempt", attempt_id: "stale-1", stage: "BUILD" })
 
     const records = (await fs.readFile(ledgerPath, "utf8")).trim().split("\n").map(line => JSON.parse(line))
     expect(records).toHaveLength(2)
@@ -744,7 +744,7 @@ describe("createODFWorkflowOverride", () => {
     const ledgerPath = path.join(root, ".odf", "attempt-ledger-ov-change.jsonl")
     await fs.mkdir(path.dirname(ledgerPath), { recursive: true })
     const nativeAttempt = {
-      attempt_id: "native-stale-1", branch_id: "default", change: "ov-change", phase: "IMPLEMENT", next_stage: "BUILD",
+      attempt_id: "native-stale-1", branch_id: "default", change: "ov-change", stage: "BUILD", next_stage: "BUILD",
       status: "running", started_at: "2026-09-21T20:00:00.000Z", updated_at: "2026-09-21T20:00:00.000Z",
       settled_at: null, reason: "acquired", result_status: "running", candidate_digest: null,
       native_parent_session_id: "native-parent",
@@ -825,14 +825,14 @@ describe("createODFWorkflowOverride", () => {
     const ledgerPath = path.join(root, ".odf", "attempt-ledger-ov-change.jsonl")
     await fs.mkdir(path.dirname(ledgerPath), { recursive: true })
     await fs.writeFile(ledgerPath, JSON.stringify({
-      attempt_id: attemptId, branch_id: "default", change: "ov-change", phase: "IMPLEMENT", next_stage: "BUILD",
+      attempt_id: attemptId, branch_id: "default", change: "ov-change", stage: "BUILD", next_stage: "BUILD",
       status: "running", started_at: startedAt, updated_at: startedAt, settled_at: null,
       reason: "acquired", result_status: "running", candidate_digest: null,
       native_parent_session_id: parentSessionId,
     }) + "\n", "utf8")
 
     const safetyBlock = {
-      status: "blocked", reason: "pre-tool-safety", phase: "IMPLEMENT", agent: null, token: null,
+      status: "blocked", reason: "pre-tool-safety", stage: "BUILD", agent: null, token: null,
       task_api_source: "subagent", result: null, classes: ["destructive"], matched_rules: ["destructive-dropdb"],
     }
     const context = [{
@@ -843,7 +843,7 @@ describe("createODFWorkflowOverride", () => {
         type: "tool", id: "call-code", name: "execute",
         state: {
           status: "completed",
-          input: { code: `return await tools.odf_delegation_prepare({ phase: "IMPLEMENT", change: "ov-change", attempt_id: "${attemptId}" })` },
+          input: { code: `return await tools.odf_delegation_prepare({ stage: "BUILD", change: "ov-change", attempt_id: "${attemptId}" })` },
           content: [{ type: "text", text: JSON.stringify(safetyBlock) }],
         },
       }],
@@ -903,7 +903,7 @@ describe("createODFWorkflowOverride", () => {
     const ledgerPath = path.join(root, ".odf", "attempt-ledger-ov-change.jsonl")
     await fs.mkdir(path.dirname(ledgerPath), { recursive: true })
     await fs.writeFile(ledgerPath, JSON.stringify({
-      attempt_id: attemptId, branch_id: "default", change: "ov-change", phase: "IMPLEMENT", next_stage: "BUILD",
+      attempt_id: attemptId, branch_id: "default", change: "ov-change", stage: "BUILD", next_stage: "BUILD",
       status: "running", started_at: startedAt, updated_at: startedAt, settled_at: null,
       reason: "acquired", result_status: "running", candidate_digest: null,
       native_parent_session_id: parentSessionId,
@@ -911,11 +911,11 @@ describe("createODFWorkflowOverride", () => {
 
     const token = "odf-tok-prepared-123"
     const preparedResult = {
-      status: "prepared", change: "ov-change", phase: "IMPLEMENT", attempt_id: attemptId,
+      status: "prepared", change: "ov-change", stage: "BUILD", attempt_id: attemptId,
       agent: "odoo_batch_implementer", token,
       delegation: {
         agent: "odoo_batch_implementer",
-        prompt: `<!-- ODF-DELEGATION {"change":"ov-change","phase":"IMPLEMENT","agent":"odoo_batch_implementer","token":"${token}"} -->\nTask body`,
+        prompt: `<!-- ODF-DELEGATION {"change":"ov-change","stage":"BUILD","role":null,"agent":"odoo_batch_implementer","token":"${token}"} -->\nTask body`,
       },
     }
     const context = [
@@ -927,7 +927,7 @@ describe("createODFWorkflowOverride", () => {
           type: "tool", id: "call-prepare", name: "execute",
           state: {
             status: "completed",
-            input: { code: `const result = await tools.odf_delegation_prepare({ phase: "IMPLEMENT", change: "ov-change", attempt_id: "${attemptId}" });\nreturn result;` },
+            input: { code: `const result = await tools.odf_delegation_prepare({ stage: "BUILD", change: "ov-change", attempt_id: "${attemptId}" });\nreturn result;` },
             content: [{ type: "text", text: JSON.stringify(preparedResult) }],
           },
         }],
@@ -1002,18 +1002,18 @@ describe("createODFWorkflowOverride", () => {
     const startedAt = "2026-09-21T20:00:00.000Z"
     const startedMs = Date.parse(startedAt)
     const token = "odf-tok-bind-failure-123"
-    const prompt = `<!-- ODF-DELEGATION {"change":"ov-change","phase":"IMPLEMENT","agent":"odoo_batch_implementer","token":"${token}"} -->\nTask body`
+    const prompt = `<!-- ODF-DELEGATION {"change":"ov-change","stage":"BUILD","role":null,"agent":"odoo_batch_implementer","token":"${token}"} -->\nTask body`
     const ledgerPath = path.join(root, ".odf", "attempt-ledger-ov-change.jsonl")
     await fs.mkdir(path.dirname(ledgerPath), { recursive: true })
     await fs.writeFile(ledgerPath, JSON.stringify({
-      attempt_id: attemptId, branch_id: "default", change: "ov-change", phase: "IMPLEMENT", next_stage: "BUILD",
+      attempt_id: attemptId, branch_id: "default", change: "ov-change", stage: "BUILD", next_stage: "BUILD",
       status: "running", started_at: startedAt, updated_at: startedAt, settled_at: null,
       reason: "acquired", result_status: "running", candidate_digest: null,
       native_parent_session_id: parentSessionId,
     }) + "\n", "utf8")
 
     const preparedResult = {
-      status: "prepared", change: "ov-change", phase: "IMPLEMENT", attempt_id: attemptId,
+      status: "prepared", change: "ov-change", stage: "BUILD", attempt_id: attemptId,
       agent: "odoo_batch_implementer", token,
       delegation: { agent: "odoo_batch_implementer", prompt },
     }
@@ -1026,7 +1026,7 @@ describe("createODFWorkflowOverride", () => {
           type: "tool", id: "call-prepare", name: "execute",
           state: {
             status: "completed",
-            input: { code: `return await tools.odf_delegation_prepare({ phase: "IMPLEMENT", change: "ov-change", attempt_id: "${attemptId}" })` },
+            input: { code: `return await tools.odf_delegation_prepare({ stage: "BUILD", change: "ov-change", attempt_id: "${attemptId}" })` },
             content: [{ type: "text", text: JSON.stringify(preparedResult) }],
           },
         }],
@@ -1135,17 +1135,17 @@ describe("createODFWorkflowOverride", () => {
     const startedAt = "2026-09-21T20:00:00.000Z"
     const startedMs = Date.parse(startedAt)
     const token = "odf-tok-bind-failure-456"
-    const prompt = `<!-- ODF-DELEGATION {"change":"ov-change","phase":"IMPLEMENT","agent":"odoo_batch_implementer","token":"${token}"} -->\nTask body`
+    const prompt = `<!-- ODF-DELEGATION {"change":"ov-change","stage":"BUILD","role":null,"agent":"odoo_batch_implementer","token":"${token}"} -->\nTask body`
     const ledgerPath = path.join(root, ".odf", "attempt-ledger-ov-change.jsonl")
     await fs.mkdir(path.dirname(ledgerPath), { recursive: true })
     await fs.writeFile(ledgerPath, JSON.stringify({
-      attempt_id: attemptId, branch_id: "default", change: "ov-change", phase: "IMPLEMENT", next_stage: "BUILD",
+      attempt_id: attemptId, branch_id: "default", change: "ov-change", stage: "BUILD", next_stage: "BUILD",
       status: "running", started_at: startedAt, updated_at: startedAt, settled_at: null,
       reason: "acquired", result_status: "running", candidate_digest: null,
       native_parent_session_id: parentSessionId,
     }) + "\n", "utf8")
     const preparedResult = {
-      status: "prepared", change: "ov-change", phase: "IMPLEMENT", attempt_id: attemptId,
+      status: "prepared", change: "ov-change", stage: "BUILD", attempt_id: attemptId,
       agent: "odoo_batch_implementer", token, delegation: { agent: "odoo_batch_implementer", prompt },
     }
     const parentContext = [
@@ -1153,7 +1153,7 @@ describe("createODFWorkflowOverride", () => {
         id: "msg-prepare", type: "assistant", time: { created: startedMs - 1_000, completed: startedMs + 1_000 },
         content: [{
           type: "tool", id: "call-prepare", name: "odf_delegation_prepare",
-          state: { status: "completed", input: { attempt_id: attemptId, change: "ov-change", phase: "IMPLEMENT" }, content: [{ type: "text", text: JSON.stringify(preparedResult) }] },
+          state: { status: "completed", input: { attempt_id: attemptId, change: "ov-change", stage: "BUILD" }, content: [{ type: "text", text: JSON.stringify(preparedResult) }] },
         }],
       },
       {
@@ -1210,7 +1210,7 @@ describe("createODFWorkflowOverride", () => {
     const ledgerPath = path.join(root, ".odf", "attempt-ledger-ov-change.jsonl")
     await fs.mkdir(path.dirname(ledgerPath), { recursive: true })
     await fs.writeFile(ledgerPath, JSON.stringify({
-      attempt_id: attemptId, branch_id: "default", change: "ov-change", phase: "IMPLEMENT", next_stage: "BUILD",
+      attempt_id: attemptId, branch_id: "default", change: "ov-change", stage: "BUILD", next_stage: "BUILD",
       status: "running", started_at: startedAt, updated_at: startedAt, settled_at: null,
       reason: "acquired", result_status: "running", candidate_digest: null,
       native_parent_session_id: "native-parent",
@@ -1258,7 +1258,7 @@ describe("createODFWorkflowOverride", () => {
     const ledgerPath = path.join(root, ".odf", "attempt-ledger-ov-change.jsonl")
     await fs.mkdir(path.dirname(ledgerPath), { recursive: true })
     await fs.writeFile(ledgerPath, JSON.stringify({
-      attempt_id: "stale-2", change: "ov-change", phase: "IMPLEMENT", next_stage: "BUILD",
+      attempt_id: "stale-2", change: "ov-change", stage: "BUILD", next_stage: "BUILD",
       status: "failed", started_at: "2026-09-21T20:00:00.000Z", updated_at: "2026-09-21T20:10:00.000Z",
       settled_at: "2026-09-21T20:10:00.000Z", reason: "task-cancelled", result_status: "cancelled",
     }) + "\n", "utf8")
@@ -4111,7 +4111,7 @@ describe("computePolicyGate", () => {
   })
 
   it("resolves TDD on when global is true and no local marker", () => {
-    const d = computePolicyGate({ change: "tdd-on", phase: "IMPLEMENT", workspaceDir: tmp, registry: registryWithTdd(true) })
+    const d = computePolicyGate({ change: "tdd-on", stage: "BUILD", workspaceDir: tmp, registry: registryWithTdd(true) })
     expect(d.gate).toBe("allow")
     expect(d.tdd.global).toBe(true)
     expect(d.tdd.local_readable).toBe(true)
@@ -4122,26 +4122,26 @@ describe("computePolicyGate", () => {
   it("resolves TDD off when the local marker exists", async () => {
     await fs.mkdir(path.join(tmp, ".odf"), { recursive: true })
     await fs.writeFile(path.join(tmp, ".odf", "tdd.off"), "off", "utf8")
-    const d = computePolicyGate({ change: "tdd-off", phase: "IMPLEMENT", workspaceDir: tmp, registry: registryWithTdd(true) })
+    const d = computePolicyGate({ change: "tdd-off", stage: "BUILD", workspaceDir: tmp, registry: registryWithTdd(true) })
     expect(d.tdd.effective).toBe("off")
     expect(d.tdd.local_off).toBe(true)
   })
 
   it("resolves TDD off when the global flag is false", () => {
-    const d = computePolicyGate({ change: "tdd-global-off", phase: "IMPLEMENT", workspaceDir: tmp, registry: registryWithTdd(false) })
+    const d = computePolicyGate({ change: "tdd-global-off", stage: "BUILD", workspaceDir: tmp, registry: registryWithTdd(false) })
     expect(d.tdd.global).toBe(false)
     expect(d.tdd.effective).toBe("off")
   })
 
   it("fails closed when the local source is unreadable", async () => {
     await fs.writeFile(path.join(tmp, ".odf"), "not-a-directory", "utf8")
-    const d = computePolicyGate({ change: "tdd-failclosed", phase: "IMPLEMENT", workspaceDir: tmp, registry: registryWithTdd(true) })
+    const d = computePolicyGate({ change: "tdd-failclosed", stage: "BUILD", workspaceDir: tmp, registry: registryWithTdd(true) })
     expect(d.tdd.local_readable).toBe(false)
     expect(d.tdd.effective).toBe("off")
   })
 
   it("blocks on a missing change name", () => {
-    const d = computePolicyGate({ change: "", phase: "IMPLEMENT", workspaceDir: tmp, registry: registryWithTdd(true) })
+    const d = computePolicyGate({ change: "", stage: "BUILD", workspaceDir: tmp, registry: registryWithTdd(true) })
     expect(d.gate).toBe("block")
     expect(d.reason).toContain("missing change name")
   })
@@ -4153,7 +4153,7 @@ describe("computePolicyGate", () => {
     try {
       const decision = computePolicyGate({
         change: "persist-failure",
-        phase: "IMPLEMENT",
+        stage: "BUILD",
         workspaceDir: tmp,
         registry: registryWithTdd(true),
       })
@@ -4170,7 +4170,7 @@ describe("computePolicyGate", () => {
 
   it.each(["", "   ", "missing-workspace"]) ("fails closed before creating .odf for an invalid workspace root (%j)", workspaceDir => {
     const selectedWorkspace = workspaceDir.trim() ? path.join(tmp, workspaceDir) : workspaceDir
-    const d = computePolicyGate({ change: "invalid-root", phase: "IMPLEMENT", workspaceDir: selectedWorkspace, registry: registryWithTdd(true) })
+    const d = computePolicyGate({ change: "invalid-root", stage: "BUILD", workspaceDir: selectedWorkspace, registry: registryWithTdd(true) })
     expect(d).toMatchObject({ gate: "block", reason: expect.stringContaining("unsafe-workspace-path") })
     expect(fsSync.existsSync(path.join(tmp, "missing-workspace", ".odf"))).toBe(false)
     expect(fsSync.existsSync(path.join(tmp, ".odf"))).toBe(false)
@@ -4181,7 +4181,7 @@ describe("computePolicyGate", () => {
     initGitRepo(repo)
     commitFile(repo, "a.py", 10)
     appendLines(repo, "a.py", 100)
-    const d = computePolicyGate({ change: "budget-100", phase: "VERIFY", workspaceDir: repo, registry: registryWithTdd(false) })
+    const d = computePolicyGate({ change: "budget-100", stage: "VERIFY", workspaceDir: repo, registry: registryWithTdd(false) })
     expect(d.frozen_diff_ref).toBeTruthy()
     expect(d.changed_lines).toBe(100)
     expect(d.correction_budget_lines).toBe(50)
@@ -4192,7 +4192,7 @@ describe("computePolicyGate", () => {
     initGitRepo(repo)
     commitFile(repo, "a.py", 10)
     appendLines(repo, "a.py", 500)
-    const d = computePolicyGate({ change: "budget-500", phase: "VERIFY", workspaceDir: repo, registry: registryWithTdd(false) })
+    const d = computePolicyGate({ change: "budget-500", stage: "VERIFY", workspaceDir: repo, registry: registryWithTdd(false) })
     expect(d.changed_lines).toBe(500)
     expect(d.correction_budget_lines).toBe(200)
   })
@@ -4202,17 +4202,17 @@ describe("computePolicyGate", () => {
     initGitRepo(repo)
     commitFile(repo, "a.py", 10)
     appendLines(repo, "a.py", 100)
-    const first = computePolicyGate({ change: "idem", phase: "VERIFY", workspaceDir: repo, registry: registryWithTdd(false) })
+    const first = computePolicyGate({ change: "idem", stage: "VERIFY", workspaceDir: repo, registry: registryWithTdd(false) })
     expect(first.candidate_digest).toBeTruthy()
 
-    const reused = computePolicyGate({ change: "idem", phase: "VERIFY", workspaceDir: repo, registry: registryWithTdd(false) })
+    const reused = computePolicyGate({ change: "idem", stage: "VERIFY", workspaceDir: repo, registry: registryWithTdd(false) })
     expect(reused.frozen_diff_ref).toBe(first.frozen_diff_ref)
     expect(reused.candidate_digest).toBe(first.candidate_digest)
     expect(reused.changed_lines).toBe(100)
     expect(reused.correction_budget_lines).toBe(50)
 
     appendLines(repo, "a.py", 200)
-    const recomputed = computePolicyGate({ change: "idem", phase: "VERIFY", workspaceDir: repo, registry: registryWithTdd(false) })
+    const recomputed = computePolicyGate({ change: "idem", stage: "VERIFY", workspaceDir: repo, registry: registryWithTdd(false) })
     expect(recomputed.candidate_digest).not.toBe(first.candidate_digest)
     expect(recomputed.changed_lines).toBe(300)
   })
@@ -4222,14 +4222,14 @@ describe("computePolicyGate", () => {
     initGitRepo(repo)
     commitFile(repo, "a.py", 10)
     appendLines(repo, "a.py", 100)
-    const first = computePolicyGate({ change: "mutation-gate", phase: "VERIFY", workspaceDir: repo, registry: registryWithTdd(false) })
+    const first = computePolicyGate({ change: "mutation-gate", stage: "VERIFY", workspaceDir: repo, registry: registryWithTdd(false) })
     expect(first.candidate_digest).toBeTruthy()
 
-    const reused = computePolicyGate({ change: "mutation-gate", phase: "VERIFY", workspaceDir: repo, registry: registryWithTdd(false) })
+    const reused = computePolicyGate({ change: "mutation-gate", stage: "VERIFY", workspaceDir: repo, registry: registryWithTdd(false) })
     expect(reused.candidate_digest).toBe(first.candidate_digest)
 
     appendLines(repo, "a.py", 1)
-    const recomputed = computePolicyGate({ change: "mutation-gate", phase: "VERIFY", workspaceDir: repo, registry: registryWithTdd(false) })
+    const recomputed = computePolicyGate({ change: "mutation-gate", stage: "VERIFY", workspaceDir: repo, registry: registryWithTdd(false) })
     expect(recomputed.candidate_digest).not.toBe(first.candidate_digest)
     expect(recomputed.resolved_at).not.toBe(first.resolved_at)
     expect(recomputed.changed_lines).toBe(first.changed_lines! + 1)
@@ -4240,19 +4240,19 @@ describe("computePolicyGate", () => {
     initGitRepo(repo)
     commitFile(repo, "security/ir.model.access.csv", 5)
     appendLines(repo, "security/ir.model.access.csv", 5)
-    const d = computePolicyGate({ change: "tier-sec", phase: "VERIFY", workspaceDir: repo, registry: registryWithTdd(false) })
+    const d = computePolicyGate({ change: "tier-sec", stage: "VERIFY", workspaceDir: repo, registry: registryWithTdd(false) })
     expect(d.risk_tier).toBe("HIGH")
 
     const repoLow = path.join(tmp, "repo-tier-low")
     initGitRepo(repoLow)
     commitFile(repoLow, "views/sale_form.xml", 5)
     appendLines(repoLow, "views/sale_form.xml", 5)
-    const low = computePolicyGate({ change: "tier-low", phase: "VERIFY", workspaceDir: repoLow, registry: registryWithTdd(false) })
+    const low = computePolicyGate({ change: "tier-low", stage: "VERIFY", workspaceDir: repoLow, registry: registryWithTdd(false) })
     expect(low.risk_tier).toBe("LOW")
   })
 
   it("fail-closed: blocks VERIFY without git instead of failing open to LOW", () => {
-    const d = computePolicyGate({ change: "no-git", phase: "VERIFY", workspaceDir: tmp, registry: registryWithTdd(true) })
+    const d = computePolicyGate({ change: "no-git", stage: "VERIFY", workspaceDir: tmp, registry: registryWithTdd(true) })
     expect(d.frozen_diff_ref).toBeNull()
     expect(d.changed_lines).toBeNull()
     expect(d.candidate_digest).toBeNull()
@@ -4268,7 +4268,7 @@ describe("savePolicyGateJson", () => {
     try {
       const decision: PolicyGateDecision = {
         change: "save-test",
-        phase: "IMPLEMENT",
+        stage: "BUILD",
         gate: "allow",
         reason: "test",
         tdd: { global: false, local_readable: true, local_off: false, effective: "off" },
@@ -6035,7 +6035,7 @@ ${overrides}`
     const ledgerPath = path.join(tempHome, ".odf", "attempt-ledger-attempt-first.jsonl")
     const records = (await fs.readFile(ledgerPath, "utf8")).trim().split("\n").map(line => JSON.parse(line))
     expect(records.map(record => record.status)).toEqual(["running", "completed"])
-    expect(records[0]).toMatchObject({ attempt_id: "attempt-1", change: "attempt-first", phase: "IMPLEMENT", next_stage: "BUILD" })
+    expect(records[0]).toMatchObject({ attempt_id: "attempt-1", change: "attempt-first", stage: "BUILD", next_stage: "BUILD" })
     expect(records[1].result_status).toBe("delegated")
     expect(await fs.readFile(ledgerPath, "utf8")).not.toContain("secret")
     expect(fsSync.existsSync(`${ledgerPath}.lock`)).toBe(false)
@@ -6105,7 +6105,7 @@ ${overrides}`
       context_files: [],
       workflow_advance: workflowAdvance("IMPLEMENT"),
     }, { sessionID: "s1", task: taskApi } as any) as string)
-    expect(blocked).toMatchObject({ status: "blocked", reason: "attempt-phase-running" })
+    expect(blocked).toMatchObject({ status: "blocked", reason: "attempt-stage-running" })
     expect(taskApi).toHaveBeenCalledTimes(1)
     resolveTask({ status: "ok" })
     await first
@@ -6386,7 +6386,7 @@ ${overrides}`
     const ledgerPath = path.join(tempHome, ".odf", `attempt-ledger-${change}.jsonl`)
     const records = (await fs.readFile(ledgerPath, "utf8")).trim().split("\n").map(line => JSON.parse(line))
     expect(records.map(record => record.status)).toEqual(["running", "completed"])
-    expect(records[0]).toMatchObject({ phase, change, attempt_id: `strict-${phase.toLowerCase()}-1` })
+    expect(records[0]).toMatchObject({ stage: phase === "IMPLEMENT" ? "BUILD" : "VERIFY", change, attempt_id: `strict-${phase.toLowerCase()}-1` })
   })
 
   it.each([
@@ -6497,7 +6497,7 @@ ${overrides}`
       workflow_advance: workflowAdvance("IMPLEMENT"),
     }, { sessionID: "s1", task: taskApi } as any)
 
-    expect(JSON.parse(output as string)).toMatchObject({ status: "blocked", reason: "attempt-phase-running" })
+    expect(JSON.parse(output as string)).toMatchObject({ status: "blocked", reason: "attempt-stage-running" })
     expect(taskApi).not.toHaveBeenCalled()
   })
 
@@ -9859,11 +9859,11 @@ describe("createODFPolicyGate", () => {
     await fs.mkdir(workspace, { recursive: true })
 
     const gateTool = createODFPolicyGate()
-    const output = await gateTool.execute({ change: "my-change", phase: "IMPLEMENT", workspace_dir: workspace }, {} as any)
+    const output = await gateTool.execute({ change: "my-change", stage: "BUILD", workspace_dir: workspace }, {} as any)
     const decision = JSON.parse(output as string)
     expect(decision.gate).toBe("allow")
     expect(decision.change).toBe("my-change")
-    expect(decision.phase).toBe("IMPLEMENT")
+    expect(decision.stage).toBe("BUILD")
     expect(decision.tdd.effective).toBe("off")
 
     const saved = JSON.parse(
@@ -9930,7 +9930,7 @@ describe("odf_delegate policy gate hook", () => {
     const envelope = JSON.parse(output as string)
     expect(envelope.status).toBe("delegated")
     expect(envelope.policy_gate).toBeDefined()
-    expect(envelope.policy_gate.phase).toBe("VERIFY")
+    expect(envelope.policy_gate.stage).toBe("VERIFY")
     expect(envelope.policy_gate.frozen_diff_ref).toBeTruthy()
 
     const calledPrompt = taskApi.mock.calls[0][0].prompt
@@ -10670,7 +10670,7 @@ describe("createODFReceipt tool", () => {
 
     const receiptTool = createODFReceipt()
     const output = await receiptTool.execute(
-      { change: "my-change", phase: "VERIFY", status: "failed", cause: "validation-failed", evidence_summary: "compliance failed", failing: ["odoo-tests"], refs: ["odf/my-change/verify-report"], workspace_dir: workspace },
+      { change: "my-change", stage: "VERIFY", status: "failed", cause: "validation-failed", evidence_summary: "compliance failed", failing: ["odoo-tests"], refs: ["odf/my-change/verify-report"], workspace_dir: workspace },
       {} as any
     )
     const receipt = JSON.parse(output as string)

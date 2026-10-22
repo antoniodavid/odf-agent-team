@@ -13,10 +13,18 @@ import {
   readPersistedExternalValidationSubjects,
 } from "./odf-delegation-policy.js"
 import { debugLog, resolveWorkspaceRoot } from "./odf-delegation-shared.js"
+import {
+  DELEGATION_ROLES,
+  DELEGATION_STAGES,
+  resolveDelegationTarget,
+  type DelegationRole,
+  type DelegationStage,
+} from "./odf-delegation-contract.js"
 
 export interface ODFReceipt {
   change: string
-  phase: "PROPOSE" | "ASSESS" | "QA-PLAN" | "DESIGN" | "IMPLEMENT" | "VERIFY" | "EXPLORE" | "FIX"
+  stage: DelegationStage
+  role: DelegationRole | null
   status: "ok" | "warning" | "blocked" | "failed"
   cause: "validation-failed" | "error" | "timeout" | "scope-change" | "re-plan" | "abandon" | null
   evidence: {
@@ -119,9 +127,13 @@ overwrites it. Persistence failures are returned as tool errors so the workflow 
       change: tool.schema
         .string()
         .describe("Change name (kebab-case)"),
-      phase: tool.schema
-        .enum(["PROPOSE", "ASSESS", "QA-PLAN", "DESIGN", "IMPLEMENT", "VERIFY", "EXPLORE", "FIX"])
-        .describe("Phase that produced the receipt"),
+      stage: tool.schema
+        .enum([...DELEGATION_STAGES])
+        .describe("Canonical stage that produced the receipt"),
+      role: tool.schema
+        .enum([...DELEGATION_ROLES])
+        .optional()
+        .describe("Role inside a composite stage (DECIDE: PROPOSE or ASSESS; PLAN: QA-PLAN or DESIGN). Omit for BUILD, VERIFY, EXPLORE, and FIX."),
       status: tool.schema
         .enum(["ok", "warning", "blocked", "failed"])
         .describe("Phase outcome (result-contract status)"),
@@ -152,7 +164,8 @@ overwrites it. Persistence failures are returned as tool errors so the workflow 
     },
     async execute(args: {
       change: string
-      phase: ODFReceipt["phase"]
+      stage: DelegationStage
+      role?: DelegationRole
       status: ODFReceipt["status"]
       cause?: ODFReceipt["cause"]
       evidence_summary?: string
@@ -162,9 +175,14 @@ overwrites it. Persistence failures are returned as tool errors so the workflow 
       workspace_dir?: string
     }): Promise<string> {
       const workspace = resolveWorkspaceRoot(args.workspace_dir || process.cwd())
+      const target = resolveDelegationTarget(args.stage, args.role)
+      if (!target.ok) {
+        return JSON.stringify({ status: "error", reason: target.reason, message: target.message }, null, 2)
+      }
       const receipt: ODFReceipt = {
         change: args.change,
-        phase: args.phase,
+        stage: target.stage,
+        role: target.role,
         status: args.status,
         cause: args.cause || null,
         evidence:
@@ -177,13 +195,13 @@ overwrites it. Persistence failures are returned as tool errors so the workflow 
               }
             : null,
         action: args.action ? { committed: args.action } : null,
-        review_gate: args.phase === "VERIFY" ? { attempts_used: 1, budget_lines: null, verdict: args.status === "ok" ? "PASS" : args.status === "warning" ? "PASS_WITH_WARNINGS" : "FAIL" } : null,
+        review_gate: target.stage === "VERIFY" ? { attempts_used: 1, budget_lines: null, verdict: args.status === "ok" ? "PASS" : args.status === "warning" ? "PASS_WITH_WARNINGS" : "FAIL" } : null,
         frozen_diff_ref: gitHead(workspace),
         resolved_at: new Date().toISOString(),
       }
       const merged = mergeReceipt(workspace, receipt)
       const mergedAction = merged.action?.committed || "pending"
-      debugLog(`[odf-delegation] odf_receipt: change=${merged.change} phase=${merged.phase} status=${merged.status} cause=${merged.cause} action=${mergedAction}`)
+      debugLog(`[odf-delegation] odf_receipt: change=${merged.change} stage=${merged.stage} role=${merged.role ?? "none"} status=${merged.status} cause=${merged.cause} action=${mergedAction}`)
       return JSON.stringify(merged, null, 2)
     },
   })

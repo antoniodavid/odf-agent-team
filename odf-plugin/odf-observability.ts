@@ -59,7 +59,7 @@ export interface ObservabilityAttemptRecord {
   attempt_id: string
   branch_id?: string
   change: string
-  phase: "IMPLEMENT" | "VERIFY"
+  stage: "BUILD" | "VERIFY"
   next_stage: "BUILD" | "VERIFY"
   status: "running" | "completed" | "failed"
   started_at: string
@@ -72,7 +72,6 @@ export interface ObservabilityAttemptRecord {
 export interface ObservabilityAttemptSummary {
   attempt_id: string
   branch_id?: string
-  phase: "IMPLEMENT" | "VERIFY"
   stage: "BUILD" | "VERIFY"
   status: "running"
   started_at: string | null
@@ -601,7 +600,6 @@ export function buildObservabilityTimeline(input: BuildObservabilityInput): Obse
       source: "attempt-ledger",
       timestamp: safeTimestamp(record.updated_at),
       kind: "attempt",
-      phase: record.phase,
       stage: record.next_stage,
       attempt_id: record.attempt_id,
       ...(record.branch_id ? { branch_id: record.branch_id } : {}),
@@ -617,7 +615,6 @@ export function buildObservabilityTimeline(input: BuildObservabilityInput): Obse
     .map(record => ({
       attempt_id: record.attempt_id,
       ...(record.branch_id ? { branch_id: record.branch_id } : {}),
-      phase: record.phase,
       stage: record.next_stage,
       status: "running" as const,
       started_at: safeTimestamp(record.started_at),
@@ -645,7 +642,6 @@ export function buildObservabilityTimeline(input: BuildObservabilityInput): Obse
       source: "parallel-join",
       timestamp,
       kind: "join",
-      phase: "IMPLEMENT",
       stage: "BUILD",
       status: join.status,
       reason: `${join.completed}/${join.expected} branches complete; ${join.failed} failed; validation ${join.validation_verified ? "verified" : "pending"}`,

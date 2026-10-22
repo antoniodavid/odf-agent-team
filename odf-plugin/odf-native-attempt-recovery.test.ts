@@ -9,14 +9,14 @@ const attempt = {
   parentSessionId: "parent-session",
   attemptId: "attempt-123",
   change: "barcode-fix",
-  phase: "IMPLEMENT" as const,
+  stage: "BUILD" as const,
   startedAt: "2026-10-02T16:03:33.911Z",
 }
 
 const blocked = {
   status: "blocked",
   reason: "pre-tool-safety",
-  phase: "IMPLEMENT",
+  stage: "BUILD",
   agent: null,
   token: null,
   task_api_source: "subagent",
@@ -46,14 +46,14 @@ function parentContext(input: Record<string, unknown> = {}, output: unknown = bl
 const prepared = {
   status: "prepared",
   change: attempt.change,
-  phase: attempt.phase,
+  stage: attempt.stage,
   attempt_id: attempt.attemptId,
   agent: "odoo_batch_implementer",
   token: "odf-tok-123456",
   task_api_source: "subagent",
   delegation: {
     agent: "odoo_batch_implementer",
-    prompt: `<!-- ODF-DELEGATION {"change":"${attempt.change}","phase":"${attempt.phase}","agent":"odoo_batch_implementer","token":"odf-tok-123456"} -->\nTask body`,
+    prompt: `<!-- ODF-DELEGATION {"change":"${attempt.change}","stage":"${attempt.stage}","role":null,"agent":"odoo_batch_implementer","token":"odf-tok-123456"} -->\nTask body`,
   },
 }
 
@@ -84,7 +84,7 @@ function failedLaunchContext(
         state: {
           status: "completed",
           input: {
-            code: `const result = await tools.odf_delegation_prepare({ phase: "${attempt.phase}", change: "${attempt.change}", attempt_id: "${attempt.attemptId}" });\nreturn result;`,
+            code: `const result = await tools.odf_delegation_prepare({ stage: "${attempt.stage}", change: "${attempt.change}", attempt_id: "${attempt.attemptId}" });\nreturn result;`,
           },
           content: [{ type: "text", text: JSON.stringify(prepareOutput) }],
         },
@@ -119,18 +119,18 @@ describe("inspectNativePretoolSafetyBlock", () => {
     const message = (context as any[])[0]
     message.content[0].name = "execute"
     message.content[0].state.input = {
-      code: `return await tools.odf_delegation_prepare({ phase: "IMPLEMENT", change: "barcode-fix", attempt_id: "attempt-123" })`,
+      code: `return await tools.odf_delegation_prepare({ stage: "BUILD", change: "barcode-fix", attempt_id: "attempt-123" })`,
     }
     expect(inspectNativePretoolSafetyBlock(context, attempt)?.prepare_tool).toBe("odf_delegation_prepare")
   })
 
   it.each([
-    ["comment-only call", `// tools.odf_delegation_prepare({ phase: "IMPLEMENT", change: "barcode-fix", attempt_id: "attempt-123" })\nreturn { status: "blocked" }`],
-    ["string-only call", `const example = 'tools.odf_delegation_prepare({ phase: "IMPLEMENT", change: "barcode-fix", attempt_id: "attempt-123" })'; return { status: "blocked" }`],
-    ["nested attempt fields", `return await tools.odf_delegation_prepare({ args: { phase: "IMPLEMENT", change: "barcode-fix", attempt_id: "attempt-123" } })`],
-    ["unreturned call", `await tools.odf_delegation_prepare({ phase: "IMPLEMENT", change: "barcode-fix", attempt_id: "attempt-123" }); return { status: "blocked" }`],
-    ["spread-overridden fields", `return await tools.odf_delegation_prepare({ phase: "IMPLEMENT", change: "barcode-fix", attempt_id: "attempt-123", ...other })`],
-    ["duplicate calls", `return await tools.odf_delegation_prepare({ phase: "IMPLEMENT", change: "barcode-fix", attempt_id: "attempt-123" }); return await tools.odf_delegation_prepare({ phase: "IMPLEMENT", change: "barcode-fix", attempt_id: "attempt-123" })`],
+    ["comment-only call", `// tools.odf_delegation_prepare({ stage: "BUILD", change: "barcode-fix", attempt_id: "attempt-123" })\nreturn { status: "blocked" }`],
+    ["string-only call", `const example = 'tools.odf_delegation_prepare({ stage: "BUILD", change: "barcode-fix", attempt_id: "attempt-123" })'; return { status: "blocked" }`],
+    ["nested attempt fields", `return await tools.odf_delegation_prepare({ args: { stage: "BUILD", change: "barcode-fix", attempt_id: "attempt-123" } })`],
+    ["unreturned call", `await tools.odf_delegation_prepare({ stage: "BUILD", change: "barcode-fix", attempt_id: "attempt-123" }); return { status: "blocked" }`],
+    ["spread-overridden fields", `return await tools.odf_delegation_prepare({ stage: "BUILD", change: "barcode-fix", attempt_id: "attempt-123", ...other })`],
+    ["duplicate calls", `return await tools.odf_delegation_prepare({ stage: "BUILD", change: "barcode-fix", attempt_id: "attempt-123" }); return await tools.odf_delegation_prepare({ stage: "BUILD", change: "barcode-fix", attempt_id: "attempt-123" })`],
   ])("rejects Code Mode source with %s", (_label, code) => {
     const context = parentContext()
     const message = (context as any[])[0]
@@ -143,7 +143,7 @@ describe("inspectNativePretoolSafetyBlock", () => {
     ["another attempt", { attempt_id: "different-attempt" }, blocked],
     ["another change", { change: "other-change" }, blocked],
     ["a prepared result", {}, { ...blocked, status: "prepared", reason: "prepared", token: "token-1" }],
-    ["a generic failure", {}, { ...blocked, reason: "attempt-phase-running" }],
+    ["a generic failure", {}, { ...blocked, reason: "attempt-stage-running" }],
     ["a child-bearing result", {}, { ...blocked, child_session_id: "child-session" }],
   ])("rejects %s as proof of an unlaunched attempt", (_label, input, output) => {
     expect(inspectNativePretoolSafetyBlock(parentContext(input, output), attempt)).toBeNull()
@@ -190,7 +190,7 @@ describe("inspectNativeSubagentLaunchNotExecuted", () => {
     prepareTool.state.input.code = `const prompt = "bound delegation prompt";
 
 const r = await tools.odf_delegation_prepare({
-  phase: "IMPLEMENT",
+  stage: "BUILD",
   change: "barcode-fix",
   prompt,
   artifact_store: "openspec",
@@ -249,11 +249,11 @@ return r;`
 describe("inspectNativeChildBindFailure", () => {
   const token = "odf-tok-bind-failure-123"
   const childSessionId = "child-session"
-  const prompt = `<!-- ODF-DELEGATION {"change":"${attempt.change}","phase":"${attempt.phase}","agent":"odoo_batch_implementer","token":"${token}"} -->\nTask body`
+  const prompt = `<!-- ODF-DELEGATION {"change":"${attempt.change}","stage":"${attempt.stage}","role":null,"agent":"odoo_batch_implementer","token":"${token}"} -->\nTask body`
   const preparedResult = {
     status: "prepared",
     change: attempt.change,
-    phase: attempt.phase,
+    stage: attempt.stage,
     attempt_id: attempt.attemptId,
     agent: "odoo_batch_implementer",
     token,
@@ -275,7 +275,7 @@ describe("inspectNativeChildBindFailure", () => {
           state: {
             status: "completed",
             input: {
-              code: `return await tools.odf_delegation_prepare({ phase: "${attempt.phase}", change: "${attempt.change}", attempt_id: "${attempt.attemptId}" })`,
+              code: `return await tools.odf_delegation_prepare({ stage: "${attempt.stage}", change: "${attempt.change}", attempt_id: "${attempt.attemptId}" })`,
             },
             content: [{ type: "text", text: JSON.stringify(preparedResult) }],
           },
@@ -362,7 +362,7 @@ describe("inspectNativeChildBindFailure", () => {
         name: "execute",
         state: {
           status: "completed",
-          input: { code: `return await tools.odf_delegation_prepare({ phase: "IMPLEMENT", change: "${attempt.change}", attempt_id: "different-attempt" })` },
+          input: { code: `return await tools.odf_delegation_prepare({ stage: "BUILD", change: "${attempt.change}", attempt_id: "different-attempt" })` },
           content: [{ type: "text", text: JSON.stringify({ status: "prepared", attempt_id: "different-attempt" }) }],
         },
       }],

@@ -21,7 +21,7 @@ import { debugLog, resolveWorkspaceRoot, type ODFRegistry } from "./odf-delegati
 
 export interface PolicyGateDecision {
   change: string
-  phase: "IMPLEMENT" | "VERIFY"
+  stage: "BUILD" | "VERIFY"
   gate: "allow" | "block"
   reason: string
   tdd: {
@@ -247,12 +247,12 @@ function resolveReadableWorkspaceRoot(workspaceDir: string | undefined): string 
 
 function blockedWorkspaceDecision(opts: {
   change: string
-  phase: "IMPLEMENT" | "VERIFY"
+  stage: "BUILD" | "VERIFY"
   registry: ODFRegistry
 }): PolicyGateDecision {
   return {
     change: opts.change || "",
-    phase: opts.phase,
+    stage: opts.stage,
     gate: "block",
     reason: "unsafe-workspace-path — selected workspace root is blank, missing, or unreadable",
     tdd: { global: opts.registry.flags?.strict_tdd === true, local_readable: false, local_off: false, effective: "off" },
@@ -274,11 +274,11 @@ function blockedWorkspaceDecision(opts: {
  *
  * The gate DOCUMENTS the decision — it does not analyze code. `gate` stays
  * "allow" except for hard conditions (missing change name). Idempotent: reuses
- * a persisted decision with the same phase + frozen diff ref (no re-freeze).
+ * a persisted decision with the same stage + frozen diff ref (no re-freeze).
  */
 export function computePolicyGate(opts: {
   change: string
-  phase: "IMPLEMENT" | "VERIFY"
+  stage: "BUILD" | "VERIFY"
   workspaceDir?: string
   registry: ODFRegistry
   externalValidationScope?: readonly string[]
@@ -291,7 +291,7 @@ export function computePolicyGate(opts: {
   if (!opts.change || !opts.change.trim()) {
     return {
       change: opts.change || "",
-      phase: opts.phase,
+      stage: opts.stage,
       gate: "block",
       reason: "missing change name — cannot persist a policy gate",
       tdd,
@@ -312,7 +312,7 @@ export function computePolicyGate(opts: {
     const kind = persistedScope.invalid ? "scope" : "subjects"
     return {
       change: opts.change,
-      phase: opts.phase,
+      stage: opts.stage,
       gate: "block",
       reason: `invalid persisted external-validation ${kind} — policy gate must be repaired before reuse`,
       tdd,
@@ -334,7 +334,7 @@ export function computePolicyGate(opts: {
   if (scopeResult.error) {
     return {
       change: opts.change,
-      phase: opts.phase,
+      stage: opts.stage,
       gate: "block",
       reason: `invalid external-validation scope — ${scopeResult.error}`,
       tdd,
@@ -356,7 +356,7 @@ export function computePolicyGate(opts: {
   if (subjectResult.error) {
     return {
       change: opts.change,
-      phase: opts.phase,
+      stage: opts.stage,
       gate: "block",
       reason: `invalid external-validation subjects — ${subjectResult.error}`,
       tdd,
@@ -376,12 +376,12 @@ export function computePolicyGate(opts: {
   const manifest = buildCandidateManifest(workspace, externalValidationScope)
   const head = manifest.base_head
 
-  // Idempotency: reuse a frozen decision for the same change + phase only when
+  // Idempotency: reuse a frozen decision for the same change + stage only when
   // the candidate bytes are unchanged (digest match), not merely when HEAD is.
   try {
     const existing = JSON.parse(fsSync.readFileSync(gatePath, "utf8")) as PolicyGateDecision
     if (
-      existing.phase === opts.phase &&
+      existing.stage === opts.stage &&
       head !== null &&
       existing.candidate_digest != null &&
       existing.candidate_digest === computeCandidateDigest(manifest) &&
@@ -405,7 +405,7 @@ export function computePolicyGate(opts: {
   let riskTier: "LOW" | "MEDIUM" | "HIGH" = "MEDIUM"
   let correctionBudget: number | null = null
 
-  if (opts.phase === "VERIFY") {
+  if (opts.stage === "VERIFY") {
     frozenDiffRef = head
     baseHead = head
     if (head !== null) {
@@ -450,7 +450,7 @@ export function computePolicyGate(opts: {
       // not run. The user must make the candidate reproducible first.
       return {
         change: opts.change,
-        phase: opts.phase,
+        stage: opts.stage,
         gate: "block",
         reason: "verification-unavailable: initialize a git repository or provide candidate discovery; verification cannot proceed without a reproducible candidate",
         tdd,
@@ -468,10 +468,10 @@ export function computePolicyGate(opts: {
 
   const decision: PolicyGateDecision = {
     change: opts.change,
-    phase: opts.phase,
+    stage: opts.stage,
     gate: "allow",
     reason:
-      opts.phase === "VERIFY"
+      opts.stage === "VERIFY"
         ? "policy gate documented — sub-agent verifies against the frozen diff ref"
         : "policy gate documented — TDD enforcement lives in the odf-tdd skill",
     tdd,

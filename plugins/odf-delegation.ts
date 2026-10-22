@@ -196,6 +196,8 @@ import {
 import {
   resolveDelegationTarget,
   delegationPhase,
+  type DelegationRole,
+  type DelegationStage,
 } from "../odf-plugin/odf-delegation-contract.js"
 import {
   deriveWorkflowStatus,
@@ -679,7 +681,7 @@ const ATTEMPT_LEDGER_MAX_LINES = 500
 const ATTEMPT_LEDGER_MAX_LINE_BYTES = 1024
 const ATTEMPT_LEDGER_LOCK_SUFFIX = ".lock"
 
-type AttemptLedgerPhase = "IMPLEMENT" | "VERIFY"
+type AttemptLedgerStage = "BUILD" | "VERIFY"
 type AttemptLedgerStatus = "running" | "completed" | "failed"
 type AttemptLedgerResultStatus =
   | "running"
@@ -704,7 +706,7 @@ interface AttemptLedgerRecord {
   attempt_id: string
   branch_id?: string
   change: string
-  phase: AttemptLedgerPhase
+  stage: AttemptLedgerStage
   next_stage: "BUILD" | "VERIFY"
   status: AttemptLedgerStatus
   started_at: string
@@ -827,13 +829,29 @@ function isSafeTimestamp(value: unknown): value is string {
   return typeof value === "string" && value.length <= 32 && !/[\r\n]/.test(value)
 }
 
+/**
+ * Normalize a ledger line written before the stage migration. The ledger is
+ * append-only and not rewritten, so old `phase: IMPLEMENT` records stay valid
+ * data; projection to `stage` happens on read only.
+ */
+function normalizeAttemptLedgerRecord(value: unknown): unknown {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return value
+  const record = value as Record<string, unknown>
+  if (record.stage === "BUILD" || record.stage === "VERIFY") return record
+  if (record.phase === "IMPLEMENT" || record.phase === "VERIFY") {
+    const { phase, ...rest } = record
+    return { ...rest, stage: phase === "IMPLEMENT" ? "BUILD" : "VERIFY" }
+  }
+  return record
+}
+
 function isAttemptLedgerRecord(value: unknown): value is AttemptLedgerRecord {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false
   const record = value as Partial<AttemptLedgerRecord>
   return isSafeToken(record.attempt_id) &&
     (record.branch_id === undefined || isSafeToken(record.branch_id)) &&
     isSafeToken(record.change) &&
-    (record.phase === "IMPLEMENT" || record.phase === "VERIFY") &&
+    (record.stage === "BUILD" || record.stage === "VERIFY") &&
     (record.next_stage === "BUILD" || record.next_stage === "VERIFY") &&
     (record.status === "running" || record.status === "completed" || record.status === "failed") &&
     isSafeTimestamp(record.started_at) &&
@@ -894,8 +912,9 @@ function readAttemptLedger(workspaceRoot: string, ledgerPath: string): { records
     }
     try {
       const parsed: unknown = JSON.parse(line)
-      if (!isAttemptLedgerRecord(parsed)) return { records: [], error: "attempt-ledger-invalid" }
-      records.push(parsed)
+      const normalized = normalizeAttemptLedgerRecord(parsed)
+      if (!isAttemptLedgerRecord(normalized)) return { records: [], error: "attempt-ledger-invalid" }
+      records.push(normalized)
     } catch {
       return { records: [], error: "attempt-ledger-invalid" }
     }
@@ -973,7 +992,7 @@ function withAttemptLedgerLock<T>(workspaceRoot: string, ledgerPath: string, ope
 function acquireAttempt(opts: {
   workspaceDir: string
   change: string
-  phase: AttemptLedgerPhase
+  stage: AttemptLedgerStage
   nextStage: "BUILD" | "VERIFY"
   attemptId: string
   branchId?: string
@@ -998,19 +1017,19 @@ function acquireAttempt(opts: {
       return { acquired: false, reason: "attempt-id-reused", message: "The attempt_id was already used for this branch." }
     }
 
-    const latestPhaseRecord = ledger.records
-      .filter(record => attemptBranchId(record) === branchId && record.phase === opts.phase)
+    const latestStageRecord = ledger.records
+      .filter(record => attemptBranchId(record) === branchId && record.stage === opts.stage)
       .at(-1)
     // Only "running" blocks a new attempt (concurrency). Phase completion is
     // owned by the canonical workflow, which is checked BEFORE acquisition
     // (inspectPersistedTransition already-committed / workflow-complete).
     // Rejecting "completed" here permanently closed the phase in the ledger
     // while a multi-batch BUILD still had pending batches (issue #2).
-    if (latestPhaseRecord?.status === "running") {
+    if (latestStageRecord?.status === "running") {
       return {
         acquired: false,
-        reason: "attempt-phase-running",
-        message: `A ${opts.phase} attempt is already running. If no task is active (for example after a host restart), settle the stale attempt with odf_workflow_override action=settle-attempt before retrying. Native attempts also require the exact child_session_id and V2 idle confirmation.`,
+        reason: "attempt-stage-running",
+        message: `A ${opts.stage} attempt is already running. If no task is active (for example after a host restart), settle the stale attempt with odf_workflow_override action=settle-attempt before retrying. Native attempts also require the exact child_session_id and V2 idle confirmation.`,
       }
     }
 
@@ -1019,7 +1038,7 @@ function acquireAttempt(opts: {
       attempt_id: opts.attemptId,
       branch_id: branchId,
       change: opts.change,
-      phase: opts.phase,
+      stage: opts.stage,
       next_stage: opts.nextStage,
       status: "running",
       started_at: now,
@@ -1424,7 +1443,7 @@ export function validateValidationEvidence(opts: {
 
 function createODFPolicyGate(): ReturnType<typeof tool> {
   return tool({
-    description: `Resolve and persist the ODF Policy Gate for a change before IMPLEMENT/VERIFY.
+    description: `Resolve and persist the ODF Policy Gate for a change before BUILD/VERIFY.
 
 Resolves the effective TDD mode (global flags.strict_tdd AND local <worktree>/.odf/tdd.off;
 any off or unreadable local → off, fail-closed) and, for VERIFY, freezes the diff ref
@@ -1437,9 +1456,9 @@ allow decision. The gate documents — the sub-agent applies, never recomputes.`
       change: tool.schema
         .string()
         .describe("Change name (kebab-case)"),
-      phase: tool.schema
-        .enum(["IMPLEMENT", "VERIFY"])
-        .describe("Phase to gate"),
+      stage: tool.schema
+        .enum(["BUILD", "VERIFY"])
+        .describe("Stage to gate"),
       workspace_dir: tool.schema
         .string()
         .optional()
@@ -1457,7 +1476,7 @@ allow decision. The gate documents — the sub-agent applies, never recomputes.`
     },
     async execute(args: {
       change: string
-      phase: "IMPLEMENT" | "VERIFY"
+      stage: "BUILD" | "VERIFY"
       workspace_dir?: string
       external_validation_scope?: string[]
       external_validation_subjects?: string[]
@@ -1466,7 +1485,7 @@ allow decision. The gate documents — the sub-agent applies, never recomputes.`
       if (!registry) {
         const blocked: PolicyGateDecision = {
           change: args.change,
-          phase: args.phase,
+          stage: args.stage,
           gate: "block",
           reason: "ODF registry not found — cannot resolve TDD",
           tdd: { global: false, local_readable: false, local_off: false, effective: "off" },
@@ -1483,13 +1502,13 @@ allow decision. The gate documents — the sub-agent applies, never recomputes.`
       }
       const decision = computePolicyGate({
         change: args.change,
-        phase: args.phase,
+        stage: args.stage,
         workspaceDir: args.workspace_dir,
         registry,
         externalValidationScope: args.external_validation_scope,
         externalValidationSubjects: args.external_validation_subjects,
       })
-      debugLog(`[odf-delegation] odf_policy_gate: change=${decision.change} phase=${decision.phase} gate=${decision.gate} tdd=${decision.tdd.effective} tier=${decision.risk_tier}`)
+      debugLog(`[odf-delegation] odf_policy_gate: change=${decision.change} stage=${decision.stage} gate=${decision.gate} tdd=${decision.tdd.effective} tier=${decision.risk_tier}`)
       return JSON.stringify(decision, null, 2)
     },
   })
@@ -2061,7 +2080,7 @@ Use this instead of generic task() for ODF workflow delegation.`,
           workspaceRoot,
           changeName: changeName!,
           artifactStore: args.artifact_store!,
-          phase: phase as "IMPLEMENT" | "VERIFY",
+          stage: target.stage as "BUILD" | "VERIFY",
           attemptId: args.attempt_id!,
           proof: args.workflow_advance,
         })
@@ -2219,7 +2238,7 @@ Use this instead of generic task() for ODF workflow delegation.`,
         const acquisition = acquireAttempt({
           workspaceDir: workspaceRoot,
           change: changeName!,
-          phase: phase as AttemptLedgerPhase,
+          stage: target.stage as AttemptLedgerStage,
           nextStage: expectedStage,
           attemptId: args.attempt_id!,
           branchId: executionOptions.branch_id,
@@ -2241,7 +2260,7 @@ Use this instead of generic task() for ODF workflow delegation.`,
           ? executionOptions.pre_resolved_policy_gate
           : computePolicyGate({
             change: changeName!,
-            phase: phase as "IMPLEMENT" | "VERIFY",
+            stage: target.stage as "BUILD" | "VERIFY",
             workspaceDir: workspaceRoot,
             registry,
           })
@@ -2441,7 +2460,7 @@ Use this instead of generic task() for ODF workflow delegation.`,
               ? persistWorkflowFailureReceipt(
                 workspaceRoot,
                 changeName!,
-                phase as ODFReceipt["phase"],
+                { stage: target.stage, role: target.role },
                 summary,
                 policyGate,
                validation ? [fastLaneBuild
@@ -2514,7 +2533,7 @@ Use this instead of generic task() for ODF workflow delegation.`,
             persistWorkflowFailureReceipt(
               workspaceRoot,
               changeName!,
-              phase as ODFReceipt["phase"],
+              { stage: target.stage, role: target.role },
               innerDisposition.message,
               policyGate,
               [],
@@ -2558,7 +2577,7 @@ Use this instead of generic task() for ODF workflow delegation.`,
                 ? persistWorkflowFailureReceipt(
                   workspaceRoot,
                   changeName!,
-                  phase as ODFReceipt["phase"],
+                  { stage: target.stage, role: target.role },
                   summary,
                   policyGate,
                   [],
@@ -2651,7 +2670,8 @@ Use this instead of generic task() for ODF workflow delegation.`,
           if (policyGate && !executionOptions.suppress_failure_receipt) {
             const receipt: ODFReceipt = {
               change: policyGate.change,
-              phase: phase as ODFReceipt["phase"],
+              stage: target.stage,
+              role: target.role,
               status: isCancelled || isEmpty ? "blocked" : "failed",
               cause: isTimeout ? "timeout" : "error",
               evidence: {
@@ -3019,7 +3039,8 @@ function parallelReceipt(
   const firstPolicyGate = outcomes.find(outcome => outcome.policy_gate)?.policy_gate || null
   return {
     change,
-    phase: "IMPLEMENT",
+    stage: "BUILD",
+    role: null,
     status: "blocked",
     cause: validationFailed ? "validation-failed" : timedOut ? "timeout" : "error",
     evidence: {
@@ -3812,7 +3833,7 @@ function createODFDelegationPrepare(canonicalDirectory?: string): ReturnType<typ
           workspaceRoot,
           changeName,
           artifactStore: args.artifact_store,
-          phase: phase as "IMPLEMENT" | "VERIFY",
+          stage: target.stage as "BUILD" | "VERIFY",
           attemptId: args.attempt_id,
           proof,
         })
@@ -3835,7 +3856,7 @@ function createODFDelegationPrepare(canonicalDirectory?: string): ReturnType<typ
         }
         policyGate = computePolicyGate({
           change: changeName,
-          phase: phase as "IMPLEMENT" | "VERIFY",
+          stage: target.stage as "BUILD" | "VERIFY",
           workspaceDir: workspaceRoot,
           registry,
         })
@@ -3845,7 +3866,7 @@ function createODFDelegationPrepare(canonicalDirectory?: string): ReturnType<typ
         const acquisition = acquireAttempt({
           workspaceDir: workspaceRoot,
           change: changeName,
-          phase: phase as AttemptLedgerPhase,
+          stage: target.stage as AttemptLedgerStage,
           nextStage: expectedStage,
           attemptId: args.attempt_id,
           trackLiveness: false,
@@ -4681,7 +4702,7 @@ function createODFDelegationSeal(canonicalDirectory?: string): ReturnType<typeof
             receipt = persistWorkflowFailureReceipt(
               workspaceRoot,
               record.change,
-              delegationPhase(record.stage, record.role) as ODFReceipt["phase"],
+              { stage: record.stage, role: record.role },
               message,
               record.policy_gate as unknown as PolicyGateDecision,
               [],
@@ -4919,7 +4940,7 @@ function createODFParallelPrepare(canonicalDirectory?: string): ReturnType<typeo
 
       const policyGate = computePolicyGate({
         change: changeName,
-        phase: "IMPLEMENT",
+        stage: "BUILD",
         workspaceDir: workspaceRoot,
         registry,
       })
@@ -4972,7 +4993,7 @@ function createODFParallelPrepare(canonicalDirectory?: string): ReturnType<typeo
         const acquisition = acquireAttempt({
           workspaceDir: workspaceRoot,
           change: changeName,
-          phase: "IMPLEMENT",
+          stage: "BUILD",
           nextStage: "BUILD",
           attemptId: branch.attempt_id,
           branchId: branch.branch_id,
@@ -5880,7 +5901,7 @@ must not overlap. VERIFY remains sequential after the aggregate join is complete
         const acquisition = acquireAttempt({
           workspaceDir: workspaceRoot,
           change: args.change,
-          phase: "IMPLEMENT",
+          stage: "BUILD",
           nextStage: "BUILD",
           attemptId: branch.attempt_id,
           branchId: branch.branch_id,
@@ -7466,7 +7487,7 @@ async function resolveProofBackedAdmission(input: {
   workspaceRoot: string
   changeName: string
   artifactStore: ArtifactStore
-  phase: "IMPLEMENT" | "VERIFY"
+  stage: "BUILD" | "VERIFY"
   attemptId: string
   proof: ODFDelegateWorkflowAdvance
 }): Promise<ProofBackedAdmission> {
@@ -7475,12 +7496,12 @@ async function resolveProofBackedAdmission(input: {
     message: string,
     workflowResult: ReturnType<typeof advanceWorkflow> | null = null,
   ): ProofBackedAdmission => ({ ok: false, reason, message, workflowResult })
-  const expectedStage = input.phase === "IMPLEMENT" ? "BUILD" : "VERIFY"
+  const expectedStage = input.stage
   if (!isSafeToken(input.changeName)) {
     return fail("unsafe-change-name", "The change name must be a safe token of 1-64 letters, numbers, hyphens, or underscores.")
   }
   if (!isSafeToken(input.attemptId)) {
-    return fail("attempt-id-required", "Gated IMPLEMENT/VERIFY delegation requires a fresh safe attempt_id.")
+    return fail("attempt-id-required", "Gated BUILD/VERIFY delegation requires a fresh safe attempt_id.")
   }
 
   const { work_type: workType, ...callerInput } = input.proof
@@ -7508,7 +7529,7 @@ async function resolveProofBackedAdmission(input: {
     !isStageStartProof(resolveWorkflowRoute(workType), input.proof, expectedStage)) {
     return fail(
       "workflow-phase-mismatch",
-      `Workflow next_stage ${callerResult.next_stage || "none"} does not match ${input.phase}; expected ${expectedStage}. To start ${input.phase}, pass the stage that precedes ${expectedStage} as candidate_stage so next_stage is ${expectedStage}.`,
+      `Workflow next_stage ${callerResult.next_stage || "none"} does not match ${input.stage}; expected ${expectedStage}. To start ${input.stage}, pass the stage that precedes ${expectedStage} as candidate_stage so next_stage is ${expectedStage}.`,
       callerResult,
     )
   }
@@ -7527,7 +7548,7 @@ async function resolveProofBackedAdmission(input: {
   if (workflowResult.next_stage !== expectedStage) {
     return fail(
       "workflow-phase-mismatch",
-      `Workflow next_stage ${workflowResult.next_stage || "none"} does not match ${input.phase}; expected ${expectedStage}.`,
+      `Workflow next_stage ${workflowResult.next_stage || "none"} does not match ${input.stage}; expected ${expectedStage}.`,
       workflowResult,
     )
   }
@@ -7548,7 +7569,7 @@ async function resolveProofBackedAdmission(input: {
     canonicalWorkType,
     fastLane.policy,
     selected.snapshot.state.entry_route_binding,
-  ) || (fastLane.policy?.enabled && input.phase === "IMPLEMENT"
+  ) || (fastLane.policy?.enabled && input.stage === "BUILD"
     ? fastLaneCandidateFailure(input.workspaceRoot, input.changeName, selected.snapshot.state.entry_route_binding)
     : null)
   if (fastLaneFailure) {
@@ -7561,7 +7582,7 @@ async function resolveProofBackedAdmission(input: {
 
   const expectationsIds: string[] = []
   const phaseWarnings: string[] = []
-  if (input.phase === "VERIFY") {
+  if (input.stage === "VERIFY") {
     const expectations = validateExpectations({ change: input.changeName, artifacts: selected.snapshot.artifacts })
     if (expectations.status === "approved") expectationsIds.push(...expectations.ids)
     if (expectations.status === "missing") phaseWarnings.push("missing-expectations")
@@ -7583,7 +7604,7 @@ async function resolveProofBackedAdmission(input: {
     transition,
     fastLanePolicy: fastLane.policy,
     fastLanePolicyActive: fastLane.policy?.enabled === true,
-    fastLaneBuild: fastLane.policy?.enabled === true && input.phase === "IMPLEMENT",
+    fastLaneBuild: fastLane.policy?.enabled === true && input.stage === "BUILD",
     expectationsIds,
     phaseWarnings,
   }
@@ -8464,7 +8485,7 @@ export async function resolveProofBackedLifecycle(opts: ProofBackedLifecycleInpu
 function persistWorkflowFailureReceipt(
   workspaceRoot: string,
   changeName: string,
-  phase: ODFReceipt["phase"],
+  target: { stage: DelegationStage; role: DelegationRole | null },
   summary: string,
   policyGate: PolicyGateDecision | null,
   refs: string[] = [],
@@ -8475,7 +8496,8 @@ function persistWorkflowFailureReceipt(
   const frozenDiffRef = policyGate?.frozen_diff_ref || gitHead(workspaceRoot)
   return mergeReceipt(workspaceRoot, {
     change: changeName,
-    phase,
+    stage: target.stage,
+    role: target.role,
     status,
     cause,
     evidence: {
@@ -10017,7 +10039,7 @@ Actions:
             parentSessionId: observedRecord.native_parent_session_id,
             attemptId,
             change: changeName,
-            phase: observedRecord.phase,
+            stage: observedRecord.stage,
             startedAt: observedRecord.started_at,
           }
           nativeUnlaunchedEvidence = inspectNativePretoolSafetyBlock(parentContext.context, evidenceInput) ??
@@ -10053,7 +10075,7 @@ Actions:
             parentSessionId: observedRecord.native_parent_session_id,
             attemptId,
             change: changeName,
-            phase: observedRecord.phase,
+            stage: observedRecord.stage,
             startedAt: observedRecord.started_at,
           }
           nativeBindFailureEvidence = inspectNativeChildBindFailure(parentContext.context, evidenceInput, childSessionId)
@@ -10239,7 +10261,6 @@ Actions:
                 ? "parent-pretool-safety-proof-persisted"
                 : "parent-subagent-not-executed-proof-persisted",
               attempt_id: attemptId,
-              phase: record.phase,
               stage: record.next_stage,
               reason,
               evidence: nativeUnlaunchedEvidence,
@@ -10252,7 +10273,6 @@ Actions:
               action: "settle-bind-failed-attempt",
               outcome: "parent-child-bind-failure-proof-persisted",
               attempt_id: attemptId,
-              phase: record.phase,
               stage: record.next_stage,
               reason,
               evidence: nativeBindFailureAuditEvidence,
@@ -10292,8 +10312,7 @@ Actions:
           at: new Date().toISOString(),
           action: args.action,
           attempt_id: attemptId,
-          phase: settledRecord.phase,
-          stage: settledRecord.next_stage,
+          stage: settledRecord.stage,
           reason,
           settled_at: settledRecord.settled_at,
           ...(nativeUnlaunchedEvidence ? { evidence: nativeUnlaunchedEvidence } : {}),
@@ -10319,7 +10338,7 @@ Actions:
           change_name: changeName,
           action: args.action,
           attempt_id: attemptId,
-          phase: settledRecord.phase,
+          stage: settledRecord.stage,
           settled_at: settledRecord.settled_at,
           ...(nativeChildRecovery ? {
             child_session_id: nativeChildRecovery.sessionId,
