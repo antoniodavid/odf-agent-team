@@ -36,7 +36,7 @@ Shows all active ODF changes or the detail of a specific change.
 
 ## Canonical Fields
 
-In the detail, show these fields in addition to the legacy ones (`phase`, `artifacts`, `applyProgress`, `lastUpdated`):
+In the detail, show these fields:
 
 - `canonical_stage`
 - `legacy_phase`
@@ -69,10 +69,10 @@ OpenSpec is the authority for state and canonical artifacts when available. The 
 ```
 ODF Status
 
-| Change              | Phase    | Next      | Version | Strategy   |
+| Change              | Stage    | Next      | Version | Strategy   |
 |---------------------|----------|-----------|---------|------------|
-| sale-discount-field | ASSESS   | design    | 18      | custom     |
-| pos-custom-receipt  | init     | preflight | 18      | pending    |
+| sale-discount-field | DECIDE   | PLAN      | 18      | custom     |
+| pos-custom-receipt  | INIT     | preflight | 18      | pending    |
 
 Commands:
   /odf-continue sale-discount-field  — Continue implementation
@@ -87,23 +87,15 @@ Commands:
 - **Change**: sale-discount-field
 - **Odoo version**: 18
 - **Strategy**: custom
-- **Current phase**: ASSESS
-- **Next phase**: design
 - **Canonical stage**: DECIDE
 - **Pending canonical stage**: PLAN
 - **Completed canonical stages**: DECIDE
+- **Legacy phase**: ASSESS
 - **Progress**: 0/0 (unknown; source: null)
 - **Artifact refs**: DECIDE=[odf/sale-discount-field/assess]
 - **Receipt**: none (resumable: true)
 - **Source**: engram
 - **Warnings**: []
-
-**Artifacts**:
-- [x] assess
-- [ ] qa-plan
-- [ ] design
-- [ ] implement
-- [ ] verify
 
 Continue: /odf-continue sale-discount-field
 ```

@@ -6244,10 +6244,6 @@ function createODFRegistryRead(): ReturnType<typeof tool> {
 
 export interface ODFChangeStatus {
   change: string
-  phase: string
-  artifacts: Record<string, string>  // artifact type → "done" | "pending" | "in-progress"
-  applyProgress: { completed: number; total: number }
-  lastUpdated: string | null
   workflowStatus: WorkflowStatus
   observability: ObservabilityTimeline
 }
@@ -8463,20 +8459,6 @@ function persistWorkflowFailureReceipt(
   })
 }
 
-// Legacy artifact availability map: presence alone is reported as `done`, but
-// progress-bearing artifacts derive their state from content so partial work
-// never renders as complete. Unknown progress formats keep the presence
-// semantics (`done`).
-const PROGRESS_ARTIFACT_TYPES = new Set(["implement-progress", "apply-progress", "tasks", "explore-progress", "fix-progress"])
-
-function legacyArtifactState(key: string, content: string | null | undefined): string {
-  const { type } = normalizeArtifactKey(key)
-  if (!PROGRESS_ARTIFACT_TYPES.has(type)) return "done"
-  const progress = parseProgress(content)
-  if (!progress.known || progress.total <= 0) return "done"
-  return progress.completed >= progress.total ? "done" : "in-progress"
-}
-
 /** Canonical status for a change that exists only as Engram observations.
  * There is no local artifact set, so the merged builder receives the Engram
  * state document (when the change has one) plus an empty OpenSpec artifact
@@ -8601,25 +8583,8 @@ function buildMergedStatus(
     source: { state: stateSource ?? (openSpec.state ? "openspec" : "none"), artifacts: Array.from(new Set(sourceRefs)) },
     warnings: Array.from(new Set([...warnings, ...expectationWarnings])),
   })
-  const artifactStates: Record<string, string> = {}
-  for (const artifact of mergedArtifacts) {
-    const { type } = normalizeArtifactKey(artifact.key)
-    if (type === "state") continue
-    artifactStates[type] = legacyArtifactState(artifact.key, artifact.content)
-  }
-  let lastUpdated: string | null = null
-  for (const artifact of mergedArtifacts) {
-    if (normalizeArtifactKey(artifact.key).type === "state") continue
-    if (artifact.created && Number.isFinite(Date.parse(artifact.created)) && (!lastUpdated || artifact.created > lastUpdated)) {
-      lastUpdated = artifact.created
-    }
-  }
   return {
     change: openSpec.change,
-    phase: workflowStatus.legacy_phase?.toLowerCase() || "init",
-    artifacts: artifactStates,
-    applyProgress: { completed: workflowStatus.progress.completed, total: workflowStatus.progress.total },
-    lastUpdated,
     workflowStatus,
   }
 }
@@ -8945,10 +8910,6 @@ tool never writes state or receipts.`,
       return JSON.stringify({
         status: "found",
         ...status.workflowStatus,
-        phase: status.phase,
-        artifacts: status.artifacts,
-        applyProgress: status.applyProgress,
-        lastUpdated: status.lastUpdated,
         observability: status.observability,
         ...(activeChangeResolution ? { active_change_resolution: activeChangeResolution } : {}),
       }, null, 2)
