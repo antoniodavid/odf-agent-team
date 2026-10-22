@@ -110,9 +110,9 @@ The workflow selects one authoritative artifact store:
 
 The status adapter (`odf_workflow_status`) reads the bound authority and runtime
 sidecars read-only. Hybrid reads prefer OpenSpec and may recover missing state
-from its Engram mirror; legacy unbound changes retain a compatibility read
-path. Old changes are never rewritten automatically, and status never changes
-the bound store.
+from its Engram mirror; a change without a canonical state is reported as
+`state_kind: none` and is not resumable. Old changes are never rewritten
+automatically, and status never changes the bound store.
 
 ## Component Responsibilities
 
@@ -324,13 +324,13 @@ When `completed_canonical_stages` is present, it is the completion record used
 by workflow status. A stage omitted from the list stays pending even if a fresh
 artifact exists: a child can write artifact bytes before its parent seal
 commits the stage. Those bytes remain visible, but do not advance the workflow.
-Legacy states without this list retain compatibility-based status derivation.
+States without this list fall back to explicit completion flags and artifact
+evidence.
 
 ```yaml
 change: my-feature
 canonical_stage: PLAN            # DECIDE | PLAN | BUILD | VERIFY | ARCHIVED
 completed_canonical_stages: [DECIDE] # stages committed by workflow transitions
-legacy_phase: design             # last completed legacy phase for compatibility
 preflight:
   change: my-feature
   execution_mode: auto

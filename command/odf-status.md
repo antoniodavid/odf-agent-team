@@ -39,7 +39,6 @@ Shows all active ODF changes or the detail of a specific change.
 In the detail, show these fields:
 
 - `canonical_stage`
-- `legacy_phase`
 - `completed_canonical_stages`
 - `pending_stage`
 - `progress` (`completed`, `total`, `known`, `source`)
@@ -90,7 +89,6 @@ Commands:
 - **Canonical stage**: DECIDE
 - **Pending canonical stage**: PLAN
 - **Completed canonical stages**: DECIDE
-- **Legacy phase**: ASSESS
 - **Progress**: 0/0 (unknown; source: null)
 - **Artifact refs**: DECIDE=[odf/sale-discount-field/assess]
 - **Receipt**: none (resumable: true)

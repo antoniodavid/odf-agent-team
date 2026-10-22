@@ -670,7 +670,6 @@ export function buildObservabilityTimeline(input: BuildObservabilityInput): Obse
       source: "receipt",
       timestamp: null,
       kind: "receipt",
-      ...(input.workflow.legacy_phase ? { phase: input.workflow.legacy_phase } : {}),
       stage: input.workflow.canonical_stage,
       status: receiptStatus,
       ...(receipt.action ? { reason: receipt.action } : {}),

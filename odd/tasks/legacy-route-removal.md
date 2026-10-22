@@ -94,7 +94,7 @@ Check: `git diff --word-diff` review against the authorized files.
 - [x] T5 — S6 — route: inline — closing commit `docs(status): deprecate odf_status`. Evidence in L9.
 - [ ] D1 — deferred (not authorized) — F4 deletion: remove `odf_status`, `loadEngramStatus`, `buildEngramStatus`, `legacyArtifactState` after the `odf_workflow_status` fallback is migrated.
 - [ ] D2 — deferred (not authorized) — F2 + F3: migrate the delegation API to canonical stages and delete `materializeLegacyCanonicalBoundary`.
-- [ ] D3 — deferred (not authorized) — F5: remove `legacy_phase`, `state_kind: "legacy-artifacts"`, `LEGACY_ARTIFACT_PHASES`, and the legacy `--work-type` recovery. This revises ODF 2 migration decision M6 and drops resumability for changes that predate `state.yaml`.
+- [x] D3 — authorized — F5: remove `legacy_phase`, `state_kind: "legacy-artifacts"`, `LEGACY_ARTIFACT_PHASES`, and the legacy `--work-type` recovery. This revises ODF 2 migration decision M6 and drops resumability for changes that predate `state.yaml`. Implemented on `feature/legacy-state-read-path-removal`; see `odd/tasks/legacy-state-read-path-removal.md`.
 
 Route evidence: all five authorized tasks are small, understood, and touch one concern each; no parallel units and no writer reason. File count does not fire the writer trigger.
 
