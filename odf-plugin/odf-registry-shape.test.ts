@@ -3,7 +3,7 @@ import * as fs from "node:fs/promises"
 import * as path from "node:path"
 import * as os from "node:os"
 
-const repo = "/home/adruban/Workspace/Personal/odf-agent-team"
+const repo = process.cwd()
 
 describe("registry shape validation", () => {
   let configDir: string
