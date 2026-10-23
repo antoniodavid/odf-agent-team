@@ -247,6 +247,30 @@ ODF: Change Archived
 - Change is still active/work in progress
 - Tasks remain incomplete
 
+## Local decision review (optional, non-blocking)
+
+After a successful archive, offer the user a local review of the decisions that
+shaped the change. Ask only closed questions:
+
+- Was the route correct? `correct` / `incorrect`
+- Was the risk tier adequate? `under` / `ok` / `over`
+- Was the plan mode adequate? `under` / `ok` / `over`
+- Did the gate block correctly? `correct` / `incorrect`
+- Overall rating: 1–5
+
+Then run:
+
+```bash
+PACK="${ODF_CONFIG_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/opencode}"
+node "$PACK/scripts/odf-evaluation.js" review <change> \
+  --route <correct|incorrect> --risk <under|ok|over> \
+  --plan <under|ok|over> --gate <correct|incorrect> \
+  --rating <1-5> --root <worktree>
+```
+
+The review is local-only, has no free text, and never blocks or changes the
+archive. It feeds `odf-evaluation decisions` and the human review coverage.
+
 ## Benefits
 
 - **Knowledge accumulation** — Future changes can reference past learnings

@@ -90,6 +90,18 @@ export interface DecisionReceipt {
   action: string | null
 }
 
+export interface DecisionReview {
+  schema_version: 1
+  change: string
+  route: "correct" | "incorrect"
+  risk: "under" | "ok" | "over"
+  plan: "under" | "ok" | "over"
+  gate: "correct" | "incorrect"
+  rating: number
+  reviewed_at: string
+  source: "local-human-review"
+}
+
 export interface DecisionChange {
   change: string
   work_type: string | null
@@ -108,6 +120,12 @@ export interface DecisionChange {
   predicted_route: string | null
   predicted_stages: string[] | null
   route_agreement: boolean | null
+  review: DecisionReview | null
+  review_route_correct: boolean | null
+  review_risk_fit: string | null
+  review_plan_fit: string | null
+  review_gate_correct: boolean | null
+  review_rating: number | null
   metrics_count: number
   delegations: number
   stage_activity: Record<string, DecisionStageActivity>
@@ -129,6 +147,15 @@ export interface DecisionAggregate {
   receipts: { count: number; causes: Record<string, number>; statuses: Record<string, number> }
   overrides: number
   archive: { count: number; rate: number | null }
+  reviews: {
+    count: number
+    coverage: number | null
+    route_correct: { count: number; total: number; rate: number | null }
+    risk_fit: Record<string, number>
+    plan_fit: Record<string, number>
+    gate_correct: { count: number; total: number; rate: number | null }
+    avg_rating: number | null
+  }
   stage_activity: Record<string, DecisionStageActivity>
 }
 
@@ -149,3 +176,38 @@ export function evaluateDecisions(opts?: {
 }): DecisionReport
 
 export function renderDecisionMarkdown(report: DecisionReport): string
+
+export interface AgreementReport {
+  mode: "agreement"
+  data_status: DataStatus
+  total: number
+  compared: number
+  agreement: number
+  false_pass: number
+  false_block: number
+  unavailable: number
+  rates: {
+    agreement: number | null
+    false_pass: number | null
+    false_block: number | null
+    unavailable: number | null
+  }
+}
+
+export function readDecisionReview(root: string, change: string): DecisionReview | null
+
+export function writeDecisionReview(opts: {
+  root?: string
+  change: string
+  route: "correct" | "incorrect"
+  risk: "under" | "ok" | "over"
+  plan: "under" | "ok" | "over"
+  gate: "correct" | "incorrect"
+  rating: number
+}): DecisionReview
+
+export function readShadowJudgments(filePath: string): Array<Record<string, unknown>>
+
+export function evaluateAgreement(entries: Array<Record<string, unknown>>): AgreementReport
+
+export function renderAgreementMarkdown(report: AgreementReport): string

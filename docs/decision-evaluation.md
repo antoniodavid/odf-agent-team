@@ -9,6 +9,10 @@ gate: it does not block, approve, or change workflow state.
 
 ```bash
 node scripts/odf-evaluation.js decisions [days] [--root <dir>] [--md]
+node scripts/odf-evaluation.js review <change> --route <correct|incorrect> \
+  --risk <under|ok|over> --plan <under|ok|over> --gate <correct|incorrect> \
+  --rating <1-5> [--root <dir>]
+node scripts/odf-evaluation.js agreement [file] [--root <dir>] [--md]
 ```
 
 - `days` (default 30) limits the metrics window.
@@ -60,7 +64,7 @@ A decision is not "correct" because the harness says so. The report combines:
 Current limits:
 
 - It does not capture new decision records; it derives the report from existing
-  evidence. Phase 2 adds the local decision review labels.
+  evidence and the optional local review.
 - It cannot see post-merge defects or incidents; those require a manual label.
 - Route agreement requires a persisted `entry_route_binding`.
 - Engram-only changes are out of scope for this report.
@@ -77,10 +81,40 @@ Current limits:
 - The existing `/odf-feedback` remote submission remains opt-in, aggregate, and
   separate from this report.
 
-## Phase 2/3 extensions
+## Local decision review (Phase 2)
 
-- Local `odf_decision_review` at archive/verify: route correct, risk adequate,
-  plan adequate, gate correct, overall rating; no free text.
-- Human/judge agreement and false-pass rate as a calibration report.
+At archive/verify, after the outcome is known, the orchestrator may ask four
+closed questions plus an overall rating:
+
+- Was the route correct? `correct` / `incorrect`
+- Was the risk tier adequate? `under` / `ok` / `over`
+- Was the plan mode adequate? `under` / `ok` / `over`
+- Did the gate block correctly? `correct` / `incorrect`
+- Overall rating: 1–5
+
+It then runs the `review` command above. The artifact is
+`<root>/.odf/decision-review-{change}.json`; it is local-only, has no free
+text, and never blocks archive or changes workflow state. Re-running the
+command overwrites the label with a fresh `reviewed_at`.
+
+The `decisions` report adds review coverage, route-correct rate, risk-fit and
+plan-fit distributions, gate-correct rate, and average rating.
+
+## Human/judge agreement
+
+`agreement` reads a shadow-judgment JSONL (default
+`<root>/.odf/shadow-judgments.jsonl`) and reports:
+
+- `agreement` (human and judge both pass or both fail)
+- `false_pass` (human fail, judge pass)
+- `false_block` (human pass, judge fail)
+- `unavailable` (no real judge verdict; excluded from agreement)
+
+An empty or all-unavailable corpus is `no_data`; a mix is `partial`. This is
+calibration only: it never gates delivery, and promoting the judge to a gate
+remains an explicit human decision backed by measured agreement.
+
+## Phase 3 extensions
+
 - Period comparison (`before`/`after`) and a periodic review cadence.
 - Human-approved learning proposals (`odf-learning-bridge`) fed by the report.

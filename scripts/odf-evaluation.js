@@ -3,6 +3,7 @@ import * as fs from "node:fs"
 import * as path from "node:path"
 import YAML from "yaml"
 import { buildDashboard, collectDelegations, recordStageRole, resolveMetricsDir } from "./odf-metrics.js"
+import { compareHumanJudge } from "./odf-judge.js"
 
 function matchExpectation(record, expected) {
   return Object.entries(expected || {}).every(([key, value]) => record[key] === value)
@@ -81,6 +82,9 @@ export const WORK_TYPES = [
   "cross-domain", "bugfix", "migration", "security", "verify-only",
 ]
 export const ROUTE_RISKS = ["low", "standard", "high"]
+export const REVIEW_ROUTE_VALUES = ["correct", "incorrect"]
+export const REVIEW_FIT_VALUES = ["under", "ok", "over"]
+const CHANGE_PATTERN = /^[a-z0-9][a-z0-9-]{0,63}$/
 export const ROUTE_STAGES = {
   question: ["EXPLORE"],
   investigation: ["EXPLORE"],
@@ -258,6 +262,15 @@ function emptyDecisionAggregate() {
     receipts: { count: 0, causes: {}, statuses: {} },
     overrides: 0,
     archive: { count: 0, rate: null },
+    reviews: {
+      count: 0,
+      coverage: null,
+      route_correct: { count: 0, total: 0, rate: null },
+      risk_fit: {},
+      plan_fit: {},
+      gate_correct: { count: 0, total: 0, rate: null },
+      avg_rating: null,
+    },
     stage_activity: {},
   }
 }
@@ -283,6 +296,10 @@ function aggregateDecisions(changes) {
   for (const activity of Object.values(stageActivity)) {
     activity.avg_duration_ms = activity.calls > 0 ? Math.round(activity.duration_ms / activity.calls) : null
   }
+  const reviewed = changes.filter((change) => change.review)
+  const routeCorrect = reviewed.filter((change) => change.review.route === "correct").length
+  const gateCorrect = reviewed.filter((change) => change.review.gate === "correct").length
+  const ratings = reviewed.map((change) => change.review.rating)
   return {
     changes: changes.length,
     route_agreement: {
@@ -303,6 +320,23 @@ function aggregateDecisions(changes) {
     archive: {
       count: changes.filter((change) => change.archived).length,
       rate: changes.filter((change) => change.archived).length / changes.length,
+    },
+    reviews: {
+      count: reviewed.length,
+      coverage: reviewed.length / changes.length,
+      route_correct: {
+        count: routeCorrect,
+        total: reviewed.length,
+        rate: reviewed.length > 0 ? routeCorrect / reviewed.length : null,
+      },
+      risk_fit: countBy(reviewed.map((change) => change.review.risk)),
+      plan_fit: countBy(reviewed.map((change) => change.review.plan)),
+      gate_correct: {
+        count: gateCorrect,
+        total: reviewed.length,
+        rate: reviewed.length > 0 ? gateCorrect / reviewed.length : null,
+      },
+      avg_rating: ratings.length > 0 ? ratings.reduce((sum, value) => sum + value, 0) / ratings.length : null,
     },
     stage_activity: stageActivity,
   }
@@ -376,6 +410,7 @@ export function evaluateDecisions({ root = process.cwd(), days = 30, metricsReco
     const receipt = readJsonSafe(path.join(odfDir, `receipt-${change}.json`))
     const ledger = readJsonLines(path.join(odfDir, `attempt-ledger-${change}.jsonl`))
     const overrides = readJsonLines(path.join(odfDir, `override-${change}.jsonl`))
+    const review = readDecisionReview(resolvedRoot, change)
     const changeMetrics = records.filter((record) => record && record.change === change)
     const runRecords = changeMetrics.filter((record) => record.event === "run" || record.event === undefined)
     const calls = runRecords.length > 0 ? runRecords : changeMetrics
@@ -430,6 +465,12 @@ export function evaluateDecisions({ root = process.cwd(), days = 30, metricsReco
       predicted_route: predictedRoute,
       predicted_stages: binding && Array.isArray(binding.predicted_stages) ? binding.predicted_stages : null,
       route_agreement: routeAgreement,
+      review,
+      review_route_correct: review ? review.route === "correct" : null,
+      review_risk_fit: review ? review.risk : null,
+      review_plan_fit: review ? review.plan : null,
+      review_gate_correct: review ? review.gate === "correct" : null,
+      review_rating: review ? review.rating : null,
       metrics_count: changeMetrics.length,
       delegations: calls.length,
       stage_activity: stageActivity,
@@ -478,6 +519,12 @@ export function renderDecisionMarkdown(report) {
     `| Receipts | ${aggregate.receipts.count} |`,
     `| Overrides | ${aggregate.overrides} |`,
     `| Archived | ${aggregate.archive.count}/${aggregate.changes} (${rate(aggregate.archive.rate)}) |`,
+    `| Reviews | ${aggregate.reviews.count}/${aggregate.changes} (${rate(aggregate.reviews.coverage)}) |`,
+    `| Route correct (human) | ${aggregate.reviews.route_correct.count}/${aggregate.reviews.route_correct.total} (${rate(aggregate.reviews.route_correct.rate)}) |`,
+    `| Risk fit | under ${aggregate.reviews.risk_fit.under || 0}, ok ${aggregate.reviews.risk_fit.ok || 0}, over ${aggregate.reviews.risk_fit.over || 0} |`,
+    `| Plan fit | under ${aggregate.reviews.plan_fit.under || 0}, ok ${aggregate.reviews.plan_fit.ok || 0}, over ${aggregate.reviews.plan_fit.over || 0} |`,
+    `| Gate correct (human) | ${aggregate.reviews.gate_correct.count}/${aggregate.reviews.gate_correct.total} (${rate(aggregate.reviews.gate_correct.rate)}) |`,
+    `| Avg rating | ${aggregate.reviews.avg_rating === null ? "N/A" : aggregate.reviews.avg_rating.toFixed(1)} |`,
     "",
     "### Risk tiers",
     "",
@@ -497,6 +544,15 @@ export function renderDecisionMarkdown(report) {
     "|---|---|---|---|---|---|",
     ...Object.entries(aggregate.stage_activity).map(([label, activity]) =>
       `| ${label} | ${activity.calls} | ${activity.ok} | ${activity.blocked} | ${activity.error} | ${activity.avg_duration_ms ?? "N/A"} |`),
+    "",
+    "### Human reviews",
+    "",
+    "| Change | Route | Risk | Plan | Gate | Rating |",
+    "|---|---|---|---|---|---|",
+    ...(report.changes.filter((change) => change.review).length > 0
+      ? report.changes.filter((change) => change.review).map((change) =>
+        `| ${change.change} | ${change.review.route} | ${change.review.risk} | ${change.review.plan} | ${change.review.gate} | ${change.review.rating} |`)
+      : ["| — | — | — | — | — | — |"]),
     "",
     "## Changes",
     "",
@@ -538,6 +594,194 @@ function parseDecisionArgs(argv) {
   return { days, root, markdown }
 }
 
+function decisionReviewPath(root, change) {
+  return path.join(path.resolve(root), ".odf", `decision-review-${change}.json`)
+}
+
+export function readDecisionReview(root, change) {
+  if (typeof change !== "string" || !CHANGE_PATTERN.test(change)) return null
+  const review = readJsonSafe(decisionReviewPath(root, change))
+  if (!review || typeof review !== "object" || review.schema_version !== 1 || review.change !== change) return null
+  if (!REVIEW_ROUTE_VALUES.includes(review.route) ||
+    !REVIEW_FIT_VALUES.includes(review.risk) ||
+    !REVIEW_FIT_VALUES.includes(review.plan) ||
+    !REVIEW_ROUTE_VALUES.includes(review.gate) ||
+    !Number.isInteger(review.rating) || review.rating < 1 || review.rating > 5) return null
+  return review
+}
+
+/**
+ * Persist one local, closed-label human review. No free text, no prompts, no
+ * remote submission. A later review for the same change overwrites the file.
+ */
+export function writeDecisionReview({ root = process.cwd(), change, route, risk, plan, gate, rating } = {}) {
+  const resolvedRoot = path.resolve(root)
+  if (typeof change !== "string" || !CHANGE_PATTERN.test(change)) throw new Error("change must be a kebab-case name")
+  if (!REVIEW_ROUTE_VALUES.includes(route)) throw new Error(`route must be one of ${REVIEW_ROUTE_VALUES.join(", ")}`)
+  if (!REVIEW_FIT_VALUES.includes(risk)) throw new Error(`risk must be one of ${REVIEW_FIT_VALUES.join(", ")}`)
+  if (!REVIEW_FIT_VALUES.includes(plan)) throw new Error(`plan must be one of ${REVIEW_FIT_VALUES.join(", ")}`)
+  if (!REVIEW_ROUTE_VALUES.includes(gate)) throw new Error(`gate must be one of ${REVIEW_ROUTE_VALUES.join(", ")}`)
+  if (!Number.isInteger(rating) || rating < 1 || rating > 5) throw new Error("rating must be an integer from 1 to 5")
+
+  const review = {
+    schema_version: 1,
+    change,
+    route,
+    risk,
+    plan,
+    gate,
+    rating,
+    reviewed_at: new Date().toISOString(),
+    source: "local-human-review",
+  }
+  fs.mkdirSync(path.join(resolvedRoot, ".odf"), { recursive: true })
+  fs.writeFileSync(decisionReviewPath(resolvedRoot, change), JSON.stringify(review, null, 2), "utf8")
+  return review
+}
+
+function parseReviewArgs(argv) {
+  let root = process.cwd()
+  let change = null
+  const values = {}
+  for (let index = 0; index < argv.length; index++) {
+    const arg = argv[index]
+    if (arg === "--root") {
+      const value = argv[++index]
+      if (!value) return { error: "--root requires a directory" }
+      root = value
+    } else if (arg === "--route") {
+      values.route = argv[++index]
+    } else if (arg === "--risk") {
+      values.risk = argv[++index]
+    } else if (arg === "--plan") {
+      values.plan = argv[++index]
+    } else if (arg === "--gate") {
+      values.gate = argv[++index]
+    } else if (arg === "--rating") {
+      const value = argv[++index]
+      values.rating = value === undefined ? NaN : Number(value)
+    } else if (arg.startsWith("--")) {
+      return { error: `Unknown review argument: ${arg}` }
+    } else if (!change) {
+      change = arg
+    } else {
+      return { error: `Unexpected review argument: ${arg}` }
+    }
+  }
+  if (!change) return { error: "review requires a change name" }
+  if (!values.route || !values.risk || !values.plan || !values.gate || values.rating === undefined) {
+    return { error: "review requires --route, --risk, --plan, --gate, and --rating" }
+  }
+  return { root, change, route: values.route, risk: values.risk, plan: values.plan, gate: values.gate, rating: values.rating }
+}
+
+export function readShadowJudgments(filePath) {
+  return readJsonLines(filePath)
+}
+
+/**
+ * Human/judge calibration over shadow-judgment entries. An unavailable or null
+ * judge verdict is not a disagreement; it is excluded from the compared set.
+ */
+export function evaluateAgreement(entries) {
+  if (!Array.isArray(entries) || entries.length === 0) {
+    return {
+      mode: "agreement",
+      data_status: "no_data",
+      total: 0,
+      compared: 0,
+      agreement: 0,
+      false_pass: 0,
+      false_block: 0,
+      unavailable: 0,
+      rates: { agreement: null, false_pass: null, false_block: null, unavailable: null },
+    }
+  }
+  let compared = 0
+  let agreement = 0
+  let falsePass = 0
+  let falseBlock = 0
+  let unavailable = 0
+  for (const entry of entries) {
+    const result = compareHumanJudge({
+      human: entry && entry.human,
+      judge: entry && entry.judge,
+    })
+    if (result.unavailable) {
+      unavailable++
+      continue
+    }
+    compared++
+    if (result.agreement) agreement++
+    if (result.false_pass) falsePass++
+    if (result.false_block) falseBlock++
+  }
+  return {
+    mode: "agreement",
+    data_status: compared === 0 ? "no_data" : compared === entries.length ? "complete" : "partial",
+    total: entries.length,
+    compared,
+    agreement,
+    false_pass: falsePass,
+    false_block: falseBlock,
+    unavailable,
+    rates: {
+      agreement: compared > 0 ? agreement / compared : null,
+      false_pass: compared > 0 ? falsePass / compared : null,
+      false_block: compared > 0 ? falseBlock / compared : null,
+      unavailable: entries.length > 0 ? unavailable / entries.length : null,
+    },
+  }
+}
+
+export function renderAgreementMarkdown(report) {
+  if (!report || report.mode !== "agreement") return "# Human/judge agreement\n\nInvalid report.\n"
+  if (report.data_status === "no_data") {
+    return "# Human/judge agreement\n\nNo data. No comparable shadow judgments were found.\n"
+  }
+  const rate = (value) => value === null || value === undefined ? "N/A" : `${Math.round(value * 100)}%`
+  return [
+    "# Human/judge agreement",
+    "",
+    `Data status: **${report.data_status}** · total: **${report.total}** · compared: **${report.compared}**`,
+    "",
+    "| Metric | Count | Rate |",
+    "|---|---|---|",
+    `| Agreement | ${report.agreement} | ${rate(report.rates.agreement)} |`,
+    `| False pass | ${report.false_pass} | ${rate(report.rates.false_pass)} |`,
+    `| False block | ${report.false_block} | ${rate(report.rates.false_block)} |`,
+    `| Unavailable | ${report.unavailable} | ${rate(report.rates.unavailable)} |`,
+    "",
+  ].join("\n")
+}
+
+function parseAgreementArgs(argv) {
+  let root = process.cwd()
+  let file = null
+  let markdown = false
+  for (let index = 0; index < argv.length; index++) {
+    const arg = argv[index]
+    if (arg === "--md") {
+      markdown = true
+    } else if (arg === "--root") {
+      const value = argv[++index]
+      if (!value) return { error: "--root requires a directory" }
+      root = value
+    } else if (arg === "--file") {
+      const value = argv[++index]
+      if (!value) return { error: "--file requires a path" }
+      file = value
+    } else if (arg.startsWith("--")) {
+      return { error: `Unknown agreement argument: ${arg}` }
+    } else if (!file) {
+      file = arg
+    } else {
+      return { error: `Unexpected agreement argument: ${arg}` }
+    }
+  }
+  return { root, file: file || path.join(path.resolve(root), ".odf", "shadow-judgments.jsonl"), markdown }
+}
+
 function readJson(filePath) {
   return JSON.parse(fs.readFileSync(path.resolve(filePath), "utf8"))
 }
@@ -568,7 +812,18 @@ export function main(argv = process.argv.slice(2)) {
     const report = evaluateDecisions({ root: parsed.root, days: parsed.days })
     return parsed.markdown ? renderDecisionMarkdown(report) : report
   }
-  throw new Error("Usage: odf-evaluation offline <fixtures.json> | golden <goldens.json> | online [metrics.json|days] [days] | decisions [days] [--root <dir>] [--md]")
+  if (mode === "review") {
+    const parsed = parseReviewArgs(argv.slice(1))
+    if (parsed.error) throw new Error(parsed.error)
+    return writeDecisionReview(parsed)
+  }
+  if (mode === "agreement") {
+    const parsed = parseAgreementArgs(argv.slice(1))
+    if (parsed.error) throw new Error(parsed.error)
+    const report = evaluateAgreement(readShadowJudgments(parsed.file))
+    return parsed.markdown ? renderAgreementMarkdown(report) : report
+  }
+  throw new Error("Usage: odf-evaluation offline <fixtures.json> | golden <goldens.json> | online [metrics.json|days] [days] | decisions [days] [--root <dir>] [--md] | review <change> --route <value> --risk <value> --plan <value> --gate <value> --rating <1-5> [--root <dir>] | agreement [file] [--root <dir>] [--md]")
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {

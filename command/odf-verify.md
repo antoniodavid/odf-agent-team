@@ -108,3 +108,21 @@ node "$PACK/scripts/odf-toolkit.js" manual-evidence \
 - The CLI validates the same rules as the harness validator: explicit `-d <test_db>`, `exit_code 0`, output containing `0 failed` — and rejects anything else (never fabricate output).
 - It reads `candidate_digest`/`frozen_diff_ref` from the persisted Policy Gate and writes `<worktree>/.odf/validation-evidence-{change}.json` with `executor: "user-manual"`.
 - After recording, VERIFY uses that evidence file; the agent must NOT re-run the suite (the evidence is fresh for the 60-minute window) and must NOT invent output.
+
+### Local decision review (optional, non-blocking)
+
+After a PASS or PASS WITH WARNINGS — especially for a `verify-only` change —
+offer the user a local review of the route, risk tier, plan mode, and gate. Ask
+only closed questions and run:
+
+```bash
+PACK="${ODF_CONFIG_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/opencode}"
+node "$PACK/scripts/odf-evaluation.js" review <change> \
+  --route <correct|incorrect> --risk <under|ok|over> \
+  --plan <under|ok|over> --gate <correct|incorrect> \
+  --rating <1-5> --root <worktree>
+```
+
+It is local-only, has no free text, and never changes the VERIFY verdict or
+workflow state. It feeds `odf-evaluation decisions` and the human review
+coverage.

@@ -2,7 +2,7 @@ import { describe, expect, it, afterEach } from "vitest"
 import * as fs from "node:fs/promises"
 import * as os from "node:os"
 import * as path from "node:path"
-import { evaluateOffline, evaluateOnline, evaluateGoldens, validateGolden, evaluateDecisions, renderDecisionMarkdown, main } from "./odf-evaluation.js"
+import { evaluateOffline, evaluateOnline, evaluateGoldens, validateGolden, evaluateDecisions, renderDecisionMarkdown, evaluateAgreement, readDecisionReview, renderAgreementMarkdown, writeDecisionReview, main } from "./odf-evaluation.js"
 
 let temporaryFiles: string[] = []
 
@@ -263,58 +263,59 @@ describe("odf golden trajectories", () => {
   })
 })
 
-describe("odf decision evaluation", () => {
-  async function decisionWorkspace() {
-    const root = await fs.mkdtemp(path.join(os.tmpdir(), "odf-decisions-"))
-    const config = await fs.mkdtemp(path.join(os.tmpdir(), "odf-decisions-config-"))
-    temporaryFiles.push(root, config)
-    await fs.mkdir(path.join(root, "openspec", "changes", "alpha"), { recursive: true })
-    await fs.mkdir(path.join(root, ".odf"), { recursive: true })
-    await fs.mkdir(path.join(config, "metrics"), { recursive: true })
-    await fs.writeFile(path.join(root, "openspec", "changes", "alpha", "state.yaml"), [
-      "work_type: feature",
-      "artifact_store: openspec",
-      "canonical_stage: PLAN",
-      "completed_canonical_stages:",
-      "  - DECIDE",
-      "  - PLAN",
-      "route:",
-      "  stages:",
-      "    - DECIDE",
-      "    - PLAN",
-      "    - BUILD",
-      "    - VERIFY",
-      "  plan: required",
-      "  verification: required",
-      "entry_route_binding:",
-      "  predicted_route: small-change",
-      "  predicted_stages:",
-      "    - DECIDE",
-      "    - BUILD",
-      "    - VERIFY",
-      "",
-    ].join("\n"), "utf8")
-    await fs.writeFile(path.join(root, ".odf", "policy-gate-alpha.json"), JSON.stringify({
-      stage: "BUILD", risk_tier: "MEDIUM", changed_lines: 120, correction_budget_lines: 60,
-    }), "utf8")
-    await fs.writeFile(path.join(root, ".odf", "receipt-alpha.json"), JSON.stringify({
-      stage: "BUILD", role: null, status: "blocked", cause: "validation-failed", action: null,
-    }), "utf8")
-    await fs.writeFile(path.join(root, ".odf", "attempt-ledger-alpha.jsonl"), [
-      JSON.stringify({ attempt_id: "a1", change: "alpha", stage: "BUILD", status: "failed", result_status: "validation-failed" }),
-      JSON.stringify({ attempt_id: "a2", change: "alpha", stage: "BUILD", status: "completed", result_status: "delegated" }),
-      "",
-    ].join("\n"), "utf8")
-    await fs.writeFile(path.join(root, ".odf", "override-alpha.jsonl"), JSON.stringify({ action: "settle-attempt" }) + "\n", "utf8")
-    const day = new Date().toISOString().slice(0, 10)
-    await fs.writeFile(path.join(config, "metrics", `delegations-${day}.jsonl`), [
-      JSON.stringify({ timestamp: new Date().toISOString(), change: "alpha", stage: "BUILD", status: "ok", duration_ms: 1000, event: "run", lifecycle: "finished", agent: "backend" }),
-      JSON.stringify({ timestamp: new Date().toISOString(), change: "alpha", stage: "VERIFY", status: "ok", duration_ms: 500, event: "run", lifecycle: "finished", agent: "qa" }),
-      "",
-    ].join("\n"), "utf8")
-    return { root, config }
-  }
+async function decisionWorkspace() {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "odf-decisions-"))
+  const config = await fs.mkdtemp(path.join(os.tmpdir(), "odf-decisions-config-"))
+  temporaryFiles.push(root, config)
+  await fs.mkdir(path.join(root, "openspec", "changes", "alpha"), { recursive: true })
+  await fs.mkdir(path.join(root, ".odf"), { recursive: true })
+  await fs.mkdir(path.join(config, "metrics"), { recursive: true })
+  await fs.writeFile(path.join(root, "openspec", "changes", "alpha", "state.yaml"), [
+    "work_type: feature",
+    "artifact_store: openspec",
+    "canonical_stage: PLAN",
+    "completed_canonical_stages:",
+    "  - DECIDE",
+    "  - PLAN",
+    "route:",
+    "  stages:",
+    "    - DECIDE",
+    "    - PLAN",
+    "    - BUILD",
+    "    - VERIFY",
+    "  plan: required",
+    "  verification: required",
+    "entry_route_binding:",
+    "  predicted_route: small-change",
+    "  predicted_stages:",
+    "    - DECIDE",
+    "    - BUILD",
+    "    - VERIFY",
+    "",
+  ].join("\n"), "utf8")
+  await fs.writeFile(path.join(root, ".odf", "policy-gate-alpha.json"), JSON.stringify({
+    stage: "BUILD", risk_tier: "MEDIUM", changed_lines: 120, correction_budget_lines: 60,
+  }), "utf8")
+  await fs.writeFile(path.join(root, ".odf", "receipt-alpha.json"), JSON.stringify({
+    stage: "BUILD", role: null, status: "blocked", cause: "validation-failed", action: null,
+  }), "utf8")
+  await fs.writeFile(path.join(root, ".odf", "attempt-ledger-alpha.jsonl"), [
+    JSON.stringify({ attempt_id: "a1", change: "alpha", stage: "BUILD", status: "failed", result_status: "validation-failed" }),
+    JSON.stringify({ attempt_id: "a2", change: "alpha", stage: "BUILD", status: "completed", result_status: "delegated" }),
+    "",
+  ].join("\n"), "utf8")
+  await fs.writeFile(path.join(root, ".odf", "override-alpha.jsonl"), JSON.stringify({ action: "settle-attempt" }) + "\n", "utf8")
+  const day = new Date().toISOString().slice(0, 10)
+  await fs.writeFile(path.join(config, "metrics", `delegations-${day}.jsonl`), [
+    JSON.stringify({ timestamp: new Date().toISOString(), change: "alpha", stage: "BUILD", status: "ok", duration_ms: 1000, event: "run", lifecycle: "finished", agent: "backend" }),
+    JSON.stringify({ timestamp: new Date().toISOString(), change: "alpha", stage: "VERIFY", status: "ok", duration_ms: 500, event: "run", lifecycle: "finished", agent: "qa" }),
+    "",
+  ].join("\n"), "utf8")
+  return { root, config }
+}
 
+
+describe("odf decision evaluation", () => {
   it("decisions-empty-no-data: an empty workspace is no_data, never a perfect score", async () => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), "odf-decisions-empty-"))
     temporaryFiles.push(root)
@@ -390,5 +391,116 @@ describe("odf decision evaluation", () => {
       if (previous === undefined) delete process.env.ODF_CONFIG_DIR
       else process.env.ODF_CONFIG_DIR = previous
     }
+  })
+})
+
+describe("odf decision review and agreement", () => {
+  it("review-cli: writes a closed-label review and validates input", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "odf-review-"))
+    temporaryFiles.push(root)
+    const review = main([
+      "review", "alpha",
+      "--route", "correct",
+      "--risk", "ok",
+      "--plan", "ok",
+      "--gate", "incorrect",
+      "--rating", "4",
+      "--root", root,
+    ])
+    expect(review).toMatchObject({
+      schema_version: 1,
+      change: "alpha",
+      route: "correct",
+      risk: "ok",
+      plan: "ok",
+      gate: "incorrect",
+      rating: 4,
+      source: "local-human-review",
+    })
+    expect(readDecisionReview(root, "alpha")).toMatchObject({ change: "alpha", route: "correct", rating: 4 })
+    expect(() => main(["review", "alpha", "--route", "bad", "--risk", "ok", "--plan", "ok", "--gate", "correct", "--rating", "4", "--root", root]))
+      .toThrow("route must be one of")
+    expect(() => main(["review", "alpha", "--route", "correct", "--risk", "ok", "--plan", "ok", "--gate", "correct", "--rating", "9", "--root", root]))
+      .toThrow("rating must be an integer")
+    expect(() => main(["review", "../alpha", "--route", "correct", "--risk", "ok", "--plan", "ok", "--gate", "correct", "--rating", "4", "--root", root]))
+      .toThrow("change must be a kebab-case name")
+  })
+
+  it("decisions-review: aggregates human labels without inventing them", async () => {
+    const { root, config } = await decisionWorkspace()
+    writeDecisionReview({ root, change: "alpha", route: "correct", risk: "ok", plan: "ok", gate: "incorrect", rating: 4 })
+    const previous = process.env.ODF_CONFIG_DIR
+    process.env.ODF_CONFIG_DIR = config
+    try {
+      const report = evaluateDecisions({ root, days: 30 })
+      expect(report.changes[0]).toMatchObject({
+        review_route_correct: true,
+        review_risk_fit: "ok",
+        review_plan_fit: "ok",
+        review_gate_correct: false,
+        review_rating: 4,
+      })
+      expect(report.aggregate.reviews).toMatchObject({
+        count: 1,
+        coverage: 1,
+        route_correct: { count: 1, total: 1, rate: 1 },
+        risk_fit: { ok: 1 },
+        plan_fit: { ok: 1 },
+        gate_correct: { count: 0, total: 1, rate: 0 },
+        avg_rating: 4,
+      })
+      expect(renderDecisionMarkdown(report)).toContain("| alpha | correct | ok | ok | incorrect | 4 |")
+    } finally {
+      if (previous === undefined) delete process.env.ODF_CONFIG_DIR
+      else process.env.ODF_CONFIG_DIR = previous
+    }
+  })
+
+  it("agreement-report: compares human and judge labels and separates unavailable", async () => {
+    const entries = [
+      { human: "pass", judge: "pass" },
+      { human: "fail", judge: "pass" },
+      { human: "pass", judge: "fail" },
+      { human: "pass", judge: "unavailable" },
+      { human: "pass", judge: null },
+    ]
+    const report = evaluateAgreement(entries)
+    expect(report).toMatchObject({
+      mode: "agreement",
+      data_status: "partial",
+      total: 5,
+      compared: 3,
+      agreement: 1,
+      false_pass: 1,
+      false_block: 1,
+      unavailable: 2,
+    })
+    expect(report.rates.agreement).toBeCloseTo(1 / 3)
+    expect(report.rates.false_pass).toBeCloseTo(1 / 3)
+    expect(report.rates.false_block).toBeCloseTo(1 / 3)
+    expect(report.rates.unavailable).toBeCloseTo(2 / 5)
+    expect(renderAgreementMarkdown(report)).toContain("| False pass | 1 | 33% |")
+  })
+
+  it("agreement-empty: empty and all-unavailable corpora are no_data", () => {
+    expect(evaluateAgreement([])).toMatchObject({ data_status: "no_data", total: 0, compared: 0 })
+    expect(evaluateAgreement([
+      { human: "pass", judge: "unavailable" },
+      { human: "fail", judge: null },
+    ])).toMatchObject({ data_status: "no_data", total: 2, compared: 0, unavailable: 2 })
+  })
+
+  it("agreement-cli: reads a JSONL file and renders Markdown", async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "odf-agreement-"))
+    temporaryFiles.push(dir)
+    const file = path.join(dir, "shadow-judgments.jsonl")
+    await fs.writeFile(file, [
+      JSON.stringify({ human: "pass", judge: "pass" }),
+      JSON.stringify({ human: "fail", judge: "fail" }),
+      "",
+    ].join("\n"), "utf8")
+    const report = main(["agreement", file])
+    expect(report).toMatchObject({ mode: "agreement", data_status: "complete", total: 2, compared: 2, agreement: 2 })
+    expect(main(["agreement", file, "--md"])).toContain("# Human/judge agreement")
   })
 })
