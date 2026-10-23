@@ -42,7 +42,7 @@ export interface HumanJudgeCompare {
 
 export function defaultJudgeRubric(): JudgeRubric
 
-export function compareHumanJudge(input: { human: "pass" | "fail"; judge: "pass" | "fail" | "unavailable" }): HumanJudgeCompare
+export function compareHumanJudge(input: { human: "pass" | "fail" | null; judge: JudgeVerdict }): HumanJudgeCompare
 
 export function evaluateShadow(input?: ShadowInput): ShadowResult
 

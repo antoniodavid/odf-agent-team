@@ -7,6 +7,8 @@ import { evaluateShadow, compareHumanJudge, recordShadowJudgment, appendShadowJu
 let temporaryFiles: string[] = []
 
 afterEach(async () => {
+  delete process.env.ODF_JUDGE_MODEL
+  delete process.env.ODF_JUDGE_PROVIDER
   await Promise.all(temporaryFiles.map(file => fs.rm(file, { recursive: true, force: true })))
   temporaryFiles = []
 })
@@ -21,6 +23,14 @@ describe("odf shadow judge", () => {
     expect(result.data_status).toBe("no_data")
     expect(result.rationale).toBeNull()
     expect(["pass", "fail"]).not.toContain(result.verdict)
+  })
+
+  it("shadow-null-verdict-unavailable: a configured model without a real verdict is still unavailable", () => {
+    process.env.ODF_JUDGE_MODEL = "test"
+    const result = evaluateShadow({})
+    expect(result.verdict).toBe("unavailable")
+    expect(result.verdict_label).toBe("N/A")
+    expect(result.data_status).toBe("no_data")
   })
 
   it("shadow-versioned: output carries schema_version and judge_version", () => {
@@ -73,6 +83,15 @@ describe("odf judge comparison", () => {
 
   it("compare-unavailable: judge unavailable -> agreement null, unavailable true", () => {
     expect(compareHumanJudge({ human: "pass", judge: "unavailable" })).toEqual({
+      agreement: null,
+      false_pass: false,
+      false_block: false,
+      unavailable: true,
+    })
+  })
+
+  it("compare-null-judge: a null judge verdict is unavailable, not a disagreement", () => {
+    expect(compareHumanJudge({ human: "pass", judge: null })).toEqual({
       agreement: null,
       false_pass: false,
       false_block: false,

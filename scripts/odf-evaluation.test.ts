@@ -2,7 +2,7 @@ import { describe, expect, it, afterEach } from "vitest"
 import * as fs from "node:fs/promises"
 import * as os from "node:os"
 import * as path from "node:path"
-import { evaluateOffline, evaluateOnline, evaluateGoldens, validateGolden, main } from "./odf-evaluation.js"
+import { evaluateOffline, evaluateOnline, evaluateGoldens, validateGolden, evaluateDecisions, renderDecisionMarkdown, main } from "./odf-evaluation.js"
 
 let temporaryFiles: string[] = []
 
@@ -105,6 +105,21 @@ describe("odf evaluation", () => {
     expect(result.score).not.toBe(1)
   })
 
+  it("online-day-count: a bare day count is parsed as days, not a file path", async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "odf-eval-days-"))
+    temporaryFiles.push(dir)
+    await fs.mkdir(path.join(dir, "metrics"), { recursive: true })
+    const previous = process.env.ODF_CONFIG_DIR
+    process.env.ODF_CONFIG_DIR = dir
+    try {
+      expect(main(["online", "14"])).toMatchObject({ mode: "online", data_status: "no_data", score: null })
+      expect(() => main(["online", "14", "7"])).toThrow("online accepts a metrics file or a day count")
+    } finally {
+      if (previous === undefined) delete process.env.ODF_CONFIG_DIR
+      else process.env.ODF_CONFIG_DIR = previous
+    }
+  })
+
   it("online-lifecycle-start-only: unfinished runs are partial with no score", () => {
     const result = evaluateOnline([
       { event: "run", lifecycle: "started", run_id: "run-stale", status: "ok" },
@@ -182,6 +197,62 @@ describe("odf golden trajectories", () => {
     expect(validateGolden({ ...validGolden, risk: "critical" }).valid).toBe(false)
   })
 
+  it("golden-route-order: a trajectory must follow the selected route", () => {
+    expect(validateGolden({ ...validGolden, trajectory: [{ step: "BUILD" }, { step: "DECIDE" }] }).valid).toBe(false)
+    expect(validateGolden({
+      ...validGolden,
+      trajectory: [
+        { step: "DECIDE PROPOSE" },
+        { step: "PLAN DESIGN" },
+        { step: "BUILD" },
+        { step: "VERIFY" },
+      ],
+    }).valid).toBe(true)
+  })
+
+  it("golden-role: a role must belong to its stage", () => {
+    expect(validateGolden({ ...validGolden, trajectory: [{ step: "DECIDE DESIGN" }] }).valid).toBe(false)
+    expect(validateGolden({ ...validGolden, trajectory: [{ step: "DECIDE ASSESS" }] }).valid).toBe(true)
+    expect(validateGolden({ ...validGolden, trajectory: [{ step: "BUILD DESIGN" }] }).valid).toBe(false)
+  })
+
+  it("golden-retry: only -retry may repeat a stage", () => {
+    expect(validateGolden({
+      ...validGolden,
+      trajectory: [{ step: "BUILD" }, { step: "BUILD-retry" }, { step: "VERIFY" }],
+    }).valid).toBe(true)
+    expect(validateGolden({
+      ...validGolden,
+      trajectory: [{ step: "BUILD" }, { step: "BUILD" }, { step: "VERIFY" }],
+    }).valid).toBe(false)
+  })
+
+  it("golden-routes: non-feature routes are valid", () => {
+    expect(validateGolden({
+      ...validGolden,
+      work_type: "small-change",
+      risk: "standard",
+      trajectory: [{ step: "DECIDE" }, { step: "BUILD" }, { step: "VERIFY" }],
+    }).valid).toBe(true)
+    expect(validateGolden({
+      ...validGolden,
+      work_type: "standard-config",
+      risk: "low",
+      trajectory: [{ step: "DECIDE" }],
+    }).valid).toBe(true)
+    expect(validateGolden({
+      ...validGolden,
+      work_type: "verify-only",
+      risk: "standard",
+      trajectory: [{ step: "VERIFY" }],
+    }).valid).toBe(true)
+  })
+
+  it("golden-risk: route risk uses low|standard|high", () => {
+    expect(validateGolden({ ...validGolden, risk: "standard" }).valid).toBe(true)
+    expect(validateGolden({ ...validGolden, risk: "medium" }).valid).toBe(false)
+  })
+
   it("golden-checked-in: the checked-in golden corpus fixture is valid and complete", async () => {
     const file = path.join(process.cwd(), "scripts", "fixtures", "golden-trajectories.json")
     const corpus = JSON.parse(await fs.readFile(file, "utf8"))
@@ -189,5 +260,135 @@ describe("odf golden trajectories", () => {
     expect(result.data_status).toBe("complete")
     expect(result.total).toBeGreaterThanOrEqual(6)
     expect(result.failed).toBe(0)
+  })
+})
+
+describe("odf decision evaluation", () => {
+  async function decisionWorkspace() {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "odf-decisions-"))
+    const config = await fs.mkdtemp(path.join(os.tmpdir(), "odf-decisions-config-"))
+    temporaryFiles.push(root, config)
+    await fs.mkdir(path.join(root, "openspec", "changes", "alpha"), { recursive: true })
+    await fs.mkdir(path.join(root, ".odf"), { recursive: true })
+    await fs.mkdir(path.join(config, "metrics"), { recursive: true })
+    await fs.writeFile(path.join(root, "openspec", "changes", "alpha", "state.yaml"), [
+      "work_type: feature",
+      "artifact_store: openspec",
+      "canonical_stage: PLAN",
+      "completed_canonical_stages:",
+      "  - DECIDE",
+      "  - PLAN",
+      "route:",
+      "  stages:",
+      "    - DECIDE",
+      "    - PLAN",
+      "    - BUILD",
+      "    - VERIFY",
+      "  plan: required",
+      "  verification: required",
+      "entry_route_binding:",
+      "  predicted_route: small-change",
+      "  predicted_stages:",
+      "    - DECIDE",
+      "    - BUILD",
+      "    - VERIFY",
+      "",
+    ].join("\n"), "utf8")
+    await fs.writeFile(path.join(root, ".odf", "policy-gate-alpha.json"), JSON.stringify({
+      stage: "BUILD", risk_tier: "MEDIUM", changed_lines: 120, correction_budget_lines: 60,
+    }), "utf8")
+    await fs.writeFile(path.join(root, ".odf", "receipt-alpha.json"), JSON.stringify({
+      stage: "BUILD", role: null, status: "blocked", cause: "validation-failed", action: null,
+    }), "utf8")
+    await fs.writeFile(path.join(root, ".odf", "attempt-ledger-alpha.jsonl"), [
+      JSON.stringify({ attempt_id: "a1", change: "alpha", stage: "BUILD", status: "failed", result_status: "validation-failed" }),
+      JSON.stringify({ attempt_id: "a2", change: "alpha", stage: "BUILD", status: "completed", result_status: "delegated" }),
+      "",
+    ].join("\n"), "utf8")
+    await fs.writeFile(path.join(root, ".odf", "override-alpha.jsonl"), JSON.stringify({ action: "settle-attempt" }) + "\n", "utf8")
+    const day = new Date().toISOString().slice(0, 10)
+    await fs.writeFile(path.join(config, "metrics", `delegations-${day}.jsonl`), [
+      JSON.stringify({ timestamp: new Date().toISOString(), change: "alpha", stage: "BUILD", status: "ok", duration_ms: 1000, event: "run", lifecycle: "finished", agent: "backend" }),
+      JSON.stringify({ timestamp: new Date().toISOString(), change: "alpha", stage: "VERIFY", status: "ok", duration_ms: 500, event: "run", lifecycle: "finished", agent: "qa" }),
+      "",
+    ].join("\n"), "utf8")
+    return { root, config }
+  }
+
+  it("decisions-empty-no-data: an empty workspace is no_data, never a perfect score", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "odf-decisions-empty-"))
+    temporaryFiles.push(root)
+    const report = evaluateDecisions({ root })
+    expect(report).toMatchObject({ mode: "decisions", data_status: "no_data", total: 0, changes: [] })
+    expect(report.warnings.length).toBeGreaterThan(0)
+  })
+
+  it("decisions-change: joins state, gate, receipt, ledger, overrides, and metrics", async () => {
+    const { root, config } = await decisionWorkspace()
+    const previous = process.env.ODF_CONFIG_DIR
+    process.env.ODF_CONFIG_DIR = config
+    try {
+      const report = evaluateDecisions({ root, days: 30 })
+      expect(report).toMatchObject({
+        mode: "decisions",
+        data_status: "complete",
+        total: 1,
+      })
+      expect(report.changes[0]).toMatchObject({
+        change: "alpha",
+        work_type: "feature",
+        risk_tier: "MEDIUM",
+        plan_mode: "required",
+        predicted_route: "small-change",
+        route_agreement: false,
+        failed_attempts: 1,
+        rework_count: 1,
+        first_pass: false,
+        override_count: 1,
+        archived: false,
+      })
+      expect(report.changes[0].receipts).toHaveLength(1)
+      expect(report.changes[0].stage_activity.BUILD).toMatchObject({ calls: 1, ok: 1, duration_ms: 1000 })
+      expect(report.aggregate).toMatchObject({
+        route_agreement: { compared: 1, agreed: 0, rate: 0 },
+        first_pass: { count: 0, rate: 0 },
+        rework: { changes: 1, rate: 1 },
+        receipts: { count: 1 },
+        overrides: 1,
+        risk_tiers: { MEDIUM: 1 },
+        plan_modes: { required: 1 },
+      })
+    } finally {
+      if (previous === undefined) delete process.env.ODF_CONFIG_DIR
+      else process.env.ODF_CONFIG_DIR = previous
+    }
+  })
+
+  it("decisions-markdown: renders aggregate and per-change rows", async () => {
+    const { root, config } = await decisionWorkspace()
+    const previous = process.env.ODF_CONFIG_DIR
+    process.env.ODF_CONFIG_DIR = config
+    try {
+      const markdown = renderDecisionMarkdown(evaluateDecisions({ root, days: 30 }))
+      expect(markdown).toContain("# Decision evaluation")
+      expect(markdown).toContain("| Route agreement | 0/1 (0%) |")
+      expect(markdown).toContain("| alpha | feature | MEDIUM | required | no | 1 | no |")
+    } finally {
+      if (previous === undefined) delete process.env.ODF_CONFIG_DIR
+      else process.env.ODF_CONFIG_DIR = previous
+    }
+  })
+
+  it("decisions-cli: --root and --md are parsed without reading a file named after a flag", async () => {
+    const { root, config } = await decisionWorkspace()
+    const previous = process.env.ODF_CONFIG_DIR
+    process.env.ODF_CONFIG_DIR = config
+    try {
+      expect(main(["decisions", "--root", root, "--days", "30"])).toMatchObject({ mode: "decisions", total: 1 })
+      expect(main(["decisions", "--root", root, "--md"])).toContain("# Decision evaluation")
+    } finally {
+      if (previous === undefined) delete process.env.ODF_CONFIG_DIR
+      else process.env.ODF_CONFIG_DIR = previous
+    }
   })
 })
