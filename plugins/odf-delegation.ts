@@ -98,7 +98,6 @@ import {
   findTaskApi,
   hostTelemetryFromContext,
   isCancellation,
-  isCancellationMessage,
   isEmptyTaskResult,
   inspectODFHealth,
   readV2ContextConversation,
@@ -459,6 +458,22 @@ function settleTaskAbort(abort: Promise<unknown> | undefined, graceMs: number): 
   })
 }
 
+class TaskTimeoutError extends Error {
+  readonly code = "task-timeout" as const
+  constructor(message: string) {
+    super(message)
+    this.name = "TaskTimeoutError"
+  }
+}
+
+class TaskCancelledError extends Error {
+  readonly code = "task-cancelled" as const
+  constructor(message: string) {
+    super(message)
+    this.name = "TaskCancelledError"
+  }
+}
+
 async function invokeTask(
   taskApi: TaskApi,
   agentName: string,
@@ -486,14 +501,14 @@ async function invokeTask(
   const timeoutPromise = new Promise<never>((_, reject) => {
     timeoutHandle = setTimeout(() => {
       timedOut = true
-      reject(new Error(`task() timed out after ${timeoutMs}ms`))
+      reject(new TaskTimeoutError(`task() timed out after ${timeoutMs}ms`))
     }, timeoutMs)
   })
   const cancellationPromise = abortSignal
     ? new Promise<never>((_, reject) => {
       const onAbort = (): void => {
         cancelled = true
-        reject(new Error("task-cancelled: delegation was cancelled"))
+        reject(new TaskCancelledError("task-cancelled: delegation was cancelled"))
       }
       if (abortSignal.aborted) onAbort()
       else {
@@ -504,12 +519,12 @@ async function invokeTask(
     : null
   try {
     const result = await Promise.race([...(cancellationPromise ? [cancellationPromise] : []), taskPromise, timeoutPromise])
-    if (isCancellation(result)) throw new Error("task-cancelled: task() was cancelled")
+    if (isCancellation(result)) throw new TaskCancelledError("task-cancelled: task() was cancelled")
     if (isEmptyTaskResult(result)) throw new Error("empty-task-result: task() returned no usable result")
     return { status: "delegated", result }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
-    if (timedOut || cancelled || isCancellationMessage(message)) {
+    if (timedOut || cancelled || message.startsWith("task-cancelled:")) {
       try {
         // A parent tool-call abort is parent-scoped (REQ-01/REQ-02): the bridge
         // cancels every registered child of the parent, not only the live
@@ -1604,6 +1619,15 @@ function buildDelegationPrompt(opts: {
   ].filter(Boolean).join("\n\n")
 }
 
+function normalizeArtifactRefPath(ref: string): string | null {
+  const trimmed = ref.trim()
+  if (!trimmed || trimmed.includes("\0") || path.isAbsolute(trimmed)) return null
+  if (trimmed.split(/[\\/]/).includes("..")) return null
+  const normalized = path.normalize(trimmed).replace(/\\/g, "/")
+  if (!normalized || normalized === ".." || normalized.startsWith("../") || path.isAbsolute(normalized)) return null
+  return normalized
+}
+
 interface CompositeGateFailure {
   reason: string
   message: string
@@ -1681,28 +1705,145 @@ async function applyCompositeResultGates(opts: {
   if (opts.innerAccepted && designResult) {
     const rawRefs = Array.isArray(designResult.artifacts_saved) ? designResult.artifacts_saved
       : Array.isArray(designResult.artifact_refs) ? designResult.artifact_refs : []
-    const refs = rawRefs
-      .map((entry: unknown): string | null => {
-        if (typeof entry === "string") return entry
-        if (entry && typeof entry === "object" && !Array.isArray(entry)) {
-          const record = entry as Record<string, unknown>
-          const ref = (record.artifact_ref as Record<string, unknown> | undefined)?.ref ?? record.ref
-          return typeof ref === "string" ? ref : null
+    const parsedRefs: Array<{ store: string | null; ref: string }> = []
+    let malformedRefs = 0
+    for (const entry of rawRefs) {
+      if (typeof entry === "string") {
+        parsedRefs.push({ store: null, ref: entry })
+        continue
+      }
+      if (entry && typeof entry === "object" && !Array.isArray(entry)) {
+        const record = entry as Record<string, unknown>
+        const artifactRef = record.artifact_ref && typeof record.artifact_ref === "object" && !Array.isArray(record.artifact_ref)
+          ? record.artifact_ref as Record<string, unknown>
+          : null
+        const ref = artifactRef?.ref ?? record.ref
+        const store = typeof artifactRef?.store === "string" ? artifactRef.store : null
+        if (typeof ref === "string") {
+          parsedRefs.push({ store, ref })
+          continue
         }
-        return null
-      })
-      .filter((ref: string | null): ref is string => Boolean(ref))
-    const missingOpenSpec = refs.filter(ref =>
-      ref.startsWith("openspec/") && !fsSync.existsSync(path.join(opts.workspaceRoot, ref)))
-    if (missingOpenSpec.length > 0) {
+      }
+      malformedRefs += 1
+    }
+    const refs = parsedRefs.map(entry => entry.ref)
+    const invalidRefs: string[] = []
+    const missingRefs: string[] = []
+    const engramRefs = new Set<string>()
+    for (const { store, ref } of parsedRefs) {
+      const normalized = normalizeArtifactRefPath(ref)
+      if (!normalized) {
+        invalidRefs.push(ref)
+        continue
+      }
+      if (store !== null && store !== "openspec" && store !== "engram" && store !== "hybrid") {
+        invalidRefs.push(ref)
+        continue
+      }
+      const inferredStore = normalized.startsWith("openspec/") ? "openspec" : normalized.startsWith("odf/") ? "engram" : null
+      const effectiveStore = store && store !== "hybrid" ? store : inferredStore
+      if (!effectiveStore) {
+        invalidRefs.push(ref)
+        continue
+      }
+      if (store && store !== "hybrid" && inferredStore && store !== inferredStore) {
+        invalidRefs.push(ref)
+        continue
+      }
+      if ((opts.artifactStore === "openspec" && effectiveStore !== "openspec") ||
+        (opts.artifactStore === "engram" && effectiveStore !== "engram")) {
+        invalidRefs.push(ref)
+        continue
+      }
+      if (effectiveStore === "openspec") {
+        const resolved = path.resolve(opts.workspaceRoot, normalized)
+        const openSpecRoot = path.resolve(opts.workspaceRoot, "openspec")
+        if (!isWithinRoot(resolved, openSpecRoot)) {
+          invalidRefs.push(ref)
+          continue
+        }
+        if (!fsSync.existsSync(resolved)) {
+          missingRefs.push(ref)
+          continue
+        }
+        try {
+          const realResolved = fsSync.realpathSync(resolved)
+          const realOpenSpecRoot = fsSync.realpathSync(openSpecRoot)
+          if (!isWithinRoot(realResolved, realOpenSpecRoot) || !fsSync.statSync(realResolved).isFile()) {
+            invalidRefs.push(ref)
+            continue
+          }
+        } catch {
+          invalidRefs.push(ref)
+          continue
+        }
+      } else {
+        const parts = normalized.split("/")
+        if (parts.length < 3 || parts[0] !== "odf" || !parts[1] ||
+          !parts.slice(2).every(part => part && part !== "." && part !== "..")) {
+          invalidRefs.push(ref)
+          continue
+        }
+        if (opts.changeName && parts[1] !== opts.changeName) {
+          invalidRefs.push(ref)
+          continue
+        }
+        engramRefs.add(normalized)
+      }
+    }
+    if (malformedRefs > 0) {
+      invalidRefs.push(`${malformedRefs} malformed artifact_ref ${malformedRefs === 1 ? "entry" : "entries"}`)
+    }
+    const uniqueInvalidRefs = [...new Set(invalidRefs)]
+    if (uniqueInvalidRefs.length > 0) {
+      return {
+        result,
+        warnings,
+        materialization: null,
+        failure: {
+          reason: "artifact-ref-invalid",
+          message: `Claimed artifact_ref(s) are unsafe, malformed, or inconsistent with the selected store: ${uniqueInvalidRefs.join(", ")}. Save the artifact inside the workspace and return its canonical store/ref.`,
+        },
+      }
+    }
+    const uniqueMissingRefs = [...new Set(missingRefs)]
+    if (uniqueMissingRefs.length > 0) {
       return {
         result,
         warnings,
         materialization: null,
         failure: {
           reason: "artifact-ref-missing",
-          message: `Claimed artifact_ref(s) do not exist on disk: ${missingOpenSpec.join(", ")}. Persist the phase artifact in the selected store and retry.`,
+          message: `Claimed artifact_ref(s) do not exist on disk: ${uniqueMissingRefs.join(", ")}. Persist the phase artifact in the selected store and retry.`,
         },
+      }
+    }
+    if (engramRefs.size > 0) {
+      const read = await readEngramObservationsWithError(opts.workspaceRoot)
+      if (read.error || !read.observations) {
+        return {
+          result,
+          warnings,
+          materialization: null,
+          failure: {
+            reason: "artifact-ref-invalid",
+            message: `Claimed Engram artifact_ref(s) could not be verified: ${read.error || "engram export unavailable"}.`,
+          },
+        }
+      }
+      const topics = new Set(read.observations.map(observation =>
+        typeof observation.topic_key === "string" ? observation.topic_key : ""))
+      const missingEngram = [...engramRefs].filter(ref => !topics.has(ref))
+      if (missingEngram.length > 0) {
+        return {
+          result,
+          warnings,
+          materialization: null,
+          failure: {
+            reason: "artifact-ref-missing",
+            message: `Claimed Engram artifact_ref(s) do not exist: ${missingEngram.join(", ")}. Save them in the selected store and retry.`,
+          },
+        }
       }
     }
     if (refs.length === 0 && ["PROPOSE", "ASSESS", "QA-PLAN", "DESIGN", "IMPLEMENT"].includes(opts.phase)) {
@@ -1819,7 +1960,22 @@ Use this instead of generic task() for ODF workflow delegation.`,
     },
     async execute(args: InternalODFDelegateArgs, toolCtx: ToolContext): Promise<string> {
       if (!toolCtx?.sessionID) {
-        return "❌ odf_delegate requires sessionID"
+        return JSON.stringify({
+          status: "blocked",
+          reason: "session-id-required",
+          stop_disposition: classifyODFStop("session-id-required"),
+          stage: typeof args.stage === "string" ? args.stage : null,
+          role: typeof args.role === "string" && args.role.trim() ? args.role : null,
+          agent: null,
+          skills_injected: [],
+          profile: null,
+          policy_gate: null,
+          validation: null,
+          receipt: null,
+          task_api_source: "unavailable",
+          result: null,
+          message: "odf_delegate requires sessionID",
+        }, null, 2)
       }
 
       const executionOptions: DelegateExecutionOptions = {
@@ -1840,7 +1996,22 @@ Use this instead of generic task() for ODF workflow delegation.`,
 
       const target = resolveDelegationTarget(args.stage, args.role)
       if (!target.ok) {
-        return `❌ ${target.message}`
+        return JSON.stringify({
+          status: "blocked",
+          reason: target.reason,
+          stop_disposition: classifyODFStop(target.reason),
+          stage: typeof args.stage === "string" ? args.stage : null,
+          role: typeof args.role === "string" && args.role.trim() ? args.role : null,
+          agent: null,
+          skills_injected: [],
+          profile: null,
+          policy_gate: null,
+          validation: null,
+          receipt: null,
+          task_api_source: "unavailable",
+          result: null,
+          message: target.message,
+        }, null, 2)
       }
       const phase = target.phase
 
@@ -1914,7 +2085,7 @@ Use this instead of generic task() for ODF workflow delegation.`,
         )
       }
 
-      const workspaceRoot = resolveSelectedWorkspaceRoot(args.workspace_dir, canonicalDirectory)
+      const workspaceRoot = resolveSelectedWorkspaceRoot(args.workspace_dir, toolCtx?.directory || canonicalDirectory)
       if (!workspaceRoot) {
         return blockWorkflow(
           "unsafe-workspace-path",
@@ -1937,7 +2108,15 @@ Use this instead of generic task() for ODF workflow delegation.`,
           null,
         )
       }
-      const changeName = args.change?.trim() || extractChangeName(args.prompt)
+      const explicitChange = args.change?.trim()
+      if (explicitChange && !isSafeToken(explicitChange)) {
+        return blockWorkflow(
+          "unsafe-change-name",
+          "The change name must be a safe token of 1-64 letters, numbers, hyphens, or underscores.",
+          null,
+        )
+      }
+      const changeName = explicitChange || extractChangeName(args.prompt)
       const sourceAuthorityRequired = isViewAuthorityWork(phase, args.prompt, args.context_files || [])
 
       let workflowResult: ReturnType<typeof advanceWorkflow> | null = executionOptions.workflow_result || null
@@ -2146,11 +2325,21 @@ Use this instead of generic task() for ODF workflow delegation.`,
       }
 
       const contextValidation = validateContextFiles(workspaceRoot, args.context_files || [])
-      if (contextValidation.error) return contextValidation.error
+      if (contextValidation.error) {
+        return blockWorkflow(
+          "invalid-context-files",
+          contextValidation.error.replace(/^❌\s*/, ""),
+          workflowResult,
+        )
+      }
 
       if (!registry) registry = await loadRegistry()
       if (!registry) {
-        return `❌ ODF registry not found. Run /odf-init or check ${REGISTRY_PATH}`
+        return blockWorkflow(
+          "registry-unavailable",
+          `ODF registry not found. Run /odf-init or check ${REGISTRY_PATH}`,
+          workflowResult,
+        )
       }
 
       let sourceAuthorityRoots: SourceAuthorityRoots | null = null
@@ -2647,14 +2836,17 @@ Use this instead of generic task() for ODF workflow delegation.`,
             }, null, 2)
         } catch (err) {
           const errorMessage = err instanceof Error ? err.message : String(err)
-          const isTimeout = errorMessage.includes("timed out")
-          const isCancelled = isCancellationMessage(errorMessage)
+          const errorCode = err && typeof err === "object" && typeof (err as { code?: unknown }).code === "string"
+            ? (err as { code: string }).code
+            : null
+          const isTimeout = errorCode === "task-timeout" || errorMessage.startsWith("task() timed out after ")
+          const isCancelled = errorCode === "task-cancelled" || errorMessage.startsWith("task-cancelled:")
           const isEmpty = errorMessage.startsWith("empty-task-result")
           const reason = isCancelled
             ? "task-cancelled"
             : isEmpty
               ? "empty-task-result"
-              : undefined
+              : "task-error"
           if (acquiredAttempt && !executionOptions.suppress_attempt_settlement) {
             const ledgerResultStatus: Exclude<AttemptLedgerResultStatus, "running"> = isTimeout
               ? "timeout"
@@ -6102,6 +6294,11 @@ must not overlap. VERIFY remains sequential after the aggregate join is complete
             persistRunningProgress()
           } catch (error) {
             const message = error instanceof Error ? error.message : String(error)
+            const errorCode = error && typeof error === "object" && typeof (error as { code?: unknown }).code === "string"
+              ? (error as { code: string }).code
+              : null
+            const isTimeout = errorCode === "task-timeout" || message.startsWith("task() timed out after ")
+            const isCancelled = errorCode === "task-cancelled" || message.startsWith("task-cancelled:")
             const outcome = makeParallelOutcome(
               args.change,
               branch,
@@ -6117,7 +6314,7 @@ must not overlap. VERIFY remains sequential after the aggregate join is complete
               "finished",
               branchStartTime,
               branchSpanId,
-              isCancellationMessage(message) ? "blocked" : message.includes("timed out") ? "timeout" : "error",
+              isCancelled ? "blocked" : isTimeout ? "timeout" : "error",
               message,
               branchTelemetryCohort,
             )
@@ -7532,6 +7729,15 @@ async function resolveProofBackedAdmission(input: {
     return fail("attempt-id-required", "Gated BUILD/VERIFY delegation requires a fresh safe attempt_id.")
   }
 
+  const local = await findLocalWorkflowChange(input.workspaceRoot, input.changeName)
+  const persistedStore = stateArtifactStoreValue(local?.state?.content)
+  if (persistedStore && persistedStore !== input.artifactStore) {
+    return fail(
+      "artifact-store-mismatch",
+      `Persisted artifact_store ${persistedStore} does not match requested ${input.artifactStore}.`,
+    )
+  }
+
   const { work_type: workType, ...callerInput } = input.proof
   const callerResult = advanceWorkflow({
     route: resolveWorkflowRoute(workType),
@@ -7803,6 +8009,9 @@ async function withWorkflowLock<T>(
       return { locked: false, error: "workflow-lock-unsafe-path" }
     }
     lockPath = workflowLockPath(realWorkspace, changeName)
+    if (!isWithinRoot(path.resolve(lockPath), lockDirectory)) {
+      return { locked: false, error: "workflow-lock-unsafe-path" }
+    }
     try {
       lockFd = fsSync.openSync(lockPath, "wx")
     } catch (error) {
@@ -8102,6 +8311,19 @@ export async function commitWorkflowTransition(opts: {
   }
 
   const locked = await withWorkflowLock(opts.workspaceRoot, opts.changeName, async () => {
+    const local = await findLocalWorkflowChange(opts.workspaceRoot, opts.changeName)
+    const persistedStore = stateArtifactStoreValue(local?.state?.content)
+    if (persistedStore && persistedStore !== opts.artifactStore) {
+      return makeResult(
+        "blocked",
+        "artifact-store-mismatch",
+        `Persisted artifact_store ${persistedStore} does not match ${opts.artifactStore}.`,
+        null,
+        [],
+        opts.validation,
+        null,
+      )
+    }
     const read = await readSelectedWorkflowState(opts.workspaceRoot, opts.changeName, opts.artifactStore)
     if (!read.snapshot) {
       return makeResult(

@@ -5306,6 +5306,24 @@ ${overrides}`
     expect((taskApi.mock.calls[0][0] as { directory?: string }).directory).toBe(tempHome)
   })
 
+  it("uses the current tool session directory instead of the canonical directory", async () => {
+    const { createODFDelegate } = await import("./odf-delegation.js")
+    const current = await fs.mkdtemp(path.join(os.tmpdir(), "odf-current-directory-"))
+    const taskApi = vi.fn().mockResolvedValue({ status: "ok", design_closed: true })
+
+    try {
+      await createODFDelegate(undefined, tempHome).execute({
+        stage: "PLAN", role: "DESIGN",
+        prompt: "Design a Python model",
+        context_files: [],
+      }, { sessionID: "current-directory", directory: current, task: taskApi } as any)
+
+      expect((taskApi.mock.calls[0][0] as { directory?: string }).directory).toBe(current)
+    } finally {
+      await fs.rm(current, { recursive: true, force: true })
+    }
+  })
+
   it("refuses to run the delegated session inside the installed ODF pack", async () => {
     const { createODFDelegate } = await import("./odf-delegation.js")
     const taskApi = vi.fn().mockResolvedValue({ status: "ok", design_closed: true })
@@ -6525,6 +6543,19 @@ ${overrides}`
     expect(fsSync.existsSync(path.join(tempHome, ".odf"))).toBe(false)
   })
 
+  it("rejects an unsafe explicit change for a non-gated terminal stage before task", async () => {
+    const { createODFDelegate } = await import("./odf-delegation.js")
+    const taskApi = vi.fn()
+    const output = JSON.parse(await createODFDelegate(undefined, tempHome).execute({
+      stage: "PLAN", role: "DESIGN",
+      change: "../unsafe-non-gated",
+      prompt: "Design the change",
+      context_files: [],
+    }, { sessionID: "unsafe-non-gated", task: taskApi } as any) as string)
+    expect(output).toMatchObject({ status: "blocked", reason: "unsafe-change-name" })
+    expect(taskApi).not.toHaveBeenCalled()
+  })
+
   it("requires attempt_id for explicit workflow delegation and keeps no workflow opt-out flag", async () => {
     const { createODFDelegate } = await import("./odf-delegation.js")
     const taskApi = vi.fn().mockResolvedValue({ status: "ok" })
@@ -7260,6 +7291,89 @@ ${overrides}`
       context_files: [],
     }, { sessionID: "design-ref-missing", task: taskApi } as any) as string)
     expect(output).toMatchObject({ status: "blocked", reason: "artifact-ref-missing" })
+  })
+
+  it("blocks an artifact_ref that escapes the workspace", async () => {
+    const { createODFDelegate } = await import("./odf-delegation.js")
+    const markerName = `odf-artifact-escape-${process.pid}-${Date.now()}.txt`
+    const markerPath = path.join(os.tmpdir(), markerName)
+    await fs.writeFile(markerPath, "outside the workspace\n", "utf8")
+    const taskApi = vi.fn().mockResolvedValue({
+      status: "ok",
+      artifacts_saved: [{ name: "outside", artifact_ref: { store: "openspec", ref: `openspec/../../${markerName}` } }],
+    })
+
+    try {
+      const output = JSON.parse(await createODFDelegate(undefined, tempHome).execute({
+        stage: "DECIDE", role: "PROPOSE",
+        prompt: "Propose a change",
+        context_files: [],
+      }, { sessionID: "artifact-escape", task: taskApi } as any) as string)
+      expect(output).toMatchObject({ status: "blocked", reason: "artifact-ref-invalid" })
+    } finally {
+      await fs.rm(markerPath, { force: true })
+    }
+  })
+
+  it("blocks an artifact_ref that resolves through a symlink outside the workspace", async () => {
+    const { createODFDelegate } = await import("./odf-delegation.js")
+    const change = "artifact-symlink"
+    const changeDir = path.join(tempHome, "openspec", "changes", change)
+    const markerPath = path.join(os.tmpdir(), `odf-artifact-symlink-${process.pid}-${Date.now()}.txt`)
+    await fs.mkdir(changeDir, { recursive: true })
+    await fs.writeFile(markerPath, "outside the workspace\n", "utf8")
+    await fs.symlink(markerPath, path.join(changeDir, "assess.md"))
+    const taskApi = vi.fn().mockResolvedValue({
+      status: "ok",
+      artifacts_saved: [{ name: "assessment", artifact_ref: { store: "openspec", ref: `openspec/changes/${change}/assess.md` } }],
+    })
+
+    try {
+      const output = JSON.parse(await createODFDelegate(undefined, tempHome).execute({
+        stage: "DECIDE", role: "PROPOSE",
+        change,
+        prompt: "Propose a change",
+        context_files: [],
+      }, { sessionID: "artifact-symlink", task: taskApi } as any) as string)
+      expect(output).toMatchObject({ status: "blocked", reason: "artifact-ref-invalid" })
+    } finally {
+      await fs.rm(markerPath, { force: true })
+    }
+  })
+
+  it("blocks an artifact_ref whose store disagrees with the selected store", async () => {
+    const { createODFDelegate } = await import("./odf-delegation.js")
+    const taskApi = vi.fn().mockResolvedValue({
+      status: "ok",
+      artifacts_saved: [{ name: "engram", artifact_ref: { store: "engram", ref: "odf/change/artifact" } }],
+    })
+    const output = JSON.parse(await createODFDelegate(undefined, tempHome).execute({
+      stage: "DECIDE", role: "PROPOSE",
+      change: "artifact-store-guard",
+      artifact_store: "openspec",
+      prompt: "Propose a change",
+      context_files: [],
+    }, { sessionID: "artifact-store-guard", task: taskApi } as any) as string)
+    expect(output).toMatchObject({ status: "blocked", reason: "artifact-ref-invalid" })
+  })
+
+  it("accepts a valid OpenSpec artifact_ref inside the workspace", async () => {
+    const { createODFDelegate } = await import("./odf-delegation.js")
+    const change = "valid-artifact-ref"
+    const changeDir = path.join(tempHome, "openspec", "changes", change)
+    await fs.mkdir(changeDir, { recursive: true })
+    await fs.writeFile(path.join(changeDir, "assess.md"), "status: passed\n", "utf8")
+    const taskApi = vi.fn().mockResolvedValue({
+      status: "ok",
+      artifacts_saved: [{ name: "assessment", artifact_ref: { store: "openspec", ref: `openspec/changes/${change}/assess.md` } }],
+    })
+    const output = JSON.parse(await createODFDelegate(undefined, tempHome).execute({
+      stage: "DECIDE", role: "PROPOSE",
+      change,
+      prompt: "Propose a change",
+      context_files: [],
+    }, { sessionID: "valid-artifact-ref", task: taskApi } as any) as string)
+    expect(output).toMatchObject({ status: "delegated" })
   })
 
   it("delegates a DESIGN result with no claimed artifact refs (warning, not blocker)", async () => {
@@ -8313,6 +8427,33 @@ ${overrides}`
     }
   })
 
+  it("blocks a proof-backed delegation whose artifact_store disagrees with the persisted state", async () => {
+    const { createODFDelegate } = await import("./odf-delegation.js")
+    const change = "artifact-store-mismatch-delegate"
+    const changeDir = path.join(tempHome, "openspec", "changes", change)
+    await fs.mkdir(changeDir, { recursive: true })
+    await fs.writeFile(path.join(changeDir, "state.yaml"), [
+      "work_type: feature",
+      "artifact_store: openspec",
+      "canonical_stage: PLAN",
+      "completed_canonical_stages: [DECIDE]",
+      "resumable: true",
+      "",
+    ].join("\n"), "utf8")
+    const taskApi = vi.fn()
+    const output = JSON.parse(await createODFDelegate(undefined, tempHome).execute({
+      stage: "BUILD",
+      change,
+      artifact_store: "engram",
+      attempt_id: "artifact-store-mismatch-1",
+      prompt: "Build the change",
+      context_files: [],
+      workflow_advance: workflowAdvance("IMPLEMENT"),
+    }, { sessionID: "artifact-store-mismatch", task: taskApi } as any) as string)
+    expect(output).toMatchObject({ status: "blocked", reason: "artifact-store-mismatch" })
+    expect(taskApi).not.toHaveBeenCalled()
+  })
+
   it("archives OpenSpec only after terminal VERIFY and preserves binding", async () => {
     const change = "archive-openspec"
     const changeDir = path.join(tempHome, "openspec", "changes", change)
@@ -9027,7 +9168,25 @@ ${overrides}`
     expect(metrics.at(-2)).toMatchObject({ event: "span", status: "error", error: expect.stringContaining("task service down"), lifecycle: "finished" })
   })
 
-  it("rejects invalid stages", async () => {
+  it("keeps a child error containing 'timed out' as a task error", async () => {
+    const { createODFDelegate } = await import("./odf-delegation.js")
+    const taskApi = vi.fn().mockRejectedValue(new Error("database connection timed out"))
+    const output = JSON.parse(await createODFDelegate(undefined, tempHome).execute({
+      stage: "PLAN", role: "DESIGN", prompt: "Design a model", context_files: [],
+    }, { sessionID: "child-timeout-error", task: taskApi } as any) as string)
+    expect(output).toMatchObject({ status: "error", reason: "task-error" })
+  })
+
+  it("keeps a child error containing 'aborted' as a task error", async () => {
+    const { createODFDelegate } = await import("./odf-delegation.js")
+    const taskApi = vi.fn().mockRejectedValue(new Error("operation aborted by the database"))
+    const output = JSON.parse(await createODFDelegate(undefined, tempHome).execute({
+      stage: "PLAN", role: "DESIGN", prompt: "Design a model", context_files: [],
+    }, { sessionID: "child-cancel-error", task: taskApi } as any) as string)
+    expect(output).toMatchObject({ status: "error", reason: "task-error" })
+  })
+
+  it("rejects invalid stages with a JSON blocked envelope", async () => {
     const { createODFDelegate } = await import("./odf-delegation.js")
     const toolCtx = { sessionID: "s1" } as any
 
@@ -9037,8 +9196,29 @@ ${overrides}`
       toolCtx
     )
 
-    expect(output).toContain("Invalid stage")
-    expect(output).toContain("DECIDE, PLAN, BUILD, VERIFY, EXPLORE, FIX")
+    const envelope = JSON.parse(output as string)
+    expect(envelope).toMatchObject({ status: "blocked", reason: "invalid-stage" })
+    expect(envelope.message).toContain("Invalid stage")
+    expect(envelope.message).toContain("DECIDE, PLAN, BUILD, VERIFY, EXPLORE, FIX")
+  })
+
+  it("returns a blocked JSON envelope when sessionID is missing", async () => {
+    const { createODFDelegate } = await import("./odf-delegation.js")
+    const output = JSON.parse(await createODFDelegate(undefined, tempHome).execute({
+      stage: "PLAN", role: "DESIGN", prompt: "Design a model", context_files: [],
+    }, {} as any) as string)
+    expect(output).toMatchObject({ status: "blocked", reason: "session-id-required" })
+  })
+
+  it("returns a blocked JSON envelope when the registry is missing", async () => {
+    const { createODFDelegate } = await import("./odf-delegation.js")
+    await fs.rm(path.join(tempHome, ".config", "opencode", "odf-registry.json"), { force: true })
+    const taskApi = vi.fn()
+    const output = JSON.parse(await createODFDelegate(undefined, tempHome).execute({
+      stage: "PLAN", role: "DESIGN", prompt: "Design a model", context_files: [],
+    }, { sessionID: "registry-missing", task: taskApi } as any) as string)
+    expect(output).toMatchObject({ status: "blocked", reason: "registry-unavailable" })
+    expect(taskApi).not.toHaveBeenCalled()
   })
 
   it("rejects context_files that escape the workspace root", async () => {
