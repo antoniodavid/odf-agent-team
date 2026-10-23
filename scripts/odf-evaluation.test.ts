@@ -2,7 +2,7 @@ import { describe, expect, it, afterEach } from "vitest"
 import * as fs from "node:fs/promises"
 import * as os from "node:os"
 import * as path from "node:path"
-import { evaluateOffline, evaluateOnline, evaluateGoldens, validateGolden, evaluateDecisions, renderDecisionMarkdown, evaluateAgreement, readDecisionReview, renderAgreementMarkdown, writeDecisionReview, main } from "./odf-evaluation.js"
+import { evaluateOffline, evaluateOnline, evaluateGoldens, validateGolden, evaluateDecisions, renderDecisionMarkdown, evaluateAgreement, readDecisionReview, renderAgreementMarkdown, writeDecisionReview, compareDecisions, renderComparisonMarkdown, evaluateCadence, renderCadenceMarkdown, buildProposals, renderProposalsMarkdown, main, type DecisionReport } from "./odf-evaluation.js"
 
 let temporaryFiles: string[] = []
 
@@ -502,5 +502,150 @@ describe("odf decision review and agreement", () => {
     const report = main(["agreement", file])
     expect(report).toMatchObject({ mode: "agreement", data_status: "complete", total: 2, compared: 2, agreement: 2 })
     expect(main(["agreement", file, "--md"])).toContain("# Human/judge agreement")
+  })
+})
+
+describe("odf decision phase 3", () => {
+  function aggregate(overrides: Record<string, unknown> = {}) {
+    return {
+      changes: 2,
+      route_agreement: { compared: 2, agreed: 1, rate: 0.5 },
+      risk_tiers: { MEDIUM: 2 },
+      plan_modes: { required: 2 },
+      first_pass: { count: 1, rate: 0.5 },
+      rework: { changes: 1, rate: 0.5 },
+      receipts: { count: 1, causes: { "validation-failed": 1 }, statuses: { blocked: 1 } },
+      overrides: 1,
+      archive: { count: 1, rate: 0.5 },
+      reviews: {
+        count: 1,
+        coverage: 0.5,
+        route_correct: { count: 1, total: 1, rate: 1 },
+        risk_fit: { under: 1 },
+        plan_fit: { under: 1 },
+        gate_correct: { count: 0, total: 1, rate: 0 },
+        avg_rating: 3,
+      },
+      stage_activity: {},
+      ...overrides,
+    }
+  }
+
+  function report(dataStatus: "complete" | "partial" | "no_data" = "complete", aggregateValue: Record<string, unknown> = aggregate()): DecisionReport {
+    return { mode: "decisions", data_status: dataStatus, days: 30, total: 2, changes: [], aggregate: aggregateValue, warnings: [] } as unknown as DecisionReport
+  }
+
+  it("compare: exposes before/after deltas without declaring a winner", () => {
+    const before = report("complete", aggregate())
+    const after = report("complete", aggregate({
+      route_agreement: { compared: 2, agreed: 2, rate: 1 },
+      first_pass: { count: 2, rate: 1 },
+      rework: { changes: 0, rate: 0 },
+      receipts: { count: 0, causes: {}, statuses: {} },
+      overrides: 0,
+      archive: { count: 2, rate: 1 },
+      reviews: {
+        count: 2,
+        coverage: 1,
+        route_correct: { count: 2, total: 2, rate: 1 },
+        risk_fit: { ok: 2 },
+        plan_fit: { ok: 2 },
+        gate_correct: { count: 2, total: 2, rate: 1 },
+        avg_rating: 4.5,
+      },
+    }))
+    const comparison = compareDecisions(before, after)
+    expect(comparison.data_status).toBe("complete")
+    expect(comparison.deltas.route_agreement_rate).toMatchObject({ before: 0.5, after: 1, delta: 0.5, direction: "up", higher_is_better: true })
+    expect(comparison.deltas.rework_rate).toMatchObject({ before: 0.5, after: 0, delta: -0.5, direction: "down", higher_is_better: false })
+    expect(comparison.deltas.review_avg_rating).toMatchObject({ before: 3, after: 4.5, delta: 1.5, direction: "up" })
+    expect(renderComparisonMarkdown(comparison)).toContain("| Route agreement | 50% | 100% | +50pp | up |")
+  })
+
+  it("compare: no_data and partial are honest", () => {
+    expect(compareDecisions(null as never, report())).toMatchObject({ data_status: "no_data" })
+    expect(compareDecisions(report("partial"), report("complete"))).toMatchObject({ data_status: "partial" })
+  })
+
+  it("cadence: no reviews is due; a recent review is current; an old review is due", async () => {
+    const { root } = await decisionWorkspace()
+    const empty = await fs.mkdtemp(path.join(os.tmpdir(), "odf-cadence-empty-"))
+    temporaryFiles.push(empty)
+    expect(evaluateCadence({ root: empty })).toMatchObject({ data_status: "no_data", due: true })
+
+    const noReview = evaluateCadence({ root, days: 30 })
+    expect(noReview).toMatchObject({ data_status: "partial", changes: 1, reviewed_changes: 0, coverage: 0, due: true })
+
+    const review = writeDecisionReview({ root, change: "alpha", route: "correct", risk: "ok", plan: "ok", gate: "correct", rating: 4 })
+    const current = evaluateCadence({ root, days: 30 })
+    expect(current).toMatchObject({ data_status: "complete", reviewed_changes: 1, coverage: 1, due: false })
+    expect(current.age_days).toBe(0)
+    expect(renderCadenceMarkdown(current)).toContain("due: **no**")
+
+    await fs.writeFile(path.join(root, ".odf", "decision-review-alpha.json"), JSON.stringify({
+      ...review,
+      reviewed_at: new Date(Date.now() - 60 * 86_400_000).toISOString(),
+    }), "utf8")
+    const old = evaluateCadence({ root, days: 30 })
+    expect(old).toMatchObject({ due: true, age_days: 60 })
+  })
+
+  it("proposals: deterministic rules require human approval and never auto-apply", () => {
+    const result = buildProposals(report())
+    expect(result.data_status).toBe("complete")
+    expect(result.proposals.map((proposal: { id: string }) => proposal.id)).toEqual(expect.arrayContaining([
+      "route-alignment",
+      "risk-underestimated",
+      "plan-underestimated",
+      "gate-review",
+      "rework-hotspot",
+      "first-pass-yield",
+    ]))
+    for (const proposal of result.proposals) {
+      expect(proposal).toMatchObject({ requires_human_approval: true, auto_apply: false })
+    }
+    expect(renderProposalsMarkdown(result)).toContain("Requires human approval: **yes** · Auto apply: **no**")
+    const lowCoverage = buildProposals(report("complete", aggregate({
+      reviews: { ...aggregate().reviews, coverage: 0.4 },
+    })))
+    expect(lowCoverage.proposals.map((proposal: { id: string }) => proposal.id)).toContain("review-coverage")
+  })
+
+  it("proposals: a clean report yields no proposals; no data yields no_data", () => {
+    const clean = report("complete", aggregate({
+      route_agreement: { compared: 2, agreed: 2, rate: 1 },
+      first_pass: { count: 2, rate: 1 },
+      rework: { changes: 0, rate: 0 },
+      receipts: { count: 0, causes: {}, statuses: {} },
+      overrides: 0,
+      archive: { count: 2, rate: 1 },
+      reviews: {
+        count: 2,
+        coverage: 1,
+        route_correct: { count: 2, total: 2, rate: 1 },
+        risk_fit: { ok: 2 },
+        plan_fit: { ok: 2 },
+        gate_correct: { count: 2, total: 2, rate: 1 },
+        avg_rating: 4.5,
+      },
+    }))
+    const result = buildProposals(clean)
+    expect(result.proposals).toEqual([])
+    expect(result.warnings[0]).toContain("No proposal thresholds")
+    expect(buildProposals({ ...clean, data_status: "no_data" })).toMatchObject({ data_status: "no_data", proposals: [] })
+  })
+
+  it("phase-3-cli: compare, cadence, and proposals render Markdown", async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "odf-phase3-"))
+    temporaryFiles.push(dir)
+    const before = path.join(dir, "before.json")
+    const after = path.join(dir, "after.json")
+    const proposalsFile = path.join(dir, "report.json")
+    await fs.writeFile(before, JSON.stringify(report()), "utf8")
+    await fs.writeFile(after, JSON.stringify(report()), "utf8")
+    await fs.writeFile(proposalsFile, JSON.stringify(report()), "utf8")
+    expect(main(["compare", before, after, "--md"]) as string).toContain("# Decision comparison")
+    expect(main(["cadence", "--root", dir, "--md"]) as string).toContain("# Review cadence")
+    expect(main(["proposals", proposalsFile, "--md"]) as string).toContain("# Improvement proposals")
   })
 })

@@ -251,6 +251,17 @@ function listChanges(root) {
   }
 }
 
+function listStateChanges(root) {
+  return listChanges(root).filter((change) => {
+    try {
+      const state = YAML.parse(fs.readFileSync(path.join(root, "openspec", "changes", change, "state.yaml"), "utf8"))
+      return state && typeof state === "object"
+    } catch {
+      return false
+    }
+  })
+}
+
 function emptyDecisionAggregate() {
   return {
     changes: 0,
@@ -782,6 +793,341 @@ function parseAgreementArgs(argv) {
   return { root, file: file || path.join(path.resolve(root), ".odf", "shadow-judgments.jsonl"), markdown }
 }
 
+const HIGHER_IS_BETTER = {
+  changes: null,
+  route_agreement_rate: true,
+  first_pass_rate: true,
+  rework_rate: false,
+  receipts: false,
+  overrides: false,
+  archive_rate: true,
+  review_coverage: true,
+  review_route_correct_rate: true,
+  review_gate_correct_rate: true,
+  review_avg_rating: true,
+}
+
+function decisionMetricSummary(report) {
+  const aggregate = report.aggregate || {}
+  return {
+    changes: report.total ?? 0,
+    route_agreement_rate: aggregate.route_agreement?.rate ?? null,
+    first_pass_rate: aggregate.first_pass?.rate ?? null,
+    rework_rate: aggregate.rework?.rate ?? null,
+    receipts: aggregate.receipts?.count ?? 0,
+    overrides: aggregate.overrides ?? 0,
+    archive_rate: aggregate.archive?.rate ?? null,
+    review_coverage: aggregate.reviews?.coverage ?? null,
+    review_route_correct_rate: aggregate.reviews?.route_correct?.rate ?? null,
+    review_gate_correct_rate: aggregate.reviews?.gate_correct?.rate ?? null,
+    review_avg_rating: aggregate.reviews?.avg_rating ?? null,
+  }
+}
+
+export function compareDecisions(before, after) {
+  if (!before || before.mode !== "decisions" || !after || after.mode !== "decisions") {
+    return {
+      mode: "comparison",
+      data_status: "no_data",
+      before: null,
+      after: null,
+      deltas: {},
+      warnings: ["compare requires two decisions reports."],
+    }
+  }
+  if (before.data_status === "no_data" || after.data_status === "no_data") {
+    return {
+      mode: "comparison",
+      data_status: "no_data",
+      before: decisionMetricSummary(before),
+      after: decisionMetricSummary(after),
+      deltas: {},
+      warnings: ["At least one report has no data."],
+    }
+  }
+  const beforeMetrics = decisionMetricSummary(before)
+  const afterMetrics = decisionMetricSummary(after)
+  const deltas = {}
+  for (const key of Object.keys(beforeMetrics)) {
+    const beforeValue = beforeMetrics[key]
+    const afterValue = afterMetrics[key]
+    if (typeof beforeValue === "number" && typeof afterValue === "number") {
+      const delta = afterValue - beforeValue
+      deltas[key] = {
+        before: beforeValue,
+        after: afterValue,
+        delta,
+        direction: delta > 0 ? "up" : delta < 0 ? "down" : "flat",
+        higher_is_better: HIGHER_IS_BETTER[key] ?? null,
+      }
+    } else {
+      deltas[key] = {
+        before: beforeValue,
+        after: afterValue,
+        delta: null,
+        direction: null,
+        higher_is_better: HIGHER_IS_BETTER[key] ?? null,
+      }
+    }
+  }
+  return {
+    mode: "comparison",
+    data_status: before.data_status === "complete" && after.data_status === "complete" ? "complete" : "partial",
+    before: beforeMetrics,
+    after: afterMetrics,
+    deltas,
+    warnings: [],
+  }
+}
+
+function formatMetricValue(key, value) {
+  if (value === null || value === undefined) return "N/A"
+  if (key.endsWith("_rate") || key === "review_coverage") return `${Math.round(value * 100)}%`
+  if (key === "review_avg_rating") return value.toFixed(1)
+  return String(value)
+}
+
+function formatDelta(key, delta) {
+  if (delta === null || delta === undefined) return "N/A"
+  const sign = delta > 0 ? "+" : ""
+  if (key.endsWith("_rate") || key === "review_coverage") return `${sign}${Math.round(delta * 100)}pp`
+  if (key === "review_avg_rating") return `${sign}${delta.toFixed(1)}`
+  return `${sign}${delta}`
+}
+
+export function renderComparisonMarkdown(report) {
+  if (!report || report.mode !== "comparison") return "# Decision comparison\n\nInvalid report.\n"
+  if (report.data_status === "no_data") {
+    return "# Decision comparison\n\nNo data. Save two `decisions` reports before comparing.\n"
+  }
+  const labels = {
+    changes: "Changes",
+    route_agreement_rate: "Route agreement",
+    first_pass_rate: "First-pass yield",
+    rework_rate: "Rework rate",
+    receipts: "Receipts",
+    overrides: "Overrides",
+    archive_rate: "Archive rate",
+    review_coverage: "Review coverage",
+    review_route_correct_rate: "Route correct (human)",
+    review_gate_correct_rate: "Gate correct (human)",
+    review_avg_rating: "Average rating",
+  }
+  return [
+    "# Decision comparison",
+    "",
+    `Data status: **${report.data_status}**`,
+    "",
+    "| Metric | Before | After | Delta | Direction |",
+    "|---|---|---|---|---|",
+    ...Object.entries(report.deltas).map(([key, value]) =>
+      `| ${labels[key] || key} | ${formatMetricValue(key, value.before)} | ${formatMetricValue(key, value.after)} | ${formatDelta(key, value.delta)} | ${value.direction || "N/A"} |`),
+    "",
+  ].join("\n")
+}
+
+function parseCompareArgs(argv) {
+  let markdown = false
+  const files = []
+  for (const arg of argv) {
+    if (arg === "--md") markdown = true
+    else if (arg.startsWith("--")) return { error: `Unknown compare argument: ${arg}` }
+    else files.push(arg)
+  }
+  if (files.length !== 2) return { error: "compare requires exactly two report files: <before.json> <after.json>" }
+  return { before: files[0], after: files[1], markdown }
+}
+
+/**
+ * Review cadence over local decision reviews. Advisory only: it never blocks
+ * archive, verify, or workflow.
+ */
+export function evaluateCadence({ root = process.cwd(), days = 30 } = {}) {
+  const resolvedRoot = path.resolve(root)
+  const changes = listStateChanges(resolvedRoot)
+  const reviews = changes.map((change) => readDecisionReview(resolvedRoot, change)).filter(Boolean)
+  const latestReviewAt = reviews
+    .map((review) => review.reviewed_at)
+    .filter((value) => typeof value === "string" && Number.isFinite(Date.parse(value)))
+    .sort()
+    .at(-1) || null
+  const ageDays = latestReviewAt ? Math.max(0, Math.floor((Date.now() - Date.parse(latestReviewAt)) / 86_400_000)) : null
+  const coverage = changes.length > 0 ? reviews.length / changes.length : null
+  const due = reviews.length === 0 || ageDays === null || ageDays > days
+  const message = changes.length === 0
+    ? "No OpenSpec changes were found."
+    : reviews.length === 0
+      ? "No local decision reviews recorded; run review at the next archive/verify."
+      : due
+        ? `Latest review is ${ageDays} days old (cadence ${days} days); review is due.`
+        : `Latest review is ${ageDays} days old; cadence is current.`
+  return {
+    mode: "cadence",
+    data_status: changes.length === 0 ? "no_data" : coverage === 1 ? "complete" : "partial",
+    due,
+    days,
+    changes: changes.length,
+    reviewed_changes: reviews.length,
+    review_count: reviews.length,
+    coverage,
+    latest_review_at: latestReviewAt,
+    age_days: ageDays,
+    message,
+  }
+}
+
+export function renderCadenceMarkdown(report) {
+  if (!report || report.mode !== "cadence") return "# Review cadence\n\nInvalid report.\n"
+  if (report.data_status === "no_data") {
+    return "# Review cadence\n\nNo data. No OpenSpec changes were found.\n"
+  }
+  return [
+    "# Review cadence",
+    "",
+    `Data status: **${report.data_status}** · due: **${report.due ? "yes" : "no"}**`,
+    "",
+    `- Changes: ${report.changes}`,
+    `- Reviewed changes: ${report.reviewed_changes}`,
+    `- Coverage: ${report.coverage === null ? "N/A" : `${Math.round(report.coverage * 100)}%`}`,
+    `- Latest review: ${report.latest_review_at || "N/A"}`,
+    `- Age: ${report.age_days === null ? "N/A" : `${report.age_days} days`}`,
+    `- Cadence: ${report.days} days`,
+    "",
+    report.message,
+    "",
+  ].join("\n")
+}
+
+function parseCadenceArgs(argv) {
+  let root = process.cwd()
+  let days = 30
+  let markdown = false
+  for (let index = 0; index < argv.length; index++) {
+    const arg = argv[index]
+    if (arg === "--md") {
+      markdown = true
+    } else if (arg === "--root") {
+      const value = argv[++index]
+      if (!value) return { error: "--root requires a directory" }
+      root = value
+    } else if (arg === "--days") {
+      const value = argv[++index]
+      if (!value || !/^\d+$/.test(value)) return { error: "--days requires a positive integer" }
+      days = Number(value)
+    } else if (/^\d+$/.test(arg)) {
+      days = Number(arg)
+    } else {
+      return { error: `Unknown cadence argument: ${arg}` }
+    }
+  }
+  if (!Number.isInteger(days) || days <= 0) return { error: "days must be a positive integer" }
+  return { root, days, markdown }
+}
+
+/**
+ * Deterministic, advisory proposals derived from one decisions report. Every
+ * proposal requires explicit human approval and none is applied automatically.
+ */
+export function buildProposals(report) {
+  if (!report || report.mode !== "decisions" || report.data_status === "no_data") {
+    return {
+      mode: "proposals",
+      data_status: "no_data",
+      proposals: [],
+      warnings: ["No decisions report data; no proposals were generated."],
+    }
+  }
+  const aggregate = report.aggregate || {}
+  const route = aggregate.route_agreement || {}
+  const firstPass = aggregate.first_pass || {}
+  const rework = aggregate.rework || {}
+  const reviews = aggregate.reviews || {}
+  const riskFit = reviews.risk_fit || {}
+  const planFit = reviews.plan_fit || {}
+  const gateCorrect = reviews.gate_correct || {}
+  const proposals = []
+  const add = (id, kind, severity, evidence, recommendation) => proposals.push({
+    id,
+    kind,
+    severity,
+    evidence,
+    recommendation,
+    requires_human_approval: true,
+    auto_apply: false,
+  })
+
+  if (route.rate !== null && route.rate !== undefined && route.rate < 0.8) {
+    add("route-alignment", "route", "high", { rate: route.rate, compared: route.compared }, "Review triage and route mapping for the mismatched changes; add a golden for each confirmed misroute.")
+  }
+  if ((riskFit.under || 0) > 0) {
+    add("risk-underestimated", "risk", "high", { under: riskFit.under, ok: riskFit.ok || 0, over: riskFit.over || 0 }, "Raise the default risk tier or add protected signals for the affected work types.")
+  }
+  if ((planFit.under || 0) > 0) {
+    add("plan-underestimated", "plan", "high", { under: planFit.under, ok: planFit.ok || 0, over: planFit.over || 0 }, "Require formal PLAN or QA-PLAN earlier for the affected route or risk tier.")
+  }
+  if (gateCorrect.rate !== null && gateCorrect.rate !== undefined && gateCorrect.rate < 1) {
+    add("gate-review", "gate", "medium", { rate: gateCorrect.rate, total: gateCorrect.total }, "Inspect the gate marked incorrect and add a focused golden before changing any rule.")
+  }
+  if (rework.rate !== null && rework.rate !== undefined && rework.rate > 0.2) {
+    add("rework-hotspot", "rework", "medium", { rate: rework.rate, changes: rework.changes }, "Inspect the stage or role with the most failed attempts; consider a plan or agent adjustment.")
+  }
+  if (firstPass.rate !== null && firstPass.rate !== undefined && firstPass.rate < 0.7) {
+    add("first-pass-yield", "quality", "medium", { rate: firstPass.rate, count: firstPass.count, changes: aggregate.changes }, "Review receipts and failed attempts for the dominant cause before changing the harness.")
+  }
+  if (reviews.coverage !== null && reviews.coverage !== undefined && reviews.coverage < 0.5) {
+    add("review-coverage", "process", "low", { coverage: reviews.coverage, count: reviews.count, changes: aggregate.changes }, "Record local decision reviews at archive or verify to build ground truth.")
+  }
+  return {
+    mode: "proposals",
+    data_status: "complete",
+    proposals,
+    warnings: proposals.length === 0 ? ["No proposal thresholds were crossed."] : [],
+  }
+}
+
+export function renderProposalsMarkdown(report) {
+  if (!report || report.mode !== "proposals") return "# Improvement proposals\n\nInvalid report.\n"
+  if (report.data_status === "no_data") {
+    return "# Improvement proposals\n\nNo data. Save a `decisions` report with data first.\n"
+  }
+  const lines = [
+    "# Improvement proposals",
+    "",
+    `Proposals: **${report.proposals.length}** · every proposal requires human approval and is never applied automatically.`,
+    "",
+  ]
+  if (report.proposals.length === 0) {
+    lines.push("No proposal thresholds were crossed.", "")
+    return lines.join("\n")
+  }
+  for (const proposal of report.proposals) {
+    lines.push(
+      `## ${proposal.id} — ${proposal.kind} (${proposal.severity})`,
+      "",
+      `Evidence: \`${JSON.stringify(proposal.evidence)}\``,
+      "",
+      proposal.recommendation,
+      "",
+      "Requires human approval: **yes** · Auto apply: **no**",
+      "",
+    )
+  }
+  return lines.join("\n")
+}
+
+function parseProposalsArgs(argv) {
+  let file = null
+  let markdown = false
+  for (const arg of argv) {
+    if (arg === "--md") markdown = true
+    else if (arg.startsWith("--")) return { error: `Unknown proposals argument: ${arg}` }
+    else if (!file) file = arg
+    else return { error: `Unexpected proposals argument: ${arg}` }
+  }
+  if (!file) return { error: "proposals requires a decisions report file" }
+  return { file, markdown }
+}
+
 function readJson(filePath) {
   return JSON.parse(fs.readFileSync(path.resolve(filePath), "utf8"))
 }
@@ -823,7 +1169,25 @@ export function main(argv = process.argv.slice(2)) {
     const report = evaluateAgreement(readShadowJudgments(parsed.file))
     return parsed.markdown ? renderAgreementMarkdown(report) : report
   }
-  throw new Error("Usage: odf-evaluation offline <fixtures.json> | golden <goldens.json> | online [metrics.json|days] [days] | decisions [days] [--root <dir>] [--md] | review <change> --route <value> --risk <value> --plan <value> --gate <value> --rating <1-5> [--root <dir>] | agreement [file] [--root <dir>] [--md]")
+  if (mode === "compare") {
+    const parsed = parseCompareArgs(argv.slice(1))
+    if (parsed.error) throw new Error(parsed.error)
+    const report = compareDecisions(readJson(parsed.before), readJson(parsed.after))
+    return parsed.markdown ? renderComparisonMarkdown(report) : report
+  }
+  if (mode === "cadence") {
+    const parsed = parseCadenceArgs(argv.slice(1))
+    if (parsed.error) throw new Error(parsed.error)
+    const report = evaluateCadence({ root: parsed.root, days: parsed.days })
+    return parsed.markdown ? renderCadenceMarkdown(report) : report
+  }
+  if (mode === "proposals") {
+    const parsed = parseProposalsArgs(argv.slice(1))
+    if (parsed.error) throw new Error(parsed.error)
+    const report = buildProposals(readJson(parsed.file))
+    return parsed.markdown ? renderProposalsMarkdown(report) : report
+  }
+  throw new Error("Usage: odf-evaluation offline <fixtures.json> | golden <goldens.json> | online [metrics.json|days] [days] | decisions [days] [--root <dir>] [--md] | review <change> --route <value> --risk <value> --plan <value> --gate <value> --rating <1-5> [--root <dir>] | agreement [file] [--root <dir>] [--md] | compare <before.json> <after.json> [--md] | cadence [days] [--root <dir>] [--md] | proposals <report.json> [--md]")
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {

@@ -71,7 +71,7 @@ export function validateGolden(golden: unknown): GoldenValidation
 
 export function evaluateGoldens(goldens: unknown[]): GoldenResult
 
-export function main(argv?: string[]): Record<string, unknown>
+export function main(argv?: string[]): Record<string, unknown> | string
 
 export interface DecisionStageActivity {
   calls: number
@@ -211,3 +211,63 @@ export function readShadowJudgments(filePath: string): Array<Record<string, unkn
 export function evaluateAgreement(entries: Array<Record<string, unknown>>): AgreementReport
 
 export function renderAgreementMarkdown(report: AgreementReport): string
+
+export interface ComparisonDelta {
+  before: number | null
+  after: number | null
+  delta: number | null
+  direction: "up" | "down" | "flat" | null
+  higher_is_better: boolean | null
+}
+
+export interface DecisionComparison {
+  mode: "comparison"
+  data_status: DataStatus
+  before: Record<string, number | null> | null
+  after: Record<string, number | null> | null
+  deltas: Record<string, ComparisonDelta>
+  warnings: string[]
+}
+
+export interface CadenceReport {
+  mode: "cadence"
+  data_status: DataStatus
+  due: boolean
+  days: number
+  changes: number
+  reviewed_changes: number
+  review_count: number
+  coverage: number | null
+  latest_review_at: string | null
+  age_days: number | null
+  message: string
+}
+
+export interface ImprovementProposal {
+  id: string
+  kind: string
+  severity: "high" | "medium" | "low"
+  evidence: Record<string, number | null>
+  recommendation: string
+  requires_human_approval: true
+  auto_apply: false
+}
+
+export interface ProposalReport {
+  mode: "proposals"
+  data_status: DataStatus
+  proposals: ImprovementProposal[]
+  warnings: string[]
+}
+
+export function compareDecisions(before: DecisionReport, after: DecisionReport): DecisionComparison
+
+export function renderComparisonMarkdown(report: DecisionComparison): string
+
+export function evaluateCadence(opts?: { root?: string; days?: number }): CadenceReport
+
+export function renderCadenceMarkdown(report: CadenceReport): string
+
+export function buildProposals(report: DecisionReport): ProposalReport
+
+export function renderProposalsMarkdown(report: ProposalReport): string
