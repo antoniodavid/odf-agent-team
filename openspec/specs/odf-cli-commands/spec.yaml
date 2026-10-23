@@ -18,7 +18,7 @@ requirements:
         --fast flag, then trigger the orchestrator with preflight.
       acceptance:
         - Change name is required.
-        - Preflight runs before ASSESS.
+        - Preflight runs before the first stage role.
       scenarios:
         - name: Start change
           given: User runs /odf-new sale-discount-field "Add discount"
@@ -27,14 +27,14 @@ requirements:
         - name: Fast mode
           given: User runs /odf-new pos-receipt --fast
           when: Orchestrator executes
-          then: Approval gates are skipped until IMPLEMENT
+          then: Approval gates are skipped until BUILD
 
     - id: CLI-02
       name: /odf-continue
       strength: MUST
       description: |
         /odf-continue MUST resume the most recent active change or a named
-        change from its last completed phase.
+        change from its last completed stage.
       acceptance:
         - Named change takes precedence.
         - If multiple active and no name, list them.
@@ -42,22 +42,22 @@ requirements:
         - name: Resume specific change
           given: User runs /odf-continue sale-discount-field
           when: State is loaded
-          then: Orchestrator runs the next pending phase
+          then: Orchestrator runs the next pending stage
 
     - id: CLI-03
       name: /odf-status
       strength: MUST
       description: |
-        /odf-status MUST display active changes with phase, task progress,
+        /odf-status MUST display active changes with canonical stage, task progress,
         version, and module; or detail a single named change.
       acceptance:
         - No active changes shows an empty state message.
-        - Named change shows full phase progress and pending tasks.
+        - Named change shows full stage progress and pending tasks.
       scenarios:
         - name: List active changes
           given: Two changes are active
           when: User runs /odf-status
-          then: A table with change, phase, tasks, version, module is shown
+          then: A table with change, stage, tasks, version, module is shown
 
     - id: CLI-04
       name: /odf-explore
@@ -66,7 +66,7 @@ requirements:
         /odf-explore MUST parse topic, optional version, and optional module,
         then run the exploration flow through the orchestrator.
       acceptance:
-        - Exploration is not a formal workflow phase.
+        - Exploration is not a formal workflow stage and does not bind state.
         - Results suggest /odf-new or configuration.
       scenarios:
         - name: Research topic

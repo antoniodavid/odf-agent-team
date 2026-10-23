@@ -33,17 +33,19 @@ The route determines which stages and roles apply; not every request runs every 
 
 ### Pipeline stages
 
-| Phase | Agent | Output | Gate |
-|-------|-------|--------|------|
-| **PROPOSE** | `odoo_proposer` | Business intent, scope, capabilities, risks for routes that need formal DECIDE | Ask only for an unresolved human decision |
-| **ASSESS** | `odoo_functional_consultant` | Strategy (standard vs custom) + functional spec when formal DECIDE is routed | Continue/adjust only at a required decision |
-| **QA-PLAN (conditional)** | `odoo_qa_engineer` | Formal test plan, scenarios, coverage targets for routes requiring PLAN or explicit risk escalation | Approve/adjust only when this formal plan is required; small changes keep focused QA inline |
-| **DESIGN** | `odoo_backend_engineer` / `odoo_frontend_engineer` | Technical design + tasks when formal PLAN is routed | Approve/adjust only when the plan is required |
-| **IMPLEMENT** | Agent by task domain | Code + focused tests/checks, in batches, when the route includes BUILD | Pause only at a required gate or real decision |
-| **VERIFY** | `odoo_qa_engineer` | Test run, lint, spec compliance when required by the route | PASS or FAIL; evidence gate remains mandatory |
-| **ARCHIVED** | (auto) | Retrospective saved to Engram | — |
+| Stage | Role | Agent | Output | Gate |
+|-------|------|-------|--------|------|
+| **DECIDE** | **PROPOSE** | `odoo_proposer` | Business intent, scope, capabilities, risks for routes that need formal DECIDE | Ask only for an unresolved human decision |
+| **DECIDE** | **ASSESS** | `odoo_functional_consultant` | Strategy (standard vs custom) + functional spec when formal DECIDE is routed | Continue/adjust only at a required decision |
+| **PLAN** | **QA-PLAN (conditional)** | `odoo_qa_engineer` | Formal test plan, scenarios, coverage targets for routes requiring PLAN or explicit risk escalation | Approve/adjust only when this formal plan is required; small changes keep focused QA inline |
+| **PLAN** | **DESIGN** | `odoo_backend_engineer` / `odoo_frontend_engineer` | Technical design + tasks when formal PLAN is routed | Approve/adjust only when the plan is required |
+| **BUILD** | — | Agent by task domain | Code + focused tests/checks, in batches, when the route includes BUILD | Pause only at a required gate or real decision |
+| **VERIFY** | — | `odoo_qa_engineer` | Test run, lint, spec compliance when required by the route | PASS or FAIL; evidence gate remains mandatory |
+| **FIX** | — | Agent by task domain | Root-cause analysis + minimal regression for the bugfix route | Evidence gate remains mandatory |
+| **EXPLORE** | — | `odoo_functional_consultant` | Investigation report; ephemeral, not a bound workflow | — |
+| **ARCHIVED** | — | (auto) | Retrospective saved to Engram; only for VERIFY-terminal routes | — |
 
-These are available adapters, not a promise that every request runs every row.
+These are available stage roles, not a promise that every request runs every row.
 The user sees one route selected by `work_type`; triage labels and stage roles
 are internal mappings. Every code-changing route carries focused QA, while a
 formal QA-PLAN is conditional on the resolved route or an explicit risk
@@ -144,7 +146,7 @@ ODF can install and detect optional tools:
 ### Persistence
 
 The preflight `artifact_store` selects the authoritative workflow state and
-phase-artifact store:
+role-artifact store:
 
 - **OpenSpec**: `openspec/changes/{change}/` state and artifact files.
 - **Engram**: deterministic `odf/{change}/{artifact-type}` state/artifact refs.

@@ -36,7 +36,8 @@ the store values and their supported subsets live in `odf-plugin/odf-artifact-st
 `odf_workflow_status` exposes a typed
 `next_handoff` built from that route, selected store, and persisted artifact
 references; the orchestrator forwards it unchanged instead of reconstructing
-the next stage role's inputs from result prose.
+the next stage role's inputs from result prose. The route/stage/artifact/gate
+matrix lives in `docs/route-contract.md`.
 
 The user sees one route selected by `work_type`; triage level (`micro`,
 `standard`, `full`), canonical stages, and stage roles are internal mappings,
@@ -70,7 +71,7 @@ gates are never removed by inline QA.
 │  agent/odoo_orchestrator.md  │  ← preflight gate, thin-spine state,
 │                              │    policy gate, receipts
 └──────────────┬───────────────┘
-               │ odf_delegate(phase, prompt, context_files)
+               │ odf_delegate(stage, role, prompt, context_files)
                ▼
 ┌──────────────────────────────┐
 │  plugins/odf-delegation.ts   │  ← resolve agent/skills, select transport,
@@ -85,7 +86,7 @@ gates are never removed by inline QA.
                         │
                         ▼
                ┌─────────────────┐
-               │  phase agents  │  ← odoo_backend_engineer, etc.
+               │ stage role agents │  ← odoo_backend_engineer, etc.
                └────────┬────────┘
                         │
                         ▼
@@ -123,8 +124,8 @@ automatically, and status never changes the bound store.
 Source of truth for:
 
 - Skills with triggers, compact rules, paths, and Odoo version support.
-- Agents with phases, descriptions, and paths.
-- Profiles with per-phase model/temperature settings.
+- Agents with stage-role eligibility, descriptions, and paths.
+- Profiles with per-role model/temperature settings.
 - Commands registered for native orchestrator routing.
 - Package metadata (name, version, repository, dependencies).
 - Flags such as `use_relative_paths` and `pr_size_budget`.
@@ -171,10 +172,10 @@ working unchanged.
 `odf_delegate` does the following:
 
 1. Loads the registry.
-2. Resolves the target agent from the phase and task keywords (shared logic in
+2. Resolves the target agent from the stage role and task keywords (shared logic in
    `scripts/lib/agent-resolve.js` — single source of truth also used by the
    test runner and `odf-toolkit`; `matchSkills` stays per-consumer because the
-   plugin uses a phase-aware canonical variant).
+   plugin uses a role-aware canonical variant).
 3. Matches up to 5 relevant skills.
 4. Injects compact rules and the active SDD profile into the prompt.
 5. Enforces the authoritative TDD Policy Gate for BUILD/VERIFY, the
@@ -237,10 +238,10 @@ runner:
 
 Conversational state machine. It:
 
-- Runs the preflight gate before delegating any phase.
+- Runs the preflight gate before delegating any stage role.
 - Loads and persists change state to OpenSpec/Engram.
 - Resolves the thin-spine route (`DECIDE` → optional `PLAN` → `BUILD` → `VERIFY`) via the workflow route tool.
-- Shows approval gates after each phase.
+- Shows approval gates after each stage role.
 - Consults `odf_workflow_status` for canonical stage/resumable state.
 - Decides the next stage and calls `odf_delegate`.
 - Handles `/odf-continue` and `/odf-status` logic.
@@ -298,7 +299,7 @@ Regression runner. It:
    the discovery blocker. It never selects by recency.
 4. If the receipt is pending, it re-presents the failure disposition with evidence and stops.
 5. Determines the next pending canonical stage from status.
-6. Calls `odf_delegate` for that stage (via legacy adapters where needed).
+6. Calls `odf_delegate` for that stage role.
 7. Updates state and shows the gate.
 
 ### `/odf-status`
@@ -315,7 +316,7 @@ Regression runner. It:
 
 ## State Shape
 
-Runtime state and phase artifacts live in the selected authoritative store:
+Runtime state and role artifacts live in the selected authoritative store:
 `openspec/changes/{change}/state.yaml` for OpenSpec, deterministic
 `odf/{change}/{artifact-type}` refs for Engram, or synchronized representations
 for Hybrid. Hybrid reads prefer OpenSpec and may recover missing state from the

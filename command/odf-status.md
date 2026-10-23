@@ -29,7 +29,7 @@ Shows all active ODF changes or the detail of a specific change.
 ## Orchestrator Instructions
 
 1. **Query `odf_workflow_status` once in read-only mode**; do not reconstruct status by separately probing stores. It resolves the bound store and reports its state/artifact references.
-2. OpenSpec-only and Engram-only changes use their selected store. Hybrid treats OpenSpec as canonical and may recover missing state from its Engram mirror; legacy unbound changes may use the compatibility read path. Report `source`, warnings, and the selected `artifact_store` without merging conflicting artifact content.
+2. OpenSpec-only and Engram-only changes use their selected store. Hybrid treats OpenSpec as canonical and may recover missing state from its Engram mirror. A change without canonical state reports `state_kind: none` and is not resumable; use `/odf-new {change}` to start canonical state. Report `source`, warnings, and the selected `artifact_store` without merging conflicting artifact content.
 3. If a name is given, render the **change detail** using `renderStatusDetail(change, state)`.
 4. If there is no name, render the **summary table** using `renderStatusTable(states)`.
 5. Include the suggested command to continue each change.

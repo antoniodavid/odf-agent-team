@@ -11,7 +11,8 @@ plugin does not invent or rewrite the inner result; the orchestrator reads both.
 ```json
 {
   "status": "delegated | blocked | error | timeout",
-  "phase": "IMPLEMENT",
+  "stage": "BUILD",
+  "role": null,
   "agent": "odoo_backend_engineer",
   "skills_injected": [],
   "profile": null,
@@ -26,18 +27,18 @@ plugin does not invent or rewrite the inner result; the orchestrator reads both.
 
 | Field | Meaning |
 |---|---|
-| `status` | Delegation transport outcome, not the agent's phase verdict. `blocked` means no executable delegation occurred. |
-| `policy_gate` | Authoritative gate decision for IMPLEMENT/VERIFY, or `null` |
-| `validation` | Plugin seal for IMPLEMENT evidence: `verified`, `missing`, or `invalid`, or `null` |
-| `workflow_commit.status` | `batch-verified` means this IMPLEMENT batch passed validation but BUILD remains pending; continue with the next bounded batch. It is not a completed-stage commit. |
+| `status` | Delegation transport outcome, not the agent's role verdict. `blocked` means no executable delegation occurred. |
+| `policy_gate` | Authoritative gate decision for BUILD/VERIFY, or `null` |
+| `validation` | Plugin seal for BUILD evidence: `verified`, `missing`, or `invalid`, or `null` |
+| `workflow_commit.status` | `batch-verified` means this BUILD batch passed validation but BUILD remains pending; continue with the next bounded batch. It is not a completed-stage commit. |
 | `stop_disposition` | Structured classification for a blocked/failed result; advisory recovery never overrides safety, receipt, policy, or validation gates |
 | `receipt` | Optional receipt or receipt reference; failure persistence may also be on disk |
 | `result` | Raw return value from `task()`; the plugin does not synthesize its inner fields |
 | `task_session_id` | Child session id when the plugin created one (OpenCode V2 bridge); absent with the host native task API |
-| Other fields | Existing phase, agent, skill, profile, and task-source metadata remain compatible |
+| Other fields | Existing stage, role, agent, skill, profile, and task-source metadata remain compatible |
 
 On OpenCode V2 the plugin creates the child session with a descriptive title
-(`ODF <phase> → <agent> · <change>`), emits it through tool progress, and
+(`ODF <stage> <role> → <agent> · <change>`), emits it through tool progress, and
 reports its id as `task_session_id`, so the delegation stays identifiable even
 though plugin-created sessions are not host-rendered subtasks.
 
@@ -50,7 +51,7 @@ failure receipt, but that does not change their outer transport status.
 ## Inner Agent Envelope
 
 Every sub-agent invoked by the orchestrator MUST return this structured section
-as the LAST part of its response. The orchestrator uses it for phase decisions.
+as the LAST part of its response. The orchestrator uses it for stage role decisions.
 
 ```markdown
 ## ODF Result
@@ -65,29 +66,29 @@ as the LAST part of its response. The orchestrator uses it for phase decisions.
 - **skill_resolution**: injected
 ```
 
-These values are a valid example, not defaults: choose the actual phase status,
+These values are a valid example, not defaults: choose the actual role status,
 strategy, version, artifact references, and skill-resolution value. The
 canonical stage handoff is produced separately by `odf_workflow_status` from
 persisted state and refs; agents must not synthesize or guess it from prose.
 Forward its `required_gates` unchanged; the handoff is routing context, never
 authorization to skip safety, receipt, Policy Gate, or validation-evidence seals.
-Every common field except `risks` is required; phase-specific fields are
+Every common field except `risks` is required; role-specific fields are
 additive. The delegation prompt repeats this contract from the runtime schema.
 
 | Field | Required | Description |
 |---|---|---|
-| `status` | YES | Overall outcome of this phase |
+| `status` | YES | Overall outcome of this role |
 | `executive_summary` | YES | Short summary shown to the user; under two sentences |
 | `strategy` | YES | Kind of work: standard, custom, migration, or integration. A specialist may emit only its supported subset (consultant: `standard\|custom`; api: `integration`; migrator: `migration`) |
 | `artifacts_saved` | YES | Persisted artifacts in the selected store; each item uses canonical `artifact_ref: {store, ref}`. Optional `engram_topic_key` is compatibility-only; `[]` if none. |
-| `next_recommended` | YES | Next phase/agent; `[]` if complete |
+| `next_recommended` | YES | Next stage role/agent; `[]` if complete |
 | `risks` | NO | Identified risks; `[]` if none |
 | `odoo_version` | YES | Target Odoo version |
 | `modules_affected` | YES | Affected technical module names |
 | `skill_resolution` | YES | Whether compact rules were `injected`, `self-discovered`, or `none` |
 | `stop_disposition` | For blocked/failed | `kind`, `user_action_required`, `automatic_recovery`, `reason`, and `next_action`; unknown stops must be unclassified and require user disposition |
-| `phase` | Phase agents | The phase executed (`DESIGN`, `IMPLEMENT`, `ASSESS`, ...) when the agent serves multiple phases |
-| `validation_evidence` | NO (IMPLEMENT) | Path to `.odf/validation-evidence-{change}.json` plus command/exit-code summary. The plugin validates the artifact; prose never counts. |
+| `phase` | Role agents | Legacy role label the agent executed (`DESIGN`, `IMPLEMENT`, `ASSESS`, ...) when the agent serves multiple roles. The delegation API uses `stage` + `role`; this field is the inner agent result label. |
+| `validation_evidence` | NO (IMPLEMENT role) | Path to `.odf/validation-evidence-{change}.json` plus command/exit-code summary. The plugin validates the artifact; prose never counts. |
 | `receipt` | NO (FAIL/blocked) | Reference to `.odf/receipt-{change}.json`; `action: null` means pending disposition. |
 
 ### Serialization Rules
@@ -110,11 +111,11 @@ part of the contract:
 - Do not add fenced code blocks to the final message unless the whole message is
   the JSON result.
 
-### Phase-Conditional Fields
+### Role-Conditional Fields
 
-Agents declare ONLY the extra fields for their phase, not a full copy of this envelope:
+Agents declare ONLY the extra fields for their role, not a full copy of this envelope:
 
-| Agent / phase | Extra fields |
+| Agent / role | Extra fields |
 |---|---|
 | DESIGN (backend, frontend, dba, migrator) | `design_closed`, `design_path`, `design_meta`; view/XML work also returns the structured `source_authority` envelope (a verified view/action relation, or `relation: "not_applicable"` + bounded `reason` when the task references nothing); `source_authority_required` + `source_authority_refs`; `required_evidence` (dba); `migration_context` (migrator) |
 | IMPLEMENT (backend, frontend, batch) | consumed `design_closed`/`design_path`/`design_meta`; `source_authority_*` when applicable; `batch_summary` + `validation_evidence` (batch) |
@@ -125,7 +126,7 @@ Agents declare ONLY the extra fields for their phase, not a full copy of this en
 
 ## Failure Disposition
 
-For a `blocked` or `failed` phase, persist:
+For a `blocked` or `failed` role, persist:
 
 - `cause`: `validation-failed`, `error`, or `timeout`.
 - `evidence`: summary, frozen ref, failing commands/tests, and topic/path refs.
@@ -145,7 +146,7 @@ receipt whose `action` is still `null` before resuming.
 | `failed` | Follow `stop_disposition`; never infer a retry from prose or unknown reasons |
 
 The outer status answers "did delegation run?"; the inner status answers "what
-did the phase produce?". A successful outer `delegated` status is not proof of
+did the role produce?". A successful outer `delegated` status is not proof of
 an inner `ok` result. `blocked` means the next transition cannot happen without
-user input; `ok` means the phase handoff is approved/complete enough for the
+user input; `ok` means the stage role handoff is approved/complete enough for the
 next gate.

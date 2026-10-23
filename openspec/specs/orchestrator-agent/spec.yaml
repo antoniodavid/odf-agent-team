@@ -6,8 +6,8 @@ type: new
 
 summary: |
   Conversational coordinator that owns the ODF workflow lifecycle.
-  It runs a mandatory preflight gate, persists decisions, delegates phases
-  through the odf-delegation plugin, shows approval gates, and resumes work.
+  It runs a mandatory preflight gate, persists decisions, delegates stage
+  roles through the odf-delegation plugin, shows approval gates, and resumes work.
 
 requirements:
   functional:
@@ -15,7 +15,7 @@ requirements:
       name: Preflight gate enforcement
       strength: MUST
       description: |
-        The orchestrator MUST NOT delegate a phase until the ODF preflight
+        The orchestrator MUST NOT delegate a stage role until the ODF preflight
         gate has collected and validated all required choices for the change.
       acceptance:
         - Preflight answers are persisted before any delegation.
@@ -28,62 +28,62 @@ requirements:
         - name: Existing preflight allows progress
           given: A change has a persisted preflight record
           when: The orchestrator resumes the workflow
-          then: It skips preflight and delegates the next phase
+          then: It skips preflight and delegates the next stage role
 
     - id: ORCH-02
-      name: Phase delegation via real task()
+      name: Stage role delegation via real task()
       strength: MUST
       description: |
-        The orchestrator MUST delegate each approved phase through the
+        The orchestrator MUST delegate each approved stage role through the
         odf_delegate plugin tool, which invokes the native task() API.
       acceptance:
-        - Delegation includes phase, enriched prompt, agent name and context files.
+        - Delegation includes stage, role, enriched prompt, agent name and context files.
         - The plugin returns the task() result, not instructions.
       scenarios:
-        - name: Approved phase runs
-          given: User approved the DESIGN phase
-          when: The orchestrator calls odf_delegate with phase=DESIGN
-          then: The selected agent executes the phase and returns a result envelope
+        - name: Approved stage role runs
+          given: User approved the PLAN DESIGN role
+          when: The orchestrator calls odf_delegate with stage=PLAN, role=DESIGN
+          then: The selected agent executes the role and returns a result envelope
 
     - id: ORCH-03
       name: Conversational approval gates
       strength: MUST
       description: |
-        The orchestrator MUST show a concise phase summary and ask for user
-        approval before moving to the next phase, unless fast mode is active.
+        The orchestrator MUST show a concise stage role summary and ask for user
+        approval before moving to the next stage, unless fast mode is active.
       acceptance:
-        - Summary contains status, strategy, risks, and next phase.
+        - Summary contains status, strategy, risks, and next stage.
         - User can approve, request details, or abort.
       scenarios:
-        - name: Standard gate after ASSESS
-          given: ASSESS completed with strategy custom
+        - name: Standard gate after DECIDE ASSESS
+          given: DECIDE ASSESS completed with strategy custom
           when: Orchestrator presents the summary
-          then: It asks "Proceed to DESIGN?" and waits for confirmation
+          then: It asks "Proceed to PLAN DESIGN?" and waits for confirmation
         - name: Fast mode skips intermediate gates
           given: /odf-new was invoked with --fast
-          when: ASSESS completes
-          then: The orchestrator proceeds to DESIGN without stopping
+          when: DECIDE ASSESS completes
+          then: The orchestrator proceeds to PLAN DESIGN without stopping
 
     - id: ORCH-04
       name: State persistence
       strength: MUST
       description: |
-        The orchestrator MUST persist workflow state after every phase
+        The orchestrator MUST persist workflow state after every stage role
         transition to OpenSpec/Engram.
       acceptance:
-        - State includes current phase, artifact flags, task progress, timestamps.
+        - State includes canonical_stage, role artifacts, task progress, and timestamps.
       scenarios:
-        - name: Phase completed
-          given: DESIGN phase finished successfully
+        - name: Stage role completed
+          given: PLAN DESIGN finished successfully
           when: The orchestrator updates the change state
-          then: design flag is true, current phase is DESIGN, timestamp recorded
+          then: the design artifact is recorded, canonical_stage is PLAN, timestamp recorded
 
     - id: ORCH-05
       name: Resume from persisted state
       strength: MUST
       description: |
         The orchestrator MUST resume an active change from its last completed
-        phase when /odf-continue is invoked.
+        stage when /odf-continue is invoked.
       acceptance:
         - Without a name, it resumes the most recently updated active change.
         - With a name, it resumes that change if active.
@@ -91,7 +91,7 @@ requirements:
         - name: Resume latest active change
           given: Two active changes exist and change A was updated last
           when: User runs /odf-continue
-          then: Change A continues from its next pending phase
+          then: Change A continues from its next pending stage
 
     - id: ORCH-06
       name: Non-ODF request handling
@@ -107,9 +107,9 @@ requirements:
 
   non_functional:
     - id: ORCH-N01
-      name: Backward compatibility
+      name: Contract stability
       strength: MUST
-      description: Existing ODF commands and agents continue to work unchanged.
+      description: Existing command names and agents continue to work under the stage/role contract; legacy phase inputs are rejected with an actionable error.
     - id: ORCH-N02
       name: Thin orchestrator
       strength: MUST
@@ -127,8 +127,8 @@ interface_contracts:
     - command: /odf-explore <topic> [--version N] [--module M]
     - preflight record persisted by odf-preflight
   outputs:
-    - Conversational prompt with phase summary and gate
-    - odf_delegate call with phase, prompt, context_files
+    - Conversational prompt with stage role summary and gate
+    - odf_delegate call with stage, role, prompt, context_files
     - Updated change state in OpenSpec/Engram
 
 error_cases:
@@ -138,10 +138,10 @@ error_cases:
   - Multiple active changes and no name -> list changes and ask user to pick.
 
 edge_cases:
-  - User aborts at approval gate -> state remains at last completed phase.
-  - Phase agent returns blocked -> orchestrator surfaces blocker and stops.
+  - User aborts at approval gate -> state remains at last completed stage.
+  - Stage role agent returns blocked -> orchestrator surfaces the blocker and stops.
   - /odf-status with no active changes -> show empty state with setup tip.
-  - Fast mode reaches IMPLEMENT -> still pause before implementation per proposal.
+  - Fast mode reaches BUILD -> still pause before implementation per the proposal.
 
 dependencies:
   - odf-preflight (must run first)

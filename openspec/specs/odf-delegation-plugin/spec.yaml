@@ -21,9 +21,9 @@ requirements:
         - The tool returns the delegated agent's result envelope.
         - The caller does not need to invoke task() manually.
       scenarios:
-        - name: Delegate DESIGN phase
-          given: odf_delegate receives phase=DESIGN and a prompt
-          when: The tool resolves agent and skills
+        - name: Delegate PLAN DESIGN role
+          given: odf_delegate receives stage=PLAN, role=DESIGN, and a prompt
+          when: The tool resolves the stage role agent and skills
           then: It calls task(agent=odoo_backend_engineer, prompt=...) and returns the result
 
     - id: DELEG-02
@@ -60,7 +60,7 @@ requirements:
       name: Metrics recording
       strength: MUST
       description: |
-        odf_delegate MUST record delegation metrics including phase, agent,
+        odf_delegate MUST record delegation metrics including stage, role, agent,
         skills injected, duration, token estimate, and status.
       acceptance:
         - Metrics are flushed to the local log file.
@@ -75,11 +75,11 @@ requirements:
       name: Deterministic agent resolution
       strength: MUST
       description: |
-        Agent resolution MUST be deterministic for the same registry, phase,
-        and task keywords.
+        Agent resolution MUST be deterministic for the same registry, stage
+        role, and task keywords.
       scenarios:
         - name: Repeated call
-          given: Same phase and prompt
+          given: Same stage role and prompt
           when: odf_delegate is called twice
           then: Both calls resolve to the same agent
 
@@ -97,9 +97,12 @@ requirements:
 
   non_functional:
     - id: DELEG-N01
-      name: Backward compatibility
+      name: Contract stability
       strength: MUST
-      description: Existing consumers of odf_delegate MUST still receive usable output.
+      description: |
+        Consumers MUST use the canonical stage/role contract. Legacy phase
+        inputs are rejected with an actionable error, and the delegation
+        envelope exposes stage and role.
     - id: DELEG-N02
       name: Test coverage
       strength: MUST
@@ -119,23 +122,24 @@ requirements:
 
 interface_contracts:
   inputs:
-    - phase: ASSESS|QA-PLAN|DESIGN|IMPLEMENT|VERIFY
+    - stage: DECIDE|PLAN|BUILD|VERIFY|EXPLORE|FIX
+    - role: PROPOSE|ASSESS|QA-PLAN|DESIGN (required for DECIDE/PLAN; rejected otherwise)
     - prompt: detailed prompt string
     - context_files: optional list of file paths
   outputs:
-    - On success: delegated agent result envelope (from task())
+    - On success: delegated agent result envelope (from task()) with stage/role metadata
     - On fallback: enriched prompt + agent + skills injected
 
 error_cases:
   - Registry not found -> return error with setup hint.
-  - Invalid phase -> reject with allowed phases.
+  - Invalid stage or role -> reject with the allowed stage/role values.
   - task() throws -> record error metric and return error message.
   - No installed agent matches -> fall back to default agent.
 
 edge_cases:
   - Empty context_files -> match by task keywords only.
   - No skills match -> delegate without skill injection.
-  - Custom agent registered for phase -> use custom agent over default.
+  - Custom agent registered for the stage role -> use the custom agent over the default.
   - task() returns blocked status -> pass through unchanged.
 
 dependencies:
@@ -145,10 +149,13 @@ dependencies:
 
 affected_files:
   - plugins/odf-delegation.ts
+  - odf-plugin/odf-delegation-contract.ts
+  - odf-plugin/odf-route-contract.test.ts
   - package.json
   - scripts/odf-test-runner.js (new tests)
 
 test_approach:
   - Add plugins/odf-delegation.test.ts using a stub task() implementation.
   - Test agent resolution, skill matching, metrics, and fallback.
+  - Add odf-plugin/odf-route-contract.test.ts for the route/stage/role/artifact/gate matrix.
   - Run npm test (or node scripts/odf-test-runner.js).
