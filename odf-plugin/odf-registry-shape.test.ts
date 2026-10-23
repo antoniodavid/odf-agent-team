@@ -58,4 +58,12 @@ describe("registry shape validation", () => {
     vi.resetModules()
     expect(await load()).toBeNull()
   })
+
+  it("ignores a legacy notebooklm_sources map", async () => {
+    const registry = JSON.parse(await fs.readFile(path.join(configDir, "odf-registry.json"), "utf8"))
+    registry.notebooklm_sources = { sales: "legacy-notebook-id" }
+    await fs.writeFile(path.join(configDir, "odf-registry.json"), JSON.stringify(registry), "utf8")
+    vi.resetModules()
+    expect(await load()).not.toBeNull()
+  })
 })

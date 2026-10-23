@@ -2652,6 +2652,10 @@ describe("createODFEntryTriage", () => {
     expect(ODF_REGISTERED_TOOLS).toContain("odf_entry_triage")
   })
 
+  it("does not register the removed NotebookLM lookup tool", () => {
+    expect(ODF_REGISTERED_TOOLS).not.toContain("odf_notebooklm_lookup")
+  })
+
   it("returns classification JSON with level, work_type, reason, and needs_question", async () => {
     const output = await createODFEntryTriage().execute({
       description: "Add a computed discount field to sale.order.",

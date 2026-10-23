@@ -47,7 +47,6 @@ design:
       - skills
       - agents
       - profiles
-      - notebooklm_sources
       - project_conventions
       - flags
 

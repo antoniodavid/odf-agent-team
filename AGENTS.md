@@ -80,7 +80,7 @@ escalation.
 
 ### Plugin tools (`odf-delegation.ts`)
 
-30 tools injected at runtime into the orchestrator's tool list:
+29 tools injected at runtime into the orchestrator's tool list:
 
 | Tool | Purpose |
 |------|---------|
@@ -104,7 +104,6 @@ escalation.
 | `odf_skill_resolve` | Preview which skills match a task WITHOUT executing |
 | `odf_registry_read` | Read and cache `odf-registry.json` with TTL and file watcher |
 | `odf_profile_select` | Preview which model profile applies to a stage role |
-| `odf_notebooklm_lookup` | Search NotebookLM notebooks for reference material |
 | `odf_community_tool_detect` | Check if a community tool (e.g., CodeGraph) is available |
 | `odf_community_tool_install` | Install and wire a community tool |
 | `odf_workflow_status` | Read canonical workflow status (stages, receipts, resumability) |

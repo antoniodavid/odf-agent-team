@@ -29,7 +29,7 @@ Branch: `fix/odf-delegate-hardening` (second commit; the delegate H1-H6 hardenin
 
 ### S4 — Registry shape fails closed
 
-- `loadRegistry` returns null for a JSON-valid registry whose `skills`/`agents` are not arrays, or whose `profiles`/`community_tools` are present but not arrays, or whose `notebooklm_sources` is not an object.
+- `loadRegistry` returns null for a JSON-valid registry whose `skills`/`agents` are not arrays, or whose `profiles`/`community_tools` are present but not arrays.
 - `getProfileByPhase` returns null for a malformed profiles shape instead of throwing.
 - `matchSkills` tolerates malformed skill entries/triggers/version lists without throwing.
 - Tools return a typed registry error/block instead of an unhandled TypeError.
@@ -115,5 +115,5 @@ Risk: item 3 — requested changes to public tool contracts, filesystem path bou
 - A7 input bounds: context_files/branches/refs/files/prompts/timeouts.
 - A8 profile model application or explicit advisory labeling.
 - A9 community tool guidance/persistence/timeout/scope.
-- A10 notebook lookup allowlist.
+- A10 notebook lookup: removed in `odd/tasks/notebooklm-lookup-removal.md`; community tools remain.
 - A11 minor skill/registry/receipt/status follow-ups.

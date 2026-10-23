@@ -6440,36 +6440,6 @@ must not overlap. VERIFY remains sequential after the aggregate join is complete
   })
 }
 
-function createODFNotebookLMLookup(): ReturnType<typeof tool> {
-  return tool({
-    description: `Resolve an Odoo domain to its NotebookLM notebook ID.
-
-Queries the odf-registry.json notebooklm_sources mapping.
-Use this before notebooklm_query to get the correct notebook_id.`,
-    args: {
-      domain: tool.schema
-        .string()
-        .describe("Odoo domain: sales, accounting, inventory, manufacturing, pos, technical"),
-    },
-    async execute(args: { domain: string }): Promise<string> {
-      const registry = await loadRegistry()
-      if (!registry?.notebooklm_sources) {
-        return "❌ No notebooklm_sources found in registry. Add them to odf-registry.json."
-      }
-
-      const domainLower = args.domain.toLowerCase()
-      const notebookId = registry.notebooklm_sources[domainLower]
-
-      if (!notebookId) {
-        const available = Object.keys(registry.notebooklm_sources).join(", ")
-        return `❌ No notebook found for domain '${args.domain}'. Available: ${available}`
-      }
-
-      return `NotebookLM ID for '${args.domain}': ${notebookId}`
-    },
-  })
-}
-
 function createODFProfileSelect(): ReturnType<typeof tool> {
   return tool({
     description: `Get the recommended model and temperature for an ODF stage role.
@@ -11137,7 +11107,7 @@ export const ODF_SYSTEM_RULES = `<odf-system>
 - Workflow state commits happen after successful inner results and evidence; ARCHIVED remains an explicit archive transition.
 - \`odf_skill_inject\`, \`odf_skill_resolve\`, \`odf_registry_read\`: standards and routing inspection
 - \`odf_policy_gate\`, \`odf_receipt\`: policy and failure persistence
-- \`odf_workflow_status\`, \`odf_profile_select\`, \`odf_notebooklm_lookup\`: canonical state, profile, and research lookup
+- \`odf_workflow_status\`, \`odf_profile_select\`: canonical state and profile lookup
 - \`odf_health\`: read-only installed/runtime health; it does not probe task usability or execute task/Odoo/PostgreSQL/Engram export
 - \`odf_community_tool_detect\`, \`odf_community_tool_install\`: optional community tooling
 
@@ -11201,7 +11171,6 @@ export function createODFRegisteredTools(
     odf_skill_inject: createODFSkillInject(),
     odf_skill_resolve: createODFSkillResolve(),
     odf_registry_read: createODFRegistryRead(),
-    odf_notebooklm_lookup: createODFNotebookLMLookup(),
     odf_profile_select: createODFProfileSelect(),
     odf_community_tool_detect: createODFCommunityToolDetect(),
     odf_community_tool_install: createODFCommunityToolInstall(),

@@ -292,7 +292,6 @@ export interface ODFRegistry {
   skills: ODFSkill[]
   agents: ODFAgent[]
   profiles?: ODFProfile[]
-  notebooklm_sources?: Record<string, string>
   package?: ODFPackage
   commands?: ODFCommand[]
   capabilities?: ODFCapability[]
@@ -319,7 +318,6 @@ export const ODF_REGISTERED_TOOLS = [
   "odf_context_manifest",
   "odf_skill_inject",
   "odf_registry_read",
-  "odf_notebooklm_lookup",
   "odf_profile_select",
   "odf_skill_resolve",
   "odf_community_tool_detect",

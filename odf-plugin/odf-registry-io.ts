@@ -59,10 +59,6 @@ export async function loadRegistry(): Promise<ODFRegistry | null> {
     if (parsed.community_tools !== undefined && !Array.isArray(parsed.community_tools)) {
       throw new Error("registry community_tools must be an array when present")
     }
-    if (parsed.notebooklm_sources !== undefined &&
-      (typeof parsed.notebooklm_sources !== "object" || parsed.notebooklm_sources === null || Array.isArray(parsed.notebooklm_sources))) {
-      throw new Error("registry notebooklm_sources must be an object when present")
-    }
 
     // Resolve relative skill/agent paths against the registry directory
     for (const skill of parsed.skills) {

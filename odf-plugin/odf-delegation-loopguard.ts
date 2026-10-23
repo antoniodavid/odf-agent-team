@@ -20,7 +20,7 @@ export const LOOP_GUARD_READ_TOOLS = new Set([
   "engram_mem_context", "engram_mem_search", "engram_mem_get_observation",
   "engram_mem_current_project", "engram_mem_doctor",
   "odf_workflow_route", "odf_workflow_advance", "odf_entry_triage",
-  "odf_skill_inject", "odf_skill_resolve", "odf_registry_read", "odf_notebooklm_lookup",
+  "odf_skill_inject", "odf_skill_resolve", "odf_registry_read",
   "odf_profile_select", "odf_community_tool_detect", "odf_workflow_status", "odf_health",
   "odf_governance_check",
 ])
