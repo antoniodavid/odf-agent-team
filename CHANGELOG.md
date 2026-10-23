@@ -1,5 +1,10 @@
 # Changelog — ODF Agent Team
 
+## Unreleased
+
+### Removed
+- Removed `odf_notebooklm_lookup` and the `notebooklm_sources` registry map. NotebookLM enrichment, when used, stays external to ODF.
+
 ## 1.6.0 (2026-10-09)
 
 ### Added

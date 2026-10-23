@@ -1,6 +1,6 @@
 # Plugin Reference — `odf-delegation`
 
-The ODF plugin injects **30 tools** into the orchestrator's tool list at runtime. They are **not MCP tools** — they are registered by the OpenCode plugin host from `plugins/odf-delegation.ts`.
+The ODF plugin injects **29 tools** into the orchestrator's tool list at runtime. They are **not MCP tools** — they are registered by the OpenCode plugin host from `plugins/odf-delegation.ts`.
 
 ## Tool inventory
 
@@ -30,7 +30,6 @@ The ODF plugin injects **30 tools** into the orchestrator's tool list at runtime
 | `odf_profile_select` | read | Which model profile applies to a stage role |
 | `odf_policy_gate` | write | Resolve + persist TDD/risk gate before IMPLEMENT/VERIFY |
 | `odf_receipt` | write | Persist a failure-disposition receipt |
-| `odf_notebooklm_lookup` | read | Search NotebookLM notebooks |
 | `odf_community_tool_detect` | read | Is an optional tool (e.g. CodeGraph) available? |
 | `odf_community_tool_install` | write | Install + wire an optional tool |
 | `odf_governance_provenance` | write | Record OCA AI provenance in `.odf/ai-provenance.json` |

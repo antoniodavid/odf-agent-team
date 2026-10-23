@@ -88,7 +88,7 @@ requirements:
       strength: MUST
       description: |
         odf_skill_inject, odf_skill_resolve, odf_registry_read,
-        odf_notebooklm_lookup, and odf_profile_select MUST continue to work.
+        and odf_profile_select MUST continue to work.
       scenarios:
         - name: Manual skill injection
           given: User calls odf_skill_inject

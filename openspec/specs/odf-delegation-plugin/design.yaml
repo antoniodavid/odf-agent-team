@@ -55,7 +55,6 @@ design:
           - createODFSkillInject()
           - createODFSkillResolve()
           - createODFRegistryRead()
-          - createODFNotebookLMLookup()
           - createODFProfileSelect()
       - name: Plugin export
         files:
@@ -160,7 +159,7 @@ design:
   backward_compatibility:
     - |
       Existing odf_skill_inject, odf_skill_resolve, odf_registry_read,
-      odf_notebooklm_lookup, odf_profile_select keep the same signatures and
+      odf_profile_select keeps the same signature and
       outputs.
     - |
       odf_delegate success output changes from text instructions to a result

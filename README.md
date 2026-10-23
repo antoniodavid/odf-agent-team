@@ -75,7 +75,7 @@ The user sees one route selected by `work_type`; `micro/standard/full` is entry 
 | Skills | 87 (`skills/` — OCA governance/style, Odoo patterns, ODF stage roles) |
 | Agents | 11 (`agent/` — orchestrator + 10 specialists) |
 | Commands | 23 (`command/`) |
-| Plugin tools | 31 injected at runtime (`plugins/odf-delegation.ts` + `odf-plugin/`) |
+| Plugin tools | 29 injected at runtime (`plugins/odf-delegation.ts` + `odf-plugin/`) |
 | Deterministic CLIs | `odf-project-scan`, `odf-toolkit` (`scripts/`) |
 
 ## Documentation
@@ -84,7 +84,7 @@ The user sees one route selected by `work_type`; `micro/standard/full` is entry 
 
 - [Intended usage](docs/intended-usage.md) — mental model, entry points, when to use what
 - [Architecture](docs/architecture.md) — thin-spine vocabulary, components, data flow
-- [Plugin reference](docs/plugin.md) — the 30 tools, modules, `odf_delegate` path
+- [Plugin reference](docs/plugin.md) — the 29 tools, modules, `odf_delegate` path
 - [Archive](docs/archive/README.md) — completed roadmaps and plans
 
 ## Honest status
@@ -128,7 +128,7 @@ agent/            11 agent instructions (orchestrator + 10 specialists)
 command/          23 slash commands
 skills/           87 skills (OCA + ODF + shared)
 odf-plugin/       deterministic modules (workflow, triage, policy, …)
-plugins/          odf-delegation.ts — plugin entrypoint, 30 tools
+plugins/          odf-delegation.ts — plugin entrypoint, 29 tools
 scripts/          CLIs + test runner + registry validator
 docs/             architecture, usage, plugin reference, diagrams
 install.sh        idempotent installer (backup, TUI, --force, --with-codegraph)

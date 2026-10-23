@@ -2652,6 +2652,10 @@ describe("createODFEntryTriage", () => {
     expect(ODF_REGISTERED_TOOLS).toContain("odf_entry_triage")
   })
 
+  it("does not register the removed NotebookLM lookup tool", () => {
+    expect(ODF_REGISTERED_TOOLS).not.toContain("odf_notebooklm_lookup")
+  })
+
   it("returns classification JSON with level, work_type, reason, and needs_question", async () => {
     const output = await createODFEntryTriage().execute({
       description: "Add a computed discount field to sale.order.",
@@ -3018,6 +3022,11 @@ describe("getProfileByPhase", () => {
     const noProfileRegistry = { ...baseRegistry, profiles: undefined }
     const profile = await getProfileByPhase(noProfileRegistry, "DESIGN")
     expect(profile).toBeNull()
+  })
+
+  it("returns null for a malformed profiles shape", async () => {
+    const malformed = { ...baseRegistry, profiles: {} } as unknown as ODFRegistry
+    expect(await getProfileByPhase(malformed, "DESIGN")).toBeNull()
   })
 })
 
@@ -4431,6 +4440,23 @@ describe("computePolicyGate", () => {
     expect(d.reason).toContain("missing change name")
   })
 
+  it("blocks an unsafe change name without writing a gate outside .odf", () => {
+    const markerName = `odf-policy-escape-${process.pid}-${Date.now()}`
+    const outside = path.join(os.tmpdir(), `${markerName}.json`)
+    try {
+      const d = computePolicyGate({
+        change: `x/../../../../tmp/${markerName}`,
+        stage: "BUILD",
+        workspaceDir: tmp,
+        registry: registryWithTdd(true),
+      })
+      expect(d).toMatchObject({ gate: "block", reason: expect.stringContaining("unsafe-change-name") })
+      expect(fsSync.existsSync(outside)).toBe(false)
+    } finally {
+      try { fsSync.unlinkSync(outside) } catch { /* no marker */ }
+    }
+  })
+
   it("fails closed when the policy gate cannot be persisted", async () => {
     const odfDir = path.join(tmp, ".odf")
     await fs.mkdir(odfDir, { recursive: true })
@@ -4569,6 +4595,10 @@ describe("savePolicyGateJson", () => {
       savePolicyGateJson(tmp, decision)
       const saved = JSON.parse(fsSync.readFileSync(path.join(tmp, ".odf", "policy-gate-save-test.json"), "utf8"))
       expect(saved.change).toBe("save-test")
+
+      const unsafe = { ...decision, change: "../escape" }
+      expect(savePolicyGateJson(tmp, unsafe)).toBe(false)
+      expect(fsSync.existsSync(path.join(tmp, ".odf", "policy-gate-escape.json"))).toBe(false)
     } finally {
       await fs.rm(tmp, { recursive: true, force: true })
     }
@@ -10339,6 +10369,22 @@ describe("createODFPolicyGate", () => {
     expect(saved.change).toBe("my-change")
     expect(saved.tdd.effective).toBe("off")
   })
+
+  it("uses the current tool session directory when workspace_dir is omitted", async () => {
+    const { createODFPolicyGate } = await import("./odf-delegation.js")
+    const workspace = path.join(tempHome, "tool-workspace")
+    await fs.mkdir(workspace, { recursive: true })
+
+    const gateTool = createODFPolicyGate()
+    const output = await gateTool.execute(
+      { change: "session-policy", stage: "BUILD" },
+      { sessionID: "policy-session", directory: workspace } as any,
+    )
+    const decision = JSON.parse(output as string)
+    expect(decision).toMatchObject({ change: "session-policy", stage: "BUILD", gate: "allow" })
+    expect(fsSync.existsSync(path.join(workspace, ".odf", "policy-gate-session-policy.json"))).toBe(true)
+    expect(fsSync.existsSync(path.join(workspace, ".odf", "policy-gate-session-policy.lock"))).toBe(false)
+  })
 })
 
 describe("odf_delegate policy gate hook", () => {
@@ -11150,6 +11196,33 @@ describe("createODFReceipt tool", () => {
     )
     expect(saved.evidence.failing).toContain("odoo-tests")
     expect(saved.action).toBeNull()
+  })
+
+  it("uses the tool session workspace and rejects an unsafe change", async () => {
+    const { createODFReceipt } = await import("./odf-delegation.js")
+    const workspace = path.join(tempHome, "worktree-session")
+    await fs.mkdir(workspace, { recursive: true })
+    const markerName = `odf-receipt-escape-${process.pid}-${Date.now()}`
+    const outside = path.join(os.tmpdir(), `${markerName}.json`)
+    try {
+      const receiptTool = createODFReceipt()
+      const output = JSON.parse(await receiptTool.execute(
+        { change: "session-workspace", stage: "BUILD", status: "failed" },
+        { sessionID: "s1", directory: workspace } as any,
+      ) as string)
+      expect(output.change).toBe("session-workspace")
+      expect(fsSync.existsSync(path.join(workspace, ".odf", "receipt-session-workspace.json"))).toBe(true)
+      expect(fsSync.existsSync(path.join(workspace, ".odf", "receipt-session-workspace.lock"))).toBe(false)
+
+      const unsafe = JSON.parse(await receiptTool.execute(
+        { change: `x/../../../../tmp/${markerName}`, stage: "BUILD", status: "failed" },
+        { sessionID: "s1", directory: workspace } as any,
+      ) as string)
+      expect(unsafe).toMatchObject({ status: "blocked", reason: "unsafe-change-name" })
+      expect(fsSync.existsSync(outside)).toBe(false)
+    } finally {
+      try { fsSync.unlinkSync(outside) } catch { /* no marker */ }
+    }
   })
 })
 
