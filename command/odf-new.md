@@ -7,22 +7,22 @@ agent: odoo_orchestrator
 # /odf-new — Start ODF change
 
 Starts a new ODF change using the canonical flow `DECIDE -> optional PLAN -> BUILD -> VERIFY`.
-Legacy mapping remains compatible: `DECIDE = PROPOSE + ASSESS`, `PLAN = QA-PLAN + DESIGN`,
-and `BUILD = IMPLEMENT`.
+The composite stages expose their roles: `DECIDE` = `PROPOSE` + `ASSESS`, `PLAN` = `QA-PLAN` +
+`DESIGN`; `BUILD` and `VERIFY` have no role.
 
 ## One route shown to the user
 
 The triage level (`micro/standard/full`) describes entry scope; the resolved
-`work_type` selects the route. Canonical stages and legacy phase names are
-internal mappings, not additional user-facing stages or approvals. Show one
+`work_type` selects the route. Canonical stages and their roles are internal
+mappings, not additional user-facing stages or approvals. Show one
 resolved route and its next action. The optional shadow prediction is advisory
 and has `execution_unchanged: true`; it must not be presented as automatic
 routing or as evidence that execution was shortened.
 
 | Resolved work type | User-facing route |
 |---|---|
-| `question` / `investigation` | `EXPLORE` |
-| `standard-config` | `DECIDE` (configuration guidance; no custom BUILD/VERIFY) |
+| `question` / `investigation` | `EXPLORE` via `/odf-explore` (ephemeral; not bound) |
+| `standard-config` | `DECIDE` (configuration guidance; terminal, no BUILD/VERIFY/archive) |
 | `small-change` | `DECIDE → BUILD → VERIFY` (inline plan and focused QA) |
 | `bugfix` | `FIX → BUILD → VERIFY` (diagnosis, root cause, regression) |
 | `feature` / `cross-domain` / `migration` / `security` | `DECIDE → PLAN → BUILD → VERIFY` (formal plan/QA) |
@@ -45,7 +45,7 @@ evidence gates remain required by the resolved route.
 |-----------|----------|------|-------------|
 | `change-name` | Yes | string | Change identifier in kebab-case. E.g.: `sale-discount-field` |
 | `description` | No | string | Short description in quotes. If omitted, the change name is used |
-| `--fast` | No | flag | Skips intermediate approval gates up to IMPLEMENT. Choosing `execution_mode: auto` in preflight makes intermediate approvals automatic while still applying the mandatory gates |
+| `--fast` | No | flag | Skips intermediate approval gates up to BUILD. Choosing `execution_mode: auto` in preflight makes intermediate approvals automatic while still applying the mandatory gates |
 
 ## Examples
 
@@ -72,20 +72,20 @@ evidence gates remain required by the resolved route.
    It searches existing implementations (models/views/static/controllers/data/tests, bounded) and prior learnings (`odf-learned/{project}` = basis of "already seen/rejected"). If there are relevant matches or learnings that contradict, present them to the user (extend what exists / already implemented / cancel) BEFORE delegating PROPOSE; never decide alone.
 10. **Resolve Expectations**: first read the existing artifact from the same store. If it is approved, valid, and matches the human contract exactly, reuse its IDs and complete protected content without asking, renumbering, or saving again. Protected content includes `change`, `intent`, `expectations`, and any present top-level `constraints`, `success_scenarios`, `failure_scenarios`, or `connections`. If it differs or is invalid/tampered, block. If it does not exist, distill intent and Expectations from the USER (description + ONE clarification), restate `EXP-01…EXP-N` with `owned_by: "human"`, ask for explicit confirmation, and keep the approved document in memory.
 11. **Resolve the route** with `odf_workflow_route(work_type)`.
-12. **Start atomically through `odf_workflow_bind`**: pass `change_name`, `work_type`, the complete preflight, and the exact approved `expectations` document. Missing-state creation is accepted only under the runtime authorization issued for this exact `/odf-new` command/change after health; an ordinary bind cannot create state. Use `artifact_store: openspec` for OpenSpec or hybrid authority and `artifact_store: engram` for Engram-only. For `small-change`/`standard-config`, also pass `terminal_stage: DECIDE`; for all others bind before the first phase. The tool persists canonical state before Expectations. Never persist either artifact directly. Stop on any blocked/failure result.
-13. **Run the route's entry stage**: use `PROPOSE`/`ASSESS` only when the resolved route requires formal DECIDE; `small-change` uses the terminal DECIDE materialized by bind, `standard-config` ends there, and `bugfix` begins at FIX. Never infer the route from the triage level alone.
-14. **Run only the resolved route**: for inline-plan BUILD, forward the persisted `work_type`, `plan: inline`, completed DECIDE/FIX evidence, approved Expectations, and bounded inline implementation tasks/QA plan; do not require formal ASSESS/DESIGN/QA-PLAN artifacts. Keep formal PLAN/QA-PLAN only when required by the route or an explicit risk/complexity escalation; then BUILD and VERIFY when that route requires them. Do not reintroduce skipped legacy adapters or ask for approval at an adapter-only transition.
+12. **Start atomically through `odf_workflow_bind`**: pass `change_name`, `work_type`, the complete preflight, and the exact approved `expectations` document. Missing-state creation is accepted only under the runtime authorization issued for this exact `/odf-new` command/change after health; an ordinary bind cannot create state. Use `artifact_store: openspec` for OpenSpec or hybrid authority and `artifact_store: engram` for Engram-only. For `small-change`/`standard-config`, also pass `terminal_stage: DECIDE`; for all others bind before the first stage role. Do not start `question`/`investigation` through this command; use `/odf-explore`. The tool persists canonical state before Expectations. Never persist either artifact directly. Stop on any blocked/failure result.
+13. **Run the route's entry stage role**: use `PROPOSE`/`ASSESS` only when the resolved route requires formal DECIDE; `small-change` uses the terminal DECIDE materialized by bind, `standard-config` ends there, and `bugfix` begins at FIX. Never infer the route from the triage level alone.
+14. **Run only the resolved route**: for inline-plan BUILD, forward the persisted `work_type`, `plan: inline`, completed DECIDE/FIX evidence, approved Expectations, and bounded inline implementation tasks/QA plan; do not require formal ASSESS/DESIGN/QA-PLAN artifacts. Keep formal PLAN/QA-PLAN only when required by the route or an explicit risk/complexity escalation; then BUILD and VERIFY when that route requires them. Do not reintroduce skipped stages or ask for approval at a role-only transition.
 15. If `--fast`, skip voluntary approval gates only where existing compatibility permits; never skip health, preflight, Expectations approval/reuse validation, Policy Gate, validation evidence, route-required VERIFY, or failure disposition. If `execution_mode` is `auto`, the voluntary approval gates are skipped automatically under the same rules as `--fast`, and the mandatory gates listed here still apply: health, preflight, Expectations approval/reuse validation, Policy Gate, validation evidence, route-required VERIFY, and failure disposition.
 
-For BUILD (`IMPLEMENT`) and VERIFY starts, pass the persisted `work_type`, exact transition input as `workflow_advance`, explicit authoritative `artifact_store`, and a fresh opaque `attempt_id` for each launch. Reusing an ID or relaunching a completed phase is blocked; an already committed desired state returns `already-committed` without relaunching. `odf_workflow_advance` is read-only and store-independent; the delegate re-reads, validates, and commits only the selected store before settling the attempt. Evidence or persistence failure leaves canonical state unchanged and blocks. A `/odf-new` run without a persisted binding must stop; never forward an unbound caller default. Calls that omit `workflow_advance` are always blocked before delegation; the proof-optional legacy path was removed and never auto-committed.
+For BUILD and VERIFY starts, pass the persisted `work_type`, exact transition input as `workflow_advance`, explicit authoritative `artifact_store`, and a fresh opaque `attempt_id` for each launch. Reusing an ID or relaunching a completed stage role is blocked; an already committed desired state returns `already-committed` without relaunching. `odf_workflow_advance` is read-only and store-independent; the delegate re-reads, validates, and commits only the selected store before settling the attempt. Evidence or persistence failure leaves canonical state unchanged and blocks. A `/odf-new` run without a persisted binding must stop; never forward an unbound caller default. Calls that omit `workflow_advance` are always blocked before delegation; the proof-optional legacy path was removed and never auto-committed.
 
 On OpenCode V2, delegate these stages through the native route instead: `odf_delegation_prepare` → `odf_delegation_launch` (pass `delegation.prompt` unchanged) → `odf_delegation_seal`; the seal returns the same envelope (plus `task_session_id`). Do not use the host `subagent` tool to transport prepared prompts. `odf_delegate` remains mandatory for fast-lane BUILD/VERIFY and as the non-V2 fallback.
 
 For a fresh cross-domain BUILD on OpenCode V2, use `odf_parallel_prepare` → one `odf_delegation_launch` call with every exact branch prompt → `odf_parallel_seal`; otherwise use `odf_parallel_delegate`. Pass one shared `change`, explicit `artifact_store`, `work_type: cross-domain`, `stage: BUILD`, and the exact shared `workflow_advance` proof that advances to `BUILD`. Provide 2-3 independent branches, each with a unique safe `branch_id`, fresh safe `attempt_id`, prompt, and non-overlapping `context_files`; the scheduler has a fixed concurrency cap of 3. Branches do not commit workflow state individually. BUILD closes only after the aggregate `join.status: complete`, every branch returns a successful delegated envelope, and every branch has `validation.status: verified`; then the selected store is committed once. Any blocked/failed branch or unverified validation blocks BUILD and produces one aggregate receipt. VERIFY always runs sequentially after a complete join.
 
-Standard configuration terminates after DECIDE and has no BUILD or VERIFY stage. Small changes
-may use an inline plan before BUILD. Existing public phase commands and legacy phase IDs remain
-available for compatibility; they have not disappeared.
+Standard configuration terminates after DECIDE and has no BUILD, VERIFY, or archive stage.
+Small changes may use an inline plan before BUILD. The delegation API accepts canonical
+`stage` + `role`; legacy phase IDs are rejected. Public command names remain available.
 
 ## Opt-in inline BUILD boundary (FL-06)
 
@@ -97,14 +97,14 @@ existing persisted `work_type: small-change`. `standard-config` remains DECIDE-o
 enters BUILD. `bugfix` remains on `FIX -> BUILD -> VERIFY`; the shadow result alone never changes
 that route.
 
-When the explicit policy enables the contract, follow the single bounded IMPLEMENT prompt and
+When the explicit policy enables the contract, follow the single bounded BUILD prompt and
 existing gate requirements in [the orchestrator contract](../agent/odoo_orchestrator.md#opt-in-inline-build-contract-fl-06).
 The prompt must reference approved human Expectations/intent, one known module, one functional
 domain, no more than five predicted files, only relevant context files, exact source roots,
 the configured test command and authorized test database, validation evidence, source authority,
 an out-of-scope guard, and escalation conditions. It must still call `odf_delegate` at the
 canonical `small-change` BUILD stage with exact `workflow_advance`, an explicit artifact store,
-and a fresh `attempt_id`; never call `task()` directly or invent a workflow, phase, WorkType, or
+and a fresh `attempt_id`; never call `task()` directly or invent a workflow, stage role, work type, or
 gate. Missing or contradictory facts, risk, scope expansion, authority/database/task/validation
 failures promote to standard/full handling or block; they never bypass a gate. The policy is
 explicit and disabled by default; no canary, rollout, or performance claim is implied.

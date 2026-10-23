@@ -21,7 +21,9 @@ Formalizes the closure of a completed ODF change:
 5. Cleans up active state
 6. Updates metrics
 
-**Only run this AFTER successful VERIFY.**
+**Only run this for a route that reaches terminal `VERIFY`.** Routes that end before
+VERIFY (`standard-config` at `DECIDE`) are complete but are not archived;
+`question`/`investigation` are ephemeral and use `/odf-explore`.
 
 ## Store-Aware Workflow Transition
 
@@ -42,7 +44,8 @@ OpenSpec state at VERIFY. A sustained lock or mirror failure is returned as a
 visible `blocked` result; do not work around it with manual file writes.
 
 The tool requires persisted state with terminal `VERIFY` and a successful,
-terminal `verify-report`. It also blocks a pending failure receipt, a running
+terminal `verify-report`. It does not archive routes whose terminal stage is
+`DECIDE` or `EXPLORE`; those routes close without an archive transition. It also blocks a pending failure receipt, a running
 attempt, or a running parallel join. If VERIFY is missing, incomplete, failed,
 or non-terminal, it returns an actionable block and does not modify state.
 The tool does not move or rename the change directory. If a project separately
@@ -73,9 +76,9 @@ latest-active discovery continues to exclude archived entries.
 
    For Engram, resolve each topic with `mem_search` and then `mem_get_observation(id)` — search previews are truncated. For `hybrid`, OpenSpec is authoritative and Engram is the mirror.
 
-3. **Derive `design_meta` and collect real IMPLEMENT effort (A3):**
+3. **Derive `design_meta` and collect real BUILD effort (A3):**
    - `design_meta`: use the one persisted by DESIGN if present, else derive it from the design document with `deriveDesignMeta()` (`scripts/odf-estimator.js`). If it cannot be derived, skip the library append and calibration (N/A), do not invent values.
-   - Collect the change's IMPLEMENT telemetry records. Correlate by `candidate_digest` first; if absent, by `work_type` + the change's implementation window (from `implement-progress` timestamps). Records come from the plugin JSONL:
+   - Collect the change's BUILD telemetry records (new events use `stage: BUILD`; historical records use `phase: IMPLEMENT`). Correlate by `candidate_digest` first; if absent, by `work_type` + the change's implementation window (from `implement-progress` timestamps). Records come from the plugin JSONL:
      ```
      ${ODF_CONFIG_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/opencode}/metrics/delegations-YYYY-MM-DD.jsonl
      ```
@@ -83,7 +86,7 @@ latest-active discovery continues to exclude archived entries.
      ```
      collectImplementationRounds(records, { minutes_per_round })  // scripts/odf-design-library.js
      ```
-     → `{ rounds_real, data_status, duration_ms, record_count }` (`data_status: "no_data"` when there are no completed IMPLEMENT records — that is the honest N/A).
+     → `{ rounds_real, data_status, duration_ms, record_count }` (`data_status: "no_data"` when there are no completed BUILD records — that is the honest N/A).
 
 4. **Generate final retrospective:**
 
@@ -100,18 +103,18 @@ latest-active discovery continues to exclude archived entries.
 ## What Was Built
 {Summary from verify-report}
 
-## Phases Completed
-- [x] ASSESS — {date}
-- [x] DESIGN — {date}
-- [x] IMPLEMENT — {date}
+## Stages Completed
+- [x] DECIDE ASSESS — {date}
+- [x] PLAN DESIGN — {date}
+- [x] BUILD — {date}
 - [x] VERIFY — {date}
 
 ## Artifacts
-| Phase | Artifact |
-|-------|----------|
-| ASSESS | odf/{change-name}/assess |
-| DESIGN | odf/{change-name}/design |
-| IMPLEMENT | odf/{change-name}/implement-progress |
+| Stage role | Artifact |
+|------------|----------|
+| DECIDE ASSESS | odf/{change-name}/assess |
+| PLAN DESIGN | odf/{change-name}/design |
+| BUILD | odf/{change-name}/implement-progress |
 | VERIFY | odf/{change-name}/verify-report |
 
 ## Metrics
@@ -120,7 +123,7 @@ latest-active discovery continues to exclude archived entries.
 - Duration: {calculated from timestamps}
 
 ## Effort (calibrated)
-- Real rounds (from IMPLEMENT telemetry): {rounds_real} — N/A if no data
+- Real rounds (from BUILD telemetry): {rounds_real} — N/A if no data
 - Duration: {duration_ms}ms across {record_count} delegations
 - Bucket: {work_type}/{risk}/{module_type}
 
@@ -171,7 +174,7 @@ latest-active discovery continues to exclude archived entries.
    proposeFromArchivedChange({
      design_meta,            // from step 3 (or design_meta.candidate_digest)
      expectations,           // odf/{change}/expectations (approved EXP-XX)
-     records,                // IMPLEMENT telemetry from step 3
+     records,                // BUILD telemetry from step 3
      goldens,                // scripts/fixtures/golden-trajectories.json
      outcome: "pass",        // VERIFY passed
      receipt: { status: "success", candidate_digest, receipt_id: "<verify-report>" },

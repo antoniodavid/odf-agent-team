@@ -5,7 +5,7 @@ status: spec
 type: new
 
 summary: |
-  Hard gate that captures ODF-specific choices before a workflow phase is
+  Hard gate that captures ODF-specific choices before a stage role is
   delegated. Choices are persisted with the change state and reused on resume.
 
 requirements:
@@ -30,7 +30,7 @@ requirements:
       name: Validate required answers
       strength: MUST
       description: |
-        The preflight gate MUST block phase delegation until every required
+        The preflight gate MUST block stage role delegation until every required
         choice is valid.
       acceptance:
         - Invalid Odoo version is rejected.
@@ -47,7 +47,7 @@ requirements:
       strength: MUST
       description: |
         The preflight gate MUST persist answers with the change state before
-        the orchestrator delegates any phase.
+        the orchestrator delegates any stage role.
       acceptance:
         - Persisted record uses deterministic topic/path.
         - Resume reads the same record.
@@ -55,7 +55,7 @@ requirements:
         - name: Preflight completed
           given: User answered all preflight questions
           when: The gate saves the record
-          then: The orchestrator proceeds to ASSESS
+          then: The orchestrator proceeds to DECIDE ASSESS
 
     - id: PREF-04
       name: Infer defaults from project context
@@ -75,7 +75,7 @@ requirements:
       strength: SHOULD
       description: |
         The gate SHOULD allow the user to review and amend answers before
-        the first phase is delegated.
+        the first stage role is delegated.
       scenarios:
         - name: Review answers
           given: User completed all questions
@@ -121,7 +121,7 @@ error_cases:
 edge_cases:
   - User runs /odf-continue on a change with incomplete preflight -> run preflight first.
   - User changes artifact store preference mid-workflow -> apply only to new artifacts.
-  - TDD mode toggled after preflight -> record updated for subsequent phases.
+  - TDD mode toggled after preflight -> record updated for subsequent stage roles.
 
 dependencies:
   - orchestrator-agent (invokes preflight)
