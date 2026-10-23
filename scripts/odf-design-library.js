@@ -154,15 +154,19 @@ const okStatus = (status) => status !== "error" && status !== "timeout" && statu
 
 /**
  * Convert IMPLEMENT delegation records into real tool-call rounds.
- * Keeps only completed (non-error/timeout/blocked) `phase: "IMPLEMENT"` records
+ * Keeps only completed (non-error/timeout/blocked) BUILD records. New metric
+ * events carry `stage: "BUILD"`; historical events carry `phase: "IMPLEMENT"`.
  * and sums duration_ms → rounds via the estimator's roundsFromDurationMs.
  * No records / no usable duration → { rounds_real: null, data_status: "no_data" }.
  */
 export function collectImplementationRounds(records, { minutes_per_round = DEFAULT_MINUTES_PER_ROUND } = {}) {
   if (!Array.isArray(records)) return { rounds_real: null, data_status: "no_data", duration_ms: 0, record_count: 0 }
-  const impl = records.filter(
-    (r) => r && String(r.phase).toUpperCase() === "IMPLEMENT" && okStatus(r.status)
-  )
+  const impl = records.filter((r) => {
+    if (!r || !okStatus(r.status)) return false
+    const stage = String(r.stage || "").toUpperCase()
+    const phase = String(r.phase || "").toUpperCase()
+    return stage === "BUILD" || phase === "IMPLEMENT"
+  })
   const duration_ms = impl.reduce(
     (sum, r) => sum + (Number.isFinite(r.duration_ms) && r.duration_ms > 0 ? r.duration_ms : 0),
     0

@@ -144,6 +144,15 @@ describe("odf design library calibration (A3)", () => {
     expect(r.record_count).toBe(2)
   })
 
+  it("collect-impl-rounds-stage: counts BUILD events and historical IMPLEMENT events", () => {
+    const r = collectImplementationRounds([
+      { stage: "BUILD", status: "ok", duration_ms: 600000 },
+      { phase: "IMPLEMENT", status: "ok", duration_ms: 480000 },
+      { stage: "VERIFY", status: "ok", duration_ms: 5000 },
+    ], { minutes_per_round: 3 })
+    expect(r).toMatchObject({ data_status: "complete", rounds_real: 6, duration_ms: 1080000, record_count: 2 })
+  })
+
   it("collect-impl-rounds-no-data: no completed IMPLEMENT records yields no_data", () => {
     expect(collectImplementationRounds([], { minutes_per_round: 3 })).toMatchObject({
       rounds_real: null,
