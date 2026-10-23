@@ -48,11 +48,27 @@ export async function loadRegistry(): Promise<ODFRegistry | null> {
     const parsed = JSON.parse(data) as ODFRegistry
     const registryDir = path.dirname(REGISTRY_PATH)
 
+    // A JSON-valid but structurally invalid registry must fail closed instead of
+    // throwing later inside a tool (for example profiles: {}).
+    if (!Array.isArray(parsed.skills) || !Array.isArray(parsed.agents)) {
+      throw new Error("registry must define skills[] and agents[]")
+    }
+    if (parsed.profiles !== undefined && !Array.isArray(parsed.profiles)) {
+      throw new Error("registry profiles must be an array when present")
+    }
+    if (parsed.community_tools !== undefined && !Array.isArray(parsed.community_tools)) {
+      throw new Error("registry community_tools must be an array when present")
+    }
+    if (parsed.notebooklm_sources !== undefined &&
+      (typeof parsed.notebooklm_sources !== "object" || parsed.notebooklm_sources === null || Array.isArray(parsed.notebooklm_sources))) {
+      throw new Error("registry notebooklm_sources must be an object when present")
+    }
+
     // Resolve relative skill/agent paths against the registry directory
-    for (const skill of parsed.skills || []) {
+    for (const skill of parsed.skills) {
       skill.path = resolvePath(registryDir, skill.path)
     }
-    for (const agent of parsed.agents || []) {
+    for (const agent of parsed.agents) {
       agent.path = resolvePath(registryDir, agent.path)
     }
 

@@ -34,6 +34,7 @@ import {
   type OpencodeClient,
   ODF_REGISTERED_TOOLS,
   resolvePath,
+  resolveToolWorkspaceRoot,
   resolveWorkspaceRoot,
   sameCanonicalDirectory,
   workspaceProjectName,
@@ -590,18 +591,8 @@ function canonicalPackRoot(): string | null {
   }
 }
 
-function resolveSelectedWorkspaceRoot(workspaceDir?: string, canonicalDirectory?: string): string | null {
-  const selected = typeof workspaceDir === "string" && workspaceDir.trim()
-    ? workspaceDir
-    : typeof canonicalDirectory === "string" && canonicalDirectory.trim()
-      ? canonicalDirectory
-      : process.cwd()
-  try {
-    const root = canonicalWorkspaceRoot(selected)
-    return fsSync.statSync(root).isDirectory() ? root : null
-  } catch {
-    return null
-  }
+function resolveSelectedWorkspaceRoot(workspaceDir?: string, canonicalDirectory?: string, toolDirectory?: string): string | null {
+  return resolveToolWorkspaceRoot(workspaceDir, toolDirectory, canonicalDirectory)
 }
 
 const ALLOWED_PHASES = ["PROPOSE", "ASSESS", "QA-PLAN", "DESIGN", "IMPLEMENT", "VERIFY", "EXPLORE", "FIX"]
@@ -1471,6 +1462,9 @@ allow decision. The gate documents — the sub-agent applies, never recomputes.`
     args: {
       change: tool.schema
         .string()
+        .min(1)
+        .max(64)
+        .regex(CHANGE_NAME_PATTERN)
         .describe("Change name (kebab-case)"),
       stage: tool.schema
         .enum(["BUILD", "VERIFY"])
@@ -1478,7 +1472,7 @@ allow decision. The gate documents — the sub-agent applies, never recomputes.`
       workspace_dir: tool.schema
         .string()
         .optional()
-        .describe("Project directory (defaults to cwd)"),
+        .describe("Project directory (defaults to the current session workspace)"),
       external_validation_scope: tool.schema
         .array(tool.schema.string().max(512))
         .max(64)
@@ -1496,7 +1490,8 @@ allow decision. The gate documents — the sub-agent applies, never recomputes.`
       workspace_dir?: string
       external_validation_scope?: string[]
       external_validation_subjects?: string[]
-    }): Promise<string> {
+    }, toolCtx: ToolContext): Promise<string> {
+      const workspaceRoot = resolveSelectedWorkspaceRoot(args.workspace_dir, undefined, toolCtx?.directory)
       const registry = await loadRegistry()
       if (!registry) {
         const blocked: PolicyGateDecision = {
@@ -1519,7 +1514,7 @@ allow decision. The gate documents — the sub-agent applies, never recomputes.`
       const decision = computePolicyGate({
         change: args.change,
         stage: args.stage,
-        workspaceDir: args.workspace_dir,
+        workspaceDir: workspaceRoot ?? "",
         registry,
         externalValidationScope: args.external_validation_scope,
         externalValidationSubjects: args.external_validation_subjects,
@@ -2085,7 +2080,7 @@ Use this instead of generic task() for ODF workflow delegation.`,
         )
       }
 
-      const workspaceRoot = resolveSelectedWorkspaceRoot(args.workspace_dir, toolCtx?.directory || canonicalDirectory)
+      const workspaceRoot = resolveSelectedWorkspaceRoot(args.workspace_dir, canonicalDirectory, toolCtx?.directory)
       if (!workspaceRoot) {
         return blockWorkflow(
           "unsafe-workspace-path",
@@ -3668,7 +3663,7 @@ function createODFDelegationLaunch(canonicalDirectory?: string): ReturnType<type
     description: "Launch a prepared delegation using the OpenCode V2 session API. The prompt must match the token-bound bytes exactly. Never use the host subagent tool or resend an uncertain/interrupted prompt; pass returned session IDs to the matching seal.",
     args: {
       token: tool.schema.string(),
-      change: tool.schema.string(),
+      change: tool.schema.string().min(1).max(64).regex(CHANGE_NAME_PATTERN),
       prompt: tool.schema.string().optional().describe("Exact delegation.prompt returned by odf_delegation_prepare."),
       branches: tool.schema.array(tool.schema.object({ branch_id: tool.schema.string(), prompt: tool.schema.string() })).optional()
         .describe("Exact branch prompts returned by odf_parallel_prepare."),
@@ -3685,7 +3680,7 @@ function createODFDelegationLaunch(canonicalDirectory?: string): ReturnType<type
         status: "blocked", reason, stop_disposition: classifyODFStop(reason), token: args.token, task_api_source: "sdk.v2", message, ...extra,
       }, null, 2)
       if (!toolCtx?.sessionID) return blocked("delegation-launch-parent-required", "Launch requires the preparing parent session.")
-      const workspaceRoot = resolveSelectedWorkspaceRoot(args.workspace_dir, canonicalDirectory)
+      const workspaceRoot = resolveSelectedWorkspaceRoot(args.workspace_dir, canonicalDirectory, toolCtx?.directory)
       if (!workspaceRoot) return blocked("unsafe-workspace-path", "The workspace directory does not resolve to a safe existing root.")
       const change = args.change?.trim()
       if (!change) return blocked("delegation-token-invalid", "Launch requires the change name bound to the token.")
@@ -3923,7 +3918,7 @@ function createODFDelegationPrepare(canonicalDirectory?: string): ReturnType<typ
     args: {
       stage: tool.schema.string().describe("Canonical stage: DECIDE, PLAN, BUILD, VERIFY, EXPLORE, FIX"),
       role: tool.schema.string().optional().describe("Role inside a composite stage: DECIDE requires PROPOSE or ASSESS; PLAN requires QA-PLAN or DESIGN. Omit for BUILD, VERIFY, EXPLORE, and FIX."),
-      change: tool.schema.string().describe("Change name (kebab-case)"),
+      change: tool.schema.string().min(1).max(64).regex(CHANGE_NAME_PATTERN).describe("Change name (kebab-case)"),
       prompt: tool.schema.string().describe("The full detailed stage role prompt for the agent."),
       agent: tool.schema.string().optional().describe("Optional explicit registered agent override; must be installed and eligible for the resolved stage role."),
       context_files: tool.schema.array(tool.schema.string()).optional().describe("Files the agent will work with (for skill matching)"),
@@ -3954,7 +3949,6 @@ function createODFDelegationPrepare(canonicalDirectory?: string): ReturnType<typ
       governance_acknowledgment?: Record<string, unknown>
       workspace_dir?: string
     }, toolCtx: ToolContext): Promise<string> {
-      if (!toolCtx?.sessionID) return "❌ odf_delegation_prepare requires sessionID"
       const blocked = (reason: string, message: string, extra: Record<string, unknown> = {}): string => JSON.stringify({
         status: "blocked",
         reason,
@@ -3969,6 +3963,8 @@ function createODFDelegationPrepare(canonicalDirectory?: string): ReturnType<typ
         ...extra,
       }, null, 2)
 
+      if (!toolCtx?.sessionID) return blocked("session-id-required", "odf_delegation_prepare requires sessionID")
+
       const target = resolveDelegationTarget(args.stage, args.role)
       if (!target.ok) {
         return blocked(target.reason, target.message)
@@ -3979,7 +3975,7 @@ function createODFDelegationPrepare(canonicalDirectory?: string): ReturnType<typ
       }
       const gated = target.stage === "BUILD" || target.stage === "VERIFY"
 
-      const workspaceRoot = resolveSelectedWorkspaceRoot(args.workspace_dir, canonicalDirectory)
+      const workspaceRoot = resolveSelectedWorkspaceRoot(args.workspace_dir, canonicalDirectory, toolCtx?.directory)
       if (!workspaceRoot) {
         return blocked("unsafe-workspace-path", "The workspace directory does not resolve to a safe existing root.")
       }
@@ -3987,12 +3983,18 @@ function createODFDelegationPrepare(canonicalDirectory?: string): ReturnType<typ
       if (packRoot && hasPackRegistry(packRoot) && isWithinRoot(workspaceRoot, packRoot)) {
         return blocked("unsafe-workspace-path", `The workspace root is inside the installed ODF pack (${workspaceRoot}); pass the project root instead, or omit workspace_dir.`)
       }
-      const changeName = args.change?.trim() || extractChangeName(args.prompt)
+      const explicitChange = args.change?.trim()
+      if (explicitChange && !canonicalChangeName(explicitChange)) {
+        return blocked("unsafe-change-name", "The change name must be a safe token of 1-64 letters, numbers, hyphens, or underscores.")
+      }
+      const changeName = explicitChange ? canonicalChangeName(explicitChange) : extractChangeName(args.prompt)
       if (!changeName) {
         return blocked("change-required-for-native-delegation", "odf_delegation_prepare requires the change name (pass change or a prompt with 'Change name: <name>').")
       }
       const contextValidation = validateContextFiles(workspaceRoot, args.context_files || [])
-      if (contextValidation.error) return contextValidation.error
+      if (contextValidation.error) {
+        return blocked("invalid-context-files", contextValidation.error.replace(/^❌\s*/, ""))
+      }
 
       // Reject unsafe caller input before reserving a gated attempt. This is
       // the pre-tool boundary for the native child launch, where no child
@@ -4012,7 +4014,7 @@ function createODFDelegationPrepare(canonicalDirectory?: string): ReturnType<typ
 
       const registry = await loadRegistry()
       if (!registry) {
-        return `❌ ODF registry not found. Run /odf-init or check ${REGISTRY_PATH}`
+        return blocked("registry-unavailable", `ODF registry not found. Run /odf-init or check ${REGISTRY_PATH}`)
       }
 
       // Proof-backed BUILD/VERIFY pre-flight: resolve and persist the policy gate
@@ -4298,7 +4300,7 @@ function createODFProposalWrite(canonicalDirectory?: string): ReturnType<typeof 
       if (!toolCtx?.sessionID || !toolCtx.agent) {
         return blocked("proposal-writer-session-required", "odf_proposal_write requires the active child session and agent identity.")
       }
-      const workspaceRoot = resolveSelectedWorkspaceRoot(toolCtx.directory, canonicalDirectory)
+      const workspaceRoot = resolveSelectedWorkspaceRoot(undefined, canonicalDirectory, toolCtx.directory)
       if (!workspaceRoot) return blocked("unsafe-workspace-path", "The child workspace does not resolve to a safe existing project root.")
       const changeName = args.change?.trim()
       if (!changeName || changeName !== args.change) return blocked("unsafe-change-name", "The change name must exactly match the prepared delegation.")
@@ -4388,7 +4390,7 @@ function createODFLateSealCapabilityPrepare(canonicalDirectory?: string): Return
     description: `Prepare (without sealing or changing workflow state) a single-use, ten-minute late-seal capability for one expired native BUILD/VERIFY token. Requires the original running attempt and independently verifies the exact parent, child, agent, workspace, idle state, and prepared prompt. Then call odf_delegation_seal with the same token/change/session_id and the returned late_seal_capability. Never relaunch the child or edit the original token expiry.`,
     args: {
       token: tool.schema.string().describe("Original delegation token; it is not refreshed or modified."),
-      change: tool.schema.string().describe("Change name (kebab-case) the original token belongs to."),
+      change: tool.schema.string().min(1).max(64).regex(CHANGE_NAME_PATTERN).describe("Change name (kebab-case) the original token belongs to."),
       session_id: tool.schema.string().describe("Exact child session ID persisted by the original launch."),
       workspace_dir: tool.schema.string().optional().describe("Absolute project root; omit it to use the current session's project directory."),
     },
@@ -4422,7 +4424,7 @@ function createODFLateSealCapabilityPrepare(canonicalDirectory?: string): Return
         return blocked(reason, message)
       }
       if (!toolCtx?.sessionID) return blocked("late-seal-parent-required", "Capability preparation must run in the original parent session.")
-      const workspaceRoot = resolveSelectedWorkspaceRoot(args.workspace_dir, canonicalDirectory)
+      const workspaceRoot = resolveSelectedWorkspaceRoot(args.workspace_dir, canonicalDirectory, toolCtx?.directory)
       if (!workspaceRoot) return recordBlocked("unsafe-workspace-path", "The workspace directory does not resolve to a safe existing root.")
       const change = args.change?.trim()
       const tokenRead = change ? readDelegationToken(workspaceRoot, change, args.token) : { record: null, error: "delegation-token-invalid" }
@@ -4540,7 +4542,7 @@ function createODFDelegationSeal(canonicalDirectory?: string): ReturnType<typeof
     description: `Seal a native ODF delegation started with odf_delegation_prepare: parallel branch tokens must use odf_parallel_seal instead. Verify the child session against the token, wait until its V2 session loop is idle, read its ODF Result, run the stage gates (source authority, design closure, artifact refs and PLAN materialization; proof revalidation, validation-evidence seal, workflow commit and attempt settlement for BUILD/VERIFY) and return the standard delegation envelope. If the original token expired after launch, first call odf_delegation_late_seal_prepare for the same token and child, then pass its late_seal_capability here; the original expiry is never changed.`,
     args: {
       token: tool.schema.string().describe("Delegation token returned by odf_delegation_prepare."),
-      change: tool.schema.string().describe("Change name (kebab-case) the token belongs to."),
+      change: tool.schema.string().min(1).max(64).regex(CHANGE_NAME_PATTERN).describe("Change name (kebab-case) the token belongs to."),
       session_id: tool.schema.string().describe("Child session id returned by odf_delegation_launch."),
       late_seal_capability: tool.schema.string().optional().describe("Single-use, short-TTL capability returned by odf_delegation_late_seal_prepare for this exact token, attempt, parent, and child."),
       workspace_dir: tool.schema.string().optional().describe("Absolute project root; omit it to use the current session's project directory."),
@@ -4552,7 +4554,6 @@ function createODFDelegationSeal(canonicalDirectory?: string): ReturnType<typeof
       late_seal_capability?: string
       workspace_dir?: string
     }, toolCtx: ToolContext): Promise<string> {
-      if (!toolCtx?.sessionID) return "❌ odf_delegation_seal requires sessionID"
       const blocked = (reason: string, message: string, extra: Record<string, unknown> = {}): string => JSON.stringify({
         status: "blocked",
         reason,
@@ -4569,7 +4570,9 @@ function createODFDelegationSeal(canonicalDirectory?: string): ReturnType<typeof
         ...extra,
       }, null, 2)
 
-      const workspaceRoot = resolveSelectedWorkspaceRoot(args.workspace_dir, canonicalDirectory)
+      if (!toolCtx?.sessionID) return blocked("session-id-required", "odf_delegation_seal requires sessionID")
+
+      const workspaceRoot = resolveSelectedWorkspaceRoot(args.workspace_dir, canonicalDirectory, toolCtx?.directory)
       if (!workspaceRoot) {
         return blocked("unsafe-workspace-path", "The workspace directory does not resolve to a safe existing root.")
       }
@@ -5061,7 +5064,7 @@ function createODFParallelPrepare(canonicalDirectory?: string): ReturnType<typeo
     args: {
       work_type: tool.schema.enum(["cross-domain"]).describe("Only cross-domain work can use the parallel BUILD scheduler"),
       stage: tool.schema.enum(["BUILD"]).describe("Only BUILD is parallelized; VERIFY remains sequential"),
-      change: tool.schema.string().describe("Shared change name (kebab-case)"),
+      change: tool.schema.string().min(1).max(64).regex(CHANGE_NAME_PATTERN).describe("Shared change name (kebab-case)"),
       artifact_store: tool.schema.enum(["openspec", "engram", "hybrid"]).describe("Authoritative workflow store for the aggregate transition"),
       workflow_advance: workflowAdvanceSchema.describe("Exact shared transition proof; it must advance cross-domain to BUILD"),
       branches: tool.schema.array(parallelBranchDescriptorSchema).describe("Two or three independent branch descriptors"),
@@ -5084,7 +5087,6 @@ function createODFParallelPrepare(canonicalDirectory?: string): ReturnType<typeo
       odoo_source_repos?: string
       workspace_dir?: string
     }, toolCtx: ToolContext): Promise<string> {
-      if (!toolCtx?.sessionID) return "❌ odf_parallel_prepare requires sessionID"
       const blocked = (reason: string, message: string, extra: Record<string, unknown> = {}): string => JSON.stringify({
         status: "blocked",
         reason,
@@ -5100,10 +5102,12 @@ function createODFParallelPrepare(canonicalDirectory?: string): ReturnType<typeo
         ...extra,
       }, null, 2)
 
+      if (!toolCtx?.sessionID) return blocked("session-id-required", "odf_parallel_prepare requires sessionID")
+
       if (!Array.isArray(args.branches) || args.branches.length < 2 || args.branches.length > 3) {
         return blocked("parallel-branch-count", "Parallel BUILD requires 2 or 3 branch descriptors.")
       }
-      const workspaceRoot = resolveSelectedWorkspaceRoot(args.workspace_dir, canonicalDirectory)
+      const workspaceRoot = resolveSelectedWorkspaceRoot(args.workspace_dir, canonicalDirectory, toolCtx?.directory)
       if (!workspaceRoot) {
         return blocked("unsafe-workspace-path", "The workspace directory does not resolve to a safe existing root.")
       }
@@ -5111,9 +5115,9 @@ function createODFParallelPrepare(canonicalDirectory?: string): ReturnType<typeo
       if (packRoot && hasPackRegistry(packRoot) && isWithinRoot(workspaceRoot, packRoot)) {
         return blocked("unsafe-workspace-path", `The workspace root is inside the installed ODF pack (${workspaceRoot}); pass the project root instead, or omit workspace_dir.`)
       }
-      const changeName = args.change?.trim()
+      const changeName = canonicalChangeName(args.change)
       if (!changeName) {
-        return blocked("change-required-for-native-delegation", "odf_parallel_prepare requires the shared change name.")
+        return blocked("unsafe-change-name", "odf_parallel_prepare requires a safe shared change name.")
       }
 
       const seenBranches = new Set<string>()
@@ -5136,7 +5140,7 @@ function createODFParallelPrepare(canonicalDirectory?: string): ReturnType<typeo
         }
         seenAttempts.add(branch.attempt_id)
         const contextValidation = validateContextFiles(workspaceRoot, branch.context_files || [])
-        if (contextValidation.error) return blocked("invalid-context-files", contextValidation.error)
+        if (contextValidation.error) return blocked("invalid-context-files", contextValidation.error.replace(/^❌\s*/, ""))
         branchContexts.set(branch.branch_id, contextValidation.relativePaths)
         for (const contextPath of contextValidation.paths) {
           const owner = seenPaths.get(contextPath)
@@ -5149,8 +5153,27 @@ function createODFParallelPrepare(canonicalDirectory?: string): ReturnType<typeo
 
       const registry = await loadRegistry()
       if (!registry) {
-        return `❌ ODF registry not found. Run /odf-init or check ${REGISTRY_PATH}`
+        return blocked("registry-unavailable", `ODF registry not found. Run /odf-init or check ${REGISTRY_PATH}`)
       }
+
+      const admission = await resolveProofBackedAdmission({
+        workspaceRoot,
+        changeName,
+        artifactStore: args.artifact_store,
+        stage: "BUILD",
+        attemptId: args.branches[0].attempt_id,
+        proof: args.workflow_advance as ODFDelegateWorkflowAdvance,
+      })
+      if (!admission.ok) {
+        return blocked(admission.reason, admission.message, admission.workflowResult ? { workflow_advance: admission.workflowResult } : {})
+      }
+      if (admission.transition.alreadyCommitted) {
+        return blocked("workflow-stage-already-complete", "The BUILD stage is already complete; native parallel delegation will not launch another attempt.")
+      }
+      if (admission.fastLanePolicyActive) {
+        return blocked("native-delegation-fast-lane-unsupported", "The persisted fast-lane policy is enabled; use odf_delegate for bounded fast-lane BUILD until the native parallel path supports it.")
+      }
+      const effectiveWorkflowAdvance = admission.proof
 
       const policyGate = computePolicyGate({
         change: changeName,
@@ -5256,7 +5279,7 @@ function createODFParallelPrepare(canonicalDirectory?: string): ReturnType<typeo
           ? { source_root: sourceAuthorityRoots.source, ...(sourceAuthorityRoots.repos ? { source_repos: sourceAuthorityRoots.repos } : {}) }
           : {}),
         artifact_store: args.artifact_store,
-        workflow_advance: args.workflow_advance,
+        workflow_advance: effectiveWorkflowAdvance,
         policy_gate: policyGate as unknown as Record<string, unknown>,
         ...(args.target ? { target: args.target } : {}),
         ...(args.governance_acknowledgment ? { governance_acknowledgment: args.governance_acknowledgment } : {}),
@@ -5331,7 +5354,7 @@ function createODFParallelSeal(canonicalDirectory?: string): ReturnType<typeof t
     description: `Seal a native parallel BUILD started with odf_parallel_prepare: verify each child session against the token, wait until every V2 session loop is idle, collect the branch results and run the authoritative parallel scheduler (per-branch validation evidence, aggregate join and one workflow commit for BUILD). The token is consumed under the exclusive lock before scheduler invocation so a process crash cannot make the scheduler replayable; concurrent duplicate seals are rejected.`,
     args: {
       token: tool.schema.string().describe("Parallel delegation token returned by odf_parallel_prepare."),
-      change: tool.schema.string().describe("Shared change name the token belongs to."),
+      change: tool.schema.string().min(1).max(64).regex(CHANGE_NAME_PATTERN).describe("Shared change name the token belongs to."),
       branches: tool.schema.array(parallelSessionSchema).describe("Child sessions per branch id."),
       workspace_dir: tool.schema.string().optional().describe("Absolute project root; omit it to use the current session's project directory."),
     },
@@ -5341,7 +5364,6 @@ function createODFParallelSeal(canonicalDirectory?: string): ReturnType<typeof t
       branches: Array<{ branch_id: string; session_id: string }>
       workspace_dir?: string
     }, toolCtx: ToolContext): Promise<string> {
-      if (!toolCtx?.sessionID) return "❌ odf_parallel_seal requires sessionID"
       const blocked = (reason: string, message: string, extra: Record<string, unknown> = {}): string => JSON.stringify({
         status: "blocked",
         reason,
@@ -5358,7 +5380,9 @@ function createODFParallelSeal(canonicalDirectory?: string): ReturnType<typeof t
         ...extra,
       }, null, 2)
 
-      const workspaceRoot = resolveSelectedWorkspaceRoot(args.workspace_dir, canonicalDirectory)
+      if (!toolCtx?.sessionID) return blocked("session-id-required", "odf_parallel_seal requires sessionID")
+
+      const workspaceRoot = resolveSelectedWorkspaceRoot(args.workspace_dir, canonicalDirectory, toolCtx?.directory)
       if (!workspaceRoot) {
         return blocked("unsafe-workspace-path", "The workspace directory does not resolve to a safe existing root.")
       }
@@ -5756,6 +5780,9 @@ must not overlap. VERIFY remains sequential after the aggregate join is complete
       governance_acknowledgment: governanceAcknowledgmentSchema.optional().describe("Explicit final human OCA acknowledgment"),
       change: tool.schema
         .string()
+        .min(1)
+        .max(64)
+        .regex(CHANGE_NAME_PATTERN)
         .describe("Shared change name (kebab-case)"),
       workspace_dir: tool.schema
         .string()
@@ -5821,7 +5848,7 @@ must not overlap. VERIFY remains sequential after the aggregate join is complete
       const emitBranchLifecycle: typeof recordBranchLifecycle = suppressMetrics ? () => {} : recordBranchLifecycle
       let expected = Array.isArray(args.branches) ? args.branches.length : 0
       let persistedJoinRef: string | null = null
-      const workspaceRoot = resolveSelectedWorkspaceRoot(args.workspace_dir, canonicalDirectory)
+      const workspaceRoot = resolveSelectedWorkspaceRoot(args.workspace_dir, canonicalDirectory, toolCtx?.directory)
       const detectedOdooVersion = workspaceRoot ? await detectOdooVersion(workspaceRoot) : null
       const sourceAuthorityRequiredForTelemetry = Array.isArray(args.branches) && args.branches.some(branch =>
         isViewAuthorityWork("IMPLEMENT", branch.prompt, branch.context_files || []))
@@ -6853,7 +6880,9 @@ interface ReceiptFileRead {
 }
 
 function readReceiptFile(workspaceRoot: string, changeName: string): ReceiptFileRead {
-  const receiptPath = path.join(workspaceRoot, ".odf", `receipt-${changeName}.json`)
+  const change = canonicalChangeName(changeName)
+  if (!change) return { receipt: null, malformed: true }
+  const receiptPath = path.join(workspaceRoot, ".odf", `receipt-${change}.json`)
   try {
     const parsed: unknown = JSON.parse(fsSync.readFileSync(receiptPath, "utf8"))
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return { receipt: null, malformed: true }
@@ -9213,7 +9242,7 @@ tool never writes state or receipts.`,
         .describe("Project directory (defaults to current session workspace)"),
     },
     async execute(args: { change_name?: string; workspace_dir?: string }, toolCtx: ToolContext): Promise<string> {
-      const workspace = resolveSelectedWorkspaceRoot(args.workspace_dir, toolCtx?.directory || canonicalDirectory)
+      const workspace = resolveSelectedWorkspaceRoot(args.workspace_dir, canonicalDirectory, toolCtx?.directory)
       if (!workspace) {
         return JSON.stringify({ status: "blocked", reason: "unsafe-workspace-path", message: "The session workspace does not resolve to a safe existing project root." }, null, 2)
       }
@@ -9315,7 +9344,7 @@ function createODFWorkflowArchive(canonicalDirectory?: string): ReturnType<typeo
       if (!changeName || changeName !== args.change_name || !CHANGE_NAME_PATTERN.test(changeName)) {
         return blocked("unsafe-change-name", "The archive tool requires an exact kebab-case change name.")
       }
-      const workspaceRoot = resolveSelectedWorkspaceRoot(args.workspace_dir, toolCtx?.directory || canonicalDirectory)
+      const workspaceRoot = resolveSelectedWorkspaceRoot(args.workspace_dir, canonicalDirectory, toolCtx?.directory)
       if (!workspaceRoot) return blocked("unsafe-workspace-path", "The session workspace does not resolve to a safe existing project root.")
 
       const read = await readSelectedWorkflowState(workspaceRoot, changeName, args.artifact_store)
@@ -10233,7 +10262,7 @@ Actions:
 
      Requires a human-approved reason (>=20 chars). Fast-lane disable additionally requires approved_by and a live session.`,
     args: {
-      change_name: tool.schema.string().describe("Change name (kebab-case)"),
+      change_name: tool.schema.string().min(1).max(64).regex(CHANGE_NAME_PATTERN).describe("Change name (kebab-case)"),
       artifact_store: tool.schema.enum(["openspec", "engram", "hybrid"]).describe("Authoritative workflow store"),
       action: tool.schema.enum(["skip", "re-enter", "re-plan", "disable-fast-lane", "settle-attempt", "settle-unlaunched-attempt", "settle-bind-failed-attempt", "settle-join"]).describe("Override action"),
       target_stage: tool.schema.enum(["DECIDE", "PLAN", "BUILD", "VERIFY"]).optional().describe("Canonical stage to skip/re-enter/re-plan from"),
@@ -10288,10 +10317,8 @@ Actions:
       }
       const changeName = canonicalChangeName(args.change_name)
       if (!changeName) return blocked("unsafe-change-path", "The change name is not a safe OpenSpec path segment.")
-      let workspaceRoot: string
-      try {
-        workspaceRoot = canonicalWorkspaceRoot(args.workspace_dir || process.cwd())
-      } catch {
+      const workspaceRoot = resolveSelectedWorkspaceRoot(args.workspace_dir, undefined, toolCtx?.directory)
+      if (!workspaceRoot) {
         return blocked("unsafe-workspace-path", "The workspace directory does not resolve to a safe existing root.")
       }
       const reason = (args.reason || "").trim()

@@ -5,10 +5,10 @@
 
 import * as fs from "node:fs/promises"
 import * as path from "node:path"
-import { tool } from "./odf-tool.js"
+import { tool, type ToolContext } from "./odf-tool.js"
 import { filterStopWords, resolveAgent } from "../scripts/lib/agent-resolve.js"
 import { loadRegistry } from "./odf-registry-io.js"
-import { debugLog, type ODFRegistry, type ODFSkill } from "./odf-delegation-shared.js"
+import { debugLog, resolveToolWorkspaceRoot, type ODFRegistry, type ODFSkill } from "./odf-delegation-shared.js"
 import { resolveDelegationTarget } from "./odf-delegation-contract.js"
 
 // ==========================================
@@ -68,7 +68,7 @@ export async function getProfileByPhase(
   phase: string,
   profileName?: string
 ): Promise<{ model: string; temperature: number; reasoning?: boolean; name?: string } | null> {
-  if (!registry.profiles) return null
+  if (!Array.isArray(registry.profiles)) return null
 
   // Find active profile first
   const profiles = registry.profiles as any[]
@@ -133,17 +133,22 @@ export function matchSkills(
       ? `odf-${normalizedPhase.toLowerCase()}`
       : null
 
-  for (const skill of registry.skills) {
+  const registeredSkills = Array.isArray(registry.skills) ? registry.skills : []
+  for (const skill of registeredSkills) {
+    if (!skill || typeof skill !== "object") continue
+    const triggers = Array.isArray(skill.triggers) ? skill.triggers : []
+    const odooVersions = Array.isArray(skill.odoo_versions) ? skill.odoo_versions : []
     if (skill.name === "odf-oca-governance" && !ocaTargeted) continue
-    const isOdfSkill = skill.category === "odf" || skill.category.startsWith("odf/")
+    const category = typeof skill.category === "string" ? skill.category : ""
+    const isOdfSkill = category === "odf" || category.startsWith("odf/")
     if (isOdfSkill && normalizedPhase && skill.sdd_phase && skill.sdd_phase.toUpperCase() !== normalizedPhase) {
       continue
     }
 
     const isCanonical = skill.name === canonicalName
     // Version pinning: skip skills that don't support the detected version
-    if (context.odooVersion && skill.odoo_versions.length > 0) {
-      if (!skill.odoo_versions.includes(context.odooVersion)) {
+    if (context.odooVersion && odooVersions.length > 0) {
+      if (!odooVersions.includes(context.odooVersion)) {
         continue
       }
     }
@@ -154,8 +159,8 @@ export function matchSkills(
     if (context.files) {
       for (const file of context.files) {
         const fileLower = file.toLowerCase()
-        for (const trigger of skill.triggers) {
-          if (fileLower.includes(trigger.toLowerCase())) {
+        for (const trigger of triggers) {
+          if (typeof trigger === "string" && fileLower.includes(trigger.toLowerCase())) {
             score += 2
           }
         }
@@ -163,8 +168,8 @@ export function matchSkills(
     }
 
     // Match by task context
-    for (const trigger of skill.triggers) {
-      if (taskLower.includes(trigger.toLowerCase())) {
+    for (const trigger of triggers) {
+      if (typeof trigger === "string" && taskLower.includes(trigger.toLowerCase())) {
         score += 1
       }
     }
@@ -182,7 +187,7 @@ export function matchSkills(
     if (b._score !== a._score) {
       return b._score - a._score
     }
-    return b.compact_rules.length - a.compact_rules.length
+    return String(b.compact_rules || "").length - String(a.compact_rules || "").length
   })
 
   return matches.slice(0, 5)
@@ -303,7 +308,7 @@ Use this for debugging:
         .optional()
         .describe("Odoo version (auto-detected if not provided)"),
     },
-    async execute(args: { stage: string; role?: string; task: string; context_files?: string[]; target?: string; odoo_version?: number }): Promise<string> {
+    async execute(args: { stage: string; role?: string; task: string; context_files?: string[]; target?: string; odoo_version?: number }, toolCtx: ToolContext): Promise<string> {
       const target = resolveDelegationTarget(args.stage, args.role)
       if (!target.ok) {
         return `❌ ${target.message}`
@@ -316,8 +321,8 @@ Use this for debugging:
       // Detect version if not provided
       let version = args.odoo_version || null
       if (!version) {
-        // Try to detect from current working directory
-        version = await detectOdooVersion(process.cwd())
+        // Prefer the current session directory; fall back to cwd for standalone use.
+        version = await detectOdooVersion(resolveToolWorkspaceRoot(undefined, toolCtx?.directory) ?? process.cwd())
       }
 
       // Resolve agent

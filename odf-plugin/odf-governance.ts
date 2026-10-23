@@ -1,8 +1,8 @@
 import * as fsSync from "node:fs"
 import * as path from "node:path"
 import { execFileSync } from "node:child_process"
-import { tool } from "./odf-tool.js"
-import { canonicalWorkspaceRoot, isWithinRoot } from "./odf-delegation-shared.js"
+import { tool, type ToolContext } from "./odf-tool.js"
+import { canonicalWorkspaceRoot, isWithinRoot, resolveToolWorkspaceRoot } from "./odf-delegation-shared.js"
 
 export const OCA_POLICY_SOURCE = "https://github.com/OCA/.github/blob/master/AI_POLICY.md"
 export const GOVERNANCE_SCHEMA_VERSION = 1 as const
@@ -456,11 +456,15 @@ export function createODFGovernanceProvenance(): ReturnType<typeof tool> {
       agent: tool.schema.string().describe("Agent label without secrets"),
       model: tool.schema.string().describe("Model label without secrets"),
       files: tool.schema.array(tool.schema.string()).describe("Affected paths relative to the worktree"),
-      workspace_dir: tool.schema.string().optional().describe("Current worktree (defaults to cwd)"),
+      workspace_dir: tool.schema.string().optional().describe("Current worktree (defaults to the current session workspace)"),
     },
-    async execute(args: AiProvenanceInput & { workspace_dir?: string }): Promise<string> {
+    async execute(args: AiProvenanceInput & { workspace_dir?: string }, toolCtx: ToolContext): Promise<string> {
+      const workspace = resolveToolWorkspaceRoot(args.workspace_dir, toolCtx?.directory)
+      if (!workspace) {
+        return JSON.stringify({ status: "error", reason: "unsafe-workspace-path", message: "The workspace directory does not resolve to a safe existing project root." }, null, 2)
+      }
       try {
-        const document = recordAiProvenance(args.workspace_dir || process.cwd(), args)
+        const document = recordAiProvenance(workspace, args)
         return JSON.stringify({ status: "ok", path: ".odf/ai-provenance.json", schema_version: document.schema_version, records: document.records.length }, null, 2)
       } catch (error) {
         return JSON.stringify({ status: "error", reason: error instanceof Error ? error.message : "provenance write failed" }, null, 2)
@@ -474,13 +478,17 @@ export function createODFGovernanceCheck(): ReturnType<typeof tool> {
     description: `Read-only OCA governance check for the current worktree. Checks diff size/files, provenance, Assisted-by recommendations, and AI Co-authored-by misuse. It never commits, publishes, or issues an ODF VERIFY verdict.`,
     args: {
       target: tool.schema.enum(["oca"]).describe("Explicit governance target: oca"),
-      workspace_dir: tool.schema.string().optional().describe("Current worktree (defaults to cwd)"),
+      workspace_dir: tool.schema.string().optional().describe("Current worktree (defaults to the current session workspace)"),
       commit_message: tool.schema.string().optional().describe("Optional proposed commit message to inspect for trailers"),
     },
-    async execute(args: { target: string; workspace_dir?: string; commit_message?: string }): Promise<string> {
+    async execute(args: { target: string; workspace_dir?: string; commit_message?: string }, toolCtx: ToolContext): Promise<string> {
+      const workspace = resolveToolWorkspaceRoot(args.workspace_dir, toolCtx?.directory)
+      if (!workspace) {
+        return JSON.stringify({ status: "error", target: args.target, human_ack_required: true, reason: "unsafe-workspace-path" }, null, 2)
+      }
       try {
         if (args.target !== "oca") throw new Error("target is not supported by this profile")
-        return JSON.stringify(inspectOcaGovernance(args.workspace_dir || process.cwd(), args.commit_message), null, 2)
+        return JSON.stringify(inspectOcaGovernance(workspace, args.commit_message), null, 2)
       } catch (error) {
         return JSON.stringify({ status: "error", target: args.target, human_ack_required: true, reason: error instanceof Error ? error.message : "governance check failed" }, null, 2)
       }
