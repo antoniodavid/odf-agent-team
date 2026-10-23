@@ -33,7 +33,7 @@ export function defaultJudgeRubric() {
 }
 
 export function compareHumanJudge({ human, judge }) {
-  if (judge === "unavailable") {
+  if ((judge !== "pass" && judge !== "fail") || (human !== "pass" && human !== "fail")) {
     return { agreement: null, false_pass: false, false_block: false, unavailable: true }
   }
   return {
@@ -79,9 +79,21 @@ export function evaluateShadow({ expectations, candidate_digest, trace_ref, evid
     }
   }
   const result = runJudge({ expectations, candidate_digest, trace_ref, evidence, golden }, base)
+  const verdict = result && result.verdict
+  if (verdict !== "pass" && verdict !== "fail") {
+    return {
+      ...base,
+      verdict: "unavailable",
+      verdict_label: "N/A",
+      rationale: null,
+      data_status: "no_data",
+    }
+  }
   return {
     ...base,
     ...result,
+    verdict,
+    verdict_label: result.verdict_label || (verdict === "pass" ? "PASS" : "FAIL"),
     data_status: "complete",
     judge_version: { ...base.judge_version, ...(result.judge_version || {}) },
   }
