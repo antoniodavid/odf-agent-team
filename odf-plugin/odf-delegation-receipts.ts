@@ -3,16 +3,23 @@
  * Extracted from plugins/odf-delegation.ts — behavior unchanged.
  */
 
+import * as crypto from "node:crypto"
 import * as fsSync from "node:fs"
 import * as path from "node:path"
-import { tool } from "./odf-tool.js"
+import { tool, type ToolContext } from "./odf-tool.js"
 import { buildCandidateManifest, computeCandidateDigest } from "./candidate-manifest.js"
 import {
   gitHead,
   readPersistedExternalValidationScope,
   readPersistedExternalValidationSubjects,
 } from "./odf-delegation-policy.js"
-import { debugLog, resolveWorkspaceRoot } from "./odf-delegation-shared.js"
+import {
+  canonicalChangeName,
+  CHANGE_NAME_PATTERN,
+  debugLog,
+  resolveToolWorkspaceRoot,
+  withExclusiveFileLock,
+} from "./odf-delegation-shared.js"
 import {
   DELEGATION_ROLES,
   DELEGATION_STAGES,
@@ -61,16 +68,18 @@ export function candidateDigestOrNull(workspaceDir: string, change?: string): st
 }
 
 export function saveReceiptJson(workspaceDir: string, receipt: ODFReceipt): void {
+  const change = canonicalChangeName(receipt.change)
+  if (!change) throw new Error("receipt change is unsafe")
   const dir = path.join(workspaceDir, ".odf")
+  const target = path.join(dir, `receipt-${change}.json`)
+  const temp = `${target}.${process.pid}.${crypto.randomUUID()}.tmp`
   try {
     fsSync.mkdirSync(dir, { recursive: true })
-    fsSync.writeFileSync(
-      path.join(dir, `receipt-${receipt.change}.json`),
-      JSON.stringify(receipt, null, 2),
-      "utf8"
-    )
+    fsSync.writeFileSync(temp, JSON.stringify(receipt, null, 2), { encoding: "utf8", flag: "wx" })
+    fsSync.renameSync(temp, target)
   } catch (err) {
-    throw new Error(`receipt persistence failed for ${receipt.change}`, { cause: err })
+    try { fsSync.unlinkSync(temp) } catch { /* best-effort */ }
+    throw new Error(`receipt persistence failed for ${change}`, { cause: err })
   }
 }
 
@@ -87,7 +96,32 @@ export function mergeReceipt(
   workspaceDir: string,
   incoming: ODFReceipt
 ): ODFReceipt {
-  const receiptPath = path.join(workspaceDir, ".odf", `receipt-${incoming.change}.json`)
+  const change = canonicalChangeName(incoming.change)
+  if (!change) throw new Error("receipt change is unsafe")
+  const odfPath = path.join(workspaceDir, ".odf")
+  try {
+    const stat = fsSync.lstatSync(odfPath)
+    if (!stat.isDirectory() || stat.isSymbolicLink()) {
+      throw new Error(`receipt read failed for ${change}`)
+    }
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+      if (error instanceof Error && error.message.startsWith("receipt read failed")) throw error
+      throw new Error(`receipt read failed for ${change}`, { cause: error })
+    }
+  }
+  const receiptPath = path.join(odfPath, `receipt-${change}.json`)
+  const lockPath = path.join(odfPath, `receipt-${change}.lock`)
+  return withExclusiveFileLock(lockPath, () => mergeReceiptUnlocked(workspaceDir, change, incoming, receiptPath))
+}
+
+function mergeReceiptUnlocked(
+  workspaceDir: string,
+  change: string,
+  incoming: ODFReceipt,
+  receiptPath: string,
+): ODFReceipt {
+  incoming = { ...incoming, change }
   let existingContent: string | null = null
   try {
     existingContent = fsSync.readFileSync(receiptPath, "utf8")
@@ -126,6 +160,9 @@ overwrites it. Persistence failures are returned as tool errors so the workflow 
     args: {
       change: tool.schema
         .string()
+        .min(1)
+        .max(64)
+        .regex(CHANGE_NAME_PATTERN)
         .describe("Change name (kebab-case)"),
       stage: tool.schema
         .enum([...DELEGATION_STAGES])
@@ -160,7 +197,7 @@ overwrites it. Persistence failures are returned as tool errors so the workflow 
       workspace_dir: tool.schema
         .string()
         .optional()
-        .describe("Project directory (defaults to cwd)"),
+        .describe("Project directory (defaults to the current session workspace)"),
     },
     async execute(args: {
       change: string
@@ -173,14 +210,29 @@ overwrites it. Persistence failures are returned as tool errors so the workflow 
       refs?: string[]
       action?: "scope-change" | "re-plan" | "abandon" | "retry" | "none"
       workspace_dir?: string
-    }): Promise<string> {
-      const workspace = resolveWorkspaceRoot(args.workspace_dir || process.cwd())
+    }, toolCtx: ToolContext): Promise<string> {
+      const changeName = canonicalChangeName(args.change)
+      if (!changeName) {
+        return JSON.stringify({
+          status: "blocked",
+          reason: "unsafe-change-name",
+          message: "The change name must be a safe token of 1-64 letters, numbers, hyphens, or underscores.",
+        }, null, 2)
+      }
+      const workspace = resolveToolWorkspaceRoot(args.workspace_dir, toolCtx?.directory)
+      if (!workspace) {
+        return JSON.stringify({
+          status: "blocked",
+          reason: "unsafe-workspace-path",
+          message: "The workspace directory does not resolve to a safe existing project root.",
+        }, null, 2)
+      }
       const target = resolveDelegationTarget(args.stage, args.role)
       if (!target.ok) {
         return JSON.stringify({ status: "error", reason: target.reason, message: target.message }, null, 2)
       }
       const receipt: ODFReceipt = {
-        change: args.change,
+        change: changeName,
         stage: target.stage,
         role: target.role,
         status: args.status,
@@ -199,10 +251,19 @@ overwrites it. Persistence failures are returned as tool errors so the workflow 
         frozen_diff_ref: gitHead(workspace),
         resolved_at: new Date().toISOString(),
       }
-      const merged = mergeReceipt(workspace, receipt)
-      const mergedAction = merged.action?.committed || "pending"
-      debugLog(`[odf-delegation] odf_receipt: change=${merged.change} stage=${merged.stage} role=${merged.role ?? "none"} status=${merged.status} cause=${merged.cause} action=${mergedAction}`)
-      return JSON.stringify(merged, null, 2)
+      try {
+        const merged = mergeReceipt(workspace, receipt)
+        const mergedAction = merged.action?.committed || "pending"
+        debugLog(`[odf-delegation] odf_receipt: change=${merged.change} stage=${merged.stage} role=${merged.role ?? "none"} status=${merged.status} cause=${merged.cause} action=${mergedAction}`)
+        return JSON.stringify(merged, null, 2)
+      } catch (error) {
+        return JSON.stringify({
+          status: "error",
+          reason: "receipt-persistence-failed",
+          change: changeName,
+          message: error instanceof Error ? error.message : "receipt persistence failed",
+        }, null, 2)
+      }
     },
   })
 }

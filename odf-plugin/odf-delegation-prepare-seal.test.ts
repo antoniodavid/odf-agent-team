@@ -217,6 +217,26 @@ describe("native prepare/seal delegation", () => {
     archived_state: false,
   })
 
+  it("returns JSON blocked envelopes when native tools have no session", async () => {
+    const { odf_delegation_prepare, odf_delegation_seal, odf_parallel_prepare } = await tools()
+
+    const prepare = JSON.parse(await odf_delegation_prepare.execute({
+      stage: "PLAN", role: "DESIGN", change: "sessionless", prompt: "Design the change",
+    } as any, {} as any) as string)
+    expect(prepare).toMatchObject({ status: "blocked", reason: "session-id-required" })
+
+    const seal = JSON.parse(await odf_delegation_seal.execute({
+      token: "odf-tok-sessionless", change: "sessionless", session_id: "ses_child",
+    }, {} as any) as string)
+    expect(seal).toMatchObject({ status: "blocked", reason: "session-id-required" })
+
+    const parallel = JSON.parse(await odf_parallel_prepare.execute({
+      work_type: "cross-domain", stage: "BUILD", change: "sessionless", artifact_store: "openspec",
+      workflow_advance: parallelWorkflowAdvance(), branches: [],
+    } as any, {} as any) as string)
+    expect(parallel).toMatchObject({ status: "blocked", reason: "session-id-required" })
+  })
+
   it("prepares a composite delegation with a bounded token and no session launch", async () => {
     const output = await prepareDesign()
 
@@ -1789,6 +1809,31 @@ describe("native prepare/seal delegation", () => {
       interrupt: vi.fn(),
     }
   }
+
+  it("blocks a stale parallel proof before preparing branches", async () => {
+    const change = "native-parallel-stale"
+    const root = path.join(tempHome, "parallel-stale-root")
+    await fs.mkdir(root, { recursive: true })
+    await writeParallelState(root, change)
+    const branches = [
+      { branch_id: "backend-stale", attempt_id: "backend-stale-attempt", prompt: "Implement the backend branch", context_files: [] },
+      { branch_id: "frontend-stale", attempt_id: "frontend-stale-attempt", prompt: "Implement the frontend branch", context_files: [] },
+    ]
+    const { odf_parallel_prepare } = await tools(root)
+
+    const output = JSON.parse(await odf_parallel_prepare.execute({
+      work_type: "cross-domain",
+      stage: "BUILD",
+      change,
+      artifact_store: "openspec",
+      workflow_advance: { ...parallelWorkflowAdvance(), completed_stages: [], candidate_stage: "DECIDE" },
+      branches,
+    }, { sessionID: "prepare-session" } as any) as string)
+
+    expect(output).toMatchObject({ status: "blocked", reason: "workflow-phase-mismatch" })
+    const files = fsSync.existsSync(path.join(root, ".odf")) ? await fs.readdir(path.join(root, ".odf")) : []
+    expect(files.some(name => name.startsWith("delegation-"))).toBe(false)
+  })
 
   it("seals a native parallel BUILD once under concurrent replay", async () => {
     const change = "native-parallel"

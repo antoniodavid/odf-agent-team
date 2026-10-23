@@ -63,6 +63,83 @@ export function canonicalWorkspaceRoot(cwd = process.cwd()): string {
   return fsSync.realpathSync(resolveWorkspaceRoot(cwd))
 }
 
+/**
+ * Resolve a project-scoped tool workspace. An explicit workspace_dir is
+ * strict, so a typo never silently falls back to another project. When the
+ * caller omits it, prefer the current session directory, then the plugin's
+ * canonical directory, then the process cwd.
+ */
+export function resolveToolWorkspaceRoot(
+  workspaceDir?: string,
+  toolDirectory?: string,
+  canonicalDirectory?: string,
+): string | null {
+  const explicit = typeof workspaceDir === "string" ? workspaceDir.trim() : ""
+  const candidates = explicit
+    ? [explicit]
+    : [toolDirectory, canonicalDirectory, process.cwd()]
+  for (const candidate of candidates) {
+    if (typeof candidate !== "string" || !candidate.trim()) continue
+    try {
+      const root = canonicalWorkspaceRoot(candidate)
+      if (fsSync.statSync(root).isDirectory()) return root
+    } catch {
+      // Try the next candidate only when the caller did not provide an explicit workspace.
+    }
+  }
+  return null
+}
+
+/**
+ * Small synchronous exclusive lock for short read/merge/write operations.
+ * The owner metadata is advisory; O_EXCL is the arbiter. A lock older than
+ * staleMs is treated as a crashed holder and reclaimed.
+ */
+export function withExclusiveFileLock<T>(
+  lockPath: string,
+  operation: () => T,
+  options: { timeoutMs?: number; staleMs?: number } = {},
+): T {
+  const timeoutMs = options.timeoutMs ?? 2_000
+  const staleMs = options.staleMs ?? 30_000
+  const started = Date.now()
+  fsSync.mkdirSync(path.dirname(lockPath), { recursive: true })
+  for (;;) {
+    let descriptor: number | null = null
+    try {
+      descriptor = fsSync.openSync(lockPath, "wx")
+      try {
+        fsSync.writeFileSync(descriptor, `${process.pid}\n${new Date().toISOString()}\n`)
+      } catch {
+        // Owner metadata is advisory; the open descriptor still holds the lock.
+      }
+      try {
+        return operation()
+      } finally {
+        try { fsSync.closeSync(descriptor) } catch { /* best-effort */ }
+        try { fsSync.unlinkSync(lockPath) } catch { /* best-effort */ }
+      }
+    } catch (error) {
+      if (descriptor !== null) {
+        try { fsSync.closeSync(descriptor) } catch { /* best-effort */ }
+        descriptor = null
+      }
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error
+      try {
+        const stat = fsSync.statSync(lockPath)
+        if (Date.now() - stat.mtimeMs > staleMs) {
+          fsSync.unlinkSync(lockPath)
+          continue
+        }
+      } catch {
+        // The lock vanished or became unreadable; retry the acquisition.
+      }
+      if (Date.now() - started > timeoutMs) throw new Error(`lock timeout: ${lockPath}`)
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 25)
+    }
+  }
+}
+
 export function sameCanonicalDirectory(first: string, second: string): boolean {
   if (!first || !second) return false
   const canonical = (directory: string): string => {

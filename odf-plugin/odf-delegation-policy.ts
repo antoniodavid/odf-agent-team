@@ -4,6 +4,7 @@
  * plugins/odf-delegation.ts.
  */
 
+import * as crypto from "node:crypto"
 import * as fsSync from "node:fs"
 import * as path from "node:path"
 import { execFileSync, execSync } from "node:child_process"
@@ -14,7 +15,13 @@ import {
   extractChangedPaths,
   normalizeExternalValidationScope,
 } from "./candidate-manifest.js"
-import { debugLog, resolveWorkspaceRoot, type ODFRegistry } from "./odf-delegation-shared.js"
+import {
+  canonicalChangeName,
+  debugLog,
+  resolveWorkspaceRoot,
+  withExclusiveFileLock,
+  type ODFRegistry,
+} from "./odf-delegation-shared.js"
 
 // POLICY GATE (slice 1)
 // ==========================================
@@ -153,26 +160,38 @@ export function resolveTddEffective(
 }
 
 export function savePolicyGateJson(workspaceDir: string, decision: PolicyGateDecision): boolean {
-  try {
-    const dir = path.join(workspaceDir, ".odf")
-    fsSync.mkdirSync(dir, { recursive: true })
-    fsSync.writeFileSync(
-      path.join(dir, `policy-gate-${decision.change}.json`),
-      JSON.stringify(decision, null, 2),
-      "utf8"
-    )
-    return true
-  } catch (err) {
-    console.warn(`[odf-delegation] Failed to persist policy gate for ${decision.change}: ${err}`)
+  const change = canonicalChangeName(decision.change)
+  if (!change) {
+    console.warn(`[odf-delegation] Refusing to persist a policy gate for an unsafe change name: ${decision.change}`)
     return false
   }
+  const dir = path.join(workspaceDir, ".odf")
+  const target = path.join(dir, `policy-gate-${change}.json`)
+  const temp = `${target}.${process.pid}.${crypto.randomUUID()}.tmp`
+  try {
+    fsSync.mkdirSync(dir, { recursive: true })
+    fsSync.writeFileSync(temp, JSON.stringify(decision, null, 2), { encoding: "utf8", flag: "wx" })
+    fsSync.renameSync(temp, target)
+    return true
+  } catch (err) {
+    try { fsSync.unlinkSync(temp) } catch { /* best-effort */ }
+    console.warn(`[odf-delegation] Failed to persist policy gate for ${change}: ${err}`)
+    return false
+  }
+}
+
+function safePolicyGatePath(workspaceDir: string, change: string): string | null {
+  const safeChange = canonicalChangeName(change)
+  if (!safeChange) return null
+  return path.join(workspaceDir, ".odf", `policy-gate-${safeChange}.json`)
 }
 
 export function readPersistedExternalValidationScope(
   workspaceDir: string,
   change: string,
 ): { paths?: string[]; invalid: boolean } {
-  const gatePath = path.join(workspaceDir, ".odf", `policy-gate-${change}.json`)
+  const gatePath = safePolicyGatePath(workspaceDir, change)
+  if (!gatePath) return { invalid: true }
   try {
     fsSync.lstatSync(gatePath)
   } catch (err) {
@@ -193,7 +212,8 @@ export function readPersistedExternalValidationSubjects(
   workspaceDir: string,
   change: string,
 ): { paths?: string[]; invalid: boolean } {
-  const gatePath = path.join(workspaceDir, ".odf", `policy-gate-${change}.json`)
+  const gatePath = safePolicyGatePath(workspaceDir, change)
+  if (!gatePath) return { invalid: true }
   try {
     fsSync.lstatSync(gatePath)
   } catch (err) {
@@ -267,6 +287,72 @@ function blockedWorkspaceDecision(opts: {
   }
 }
 
+function blockedChangeDecision(
+  opts: { change: string; stage: "BUILD" | "VERIFY" },
+  tdd: PolicyGateDecision["tdd"],
+  reason: string,
+): PolicyGateDecision {
+  return {
+    change: opts.change || "",
+    stage: opts.stage,
+    gate: "block",
+    reason,
+    tdd,
+    risk_tier: "MEDIUM",
+    frozen_diff_ref: null,
+    candidate_digest: null,
+    base_head: null,
+    changed_lines: null,
+    correction_budget_lines: null,
+    changed_paths: [],
+    resolved_at: new Date().toISOString(),
+  }
+}
+
+type PolicyGateOptions = {
+  change: string
+  stage: "BUILD" | "VERIFY"
+  workspaceDir?: string
+  registry: ODFRegistry
+  externalValidationScope?: readonly string[]
+  externalValidationSubjects?: readonly string[]
+}
+
+/**
+ * Resolve and persist the Policy Gate for a change before IMPLEMENT/VERIFY.
+ *
+ * Serialized per change with a short file lock so concurrent callers cannot
+ * interleave the idempotency read with a different candidate's write.
+ */
+export function computePolicyGate(opts: PolicyGateOptions): PolicyGateDecision {
+  const workspace = resolveReadableWorkspaceRoot(opts.workspaceDir)
+  if (!workspace) return blockedWorkspaceDecision(opts)
+  const tdd = resolveTddEffective(opts.registry, workspace)
+  if (!opts.change || !opts.change.trim()) {
+    return blockedChangeDecision(opts, tdd, "missing change name — cannot persist a policy gate")
+  }
+  const change = canonicalChangeName(opts.change)
+  if (!change) {
+    return blockedChangeDecision(
+      opts,
+      tdd,
+      "unsafe-change-name — the change name must be a safe path segment",
+    )
+  }
+  try {
+    return withExclusiveFileLock(
+      path.join(workspace, ".odf", `policy-gate-${change}.lock`),
+      () => computePolicyGateUnlocked({ ...opts, change, workspaceDir: workspace }),
+    )
+  } catch (error) {
+    return blockedChangeDecision(
+      opts,
+      resolveTddEffective(opts.registry, workspace),
+      `policy-gate-persistence-failed — ${error instanceof Error ? error.message : String(error)}`,
+    )
+  }
+}
+
 /**
  * Resolve and persist the Policy Gate for a change before IMPLEMENT/VERIFY.
  * Resolves effective TDD and, for VERIFY, freezes the diff ref, counts changed
@@ -276,14 +362,7 @@ function blockedWorkspaceDecision(opts: {
  * "allow" except for hard conditions (missing change name). Idempotent: reuses
  * a persisted decision with the same stage + frozen diff ref (no re-freeze).
  */
-export function computePolicyGate(opts: {
-  change: string
-  stage: "BUILD" | "VERIFY"
-  workspaceDir?: string
-  registry: ODFRegistry
-  externalValidationScope?: readonly string[]
-  externalValidationSubjects?: readonly string[]
-}): PolicyGateDecision {
+function computePolicyGateUnlocked(opts: PolicyGateOptions): PolicyGateDecision {
   const workspace = resolveReadableWorkspaceRoot(opts.workspaceDir)
   if (!workspace) return blockedWorkspaceDecision(opts)
   const tdd = resolveTddEffective(opts.registry, workspace)
