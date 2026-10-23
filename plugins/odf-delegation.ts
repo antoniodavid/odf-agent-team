@@ -8730,28 +8730,67 @@ async function findLocalWorkflowChange(workspaceRoot: string, requestedChange?: 
   return newest ? loadOpenSpecStatus(workspaceRoot, newest.change) : null
 }
 
-async function loadCombinedWorkflowStatus(workspaceRoot: string, changeName?: string): Promise<ODFChangeStatus | null> {
+interface CombinedWorkflowStatus {
+  status: ODFChangeStatus | null
+  error?: string
+}
+
+/** True when the export contains an observation the status tool cannot trust.
+ * A malformed observation is not always fatal: a named change that is still
+ * readable is returned with a warning, but a missing change must not be
+ * reported as a genuine not-found. */
+function hasMalformedEngramObservations(observations: EngramObservation[] | null): boolean {
+  if (!observations) return false
+  return observations.some(observation => {
+    const candidate = observation as unknown
+    if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) return true
+    const record = candidate as Record<string, unknown>
+    if (typeof record.topic_key !== "string") return true
+    const match = record.topic_key.match(/^odf\/([^/]+)\/(.+)$/)
+    if (!match || !CHANGE_NAME_PATTERN.test(match[1])) return false
+    return typeof record.content !== "string"
+  })
+}
+
+async function loadCombinedWorkflowStatus(workspaceRoot: string, changeName?: string): Promise<CombinedWorkflowStatus> {
   const requestedChange = changeName?.trim() || undefined
   // Local authority first: a state that explicitly declares the openspec store
   // must not wait on (or block the event loop behind) an Engram export. States
   // without a declared store keep the legacy merged view (OpenSpec wins
   // conflicts, Engram artifacts are surfaced).
   const openSpec = await findLocalWorkflowChange(workspaceRoot, requestedChange)
-  if (openSpec?.state && stateArtifactStoreValue(openSpec.state.content) === "openspec") {
-    return attachRuntimeStatus(buildMergedStatus(workspaceRoot, openSpec, null), workspaceRoot)
+  const store = openSpec?.state ? stateArtifactStoreValue(openSpec.state.content) : null
+  if (openSpec?.state && store === "openspec") {
+    return { status: attachRuntimeStatus(buildMergedStatus(workspaceRoot, openSpec, null), workspaceRoot) }
   }
 
-  const observations = await readEngramObservations(workspaceRoot)
-  const engram = observations
-    ? selectEngramSnapshot(observations, requestedChange || openSpec?.change, !requestedChange && !openSpec)
+  const engramRead = await readEngramObservationsWithError(workspaceRoot)
+  const engramError = engramRead.error || (hasMalformedEngramObservations(engramRead.observations) ? "engram-export-invalid" : null)
+  const engram = engramRead.observations
+    ? selectEngramSnapshot(engramRead.observations, requestedChange || openSpec?.change, !requestedChange && !openSpec)
     : null
   if (openSpec?.state) {
-    return attachRuntimeStatus(buildMergedStatus(workspaceRoot, openSpec, engram), workspaceRoot)
+    const merged = buildMergedStatus(workspaceRoot, openSpec, engram)
+    if (engramError && store !== "openspec") {
+      merged.workflowStatus.warnings = Array.from(new Set([...merged.workflowStatus.warnings, engramError]))
+    }
+    return { status: attachRuntimeStatus(merged, workspaceRoot) }
   }
-  if (engram) return attachRuntimeStatus(buildEngramOnlyStatus(workspaceRoot, engram, openSpec?.warnings || []), workspaceRoot)
-  return openSpec?.artifacts.length
-    ? attachRuntimeStatus(buildMergedStatus(workspaceRoot, openSpec, null), workspaceRoot)
-    : null
+  if (engram) {
+    const status = buildEngramOnlyStatus(workspaceRoot, engram, openSpec?.warnings || [])
+    if (engramError) {
+      status.workflowStatus.warnings = Array.from(new Set([...status.workflowStatus.warnings, engramError]))
+    }
+    return { status: attachRuntimeStatus(status, workspaceRoot) }
+  }
+  if (openSpec?.artifacts.length) {
+    const merged = buildMergedStatus(workspaceRoot, openSpec, null)
+    if (engramError) {
+      merged.workflowStatus.warnings = Array.from(new Set([...merged.workflowStatus.warnings, engramError]))
+    }
+    return { status: attachRuntimeStatus(merged, workspaceRoot) }
+  }
+  return engramError ? { status: null, error: engramError } : { status: null }
 }
 
 const MAX_ACTIVE_CHANGE_DISCOVERY_ENTRIES = 1_000
@@ -8774,6 +8813,7 @@ interface ActiveWorkflowCandidate {
 interface ActiveWorkflowDiscovery {
   status: "none" | "unambiguous" | "ambiguous" | "incomplete"
   candidates: ActiveWorkflowCandidate[]
+  artifact_only: ActiveWorkflowCandidate[]
   candidate_count: number | null
   warnings: string[]
   selected_status?: Omit<ODFChangeStatus, "observability">
@@ -8828,7 +8868,7 @@ async function discoverActiveWorkflowCandidates(workspaceRoot: string): Promise<
           const state = await fs.lstat(path.join(changesDir, entry.name, "state.yaml"))
           if (state.isFile() || state.isSymbolicLink()) unreadableLocalStates.add(entry.name)
         } catch {
-          // No state file is normal for legacy artifact-only changes.
+          // No state file is normal for artifact-only changes.
         }
       }
     }
@@ -8883,6 +8923,8 @@ async function discoverActiveWorkflowCandidates(workspaceRoot: string): Promise<
   }
 
   const activeStatuses: Array<{ candidate: ActiveWorkflowCandidate; status: Omit<ODFChangeStatus, "observability"> }> = []
+  const artifactOnly: ActiveWorkflowCandidate[] = []
+  let localCanonical = false
   for (const change of boundedNames) {
     const local = localSnapshots.get(change) || null
     const engram = engramSnapshots.get(change) || null
@@ -8891,20 +8933,35 @@ async function discoverActiveWorkflowCandidates(workspaceRoot: string): Promise<
       ? buildMergedStatus(workspaceRoot, local, store === "openspec" ? null : engram)
       : engram ? buildEngramOnlyStatus(workspaceRoot, engram) : null
     if (!status) continue
+    if (local && store !== "openspec" && engramRead.error) {
+      status.workflowStatus.warnings = Array.from(new Set([...status.workflowStatus.warnings, engramRead.error]))
+    }
     const candidate = projectActiveWorkflowCandidate(status, unreadableLocalStates.has(change))
-    if (candidate) activeStatuses.push({ candidate, status })
+    if (!candidate) continue
+    if (candidate.state_kind === "canonical" || candidate.blocker === "workflow-state-unreadable") {
+      activeStatuses.push({ candidate, status })
+      if (local && candidate.state_kind === "canonical" && store !== "engram") localCanonical = true
+    } else {
+      artifactOnly.push(candidate)
+    }
   }
   activeStatuses.sort((left, right) => left.candidate.change.localeCompare(right.candidate.change))
   const candidates = activeStatuses.map(item => item.candidate)
 
-  const incomplete = warnings.length > 0
-  const status: ActiveWorkflowDiscovery["status"] = incomplete || candidates.length > MAX_ACTIVE_CHANGE_CANDIDATES
+  const engramWarnings = warnings.filter(warning => warning.startsWith("engram"))
+  const localWarnings = warnings.filter(warning => warning.startsWith("openspec") || warning === "active-change-discovery-truncated")
+  const incomplete = unreadableLocalStates.size > 0 ||
+    localWarnings.length > 0 ||
+    (!localCanonical && engramWarnings.length > 0) ||
+    candidates.length > MAX_ACTIVE_CHANGE_CANDIDATES
+  const status: ActiveWorkflowDiscovery["status"] = incomplete
     ? "incomplete"
     : candidates.length === 0 ? "none" : candidates.length === 1 ? "unambiguous" : "ambiguous"
   return {
     status,
     candidates: candidates.slice(0, MAX_ACTIVE_CHANGE_CANDIDATES),
-    candidate_count: warnings.length ? null : candidates.length,
+    artifact_only: artifactOnly.slice(0, MAX_ACTIVE_CHANGE_CANDIDATES),
+    candidate_count: incomplete ? null : candidates.length,
     warnings: Array.from(new Set(warnings)),
     ...(status === "unambiguous" ? { selected_status: activeStatuses[0]?.status } : {}),
   }
@@ -8915,9 +8972,8 @@ function createODFWorkflowStatus(canonicalDirectory?: string): ReturnType<typeof
     description: `Show canonical ODF workflow progress derived read-only from OpenSpec/Engram-compatible artifacts.
 
 Use this first for a current-state or continuation question. One call returns
-canonical stages, resumability, pending receipt/join information, and legacy
-compatibility fields, plus a typed next_handoff assembled from the selected
-state, persisted artifact refs, and mandatory gates. Reuse this result instead of separately probing files or
+canonical stages, resumability, pending receipt/join information, plus a typed
+next_handoff assembled from the selected state, persisted artifact refs, and mandatory gates. Reuse this result instead of separately probing files or
 calling status tools again. Explicitly named archived changes are resolved from
 their dated OpenSpec archive directory. When no change is named, bounded discovery
 returns one unambiguous active change, a read-only list when several match, or
@@ -8940,7 +8996,7 @@ tool never writes state or receipts.`,
         return JSON.stringify({ status: "blocked", reason: "unsafe-workspace-path", message: "The session workspace does not resolve to a safe existing project root." }, null, 2)
       }
       const requestedChange = args.change_name?.trim() || undefined
-      let activeChangeResolution: { status: string; candidates: ActiveWorkflowCandidate[]; candidate_count?: number | null; warnings?: string[] } | undefined
+      let activeChangeResolution: { status: string; candidates: ActiveWorkflowCandidate[]; artifact_only?: ActiveWorkflowCandidate[]; candidate_count?: number | null; warnings?: string[] } | undefined
       let selectedChange = requestedChange
       let discoveredStatus: Omit<ODFChangeStatus, "observability"> | null = null
       if (!requestedChange) {
@@ -8948,6 +9004,7 @@ tool never writes state or receipts.`,
         activeChangeResolution = {
           status: discovery.status,
           candidates: discovery.candidates,
+          ...(discovery.artifact_only.length ? { artifact_only: discovery.artifact_only } : {}),
           candidate_count: discovery.candidate_count,
           ...(discovery.warnings.length ? { warnings: discovery.warnings } : {}),
         }
@@ -8972,7 +9029,9 @@ tool never writes state or receipts.`,
             status: "not-found",
             reason: "no-active-change",
             active_change_resolution: activeChangeResolution,
-            message: "No active ODF change was found. Do not create or bind workflow state from a continuation request.",
+            message: discovery.artifact_only.length
+              ? "No active canonical ODF change was found. Artifact-only changes are listed separately; they are not resumable and were not selected."
+              : "No active ODF change was found. Do not create or bind workflow state from a continuation request.",
           }, null, 2)
         }
         selectedChange = discovery.candidates[0]?.change
@@ -8987,12 +9046,21 @@ tool never writes state or receipts.`,
       } else {
         activeChangeResolution = { status: "explicit", candidates: [] }
       }
-      const status = discoveredStatus
-        ? attachRuntimeStatus(discoveredStatus, workspace)
+      const combined: CombinedWorkflowStatus = discoveredStatus
+        ? { status: attachRuntimeStatus(discoveredStatus, workspace) }
         : await loadCombinedWorkflowStatus(workspace, selectedChange)
-      if (!status) {
+      if (combined.error) {
+        return JSON.stringify({
+          status: "blocked",
+          reason: combined.error,
+          active_change_resolution: activeChangeResolution,
+          message: `The requested change "${selectedChange ?? "(unknown)"}" could not be read from Engram (${combined.error}). No workflow state was changed; retry after Engram is available.`,
+        }, null, 2)
+      }
+      if (!combined.status) {
         return JSON.stringify({ status: "not-found", message: "No ODF changes found in Engram" }, null, 2)
       }
+      const status = combined.status
       return JSON.stringify({
         status: "found",
         ...status.workflowStatus,

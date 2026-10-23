@@ -3910,7 +3910,7 @@ describe("odf_workflow_status discovery and Engram fallback", () => {
     }
   })
 
-  it("does not claim a sole OpenSpec change is unambiguous when Engram discovery fails", async () => {
+  it("discovers a sole OpenSpec change when Engram discovery fails", async () => {
     const workspace = await fs.mkdtemp(path.join(os.tmpdir(), "odf-incomplete-discovery-"))
     const binDir = await fs.mkdtemp(path.join(os.tmpdir(), "odf-unavailable-engram-"))
     const engramPath = path.join(binDir, "engram")
@@ -3931,15 +3931,299 @@ describe("odf_workflow_status discovery and Engram fallback", () => {
 
     try {
       process.env.PATH = `${binDir}${path.delimiter}${originalPath || ""}`
-      const ambiguousDiscovery = JSON.parse(await createODFWorkflowStatus().execute({}, { directory: workspace } as any) as string)
-      expect(ambiguousDiscovery).toMatchObject({
-        status: "blocked",
-        reason: "active-change-discovery-incomplete",
-        active_change_resolution: { status: "incomplete", warnings: ["engram-export-failed"] },
+      const discovery = JSON.parse(await createODFWorkflowStatus().execute({}, { directory: workspace } as any) as string)
+      expect(discovery).toMatchObject({
+        status: "found",
+        change,
+        active_change_resolution: {
+          status: "unambiguous",
+          candidate_count: 1,
+          warnings: ["engram-export-failed"],
+        },
       })
 
       const explicitStatus = JSON.parse(await createODFWorkflowStatus().execute({ change_name: change }, { directory: workspace } as any) as string)
       expect(explicitStatus).toMatchObject({ status: "found", change, source: { state: "openspec" } })
+    } finally {
+      process.env.PATH = originalPath
+      await fs.rm(workspace, { recursive: true, force: true })
+      await fs.rm(binDir, { recursive: true, force: true })
+    }
+  })
+
+  it("discovers one canonical change when an artifact-only change is also present", async () => {
+    const workspace = path.join(tmp, "repo")
+    initGitRepo(workspace)
+    commitFile(workspace, "README.md", 1)
+    const canonicalDir = path.join(workspace, "openspec", "changes", "canonical-change")
+    const artifactDir = path.join(workspace, "openspec", "changes", "artifact-only-change")
+    await fs.mkdir(canonicalDir, { recursive: true })
+    await fs.mkdir(artifactDir, { recursive: true })
+    await fs.writeFile(path.join(canonicalDir, "state.yaml"), [
+      "work_type: feature",
+      "artifact_store: openspec",
+      "canonical_stage: BUILD",
+      "completed_canonical_stages: [DECIDE, PLAN]",
+      "",
+    ].join("\n"), "utf8")
+    await fs.writeFile(path.join(artifactDir, "assess.md"), "status: passed\n", "utf8")
+    const fake = await configureFakeEngram()
+    await fake.setObservations([])
+
+    try {
+      const status = JSON.parse(await createODFWorkflowStatus().execute({}, { directory: workspace } as any) as string)
+      expect(status).toMatchObject({
+        status: "found",
+        change: "canonical-change",
+        canonical_stage: "BUILD",
+        active_change_resolution: {
+          status: "unambiguous",
+          candidate_count: 1,
+          candidates: [{ change: "canonical-change", state_kind: "canonical", resumable: true }],
+          artifact_only: [{ change: "artifact-only-change", state_kind: "none", resumable: false }],
+        },
+      })
+    } finally {
+      await fake.cleanup()
+    }
+  })
+
+  it("keeps an unreadable local state as a blocking candidate", async () => {
+    const workspace = path.join(tmp, "repo")
+    initGitRepo(workspace)
+    commitFile(workspace, "README.md", 1)
+    const changeDir = path.join(workspace, "openspec", "changes", "unreadable-change")
+    await fs.mkdir(changeDir, { recursive: true })
+    await fs.symlink("missing-state.yaml", path.join(changeDir, "state.yaml"))
+    await fs.writeFile(path.join(changeDir, "assess.md"), "status: passed\n", "utf8")
+    const fake = await configureFakeEngram()
+    await fake.setObservations([])
+
+    try {
+      const status = JSON.parse(await createODFWorkflowStatus().execute({}, { directory: workspace } as any) as string)
+      expect(status).toMatchObject({
+        status: "blocked",
+        reason: "active-change-discovery-incomplete",
+        active_change_resolution: {
+          status: "incomplete",
+          candidate_count: null,
+          candidates: [{ change: "unreadable-change", blocker: "workflow-state-unreadable" }],
+        },
+      })
+    } finally {
+      await fake.cleanup()
+    }
+  })
+
+  it("reports artifact-only changes without selecting them", async () => {
+    const workspace = path.join(tmp, "repo")
+    initGitRepo(workspace)
+    commitFile(workspace, "README.md", 1)
+    const artifactDir = path.join(workspace, "openspec", "changes", "artifact-only-change")
+    await fs.mkdir(artifactDir, { recursive: true })
+    await fs.writeFile(path.join(artifactDir, "assess.md"), "status: passed\n", "utf8")
+    const fake = await configureFakeEngram()
+    await fake.setObservations([])
+
+    try {
+      const status = JSON.parse(await createODFWorkflowStatus().execute({}, { directory: workspace } as any) as string)
+      expect(status).toMatchObject({
+        status: "not-found",
+        reason: "no-active-change",
+        active_change_resolution: {
+          status: "none",
+          candidates: [],
+          candidate_count: 0,
+          artifact_only: [{ change: "artifact-only-change", state_kind: "none", resumable: false }],
+        },
+      })
+      expect(status.message).toContain("Artifact-only changes are listed separately")
+    } finally {
+      await fake.cleanup()
+    }
+  })
+
+  it("lets local OpenSpec discovery proceed when Engram observations are malformed", async () => {
+    const workspace = path.join(tmp, "repo")
+    initGitRepo(workspace)
+    commitFile(workspace, "README.md", 1)
+    const changeDir = path.join(workspace, "openspec", "changes", "local-change")
+    await fs.mkdir(changeDir, { recursive: true })
+    await fs.writeFile(path.join(changeDir, "state.yaml"), [
+      "work_type: feature",
+      "artifact_store: openspec",
+      "canonical_stage: BUILD",
+      "completed_canonical_stages: [DECIDE, PLAN]",
+      "",
+    ].join("\n"), "utf8")
+    const cleanup = await configureEngramExport([
+      { content: "malformed-observation-without-topic-key" },
+    ])
+
+    try {
+      const status = JSON.parse(await createODFWorkflowStatus().execute({}, { directory: workspace } as any) as string)
+      expect(status).toMatchObject({
+        status: "found",
+        change: "local-change",
+        active_change_resolution: {
+          status: "unambiguous",
+          candidate_count: 1,
+          warnings: ["engram-export-invalid"],
+        },
+      })
+    } finally {
+      await cleanup()
+    }
+  })
+
+  it("warns when a named hybrid change cannot read its Engram mirror", async () => {
+    const workspace = await fs.mkdtemp(path.join(os.tmpdir(), "odf-hybrid-mirror-"))
+    const binDir = await fs.mkdtemp(path.join(os.tmpdir(), "odf-hybrid-engram-"))
+    const engramPath = path.join(binDir, "engram")
+    const change = "hybrid-change"
+    const changeDir = path.join(workspace, "openspec", "changes", change)
+    const originalPath = process.env.PATH
+    await fs.mkdir(changeDir, { recursive: true })
+    await fs.writeFile(path.join(changeDir, "state.yaml"), [
+      "work_type: feature",
+      "artifact_store: hybrid",
+      "canonical_stage: DECIDE",
+      "completed_canonical_stages: []",
+      "",
+    ].join("\n"), "utf8")
+    await fs.writeFile(engramPath, "#!/bin/sh\nexit 1\n", "utf8")
+    await fs.chmod(engramPath, 0o755)
+
+    try {
+      process.env.PATH = `${binDir}${path.delimiter}${originalPath || ""}`
+      const status = JSON.parse(await createODFWorkflowStatus().execute({ change_name: change }, { directory: workspace } as any) as string)
+      expect(status).toMatchObject({
+        status: "found",
+        change,
+        state_kind: "canonical",
+        source: { state: "openspec" },
+      })
+      expect(status.warnings).toContain("engram-export-failed")
+    } finally {
+      process.env.PATH = originalPath
+      await fs.rm(workspace, { recursive: true, force: true })
+      await fs.rm(binDir, { recursive: true, force: true })
+    }
+  })
+
+  it("blocks a named Engram-only change when the Engram export fails", async () => {
+    const workspace = await fs.mkdtemp(path.join(os.tmpdir(), "odf-engram-only-"))
+    const binDir = await fs.mkdtemp(path.join(os.tmpdir(), "odf-engram-only-bin-"))
+    const engramPath = path.join(binDir, "engram")
+    const originalPath = process.env.PATH
+    await fs.writeFile(engramPath, "#!/bin/sh\nexit 1\n", "utf8")
+    await fs.chmod(engramPath, 0o755)
+
+    try {
+      process.env.PATH = `${binDir}${path.delimiter}${originalPath || ""}`
+      const status = JSON.parse(await createODFWorkflowStatus().execute({ change_name: "engram-only-change" }, { directory: workspace } as any) as string)
+      expect(status).toMatchObject({
+        status: "blocked",
+        reason: "engram-export-failed",
+        active_change_resolution: { status: "explicit", candidates: [] },
+      })
+      expect(status.message).toContain("engram-only-change")
+    } finally {
+      process.env.PATH = originalPath
+      await fs.rm(workspace, { recursive: true, force: true })
+      await fs.rm(binDir, { recursive: true, force: true })
+    }
+  })
+
+  it("keeps a genuine Engram not-found when the export is readable", async () => {
+    const workspace = path.join(tmp, "repo")
+    initGitRepo(workspace)
+    commitFile(workspace, "README.md", 1)
+    const fake = await configureFakeEngram()
+    await fake.setObservations([])
+
+    try {
+      const status = JSON.parse(await createODFWorkflowStatus().execute({ change_name: "missing-change" }, { directory: workspace } as any) as string)
+      expect(status).toMatchObject({
+        status: "not-found",
+        message: "No ODF changes found in Engram",
+      })
+    } finally {
+      await fake.cleanup()
+    }
+  })
+
+  it("blocks a named Engram-only change when the export is malformed", async () => {
+    const workspace = path.join(tmp, "repo")
+    initGitRepo(workspace)
+    commitFile(workspace, "README.md", 1)
+    const cleanup = await configureEngramExport([
+      { content: "malformed-observation-without-topic-key" },
+    ])
+
+    try {
+      const status = JSON.parse(await createODFWorkflowStatus().execute({ change_name: "missing-change" }, { directory: workspace } as any) as string)
+      expect(status).toMatchObject({
+        status: "blocked",
+        reason: "engram-export-invalid",
+        active_change_resolution: { status: "explicit", candidates: [] },
+      })
+      expect(status.message).toContain("missing-change")
+    } finally {
+      await cleanup()
+    }
+  })
+
+  it("warns but still returns a readable Engram change when another observation is malformed", async () => {
+    const workspace = path.join(tmp, "repo")
+    initGitRepo(workspace)
+    commitFile(workspace, "README.md", 1)
+    const cleanup = await configureEngramExport([
+      {
+        topic_key: "odf/readable-change/state",
+        content: JSON.stringify({ work_type: "feature", artifact_store: "engram", canonical_stage: "BUILD", completed_canonical_stages: ["DECIDE", "PLAN"] }),
+      },
+      { content: "malformed-observation-without-topic-key" },
+    ])
+
+    try {
+      const status = JSON.parse(await createODFWorkflowStatus().execute({ change_name: "readable-change" }, { directory: workspace } as any) as string)
+      expect(status).toMatchObject({ status: "found", change: "readable-change" })
+      expect(status.warnings).toContain("engram-export-invalid")
+    } finally {
+      await cleanup()
+    }
+  })
+
+  it("keeps Engram authority fail-closed when only a local engram-store state exists", async () => {
+    const workspace = await fs.mkdtemp(path.join(os.tmpdir(), "odf-engram-authority-"))
+    const binDir = await fs.mkdtemp(path.join(os.tmpdir(), "odf-engram-authority-bin-"))
+    const engramPath = path.join(binDir, "engram")
+    const changeDir = path.join(workspace, "openspec", "changes", "engram-authority-change")
+    const originalPath = process.env.PATH
+    await fs.mkdir(changeDir, { recursive: true })
+    await fs.writeFile(path.join(changeDir, "state.yaml"), [
+      "work_type: feature",
+      "artifact_store: engram",
+      "canonical_stage: BUILD",
+      "completed_canonical_stages: [DECIDE, PLAN]",
+      "",
+    ].join("\n"), "utf8")
+    await fs.writeFile(engramPath, "#!/bin/sh\nexit 1\n", "utf8")
+    await fs.chmod(engramPath, 0o755)
+
+    try {
+      process.env.PATH = `${binDir}${path.delimiter}${originalPath || ""}`
+      const status = JSON.parse(await createODFWorkflowStatus().execute({}, { directory: workspace } as any) as string)
+      expect(status).toMatchObject({
+        status: "blocked",
+        reason: "active-change-discovery-incomplete",
+        active_change_resolution: {
+          status: "incomplete",
+          candidate_count: null,
+          warnings: ["engram-export-failed"],
+        },
+      })
     } finally {
       process.env.PATH = originalPath
       await fs.rm(workspace, { recursive: true, force: true })
