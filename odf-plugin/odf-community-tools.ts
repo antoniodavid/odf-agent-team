@@ -7,17 +7,24 @@ import * as fs from "node:fs/promises"
 import * as path from "node:path"
 import { execFileSync } from "node:child_process"
 import { tool } from "./odf-tool.js"
-import { getOdfConfigDir } from "./odf-delegation-shared.js"
+import { getOdfConfigDir, resolveToolWorkspaceRoot } from "./odf-delegation-shared.js"
+import type { ToolContext } from "./odf-tool.js"
 import { loadRegistry } from "./odf-registry-io.js"
+
+function scopedPackagePath(packageName: string): string {
+  const lastAt = packageName.lastIndexOf("@")
+  return lastAt > 0 ? packageName.slice(0, lastAt) : packageName
+}
 
 export function createODFCommunityToolDetect(): ReturnType<typeof tool> {
   return tool({
-    description: `Detect the status of a community tool: CLI availability, npm package, and agent guidance wiring.
+    description: `Detect the status of a community tool: CLI availability and the local npm package.
 
-Returns structured JSON with CLI path, installed version, and agent wiring status.`,
+Returns structured JSON with CLI path, installed version, and package status.`,
     args: {
       tool_name: tool.schema
         .string()
+        .max(64)
         .describe("Community tool name from registry: codegraph"),
     },
     async execute(args: { tool_name: string }): Promise<string> {
@@ -38,17 +45,16 @@ Returns structured JSON with CLI path, installed version, and agent wiring statu
         command: def.command_name,
         cli: { available: false, path: null, version: null },
         npm: { installed: false },
-        guidance: { configured: false },
       }
 
       // Check CLI availability
       try {
         const which = process.platform === "win32" ? "where" : "which"
-        const cliPath = execFileSync(which, [def.command_name], { encoding: "utf8" }).trim()
+        const cliPath = execFileSync(which, [def.command_name], { encoding: "utf8", timeout: 5_000 }).trim()
         if (cliPath) {
           result.cli = { available: true, path: cliPath.split("\n")[0], version: null }
           try {
-            const ver = execFileSync(def.command_name, ["--version"], { encoding: "utf8" }).trim()
+            const ver = execFileSync(def.command_name, ["--version"], { encoding: "utf8", timeout: 5_000 }).trim()
             if (ver) result.cli.version = ver.split("\n")[0]
           } catch {
             // version not available
@@ -60,7 +66,7 @@ Returns structured JSON with CLI path, installed version, and agent wiring statu
 
       // Check npm package locally
       try {
-        const pkgPath = path.join(getOdfConfigDir(), "node_modules", def.package_name.split("@")[1] || def.package_name)
+        const pkgPath = path.join(getOdfConfigDir(), "node_modules", scopedPackagePath(def.package_name))
         await fs.access(pkgPath)
         result.npm = { installed: true }
       } catch {
@@ -74,20 +80,22 @@ Returns structured JSON with CLI path, installed version, and agent wiring statu
 
 export function createODFCommunityToolInstall(): ReturnType<typeof tool> {
   return tool({
-    description: `Install a community tool (npm package) and inject guidance into ODF agent instructions.
+    description: `Install a community tool (npm package) and optionally initialize a CodeGraph index.
 
-Runs npm install for the tool package and writes the CodeGraph-style guidance block
-into the orchestrator's agent instructions for lazy-init wiring.`,
+Runs npm install for the tool package; with codegraph and an explicit workspace,
+also runs codegraph init. It does not modify agent instructions.`,
     args: {
       tool_name: tool.schema
         .string()
+        .max(64)
         .describe("Community tool name from registry: codegraph"),
       workspace_dir: tool.schema
         .string()
+        .max(4096)
         .optional()
         .describe("Project directory to init codegraph index in (codegraph only)"),
     },
-    async execute(args: { tool_name: string; workspace_dir?: string }): Promise<string> {
+    async execute(args: { tool_name: string; workspace_dir?: string }, toolCtx: ToolContext): Promise<string> {
       const registry = await loadRegistry()
       if (!registry) {
         return "❌ ODF registry not found"
@@ -112,19 +120,16 @@ into the orchestrator's agent instructions for lazy-init wiring.`,
         results.push(`⚠️ npm install ${def.package_name}: ${(err as Error).message || String(err)}`)
       }
 
-      // Step 2: Mark installed in registry cache
-      if (registry.community_tools) {
-        const idx = registry.community_tools.findIndex(t => t.name === args.tool_name)
-        if (idx >= 0) {
-          registry.community_tools[idx].installed = true
-        }
-      }
-
-      // Step 3: Init codegraph index if workspace dir provided
-      if (args.tool_name === "codegraph" && args.workspace_dir) {
+      // Step 2: Init codegraph index if workspace dir provided
+      const workspace = args.workspace_dir
+        ? resolveToolWorkspaceRoot(args.workspace_dir, toolCtx?.directory)
+        : null
+      if (args.workspace_dir && !workspace) {
+        results.push("⚠️ codegraph init skipped: unsafe workspace path")
+      } else if (args.tool_name === "codegraph" && workspace) {
         try {
-          execFileSync("codegraph", ["init", args.workspace_dir], { encoding: "utf8", timeout: 60_000 })
-          results.push(`✅ codegraph init ${args.workspace_dir} succeeded`)
+          execFileSync("codegraph", ["init", workspace], { encoding: "utf8", timeout: 60_000 })
+          results.push(`✅ codegraph init ${workspace} succeeded`)
         } catch (err) {
           results.push(`⚠️ codegraph init skipped: ${(err as Error).message || String(err)}`)
         }

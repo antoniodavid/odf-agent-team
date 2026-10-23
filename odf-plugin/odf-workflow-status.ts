@@ -568,6 +568,8 @@ export function deriveWorkflowStatus(input: WorkflowStatusInput): WorkflowStatus
     : null
   const bindingPending = parsedState.state?.binding_pending === true
   if (bindingPending) warnings.push("Workflow binding is pending: approved Expectations are not fully persisted. Re-run the bind with the exact approved Expectations.")
+  const recoveryWorkTypeRequired = statePresent && workType === null
+  if (recoveryWorkTypeRequired) warnings.push("The persisted state has no valid work_type; recover the work type before resuming.")
   const resumable = stateKind === "canonical" && !bindingPending && !archived && !signals.abandoned &&
     receipt.state !== "pending" && (receipt.action === null || receipt.action === "retry") && pendingStage !== null
   const stateStore = parsedState.state?.artifact_store
@@ -601,7 +603,7 @@ export function deriveWorkflowStatus(input: WorkflowStatusInput): WorkflowStatus
     receipt,
     state_present: statePresent,
     state_kind: stateKind,
-    recovery_work_type_required: statePresent && workType === null,
+    recovery_work_type_required: recoveryWorkTypeRequired,
     resumable,
     work_type: workType,
     artifact_store: artifactStore,

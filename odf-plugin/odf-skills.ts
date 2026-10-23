@@ -96,16 +96,22 @@ export async function getProfileByPhase(
   return null
 }
 
+export function profileExists(registry: ODFRegistry, name: string): boolean {
+  return Array.isArray(registry.profiles) &&
+    registry.profiles.some(profile => profile && typeof profile === "object" && (profile as { name?: unknown }).name === name)
+}
+
 export function formatProfileBlock(
   profile: { model: string; temperature: number; reasoning?: boolean; name?: string },
   phase: string
 ): string {
-  return `## SDD Profile (auto-resolved)
+  return `## SDD Profile (advisory)
 Profile: ${profile.name || "default"}
 Phase: ${phase}
 Model: ${profile.model ?? "current (inherited)"}
 Temperature: ${profile.temperature}
-Reasoning: ${profile.reasoning ? "enabled" : "disabled"}`
+Reasoning: ${profile.reasoning ? "enabled" : "disabled"}
+The host task inherits its model and runtime settings; these values are prompt guidance unless the host applies them.`
 }
 
 // ==========================================
@@ -235,19 +241,24 @@ export function createODFSkillInject(): ReturnType<typeof tool> {
 Use this to manually inject standards into a sub-agent prompt when not using odf_delegate.`,
     args: {
       context_files: tool.schema
-        .array(tool.schema.string())
+        .array(tool.schema.string().max(512))
+        .max(64)
         .optional()
         .describe("Files being worked on"),
       task_description: tool.schema
         .string()
+        .max(20_000)
         .optional()
         .describe("Description of the task"),
       target: tool.schema
-        .string()
+        .enum(["oca"])
         .optional()
         .describe("Explicit governance target, such as oca"),
       max_skills: tool.schema
         .number()
+        .int()
+        .min(1)
+        .max(5)
         .optional()
         .describe("Max skills to return (default: 5)"),
     },
@@ -294,21 +305,32 @@ Use this for debugging:
         .describe("Role inside a composite stage: DECIDE requires PROPOSE or ASSESS; PLAN requires QA-PLAN or DESIGN. Omit for BUILD, VERIFY, EXPLORE, and FIX."),
       task: tool.schema
         .string()
+        .min(1)
+        .max(20_000)
         .describe("Task description to analyze"),
       context_files: tool.schema
-        .array(tool.schema.string())
+        .array(tool.schema.string().max(512))
+        .max(64)
         .optional()
         .describe("Files involved (for skill matching)"),
       target: tool.schema
-        .string()
+        .enum(["oca"])
         .optional()
         .describe("Explicit governance target, such as oca"),
       odoo_version: tool.schema
         .number()
+        .int()
+        .min(16)
+        .max(19)
         .optional()
         .describe("Odoo version (auto-detected if not provided)"),
+      profile: tool.schema
+        .string()
+        .max(64)
+        .optional()
+        .describe("Optional profile name to preview; defaults to the active profile"),
     },
-    async execute(args: { stage: string; role?: string; task: string; context_files?: string[]; target?: string; odoo_version?: number }, toolCtx: ToolContext): Promise<string> {
+    async execute(args: { stage: string; role?: string; task: string; context_files?: string[]; target?: string; odoo_version?: number; profile?: string }, toolCtx: ToolContext): Promise<string> {
       const target = resolveDelegationTarget(args.stage, args.role)
       if (!target.ok) {
         return `❌ ${target.message}`
@@ -339,7 +361,10 @@ Use this for debugging:
       })
 
       // Get profile (named profile format)
-      const profile = await getProfileByPhase(registry, target.phase)
+      if (args.profile && !profileExists(registry, args.profile)) {
+        return `❌ Profile "${args.profile}" is not registered.`
+      }
+      const profile = await getProfileByPhase(registry, target.phase, args.profile)
 
       const lines: string[] = [
         "## ODF Skill Resolution (Preview)",
@@ -381,6 +406,7 @@ Use this for debugging:
         lines.push(`**Model:** ${profile.model ?? "current (inherited)"}`)
         lines.push(`**Temperature:** ${profile.temperature}`)
         lines.push(`**Reasoning:** ${profile.reasoning ? "enabled" : "disabled"}`)
+        lines.push("**Advisory:** the task inherits the host model; this profile is prompt guidance unless the host applies it.")
       } else {
         lines.push("_No profile for this phase._")
       }

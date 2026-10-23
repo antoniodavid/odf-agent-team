@@ -232,6 +232,9 @@ describe("workflow status adapter", () => {
     })
     expect(missingWorkType.state_kind).toBe("canonical")
     expect(missingWorkType.recovery_work_type_required).toBe(true)
+    expect(missingWorkType.warnings).toEqual(expect.arrayContaining([
+      "The persisted state has no valid work_type; recover the work type before resuming.",
+    ]))
 
     const pendingBinding = deriveWorkflowStatus({
       change: "pending-binding",

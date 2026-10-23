@@ -453,10 +453,10 @@ export function createODFGovernanceProvenance(): ReturnType<typeof tool> {
     args: {
       target: tool.schema.enum(["oca"]).describe("Explicit governance target: oca"),
       phase: tool.schema.enum([...GOVERNANCE_PHASES]).describe("ODF phase that used AI assistance"),
-      agent: tool.schema.string().describe("Agent label without secrets"),
-      model: tool.schema.string().describe("Model label without secrets"),
-      files: tool.schema.array(tool.schema.string()).describe("Affected paths relative to the worktree"),
-      workspace_dir: tool.schema.string().optional().describe("Current worktree (defaults to the current session workspace)"),
+      agent: tool.schema.string().max(128).describe("Agent label without secrets"),
+      model: tool.schema.string().max(128).describe("Model label without secrets"),
+      files: tool.schema.array(tool.schema.string().max(512)).max(256).describe("Affected paths relative to the worktree"),
+      workspace_dir: tool.schema.string().max(4096).optional().describe("Current worktree (defaults to the current session workspace)"),
     },
     async execute(args: AiProvenanceInput & { workspace_dir?: string }, toolCtx: ToolContext): Promise<string> {
       const workspace = resolveToolWorkspaceRoot(args.workspace_dir, toolCtx?.directory)
@@ -478,8 +478,8 @@ export function createODFGovernanceCheck(): ReturnType<typeof tool> {
     description: `Read-only OCA governance check for the current worktree. Checks diff size/files, provenance, Assisted-by recommendations, and AI Co-authored-by misuse. It never commits, publishes, or issues an ODF VERIFY verdict.`,
     args: {
       target: tool.schema.enum(["oca"]).describe("Explicit governance target: oca"),
-      workspace_dir: tool.schema.string().optional().describe("Current worktree (defaults to the current session workspace)"),
-      commit_message: tool.schema.string().optional().describe("Optional proposed commit message to inspect for trailers"),
+      workspace_dir: tool.schema.string().max(4096).optional().describe("Current worktree (defaults to the current session workspace)"),
+      commit_message: tool.schema.string().max(20_000).optional().describe("Optional proposed commit message to inspect for trailers"),
     },
     async execute(args: { target: string; workspace_dir?: string; commit_message?: string }, toolCtx: ToolContext): Promise<string> {
       const workspace = resolveToolWorkspaceRoot(args.workspace_dir, toolCtx?.directory)

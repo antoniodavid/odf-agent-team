@@ -891,15 +891,18 @@ Pure and read-only: no disk, registry, delegation, or side effects. If needs_que
 is true, ask one grouped question for the missing facts and re-run.`,
     args: {
       command: tool.schema
-        .string()
+        .enum(["odf-new", "odf-fix"])
         .optional()
         .describe("Origin command (odf-new or odf-fix)"),
       change: tool.schema
         .string()
+        .max(64)
         .optional()
         .describe("Change name in kebab-case"),
       description: tool.schema
         .string()
+        .min(1)
+        .max(20_000)
         .describe("User description of the change"),
       explicit_work_type: tool.schema
         .enum([...WORK_TYPES])
@@ -907,16 +910,19 @@ is true, ask one grouped question for the missing facts and re-run.`,
         .describe("Explicit canonical work type to honor"),
       module: tool.schema
         .string()
+        .max(128)
         .optional()
         .describe("Primary Odoo module (micro eligibility)"),
       domain: tool.schema
         .string()
+        .max(128)
         .optional()
         .describe("Functional domain (micro eligibility)"),
       expected_files: tool.schema
         .number()
         .int()
         .nonnegative()
+        .max(10_000)
         .optional()
         .describe("Forecast number of files to change (<=5 for small-change and FAST eligibility)"),
       expectations_clear: tool.schema
@@ -924,33 +930,35 @@ is true, ask one grouped question for the missing facts and re-run.`,
         .optional()
         .describe("Whether expectations are clear (micro eligibility)"),
       risk_signals: tool.schema
-        .array(tool.schema.string())
+        .array(tool.schema.string().max(128))
+        .max(32)
         .optional()
         .describe("Risk signals detected by the caller (security, migration, payment, public-api, data-loss, pii)"),
       known_modules: tool.schema
-        .array(tool.schema.string())
+        .array(tool.schema.string().max(128))
+        .max(512)
         .optional()
         .describe("Project module names from odf-init/{project}; unknown modules are flagged as warnings"),
       ice_context: tool.schema.object({
         version: tool.schema.number().optional().describe("ICE context envelope version; currently 1"),
         provenance: tool.schema.object({
           source: tool.schema.enum([...ICE_CONTEXT_SOURCES]),
-          reference: tool.schema.string(),
+          reference: tool.schema.string().max(512),
         }),
         references: tool.schema.array(tool.schema.object({
           source: tool.schema.enum([...ICE_CONTEXT_SOURCES]),
-          reference: tool.schema.string(),
-        })).optional(),
+          reference: tool.schema.string().max(512),
+        })).max(32).optional(),
         metadata: tool.schema.object({
           module: tool.schema.string().optional(),
           domain: tool.schema.string().optional(),
           expected_files: tool.schema.number().optional(),
-          risk_signals: tool.schema.array(tool.schema.string()).optional(),
-          known_modules: tool.schema.array(tool.schema.string()).optional(),
-          intent: tool.schema.object({ reference: tool.schema.string() }).optional(),
+          risk_signals: tool.schema.array(tool.schema.string().max(128)).max(32).optional(),
+          known_modules: tool.schema.array(tool.schema.string().max(128)).max(512).optional(),
+          intent: tool.schema.object({ reference: tool.schema.string().max(512) }).optional(),
           expectations: tool.schema.object({
             approved: tool.schema.boolean(),
-            reference: tool.schema.string(),
+            reference: tool.schema.string().max(512),
           }).optional(),
         }).optional(),
       }).optional().describe("Bounded reference-only ICE context; malformed context is ignored with a warning"),
@@ -959,15 +967,15 @@ is true, ask one grouped question for the missing facts and re-run.`,
         diagnosis_evidence: tool.schema.boolean().optional(),
         root_cause_evidence: tool.schema.boolean().optional(),
         regression_evidence: tool.schema.boolean().optional(),
-        architecture_signals: tool.schema.array(tool.schema.string()).optional(),
-        scope_signals: tool.schema.array(tool.schema.string()).optional(),
+        architecture_signals: tool.schema.array(tool.schema.string().max(128)).max(32).optional(),
+        scope_signals: tool.schema.array(tool.schema.string().max(128)).max(32).optional(),
         prior_learning_contradiction: tool.schema.boolean().optional(),
         prior_learning: tool.schema.enum(["consistent", "contradictory", "unknown"]).optional(),
         blast_radius: tool.schema.enum(["low", "medium", "high", "unknown"]).optional(),
         reversibility: tool.schema.enum(["high", "medium", "low", "unknown"]).optional(),
         source_authority: tool.schema.enum(["complete", "incomplete", "unknown"]).optional(),
-        protected_signals: tool.schema.array(tool.schema.string()).optional(),
-        protected_domains: tool.schema.array(tool.schema.string()).optional(),
+        protected_signals: tool.schema.array(tool.schema.string().max(128)).max(32).optional(),
+        protected_domains: tool.schema.array(tool.schema.string().max(128)).max(32).optional(),
       }).optional().describe("Explicit bounded facts for the advisory shadow prediction only"),
     },
     async execute(args: EntryTriageToolInput): Promise<string> {
