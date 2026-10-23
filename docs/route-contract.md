@@ -88,8 +88,9 @@ mapping to its stage, a handoff cannot be built, a route cannot advance to
 complete, or a terminal stage changes without updating this matrix.
 
 Decision-quality reports (route agreement, risk/plan distribution, first-pass
-yield, rework, receipts, overrides, stage activity) live in
-`docs/decision-evaluation.md` and run with:
+yield, rework, receipts, overrides, stage activity), period comparison, review
+cadence, and human-approved proposals live in `docs/decision-evaluation.md` and
+run with:
 
 ```bash
 node scripts/odf-evaluation.js decisions [days] [--root <dir>] [--md]

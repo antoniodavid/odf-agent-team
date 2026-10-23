@@ -13,6 +13,9 @@ node scripts/odf-evaluation.js review <change> --route <correct|incorrect> \
   --risk <under|ok|over> --plan <under|ok|over> --gate <correct|incorrect> \
   --rating <1-5> [--root <dir>]
 node scripts/odf-evaluation.js agreement [file] [--root <dir>] [--md]
+node scripts/odf-evaluation.js compare <before.json> <after.json> [--md]
+node scripts/odf-evaluation.js cadence [days] [--root <dir>] [--md]
+node scripts/odf-evaluation.js proposals <report.json> [--md]
 ```
 
 - `days` (default 30) limits the metrics window.
@@ -114,7 +117,57 @@ An empty or all-unavailable corpus is `no_data`; a mix is `partial`. This is
 calibration only: it never gates delivery, and promoting the judge to a gate
 remains an explicit human decision backed by measured agreement.
 
-## Phase 3 extensions
+## Period comparison (Phase 3)
 
-- Period comparison (`before`/`after`) and a periodic review cadence.
-- Human-approved learning proposals (`odf-learning-bridge`) fed by the report.
+Save a baseline and compare it later:
+
+```bash
+node scripts/odf-evaluation.js decisions 30 --root <worktree> > before.json
+# ... work for another period ...
+node scripts/odf-evaluation.js decisions 30 --root <worktree> > after.json
+node scripts/odf-evaluation.js compare before.json after.json --md
+```
+
+The comparison shows before/after values, deltas, direction, and whether higher
+is better for route agreement, first-pass yield, rework, receipts, overrides,
+archive rate, review coverage, human route/gate correctness, and average rating.
+It does not declare a winner; a human interprets the deltas.
+
+## Review cadence (Phase 3)
+
+```bash
+node scripts/odf-evaluation.js cadence 30 --root <worktree> --md
+```
+
+Reports changes, reviewed changes, coverage, the latest review date, its age,
+and whether a review is due. `due` is true when no review exists or the latest
+review is older than the cadence (default 30 days). It is advisory and never
+blocks archive or verify.
+
+## Improvement proposals (Phase 3)
+
+```bash
+node scripts/odf-evaluation.js proposals report.json --md
+```
+
+Deterministic rules turn report thresholds into proposals:
+
+| Rule | Proposal |
+|---|---|
+| Route agreement < 0.8 | `route-alignment` |
+| Human risk fit `under` | `risk-underestimated` |
+| Human plan fit `under` | `plan-underestimated` |
+| Human gate-correct < 1 | `gate-review` |
+| Rework rate > 0.2 | `rework-hotspot` |
+| First-pass yield < 0.7 | `first-pass-yield` |
+| Review coverage < 0.5 | `review-coverage` |
+
+Every proposal carries `requires_human_approval: true` and `auto_apply: false`.
+No route, risk tier, plan mode, gate, or file is changed automatically. A human
+decides whether to act, and a confirmed defect becomes a new golden.
+
+## Phase 4 (not started)
+
+- Automated periodic reports/scheduling outside the harness.
+- Post-merge defect labels.
+- Engram-only change discovery for the decisions report.

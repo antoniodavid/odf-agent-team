@@ -231,7 +231,8 @@ runner:
   `odf-learning-bridge.js`, `odf-engram-maintenance.js` — observability and
   learning helpers.
 - `odf-evaluation.js` — offline/online/golden evaluation plus the decision-quality
-  report (`decisions`); see `docs/decision-evaluation.md`.
+  report (`decisions`), local review, agreement, period comparison, cadence, and
+  human-approved proposals; see `docs/decision-evaluation.md`.
 - `odf-harness.test.ts` (`npm run test:harness`) — integral smoke test: real
   registry, triage/workflow/status/expectations/resolve, every CLI subcommand
   end-to-end, safety inspection, and registry path integrity.
