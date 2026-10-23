@@ -573,7 +573,7 @@ describe("workflow status adapter", () => {
     const verifyComplete = deriveWorkflowStatus({
       change: "verify-complete",
       state: { work_type: "verify-only" },
-      artifacts: { verify: { status: "passed" } },
+      artifacts: { "verify-report": { status: "passed" } },
     })
     expect(verifyComplete).toMatchObject({
       canonical_stage: "VERIFY",
@@ -581,6 +581,15 @@ describe("workflow status adapter", () => {
       pending_stage: null,
       resumable: false,
     })
+
+    const verifyAliasOnly = deriveWorkflowStatus({
+      change: "verify-alias-only",
+      state: { work_type: "verify-only" },
+      artifacts: { verify: { status: "passed" } },
+    })
+    expect(verifyAliasOnly.completed_canonical_stages).not.toContain("VERIFY")
+    expect(verifyAliasOnly.pending_stage).toBe("VERIFY")
+    expect(verifyAliasOnly.artifact_refs.VERIFY).toContain("verify")
   })
 
   it("treats warning as terminal only for VERIFY reports", () => {

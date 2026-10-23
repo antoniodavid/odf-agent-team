@@ -31,7 +31,7 @@ export const CANONICAL_ARTIFACT_TYPES: Record<CanonicalStage, readonly string[]>
   DECIDE: ["decision"],
   PLAN: ["plan"],
   BUILD: ["build", "implement-progress"],
-  VERIFY: ["verify"],
+  VERIFY: ["verify-report"],
   EXPLORE: ["explore"],
   FIX: ["fix"],
 }
@@ -41,7 +41,7 @@ export const STAGE_ARTIFACT_REQUIREMENTS: Record<CanonicalStage, readonly (reado
   DECIDE: [["decision"], ["propose", "assess"]],
   PLAN: [["plan"], ["design"]],
   BUILD: [["build"], ["implement-progress"], ["implement"], ["apply-progress"], ["tasks"]],
-  VERIFY: [["verify"], ["verify-report"]],
+  VERIFY: [["verify-report"]],
   EXPLORE: [["explore"], ["explore-progress"]],
   FIX: [["fix"], ["fix-progress"]],
 }
