@@ -49,6 +49,20 @@ export interface NativeChildBindFailureEvidence {
   seal_failed_at: string
 }
 
+export interface NativePreparedNotLaunchedEvidence {
+  schema_version: 1
+  evidence_type: "native-prepared-not-launched"
+  parent_session_id: string
+  attempt_id: string
+  prepare_message_id: string
+  prepare_call_id: string
+  prepared_agent: string
+  prepared_token_sha256: string
+  prepared_at: string
+  prepare_output_truncated: boolean
+  launch_calls_after_prepare: number
+}
+
 export interface NativePretoolSafetyEvidenceInput {
   parentSessionId: string
   attemptId: string
@@ -781,5 +795,255 @@ export function inspectNativeChildBindFailure(
     seal_call_id: firstBindFailure.callId,
     seal_reason: "delegation-attempt-child-bind-failed",
     seal_failed_at: new Date(firstBindFailure.failedAt).toISOString(),
+  }
+}
+
+interface PreparedEnvelopeProof {
+  agent: string
+  tokenSha256: string
+  truncated: boolean
+}
+
+const SAFE_PREPARED_TOKEN = /^[A-Za-z0-9][A-Za-z0-9_-]{0,255}$/
+const PREPARED_STATUS_PATTERN = /\\?"status\\?"\s*:\s*\\?"prepared\\?"/
+const PREPARED_CHANGE_PATTERN = /\\?"change\\?"\s*:\s*\\?"([A-Za-z0-9_.-]{1,256})\\?"/
+const PREPARED_PHASE_PATTERN = /\\?"phase\\?"\s*:\s*\\?"([A-Za-z0-9_.-]{1,256})\\?"/
+const PREPARED_AGENT_PATTERN = /\\?"agent\\?"\s*:\s*\\?"([A-Za-z0-9_.-]{1,256})\\?"/
+const PREPARED_ATTEMPT_PATTERN = /\\?"attempt_id\\?"\s*:\s*\\?"([A-Za-z0-9_.-]{1,256})\\?"/
+const PREPARED_TOKEN_PATTERN = /\\?"token\\?"\s*:\s*\\?"([A-Za-z0-9][A-Za-z0-9_-]{0,255})\\?"/g
+
+/**
+ * Walk real code tokens (string literals and comments are skipped) and report
+ * the argument-list positions of every static `tools.<name>(...)` call site.
+ * A dynamically composed member or reference is not a call site.
+ */
+function findStaticToolCallArgs(code: string, toolName: string): number[] {
+  const positions: number[] = []
+  let index = 0
+  while (index < code.length) {
+    index = skipTrivia(code, index)
+    const char = code[index]
+    if (char === "'" || char === '"' || char === "`") {
+      index = skipQuoted(code, index)
+      continue
+    }
+    const token = identifierAt(code, index)
+    if (!token) {
+      index += 1
+      continue
+    }
+    index = token.end
+    if (token.value !== "tools") continue
+    let cursor = skipTrivia(code, index)
+    let member = ""
+    if (code[cursor] === ".") {
+      const property = identifierAt(code, skipTrivia(code, cursor + 1))
+      if (!property) continue
+      member = property.value
+      cursor = property.end
+    } else if (code[cursor] === "[") {
+      const name = readStaticString(code, skipTrivia(code, cursor + 1))
+      if (!name) continue
+      const bracket = skipTrivia(code, name.end)
+      if (code[bracket] !== "]") continue
+      member = name.value
+      cursor = bracket + 1
+    } else {
+      continue
+    }
+    if (member !== toolName) continue
+    cursor = skipTrivia(code, cursor)
+    if (code[cursor] !== "(") continue
+    positions.push(cursor)
+  }
+  return positions
+}
+
+function countExactStaticPrepareCalls(code: string, input: NativePretoolSafetyEvidenceInput): number {
+  const expected = new Map<string, string>([
+    ["attempt_id", input.attemptId],
+    ["change", input.change],
+    ["phase", input.phase],
+  ])
+  let count = 0
+  for (const callOpen of findStaticToolCallArgs(code, "odf_delegation_prepare")) {
+    const objectOpen = skipTrivia(code, callOpen + 1)
+    if (code[objectOpen] === "{" && exactStaticArguments(code, objectOpen, expected)) count += 1
+  }
+  return count
+}
+
+function collectPreparedEnvelopeTokens(
+  value: unknown,
+  input: NativePretoolSafetyEvidenceInput,
+  depth: number,
+  found: Map<string, string>,
+): void {
+  if (depth > 4) return
+  if (Array.isArray(value)) {
+    for (const item of value) collectPreparedEnvelopeTokens(item, input, depth + 1, found)
+    return
+  }
+  if (!isRecord(value)) return
+  if (value.status === "prepared" && value.change === input.change && value.phase === input.phase &&
+    (value.attempt_id === undefined || value.attempt_id === input.attemptId) &&
+    safeIdentifier(value.agent) && safeIdentifier(value.token) && SAFE_PREPARED_TOKEN.test(value.token)) {
+    found.set(createHash("sha256").update(value.token).digest("hex"), value.agent)
+  }
+  for (const nested of Object.values(value)) collectPreparedEnvelopeTokens(nested, input, depth + 1, found)
+}
+
+/**
+ * Read the prepared envelope from a truncated or double-encoded execute output.
+ * The stored text may embed the envelope inside another object or cut it at a
+ * host truncation marker, so the fields are matched textually inside a bounded
+ * window after the single `"status": "prepared"` occurrence. Every token value
+ * in that window must agree; anything ambiguous fails closed.
+ */
+function tolerantPreparedEnvelope(outputText: string, input: NativePretoolSafetyEvidenceInput): PreparedEnvelopeProof | null {
+  const statusMatches = outputText.match(new RegExp(PREPARED_STATUS_PATTERN.source, "g"))
+  if (!statusMatches || statusMatches.length !== 1) return null
+  const statusIndex = outputText.search(PREPARED_STATUS_PATTERN)
+  if (statusIndex < 0) return null
+  const window = outputText.slice(statusIndex, statusIndex + 4500)
+  const change = window.match(PREPARED_CHANGE_PATTERN)
+  const phase = window.match(PREPARED_PHASE_PATTERN)
+  const agent = window.match(PREPARED_AGENT_PATTERN)
+  const attempt = window.match(PREPARED_ATTEMPT_PATTERN)
+  if (!change || change[1] !== input.change || !phase || phase[1] !== input.phase) return null
+  if (attempt && attempt[1] !== input.attemptId) return null
+  if (!agent || !safeIdentifier(agent[1])) return null
+  const tokenValues = [...window.matchAll(new RegExp(PREPARED_TOKEN_PATTERN.source, "g"))].map((match) => match[1])
+  const uniqueTokens = [...new Set(tokenValues)]
+  if (uniqueTokens.length !== 1) return null
+  return {
+    agent: agent[1],
+    tokenSha256: createHash("sha256").update(uniqueTokens[0]).digest("hex"),
+    truncated: true,
+  }
+}
+
+/**
+ * Prove that an exact native prepare succeeded and no host launch followed it.
+ * The matched call binds attempt/change/phase as exact static arguments and its
+ * output carries the prepared envelope; a host-truncated execute output is
+ * accepted while the envelope fields remain readable. Every later part in the
+ * parent transcript must then be free of launch calls: no `subagent`/`task`
+ * part and no `odf_delegation_launch`, `odf_delegate`, or
+ * `odf_parallel_delegate` call site. Missing or ambiguous history fails closed.
+ */
+export function inspectNativePreparedNotLaunched(
+  context: unknown,
+  input: NativePretoolSafetyEvidenceInput,
+): NativePreparedNotLaunchedEvidence | null {
+  if (!safeIdentifier(input.parentSessionId) || !safeIdentifier(input.attemptId) ||
+    !safeIdentifier(input.change) || !Number.isFinite(Date.parse(input.startedAt))) return null
+  const messages = messagesFromContext(context)
+  if (!messages || messages.length === 0 || messages.length > 10_000) return null
+  const startedAt = Date.parse(input.startedAt)
+  const matches: Array<{
+    messageIndex: number
+    partIndex: number
+    messageId: string
+    callId: string
+    completedAt: number
+    proof: PreparedEnvelopeProof
+  }> = []
+
+  for (let messageIndex = 0; messageIndex < messages.length; messageIndex += 1) {
+    const rawMessage = messages[messageIndex]
+    if (!isRecord(rawMessage)) continue
+    const info = isRecord(rawMessage.info) ? rawMessage.info : rawMessage
+    if (info.type !== "assistant" && info.role !== "assistant") continue
+    const messageTime = isRecord(info.time) ? info.time : isRecord(rawMessage.time) ? rawMessage.time : {}
+    const createdAt = typeof messageTime.created === "number" ? messageTime.created : Number.NaN
+    const completedAt = typeof messageTime.completed === "number"
+      ? messageTime.completed
+      : typeof messageTime.streamed === "number" ? messageTime.streamed : Number.NaN
+    if (!Number.isFinite(createdAt) || !Number.isFinite(completedAt) || createdAt > startedAt || completedAt < startedAt) continue
+
+    const parts = messageParts(rawMessage)
+    for (let partIndex = 0; partIndex < parts.length; partIndex += 1) {
+      const rawPart = parts[partIndex]
+      if (!isRecord(rawPart) || rawPart.type !== "tool" || !isRecord(rawPart.state)) continue
+      const state = rawPart.state
+      if (state.status !== "completed") continue
+      const toolName = typeof rawPart.name === "string" ? rawPart.name : typeof rawPart.tool === "string" ? rawPart.tool : ""
+      let bound = false
+      if (toolName === "odf_delegation_prepare") {
+        bound = exactDirectBinding(state.input, input)
+      } else if (toolName === "execute" && isRecord(state.input) && typeof state.input.code === "string") {
+        bound = countExactStaticPrepareCalls(state.input.code, input) > 0
+      }
+      if (!bound) continue
+      const outputText = textFromState(state)
+      if (!outputText) continue
+      let proof: PreparedEnvelopeProof | null = null
+      try {
+        const parsed = JSON.parse(outputText)
+        const found = new Map<string, string>()
+        collectPreparedEnvelopeTokens(parsed, input, 0, found)
+        if (found.size === 1) {
+          proof = {
+            agent: [...found.values()][0],
+            tokenSha256: [...found.keys()][0],
+            truncated: false,
+          }
+        }
+      } catch {
+        proof = null
+      }
+      if (!proof) proof = tolerantPreparedEnvelope(outputText, input)
+      if (!proof) continue
+      const messageId = safeIdentifier(info.id) ? info.id : safeIdentifier(rawMessage.id) ? rawMessage.id : null
+      if (!messageId) return null
+      matches.push({
+        messageIndex,
+        partIndex,
+        messageId,
+        callId: safeIdentifier(rawPart.id) ? rawPart.id : messageId,
+        completedAt,
+        proof,
+      })
+    }
+  }
+  if (matches.length !== 1) return null
+  const prepare = matches[0]
+
+  for (let messageIndex = prepare.messageIndex; messageIndex < messages.length; messageIndex += 1) {
+    const rawMessage = messages[messageIndex]
+    if (!isRecord(rawMessage)) continue
+    const info = isRecord(rawMessage.info) ? rawMessage.info : rawMessage
+    if (info.type !== "assistant" && info.role !== "assistant") continue
+    const parts = messageParts(rawMessage)
+    for (let partIndex = 0; partIndex < parts.length; partIndex += 1) {
+      if (messageIndex === prepare.messageIndex && partIndex <= prepare.partIndex) continue
+      const rawPart = parts[partIndex]
+      if (!isRecord(rawPart) || rawPart.type !== "tool") continue
+      const toolName = typeof rawPart.name === "string" ? rawPart.name : typeof rawPart.tool === "string" ? rawPart.tool : ""
+      if (toolName === "subagent" || toolName === "task" || toolName === "odf_delegation_launch" ||
+        toolName === "odf_delegate" || toolName === "odf_parallel_delegate") return null
+      if (toolName === "execute" && isRecord(rawPart.state) && isRecord(rawPart.state.input) &&
+        typeof rawPart.state.input.code === "string") {
+        const code = rawPart.state.input.code
+        if (findStaticToolCallArgs(code, "odf_delegation_launch").length > 0 ||
+          findStaticToolCallArgs(code, "odf_delegate").length > 0 ||
+          findStaticToolCallArgs(code, "odf_parallel_delegate").length > 0) return null
+      }
+    }
+  }
+
+  return {
+    schema_version: 1,
+    evidence_type: "native-prepared-not-launched",
+    parent_session_id: input.parentSessionId,
+    attempt_id: input.attemptId,
+    prepare_message_id: prepare.messageId,
+    prepare_call_id: prepare.callId,
+    prepared_agent: prepare.proof.agent,
+    prepared_token_sha256: prepare.proof.tokenSha256,
+    prepared_at: new Date(prepare.completedAt).toISOString(),
+    prepare_output_truncated: prepare.proof.truncated,
+    launch_calls_after_prepare: 0,
   }
 }
