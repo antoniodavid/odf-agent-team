@@ -810,7 +810,8 @@ describe("non-guarantees", () => {
     expect(description).toContain("session.interrupt")
     expect(description).toContain("session.wait")
     expect(description).toContain("reported confirmed")
-    expect(description).toContain("unconfirmed with the child session ID preserved")
+    expect(description).toContain("reports the child session ID")
+    expect(description).toContain("may leave it unknown")
     expect(description).toContain("SIGKILL")
     expect(description).toContain("no-op on runtimes that emit no session.execution.interrupted event")
     // No termination wording: "idle" is only ever the required confirmation

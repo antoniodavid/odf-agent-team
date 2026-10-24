@@ -1848,6 +1848,10 @@ async function applyCompositeResultGates(opts: {
     }
   }
 
+  if (opts.innerAccepted && isStageTerminalRole(opts.stage, opts.role) && !opts.changeName) {
+    warnings.push("stage-not-materialized: no change name was provided; the canonical stage was not committed.")
+  }
+
   if (opts.innerAccepted && isStageTerminalRole(opts.stage, opts.role) && opts.changeName) {
     materialization = await materializeStageCompletion({
       workspaceRoot: opts.workspaceRoot,
@@ -1888,8 +1892,9 @@ This tool:
 Parent cancellation is bounded and honest: a delegated child session is reported confirmed
 only after session.interrupt was requested for that exact child and a following session.wait
 supplied terminal idle. Any other outcome (interrupt failure, wait failure, an incomplete session API, or the
-cancellation deadline elapsing) is reported unconfirmed with the child session ID preserved,
-and the child stays registered so a later attempt can still confirm it.
+cancellation deadline elapsing) is reported unconfirmed; the envelope reports the child session ID
+when the transport exposes one, and a failed/interrupted transport may leave it unknown.
+The child stays registered so a later attempt can still confirm it on transports that expose it.
 This makes no claim to stop children after a SIGKILL of the host or of a child process, and
 parent cancellation is a no-op on runtimes that emit no session.execution.interrupted event.
 Use this instead of generic task() for ODF workflow delegation.`,
@@ -2047,6 +2052,10 @@ Use this instead of generic task() for ODF workflow delegation.`,
       // expectations) must leave a terminal ledger record, never a stuck
       // "running" one (issues #2/#3).
       let acquiredAttempt: AcquiredAttempt | null = executionOptions.pre_acquired_attempt || null
+      let resolvedAgent: string | null = null
+      let resolvedSkills: string[] = []
+      let resolvedProfile: Record<string, unknown> | null = null
+      let resolvedPolicyGate: PolicyGateDecision | null = null
       const blockWorkflow = (reason: string, message: string, workflowResult: ReturnType<typeof advanceWorkflow> | null, extra: Record<string, unknown> = {}): string => {
         if (acquiredAttempt && !executionOptions.suppress_attempt_settlement) {
           settleAttempt(acquiredAttempt, "failed", "validation-failed", "validation-failed")
@@ -2057,9 +2066,9 @@ Use this instead of generic task() for ODF workflow delegation.`,
           session_id: toolCtx.sessionID,
           stage: target.stage,
           role: target.role,
-          agent: "unresolved",
-          skills_injected: [],
-          skill_resolution: "none",
+          agent: resolvedAgent || "unresolved",
+          skills_injected: resolvedSkills,
+          skill_resolution: resolvedSkills.length > 0 ? "injected" : "none",
           duration_ms: Date.now() - startTime,
           token_estimate: estimateTokens(args.prompt),
            status: "blocked",
@@ -2074,10 +2083,10 @@ Use this instead of generic task() for ODF workflow delegation.`,
           stop_disposition: classifyODFStop(reason),
           stage: target.stage,
           role: target.role,
-          agent: null,
-          skills_injected: [],
-          profile: null,
-          policy_gate: null,
+          agent: resolvedAgent,
+          skills_injected: resolvedSkills,
+          profile: resolvedProfile,
+          policy_gate: resolvedPolicyGate,
           validation: null,
           receipt: null,
           task_api_source: "unavailable",
@@ -2398,6 +2407,7 @@ Use this instead of generic task() for ODF workflow delegation.`,
       target: args.target,
       odooVersion: odooVersion,
       })
+      resolvedSkills = skills.map(skill => skill.name)
 
       // Resolve agent and profile
       const keywords = args.prompt.split(/\s+/)
@@ -2439,6 +2449,7 @@ Use this instead of generic task() for ODF workflow delegation.`,
           workflowResult,
         )
       }
+      resolvedAgent = agentName
       if (args.profile && !profileExists(registry, args.profile)) {
         return blockWorkflow(
           "profile-not-found",
@@ -2482,9 +2493,10 @@ Use this instead of generic task() for ODF workflow delegation.`,
             registry,
           })
         policyGate = resolvedGate
+        resolvedPolicyGate = policyGate
         if (policyGate && policyGate.gate === "block") {
           return blockWorkflow(
-            policyGate.reason,
+            "policy-gate-blocked",
             `Policy gate blocked ${phase} before delegation: ${policyGate.reason}`,
             workflowResult,
           )
@@ -2533,6 +2545,7 @@ Use this instead of generic task() for ODF workflow delegation.`,
       const profilePayload = profile
         ? { name: profile.name, model: profile.model, temperature: profile.temperature, reasoning: profile.reasoning, advisory: true }
         : null
+      resolvedProfile = profilePayload
 
       const emitTelemetryLifecycle = executionOptions.telemetry_context?.emit_lifecycle !== false
       let taskSpanId: string | null = null
@@ -9427,21 +9440,21 @@ interface WorkflowBindExpectations {
 }
 
 const workflowExpectationEntrySchema = tool.schema.object({
-  id: tool.schema.string(),
-  statement: tool.schema.string(),
+  id: tool.schema.string().min(1).max(64),
+  statement: tool.schema.string().min(1).max(5_000),
   testable: tool.schema.boolean(),
   owned_by: tool.schema.enum(["human"]),
 })
 
 const workflowExpectationExtensionSchema = {
-  constraints: tool.schema.array(tool.schema.string()).optional(),
-  success_scenarios: tool.schema.array(workflowExpectationEntrySchema).optional(),
-  failure_scenarios: tool.schema.array(workflowExpectationEntrySchema).optional(),
+  constraints: tool.schema.array(tool.schema.string().max(512)).max(64).optional(),
+  success_scenarios: tool.schema.array(workflowExpectationEntrySchema).max(64).optional(),
+  failure_scenarios: tool.schema.array(workflowExpectationEntrySchema).max(64).optional(),
   connections: tool.schema.array(tool.schema.object({
-    id: tool.schema.string(),
-    relation: tool.schema.string(),
-    reference: tool.schema.string(),
-  })).optional(),
+    id: tool.schema.string().min(1).max(64),
+    relation: tool.schema.string().min(1).max(64),
+    reference: tool.schema.string().min(1).max(512),
+  })).max(64).optional(),
 }
 
 const workflowEntryRouteBindingSchema = tool.schema.object({
