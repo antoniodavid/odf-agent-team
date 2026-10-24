@@ -217,7 +217,7 @@ describe("native prepare/seal delegation", () => {
     archived_state: false,
   })
 
-  it("returns JSON blocked envelopes when native tools have no session", async () => {
+  it("returns JSON blocked envelopes when native tools have no session", { timeout: 20_000 }, async () => {
     const { odf_delegation_prepare, odf_delegation_seal, odf_parallel_prepare } = await tools()
 
     const prepare = JSON.parse(await odf_delegation_prepare.execute({

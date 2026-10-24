@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+### Changed
+- Bounded public tool inputs, validated and labeled profiles as advisory, corrected community tool detection/install, and refined skill, registry, receipt, and status previews.
+
 ### Removed
 - Removed `odf_notebooklm_lookup` and the `notebooklm_sources` registry map. NotebookLM enrichment, when used, stays external to ODF.
 

@@ -180,14 +180,17 @@ overwrites it. Persistence failures are returned as tool errors so the workflow 
         .describe("Why the phase failed/blocked"),
       evidence_summary: tool.schema
         .string()
+        .max(2_000)
         .optional()
         .describe("Short decision-grade summary of the evidence"),
       failing: tool.schema
-        .array(tool.schema.string())
+        .array(tool.schema.string().max(512))
+        .max(64)
         .optional()
         .describe("Commands/tests that failed"),
       refs: tool.schema
-        .array(tool.schema.string())
+        .array(tool.schema.string().max(512))
+        .max(64)
         .optional()
         .describe("Topic keys / paths of the evidence (e.g. odf/{change}/verify-report)"),
       action: tool.schema
@@ -196,6 +199,7 @@ overwrites it. Persistence failures are returned as tool errors so the workflow 
         .describe("Committed next step (set when the user decides)"),
       workspace_dir: tool.schema
         .string()
+        .max(4096)
         .optional()
         .describe("Project directory (defaults to the current session workspace)"),
     },
@@ -246,7 +250,7 @@ overwrites it. Persistence failures are returned as tool errors so the workflow 
                 refs: args.refs || [],
               }
             : null,
-        action: args.action ? { committed: args.action } : null,
+        action: args.action && args.action !== "none" ? { committed: args.action } : null,
         review_gate: target.stage === "VERIFY" ? { attempts_used: 1, budget_lines: null, verdict: args.status === "ok" ? "PASS" : args.status === "warning" ? "PASS_WITH_WARNINGS" : "FAIL" } : null,
         frozen_diff_ref: gitHead(workspace),
         resolved_at: new Date().toISOString(),

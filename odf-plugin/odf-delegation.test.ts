@@ -9529,6 +9529,17 @@ ${overrides}`
     expect(envelope.profile.reasoning).toBe(false)
   })
 
+  it("blocks an unknown profile before delegation", async () => {
+    const { createODFDelegate } = await import("./odf-delegation.js")
+    const taskApi = vi.fn()
+    const output = JSON.parse(await createODFDelegate(undefined).execute(
+      { stage: "DECIDE", role: "ASSESS", prompt: "Assess a new feature", context_files: [], profile: "missing-profile" },
+      { sessionID: "s1", task: taskApi } as any,
+    ) as string)
+    expect(output).toMatchObject({ status: "blocked", reason: "profile-not-found" })
+    expect(taskApi).not.toHaveBeenCalled()
+  })
+
   it("accepts EXPLORE phase and delegates to the functional consultant agent", async () => {
     const { createODFDelegate, clearMetricsBuffer, getMetricsBuffer } = await import("./odf-delegation.js")
     clearMetricsBuffer()
@@ -11196,6 +11207,17 @@ describe("createODFReceipt tool", () => {
     )
     expect(saved.evidence.failing).toContain("odoo-tests")
     expect(saved.action).toBeNull()
+  })
+
+  it("treats action none as no committed receipt action", async () => {
+    const { createODFReceipt } = await import("./odf-delegation.js")
+    const workspace = path.join(tempHome, "worktree-none")
+    await fs.mkdir(workspace, { recursive: true })
+    const receipt = JSON.parse(await createODFReceipt().execute(
+      { change: "no-action", stage: "BUILD", status: "failed", action: "none" },
+      { sessionID: "s1", directory: workspace } as any,
+    ) as string)
+    expect(receipt.action).toBeNull()
   })
 
   it("uses the tool session workspace and rejects an unsafe change", async () => {

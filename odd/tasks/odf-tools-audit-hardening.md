@@ -112,8 +112,8 @@ Risk: item 3 — requested changes to public tool contracts, filesystem path bou
 
 ### L6 — Follow-ups not in this scope
 
-- A7 input bounds: context_files/branches/refs/files/prompts/timeouts.
-- A8 profile model application or explicit advisory labeling.
-- A9 community tool guidance/persistence/timeout/scope.
+- A7 input bounds: delivered in `odd/tasks/odf-followups-a7-a11.md`.
+- A8 profile validation/advisory labeling: delivered in `odd/tasks/odf-followups-a7-a11.md`.
+- A9 community tool guidance/persistence/timeout/scope: delivered in `odd/tasks/odf-followups-a7-a11.md` (no uninstall path).
 - A10 notebook lookup: removed in `odd/tasks/notebooklm-lookup-removal.md`; community tools remain.
-- A11 minor skill/registry/receipt/status follow-ups.
+- A11 minor skill/registry/receipt/status follow-ups: delivered in `odd/tasks/odf-followups-a7-a11.md`.

@@ -63,6 +63,7 @@ import {
   formatProfileBlock,
   getProfileByPhase,
   matchSkills,
+  profileExists,
 } from "../odf-plugin/odf-skills.js"
 import {
   createODFCommunityToolDetect,
@@ -1471,6 +1472,7 @@ allow decision. The gate documents — the sub-agent applies, never recomputes.`
         .describe("Stage to gate"),
       workspace_dir: tool.schema
         .string()
+        .max(4096)
         .optional()
         .describe("Project directory (defaults to the current session workspace)"),
       external_validation_scope: tool.schema
@@ -1901,45 +1903,61 @@ Use this instead of generic task() for ODF workflow delegation.`,
         .describe("Role inside a composite stage: DECIDE requires PROPOSE or ASSESS; PLAN requires QA-PLAN or DESIGN. Omit for BUILD, VERIFY, EXPLORE, and FIX."),
       prompt: tool.schema
         .string()
+        .min(1)
+        .max(200_000)
         .describe("The full detailed prompt for the agent."),
       agent: tool.schema
         .string()
+        .max(128)
         .optional()
         .describe("Optional explicit registered agent override; must be installed and eligible for the resolved stage role."),
       context_files: tool.schema
-        .array(tool.schema.string())
+        .array(tool.schema.string().max(512))
+        .max(64)
         .optional()
         .describe("Files the agent will work with (for skill matching)"),
       target: tool.schema
-        .string()
+        .enum(["oca"])
         .optional()
         .describe("Explicit governance target, such as oca"),
       workspace_dir: tool.schema
         .string()
+        .max(4096)
         .optional()
         .describe("Absolute project root, which also becomes the delegated session's directory so the validated relative context_files resolve correctly. Omit it to use the current session's project directory. Pass it only when the change lives in another project; never point it at the installed ODF pack."),
       odoo_source_root: tool.schema
         .string()
+        .max(4096)
         .optional()
         .describe("Explicit Odoo source root required for view-authority DESIGN/IMPLEMENT tasks"),
       odoo_source_repos: tool.schema
         .string()
+        .max(4096)
         .optional()
         .describe("Optional explicit active Odoo repos root for view-authority lookup"),
       profile: tool.schema
         .string()
+        .max(64)
         .optional()
         .describe("Optional SDD profile name override"),
       change: tool.schema
         .string()
+        .min(1)
+        .max(64)
+        .regex(CHANGE_NAME_PATTERN)
         .optional()
         .describe("Change name (kebab-case) — used by the Policy Gate hook for BUILD/VERIFY"),
       timeout_ms: tool.schema
         .number()
+        .int()
+        .min(1)
+        .max(3_600_000)
         .optional()
         .describe("Task timeout in milliseconds (default: 600000)"),
       attempt_id: tool.schema
         .string()
+        .max(128)
+        .regex(SAFE_TOKEN_PATTERN)
         .optional()
         .describe("Fresh opaque attempt token for gated BUILD/VERIFY execution"),
       artifact_store: tool.schema
@@ -2421,6 +2439,13 @@ Use this instead of generic task() for ODF workflow delegation.`,
           workflowResult,
         )
       }
+      if (args.profile && !profileExists(registry, args.profile)) {
+        return blockWorkflow(
+          "profile-not-found",
+          `The requested profile "${args.profile}" is not registered.`,
+          workflowResult,
+        )
+      }
       const profile = await getProfileByPhase(registry, phase, args.profile)
       const profileBlock = profile ? formatProfileBlock(profile, phase) : ""
       debugLog(`[odf-delegation] odf_delegate: phase=${phase} agent=${agentName} skills=${skills.length} version=${odooVersion || "auto"} profile=${profile?.name || "default"}`)
@@ -2506,7 +2531,7 @@ Use this instead of generic task() for ODF workflow delegation.`,
 
       const taskApiInfo = findTaskApi(toolCtx, client)
       const profilePayload = profile
-        ? { name: profile.name, model: profile.model, temperature: profile.temperature, reasoning: profile.reasoning }
+        ? { name: profile.name, model: profile.model, temperature: profile.temperature, reasoning: profile.reasoning, advisory: true }
         : null
 
       const emitTelemetryLifecycle = executionOptions.telemetry_context?.emit_lifecycle !== false
@@ -3662,12 +3687,15 @@ function createODFDelegationLaunch(canonicalDirectory?: string): ReturnType<type
   return tool({
     description: "Launch a prepared delegation using the OpenCode V2 session API. The prompt must match the token-bound bytes exactly. Never use the host subagent tool or resend an uncertain/interrupted prompt; pass returned session IDs to the matching seal.",
     args: {
-      token: tool.schema.string(),
+      token: tool.schema.string().max(256),
       change: tool.schema.string().min(1).max(64).regex(CHANGE_NAME_PATTERN),
-      prompt: tool.schema.string().optional().describe("Exact delegation.prompt returned by odf_delegation_prepare."),
-      branches: tool.schema.array(tool.schema.object({ branch_id: tool.schema.string(), prompt: tool.schema.string() })).optional()
+      prompt: tool.schema.string().max(200_000).optional().describe("Exact delegation.prompt returned by odf_delegation_prepare."),
+      branches: tool.schema.array(tool.schema.object({
+        branch_id: tool.schema.string().max(64).regex(SAFE_TOKEN_PATTERN),
+        prompt: tool.schema.string().min(1).max(200_000),
+      })).min(2).max(3).optional()
         .describe("Exact branch prompts returned by odf_parallel_prepare."),
-      workspace_dir: tool.schema.string().optional(),
+      workspace_dir: tool.schema.string().max(4096).optional(),
     },
     async execute(args: {
       token: string
@@ -3919,18 +3947,18 @@ function createODFDelegationPrepare(canonicalDirectory?: string): ReturnType<typ
       stage: tool.schema.string().describe("Canonical stage: DECIDE, PLAN, BUILD, VERIFY, EXPLORE, FIX"),
       role: tool.schema.string().optional().describe("Role inside a composite stage: DECIDE requires PROPOSE or ASSESS; PLAN requires QA-PLAN or DESIGN. Omit for BUILD, VERIFY, EXPLORE, and FIX."),
       change: tool.schema.string().min(1).max(64).regex(CHANGE_NAME_PATTERN).describe("Change name (kebab-case)"),
-      prompt: tool.schema.string().describe("The full detailed stage role prompt for the agent."),
-      agent: tool.schema.string().optional().describe("Optional explicit registered agent override; must be installed and eligible for the resolved stage role."),
-      context_files: tool.schema.array(tool.schema.string()).optional().describe("Files the agent will work with (for skill matching)"),
+      prompt: tool.schema.string().min(1).max(200_000).describe("The full detailed stage role prompt for the agent."),
+      agent: tool.schema.string().max(128).optional().describe("Optional explicit registered agent override; must be installed and eligible for the resolved stage role."),
+      context_files: tool.schema.array(tool.schema.string().max(512)).max(64).optional().describe("Files the agent will work with (for skill matching)"),
       artifact_store: tool.schema.enum(["openspec", "engram", "hybrid"]).optional().describe("Authoritative workflow store; required for PROPOSE and proof-backed BUILD/VERIFY"),
-      odoo_source_root: tool.schema.string().optional().describe("Explicit Odoo source root required for view-authority DESIGN/IMPLEMENT tasks"),
-      odoo_source_repos: tool.schema.string().optional().describe("Optional explicit active Odoo repos root for view-authority lookup"),
-      profile: tool.schema.string().optional().describe("Optional SDD profile name override"),
+      odoo_source_root: tool.schema.string().max(4096).optional().describe("Explicit Odoo source root required for view-authority DESIGN/IMPLEMENT tasks"),
+      odoo_source_repos: tool.schema.string().max(4096).optional().describe("Optional explicit active Odoo repos root for view-authority lookup"),
+      profile: tool.schema.string().max(64).optional().describe("Optional SDD profile name override"),
       target: tool.schema.enum(["oca"]).optional().describe("Persisted governance target (proof-backed stages)"),
-      attempt_id: tool.schema.string().optional().describe("Fresh opaque attempt token for gated BUILD/VERIFY execution"),
+      attempt_id: tool.schema.string().max(128).regex(SAFE_TOKEN_PATTERN).optional().describe("Fresh opaque attempt token for gated BUILD/VERIFY execution"),
       workflow_advance: workflowAdvanceSchema.optional().describe("Exact machine-checked transition proof for canonical BUILD/VERIFY starts"),
       governance_acknowledgment: governanceAcknowledgmentSchema.optional().describe("Explicit final human OCA acknowledgment bound to the current candidate digest"),
-      workspace_dir: tool.schema.string().optional().describe("Absolute project root; omit it to use the current session's project directory."),
+      workspace_dir: tool.schema.string().max(4096).optional().describe("Absolute project root; omit it to use the current session's project directory."),
     },
     async execute(args: {
       stage: string
@@ -4133,10 +4161,13 @@ function createODFDelegationPrepare(canonicalDirectory?: string): ReturnType<typ
       if (!agentName) {
         return fail("agent-routing-unavailable", `No registered, installed, eligible agent is available for ${target.stage}${target.role ? ` ${target.role}` : ""}.`)
       }
+      if (args.profile && !profileExists(registry, args.profile)) {
+        return fail("profile-not-found", `The requested profile "${args.profile}" is not registered.`)
+      }
       const profile = await getProfileByPhase(registry, phase, args.profile)
       const profileBlock = profile ? formatProfileBlock(profile, phase) : ""
       const profilePayload = profile
-        ? { name: profile.name, model: profile.model, temperature: profile.temperature, reasoning: profile.reasoning }
+        ? { name: profile.name, model: profile.model, temperature: profile.temperature, reasoning: profile.reasoning, advisory: true }
         : null
 
       const rules = formatCompactRules(skills)
@@ -4389,10 +4420,10 @@ function createODFLateSealCapabilityPrepare(canonicalDirectory?: string): Return
   return tool({
     description: `Prepare (without sealing or changing workflow state) a single-use, ten-minute late-seal capability for one expired native BUILD/VERIFY token. Requires the original running attempt and independently verifies the exact parent, child, agent, workspace, idle state, and prepared prompt. Then call odf_delegation_seal with the same token/change/session_id and the returned late_seal_capability. Never relaunch the child or edit the original token expiry.`,
     args: {
-      token: tool.schema.string().describe("Original delegation token; it is not refreshed or modified."),
+      token: tool.schema.string().max(256).describe("Original delegation token; it is not refreshed or modified."),
       change: tool.schema.string().min(1).max(64).regex(CHANGE_NAME_PATTERN).describe("Change name (kebab-case) the original token belongs to."),
-      session_id: tool.schema.string().describe("Exact child session ID persisted by the original launch."),
-      workspace_dir: tool.schema.string().optional().describe("Absolute project root; omit it to use the current session's project directory."),
+      session_id: tool.schema.string().min(1).max(256).describe("Exact child session ID persisted by the original launch."),
+      workspace_dir: tool.schema.string().max(4096).optional().describe("Absolute project root; omit it to use the current session's project directory."),
     },
     async execute(args: {
       token: string
@@ -4541,11 +4572,11 @@ function createODFDelegationSeal(canonicalDirectory?: string): ReturnType<typeof
   return tool({
     description: `Seal a native ODF delegation started with odf_delegation_prepare: parallel branch tokens must use odf_parallel_seal instead. Verify the child session against the token, wait until its V2 session loop is idle, read its ODF Result, run the stage gates (source authority, design closure, artifact refs and PLAN materialization; proof revalidation, validation-evidence seal, workflow commit and attempt settlement for BUILD/VERIFY) and return the standard delegation envelope. If the original token expired after launch, first call odf_delegation_late_seal_prepare for the same token and child, then pass its late_seal_capability here; the original expiry is never changed.`,
     args: {
-      token: tool.schema.string().describe("Delegation token returned by odf_delegation_prepare."),
+      token: tool.schema.string().max(256).describe("Delegation token returned by odf_delegation_prepare."),
       change: tool.schema.string().min(1).max(64).regex(CHANGE_NAME_PATTERN).describe("Change name (kebab-case) the token belongs to."),
-      session_id: tool.schema.string().describe("Child session id returned by odf_delegation_launch."),
-      late_seal_capability: tool.schema.string().optional().describe("Single-use, short-TTL capability returned by odf_delegation_late_seal_prepare for this exact token, attempt, parent, and child."),
-      workspace_dir: tool.schema.string().optional().describe("Absolute project root; omit it to use the current session's project directory."),
+      session_id: tool.schema.string().min(1).max(256).describe("Child session id returned by odf_delegation_launch."),
+      late_seal_capability: tool.schema.string().max(256).optional().describe("Single-use, short-TTL capability returned by odf_delegation_late_seal_prepare for this exact token, attempt, parent, and child."),
+      workspace_dir: tool.schema.string().max(4096).optional().describe("Absolute project root; omit it to use the current session's project directory."),
     },
     async execute(args: {
       token: string
@@ -5021,16 +5052,16 @@ function createODFDelegationSeal(canonicalDirectory?: string): ReturnType<typeof
 }
 
 const parallelBranchDescriptorSchema = tool.schema.object({
-  branch_id: tool.schema.string().describe("Unique safe branch identifier"),
-  attempt_id: tool.schema.string().describe("Fresh safe attempt identifier"),
-  prompt: tool.schema.string().describe("Full branch prompt"),
-  context_files: tool.schema.array(tool.schema.string()).optional().describe("Non-overlapping branch context files"),
-  timeout_ms: tool.schema.number().optional().describe("Optional branch task timeout in milliseconds"),
+  branch_id: tool.schema.string().max(64).regex(SAFE_TOKEN_PATTERN).describe("Unique safe branch identifier"),
+  attempt_id: tool.schema.string().max(128).regex(SAFE_TOKEN_PATTERN).describe("Fresh safe attempt identifier"),
+  prompt: tool.schema.string().min(1).max(200_000).describe("Full branch prompt"),
+  context_files: tool.schema.array(tool.schema.string().max(512)).max(64).optional().describe("Non-overlapping branch context files"),
+  timeout_ms: tool.schema.number().int().min(1).max(3_600_000).optional().describe("Optional branch task timeout in milliseconds"),
 })
 
 const parallelSessionSchema = tool.schema.object({
-  branch_id: tool.schema.string().describe("Branch identifier from the prepared token"),
-  session_id: tool.schema.string().describe("Child session id returned by odf_delegation_launch"),
+  branch_id: tool.schema.string().max(64).regex(SAFE_TOKEN_PATTERN).describe("Branch identifier from the prepared token"),
+  session_id: tool.schema.string().min(1).max(256).describe("Child session id returned by odf_delegation_launch"),
 })
 
 /** Reconstruct the attempt handles acquired at parallel prepare time. */
@@ -5067,12 +5098,12 @@ function createODFParallelPrepare(canonicalDirectory?: string): ReturnType<typeo
       change: tool.schema.string().min(1).max(64).regex(CHANGE_NAME_PATTERN).describe("Shared change name (kebab-case)"),
       artifact_store: tool.schema.enum(["openspec", "engram", "hybrid"]).describe("Authoritative workflow store for the aggregate transition"),
       workflow_advance: workflowAdvanceSchema.describe("Exact shared transition proof; it must advance cross-domain to BUILD"),
-      branches: tool.schema.array(parallelBranchDescriptorSchema).describe("Two or three independent branch descriptors"),
+      branches: tool.schema.array(parallelBranchDescriptorSchema).min(2).max(3).describe("Two or three independent branch descriptors"),
       target: tool.schema.enum(["oca"]).optional().describe("Explicit governance target"),
       governance_acknowledgment: governanceAcknowledgmentSchema.optional().describe("Explicit final human OCA acknowledgment"),
-      odoo_source_root: tool.schema.string().optional().describe("Explicit Odoo source root required for view-authority branches"),
-      odoo_source_repos: tool.schema.string().optional().describe("Optional explicit active Odoo repos root for view-authority branches"),
-      workspace_dir: tool.schema.string().optional().describe("Absolute project root; omit it to use the current session's project directory."),
+      odoo_source_root: tool.schema.string().max(4096).optional().describe("Explicit Odoo source root required for view-authority branches"),
+      odoo_source_repos: tool.schema.string().max(4096).optional().describe("Optional explicit active Odoo repos root for view-authority branches"),
+      workspace_dir: tool.schema.string().max(4096).optional().describe("Absolute project root; omit it to use the current session's project directory."),
     },
     async execute(args: {
       work_type: "cross-domain"
@@ -5213,7 +5244,7 @@ function createODFParallelPrepare(canonicalDirectory?: string): ReturnType<typeo
       const profile = await getProfileByPhase(registry, "IMPLEMENT")
       const profileBlock = profile ? formatProfileBlock(profile, "IMPLEMENT") : ""
       const profilePayload = profile
-        ? { name: profile.name, model: profile.model, temperature: profile.temperature, reasoning: profile.reasoning }
+        ? { name: profile.name, model: profile.model, temperature: profile.temperature, reasoning: profile.reasoning, advisory: true }
         : null
       const token = newDelegationToken()
       const prepared: Array<{
@@ -5355,8 +5386,8 @@ function createODFParallelSeal(canonicalDirectory?: string): ReturnType<typeof t
     args: {
       token: tool.schema.string().describe("Parallel delegation token returned by odf_parallel_prepare."),
       change: tool.schema.string().min(1).max(64).regex(CHANGE_NAME_PATTERN).describe("Shared change name the token belongs to."),
-      branches: tool.schema.array(parallelSessionSchema).describe("Child sessions per branch id."),
-      workspace_dir: tool.schema.string().optional().describe("Absolute project root; omit it to use the current session's project directory."),
+      branches: tool.schema.array(parallelSessionSchema).min(2).max(3).describe("Child sessions per branch id."),
+      workspace_dir: tool.schema.string().max(4096).optional().describe("Absolute project root; omit it to use the current session's project directory."),
     },
     async execute(args: {
       token: string
@@ -5786,14 +5817,17 @@ must not overlap. VERIFY remains sequential after the aggregate join is complete
         .describe("Shared change name (kebab-case)"),
       workspace_dir: tool.schema
         .string()
+        .max(4096)
         .optional()
         .describe("Absolute project root, which also becomes the delegated session's directory so the validated relative context_files resolve correctly. Omit it to use the current session's project directory. Pass it only when the change lives in another project; never point it at the installed ODF pack."),
       odoo_source_root: tool.schema
         .string()
+        .max(4096)
         .optional()
         .describe("Explicit Odoo source root required for view-authority branches"),
       odoo_source_repos: tool.schema
         .string()
+        .max(4096)
         .optional()
         .describe("Optional explicit active Odoo repos root for view-authority branches"),
       artifact_store: tool.schema
@@ -5817,9 +5851,11 @@ must not overlap. VERIFY remains sequential after the aggregate join is complete
           branch_id: tool.schema.string().describe("Unique safe branch identifier"),
           attempt_id: tool.schema.string().describe("Fresh safe attempt identifier"),
           prompt: tool.schema.string().describe("Full branch prompt"),
-          context_files: tool.schema.array(tool.schema.string()).optional().describe("Non-overlapping branch context files"),
-          timeout_ms: tool.schema.number().optional().describe("Optional branch task timeout in milliseconds"),
+          context_files: tool.schema.array(tool.schema.string().max(512)).max(64).optional().describe("Non-overlapping branch context files"),
+          timeout_ms: tool.schema.number().int().min(1).max(3_600_000).optional().describe("Optional branch task timeout in milliseconds"),
         }))
+        .min(2)
+        .max(3)
         .optional()
         .describe("Two or three independent branch descriptors; omitted when resuming from a persisted join"),
       resume_from_join: tool.schema
@@ -6481,18 +6517,19 @@ Reasoning: ${profile.reasoning ? "enabled" : "disabled"}`
 
 function createODFRegistryRead(): ReturnType<typeof tool> {
   return tool({
-    description: `Read the full ODF registry or query specific entries.`,
+    description: `Read the ODF registry or query specific skills, agents, and profiles.`,
     args: {
       query: tool.schema
         .string()
+        .max(256)
         .optional()
         .describe("Search query for skills/agents (optional)"),
       type: tool.schema
-        .enum(["skills", "agents", "all"])
+        .enum(["skills", "agents", "profiles", "all"])
         .optional()
-        .describe("What to search: skills, agents, or all"),
+        .describe("What to search: skills, agents, profiles, or all"),
     },
-    async execute(args: { query?: string; type?: "skills" | "agents" | "all" }): Promise<string> {
+    async execute(args: { query?: string; type?: "skills" | "agents" | "profiles" | "all" }): Promise<string> {
       const registry = await loadRegistry()
       if (!registry) {
         return "❌ ODF registry not found at ~/.config/opencode/odf-registry.json"
@@ -6504,7 +6541,7 @@ function createODFRegistryRead(): ReturnType<typeof tool> {
       if (!args.type || args.type === "skills" || args.type === "all") {
         results.push("## Skills")
         for (const skill of registry.skills) {
-          if (!queryLower || skill.name.includes(queryLower) || skill.triggers.some(t => t.includes(queryLower))) {
+          if (!queryLower || skill.name.toLowerCase().includes(queryLower) || skill.triggers.some(t => t.toLowerCase().includes(queryLower))) {
             results.push(`- ${skill.name}: ${skill.title} [${skill.category}] — phases: ${skill.sdd_phase || "any"}`)
           }
         }
@@ -6513,8 +6550,25 @@ function createODFRegistryRead(): ReturnType<typeof tool> {
       if (!args.type || args.type === "agents" || args.type === "all") {
         results.push("\n## Agents")
         for (const agent of registry.agents) {
-          if (!queryLower || agent.name.includes(queryLower) || agent.description.toLowerCase().includes(queryLower)) {
+          if (!queryLower || agent.name.toLowerCase().includes(queryLower) || agent.description.toLowerCase().includes(queryLower)) {
             results.push(`- ${agent.name}: ${agent.description} [${agent.mode}] — phases: ${agent.phases.join(", ")}`)
+          }
+        }
+      }
+
+      if (!args.type || args.type === "profiles" || args.type === "all") {
+        results.push("\n## Profiles")
+        const profiles = Array.isArray(registry.profiles) ? registry.profiles : []
+        if (profiles.length === 0) results.push("_No profiles registered._")
+        for (const profile of profiles as unknown as Array<Record<string, unknown>>) {
+          const name = typeof profile.name === "string" ? profile.name : "unnamed"
+          const active = profile.active === true ? "active" : "inactive"
+          const phaseNames = profile.phases && typeof profile.phases === "object" && !Array.isArray(profile.phases)
+            ? Object.keys(profile.phases as Record<string, unknown>)
+            : []
+          if (!queryLower || name.toLowerCase().includes(queryLower) ||
+            phaseNames.some(phase => phase.toLowerCase().includes(queryLower))) {
+            results.push(`- ${name}: ${active} — phases: ${phaseNames.join(", ") || "flat/legacy"}`)
           }
         }
       }
@@ -8928,27 +8982,7 @@ function attachRuntimeStatus(status: Omit<ODFChangeStatus, "observability">, wor
 /** Local OpenSpec change to report: the requested one, or the newest change
  * that has a state file when no name is given. Bounded to the changes directory. */
 async function findLocalWorkflowChange(workspaceRoot: string, requestedChange?: string): Promise<OpenSpecSnapshot | null> {
-  if (requestedChange) return loadOpenSpecStatus(workspaceRoot, requestedChange)
-  const changesDir = path.join(workspaceRoot, "openspec", "changes")
-  let entries: Dirent[] = []
-  try {
-    entries = await fs.readdir(changesDir, { withFileTypes: true })
-  } catch {
-    return null
-  }
-  const candidates: Array<{ change: string; modified: number }> = []
-  for (const entry of entries) {
-    if (!entry.isDirectory()) continue
-    try {
-      const stat = await fs.stat(path.join(changesDir, entry.name, "state.yaml"))
-      if (stat.isFile()) candidates.push({ change: entry.name, modified: stat.mtimeMs })
-    } catch {
-      // Directories without a state file are legacy artifacts, not candidates.
-    }
-  }
-  candidates.sort((left, right) => right.modified - left.modified)
-  const newest = candidates[0]
-  return newest ? loadOpenSpecStatus(workspaceRoot, newest.change) : null
+  return requestedChange ? loadOpenSpecStatus(workspaceRoot, requestedChange) : null
 }
 
 interface CombinedWorkflowStatus {
@@ -9204,10 +9238,13 @@ tool never writes state or receipts.`,
     args: {
       change_name: tool.schema
         .string()
+        .max(64)
+        .regex(CHANGE_NAME_PATTERN)
         .optional()
         .describe("Exact change name to inspect; omit to discover active changes without choosing among ambiguous candidates."),
       workspace_dir: tool.schema
         .string()
+        .max(4096)
         .optional()
         .describe("Project directory (defaults to current session workspace)"),
     },
@@ -9296,9 +9333,9 @@ function createODFWorkflowArchive(canonicalDirectory?: string): ReturnType<typeo
   return tool({
     description: `Commit the terminal ARCHIVE transition through the selected workflow store. This action is locked and idempotent: it requires terminal VERIFY evidence, blocks pending receipts and running attempts, safely returns already-committed on a concurrent/repeated request, and repairs an incomplete Engram mirror from authoritative OpenSpec state on retry. It does not move or rewrite the change directory.`,
     args: {
-      change_name: tool.schema.string().describe("Exact name of the verified ODF change to archive"),
+      change_name: tool.schema.string().min(1).max(64).regex(CHANGE_NAME_PATTERN).describe("Exact name of the verified ODF change to archive"),
       artifact_store: tool.schema.enum(["openspec", "engram", "hybrid"]).describe("Authoritative workflow store persisted for this change"),
-      workspace_dir: tool.schema.string().optional().describe("Absolute project root; defaults to the current session workspace"),
+      workspace_dir: tool.schema.string().max(4096).optional().describe("Absolute project root; defaults to the current session workspace"),
       target: tool.schema.enum(["oca"]).optional().describe("Persisted governance target, when enabled"),
       governance_acknowledgment: governanceAcknowledgmentSchema.optional().describe("Explicit final human OCA acknowledgment bound to the current candidate digest"),
     },
@@ -9628,6 +9665,9 @@ only after canonical state exists. Existing state and Expectations are reused on
     args: {
       change_name: tool.schema
         .string()
+        .min(1)
+        .max(64)
+        .regex(CHANGE_NAME_PATTERN)
         .describe("Safe ODF change name"),
       work_type: tool.schema
         .enum([
@@ -9646,6 +9686,7 @@ only after canonical state exists. Existing state and Expectations are reused on
       target: tool.schema.enum(["oca"]).optional().describe("Explicit governance target to persist"),
       workspace_dir: tool.schema
         .string()
+        .max(4096)
         .optional()
         .describe("Project directory (defaults to cwd)"),
       artifact_store: tool.schema
@@ -9653,27 +9694,27 @@ only after canonical state exists. Existing state and Expectations are reused on
         .optional()
         .describe("Artifact store for the binding (defaults to openspec)"),
       preflight: tool.schema.object({
-        change: tool.schema.string(),
+        change: tool.schema.string().min(1).max(64).regex(CHANGE_NAME_PATTERN),
         execution_mode: tool.schema.enum(["interactive", "batch", "auto"]),
         artifact_store: tool.schema.enum(["openspec", "engram", "hybrid"]),
         delivery_strategy: tool.schema.enum(["ask-always", "ask-on-risk", "auto-chain", "single-pr"]),
-        review_budget_lines: tool.schema.number(),
-        odoo_version: tool.schema.number(),
+        review_budget_lines: tool.schema.number().int().min(100).max(5000),
+        odoo_version: tool.schema.number().int().min(16).max(19),
         tdd_mode: tool.schema.boolean(),
         solution_strategy: tool.schema.enum(["standard", "custom", "pending"]),
         chain_strategy: tool.schema.enum(["none", "chained", "feature-branch"]),
         validation_mode: tool.schema.enum(["automated", "manual-acceptance"]).optional().describe("Validation preference: automated (default) or manual-acceptance (user-run evidence; risk/EXP gates still apply)"),
-        persisted_at: tool.schema.string().optional(),
+        persisted_at: tool.schema.string().max(64).optional(),
       }).optional().describe("Complete preflight used to initialize a missing workflow state"),
       expectations: tool.schema.object({
-        change: tool.schema.string(),
-        intent: tool.schema.string(),
-        expectations: tool.schema.array(workflowExpectationEntrySchema),
+        change: tool.schema.string().min(1).max(64).regex(CHANGE_NAME_PATTERN),
+        intent: tool.schema.string().min(1).max(20_000),
+        expectations: tool.schema.array(workflowExpectationEntrySchema).max(64),
         ...workflowExpectationExtensionSchema,
         approved: tool.schema.boolean(),
-        approved_by: tool.schema.string(),
-        approved_at: tool.schema.string(),
-        immutable_since: tool.schema.string(),
+        approved_by: tool.schema.string().max(128),
+        approved_at: tool.schema.string().max(64),
+        immutable_since: tool.schema.string().max(64),
       }).optional().describe("Approved human Expectations to persist after canonical state"),
       entry_route_binding: workflowEntryRouteBindingSchema.optional().describe("Validated advisory entry-route metadata; it cannot authorize fast execution without fast_lane_policy"),
       fast_lane_policy: workflowFastLanePolicySchema.optional().describe("Explicit opt-in bounded BUILD policy; omitted means the fast lane is disabled"),
@@ -9681,10 +9722,10 @@ only after canonical state exists. Existing state and Expectations are reused on
         .enum(["DECIDE", "FIX"])
         .optional()
         .describe("Materialize the terminal micro prefix before BUILD"),
-      intent: tool.schema.string().optional().describe("User intent for a terminal DECIDE"),
+      intent: tool.schema.string().max(20_000).optional().describe("User intent for a terminal DECIDE"),
       expectations_approved: tool.schema.boolean().optional().describe("Whether the user's Expectations were approved"),
-      root_cause: tool.schema.string().optional().describe("Root-cause analysis for a terminal FIX"),
-      regression: tool.schema.string().optional().describe("Minimal regression for a terminal FIX"),
+      root_cause: tool.schema.string().max(20_000).optional().describe("Root-cause analysis for a terminal FIX"),
+      regression: tool.schema.string().max(20_000).optional().describe("Minimal regression for a terminal FIX"),
     },
     async execute(args: WorkflowBindArgs, toolCtx: ToolContext): Promise<string> {
       const blocked = (reason: string, message: string): string => JSON.stringify({ status: "blocked", reason, stop_disposition: classifyODFStop(reason), message }, null, 2)
@@ -10236,25 +10277,25 @@ Actions:
       artifact_store: tool.schema.enum(["openspec", "engram", "hybrid"]).describe("Authoritative workflow store"),
       action: tool.schema.enum(["skip", "re-enter", "re-plan", "disable-fast-lane", "settle-attempt", "settle-unlaunched-attempt", "settle-bind-failed-attempt", "settle-join"]).describe("Override action"),
       target_stage: tool.schema.enum(["DECIDE", "PLAN", "BUILD", "VERIFY"]).optional().describe("Canonical stage to skip/re-enter/re-plan from"),
-      attempt_id: tool.schema.string().optional().describe("Stale attempt to settle (required for settle-attempt and native recovery actions)"),
-      child_session_id: tool.schema.string().optional().describe("Native child session to verify and await before settling a prepared attempt"),
+      attempt_id: tool.schema.string().max(128).regex(SAFE_TOKEN_PATTERN).optional().describe("Stale attempt to settle (required for settle-attempt and native recovery actions)"),
+      child_session_id: tool.schema.string().max(256).optional().describe("Native child session to verify and await before settling a prepared attempt"),
       confirm_no_active_run: tool.schema.boolean().optional().describe("Required true for settle-attempt, native recovery actions, and settle-join after verifying no task or run is active"),
-      reason: tool.schema.string().describe("Human-approved reason (>=20 chars)"),
-      approved_by: tool.schema.string().optional().describe("Human approver for disabling the fast lane"),
+      reason: tool.schema.string().min(20).max(512).describe("Human-approved reason (20-512 chars)"),
+      approved_by: tool.schema.string().max(256).optional().describe("Human approver for disabling the fast lane"),
       expectations_revision: tool.schema.object({
-        change: tool.schema.string(),
-        intent: tool.schema.string(),
-        expectations: tool.schema.array(workflowExpectationEntrySchema),
+        change: tool.schema.string().min(1).max(64).regex(CHANGE_NAME_PATTERN),
+        intent: tool.schema.string().min(1).max(20_000),
+        expectations: tool.schema.array(workflowExpectationEntrySchema).max(64),
         ...workflowExpectationExtensionSchema,
         approved: tool.schema.boolean(),
-        approved_by: tool.schema.string(),
-        approved_at: tool.schema.string(),
-        immutable_since: tool.schema.string(),
-        revision: tool.schema.number(),
-        supersedes: tool.schema.string(),
-        replan_from: tool.schema.string(),
+        approved_by: tool.schema.string().max(128),
+        approved_at: tool.schema.string().max(64),
+        immutable_since: tool.schema.string().max(64),
+        revision: tool.schema.number().int().min(1),
+        supersedes: tool.schema.string().max(128),
+        replan_from: tool.schema.string().max(128),
       }).optional().describe("Approved Expectations revision (required for re-plan)"),
-      workspace_dir: tool.schema.string().optional().describe("Project directory (defaults to cwd)"),
+      workspace_dir: tool.schema.string().max(4096).optional().describe("Project directory (defaults to cwd)"),
     },
     async execute(args: {
       change_name: string

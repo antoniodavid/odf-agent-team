@@ -283,7 +283,6 @@ export interface ODFCommunityTool {
   command_name: string
   repo_url: string
   description: string
-  installed: boolean
 }
 
 export interface ODFRegistry {

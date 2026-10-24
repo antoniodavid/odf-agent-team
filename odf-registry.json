@@ -2967,8 +2967,7 @@
       "package_name": "@colbymchenry/codegraph@latest",
       "command_name": "codegraph",
       "repo_url": "https://github.com/colbymchenry/codegraph",
-      "description": "Code graph indexing and MCP wiring for supported coding agents",
-      "installed": false
+      "description": "Code graph indexing and MCP wiring for supported coding agents"
     }
   ],
   "capabilities": [
