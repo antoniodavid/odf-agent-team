@@ -80,22 +80,27 @@ Returns structured JSON with CLI path, installed version, and package status.`,
 
 export function createODFCommunityToolInstall(): ReturnType<typeof tool> {
   return tool({
-    description: `Install a community tool (npm package) and optionally initialize a CodeGraph index.
+    description: `Install or remove a community tool (npm package); install optionally initializes a CodeGraph index.
 
-Runs npm install for the tool package; with codegraph and an explicit workspace,
-also runs codegraph init. It does not modify agent instructions.`,
+Install runs npm install for the tool package; with codegraph and an explicit
+workspace, also runs codegraph init. Remove runs npm uninstall and does not
+delete project indexes. It does not modify agent instructions.`,
     args: {
       tool_name: tool.schema
         .string()
         .max(64)
         .describe("Community tool name from registry: codegraph"),
+      action: tool.schema
+        .enum(["install", "uninstall"])
+        .optional()
+        .describe("Install (default) or uninstall the package"),
       workspace_dir: tool.schema
         .string()
         .max(4096)
         .optional()
-        .describe("Project directory to init codegraph index in (codegraph only)"),
+        .describe("Project directory to init codegraph index in (codegraph install only)"),
     },
-    async execute(args: { tool_name: string; workspace_dir?: string }, toolCtx: ToolContext): Promise<string> {
+    async execute(args: { tool_name: string; action?: "install" | "uninstall"; workspace_dir?: string }, toolCtx: ToolContext): Promise<string> {
       const registry = await loadRegistry()
       if (!registry) {
         return "❌ ODF registry not found"
@@ -107,6 +112,19 @@ also runs codegraph init. It does not modify agent instructions.`,
       }
 
       const results: string[] = []
+      if (args.action === "uninstall") {
+        try {
+          execFileSync("npm", ["uninstall", "--no-audit", "--no-fund", scopedPackagePath(def.package_name)], {
+            cwd: getOdfConfigDir(),
+            encoding: "utf8",
+            timeout: 120_000,
+          })
+          results.push(`✅ npm uninstall ${scopedPackagePath(def.package_name)} succeeded`)
+        } catch (err) {
+          results.push(`⚠️ npm uninstall ${scopedPackagePath(def.package_name)}: ${(err as Error).message || String(err)}`)
+        }
+        return results.join("\n")
+      }
 
       // Step 1: npm install
       try {

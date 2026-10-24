@@ -83,6 +83,6 @@ Risk: item 3 — requested changes to public tool input contracts, profile behav
 
 ### Remaining follow-ups
 
-- Community tools still have no uninstall/rollback path.
-- A few deeply nested expectation fields rely on the registry/expectation validator rather than individual schema bounds.
-- Delegate H7-H13 (block-envelope context, child session ID in timeout/cancel, etc.) remain separate from this A7-A9/A11 pass.
+- Community package uninstall/rollback: delivered in `odd/tasks/odf-delegate-followups.md` (project indexes are not removed).
+- Nested Expectations bounds: delivered in `odd/tasks/odf-delegate-followups.md`.
+- Delegate H7/H9/H11/H12: delivered in `odd/tasks/odf-delegate-followups.md`; the transport-dependent child ID remains best-effort.

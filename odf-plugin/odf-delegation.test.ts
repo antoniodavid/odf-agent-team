@@ -6238,6 +6238,9 @@ ${overrides}`
     })
     expect(envelope.classes).toContain("destructive")
     expect(String(envelope.safe_continuation || "").length).toBeGreaterThan(0)
+    expect(envelope.agent).toBe("odoo_backend_engineer")
+    expect(envelope.profile).toBeDefined()
+    expect(envelope.skills_injected.length).toBeGreaterThan(0)
     expect(taskApi).not.toHaveBeenCalled()
     expect(getMetricsBuffer().at(-1)).toMatchObject({ status: "blocked" })
   })
@@ -6807,9 +6810,15 @@ ${overrides}`
     }, { sessionID: "s1", task: taskApi } as any)
 
     const envelope = JSON.parse(output as string)
-    expect(envelope).toMatchObject({ status: "blocked" })
-    expect(envelope.reason).toContain("verification-unavailable")
-    expect(envelope.reason).toContain("initialize a git repository")
+    expect(envelope).toMatchObject({
+      status: "blocked",
+      reason: "policy-gate-blocked",
+      policy_gate: {
+        gate: "block",
+        reason: expect.stringContaining("verification-unavailable"),
+      },
+    })
+    expect(envelope.message).toContain("initialize a git repository")
     expect(taskApi).not.toHaveBeenCalled()
   })
 
@@ -7415,6 +7424,9 @@ ${overrides}`
       context_files: [],
     }, { sessionID: "design-no-refs", task: taskApi } as any) as string)
     expect(output.status).toBe("delegated")
+    expect(output.warnings).toEqual(expect.arrayContaining([
+      expect.stringContaining("stage-not-materialized"),
+    ]))
   })
 
   it("commits a prospective BUILD from persisted PLAN, preserves YAML, and is idempotent", async () => {
