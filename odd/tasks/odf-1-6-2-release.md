@@ -33,7 +33,7 @@ Vitest + YAML scenarios.
 | T2 | S2 | inline | done | `CHANGELOG.md` 1.6.2 |
 | T3 | S3 | inline | done | `docs/README.md` + regenerated pages |
 | T4 | S4 | inline | done | `docs/index.html` |
-| T5 | S5 | inline | pending | PR + `v1.6.2` release |
+| T5 | S5 | inline | done | PR #189 merged as `5870b5f`; release `v1.6.2` targets that commit |
 
 ## Log
 
@@ -52,3 +52,17 @@ history rewriting would require a force-push and is out of scope.
 Only metadata, changelog, docs summary, and the landing page change. Runtime
 code, skills, and routes are untouched; the docs generator is already covered by
 `docs:check` and the privacy guard test.
+
+### L4 — release evidence (2026-10-26)
+
+- PR #189 passed CI on Node 22 and auto-merged as `5870b5f`; the branch was
+  deleted locally and remotely.
+- Release `v1.6.2` is published, non-draft, non-prerelease, and targets
+  `5870b5f`. `VERSION`, `package.json`, and `odf-registry.json` at the tag report
+  `1.6.2`; the tag's `install.sh` has no `adruban` reference.
+- GitHub Pages serves `v1.6.2`, "What's new in 1.6.2", and 1,405 tests; the live
+  crawl resolved 30 pages and all anchors, and the privacy scan of 32 published
+  files found no personal data or credentials.
+- Local release matrix: 1,405 Vitest tests (52 files), 331 YAML scenarios, 18
+  harness checks, typecheck, registry validation, skill validation, docs check,
+  `bash -n install.sh`, `node --check`, and `git diff --check`.
