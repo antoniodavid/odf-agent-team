@@ -99,6 +99,63 @@ describe("Context Manifest", () => {
     expect(first.manifest_digest).not.toBe(second.manifest_digest)
   })
 
+  it("records redundancy, the assessment gate, and the Expectations reference without content", () => {
+    const first = buildContextManifest({
+      project: "demo",
+      odoo_version: 18,
+      redundancy: { probed: true, hits: 1, contradictions: 0, references: ["sale/models/sale_order.py", "odf-learned/demo"] },
+      assessment_gate: { mode: "assess", reason: "Redundancy hit.", signals: ["redundancy-signal"] },
+      expectations_ref: "openspec/changes/demo/expectations.yaml",
+    })
+    const second = buildContextManifest({
+      project: "demo",
+      odoo_version: 18,
+      redundancy: { probed: true, hits: 1, contradictions: 0, references: ["odf-learned/demo", "sale/models/sale_order.py"] },
+      assessment_gate: { mode: "assess", reason: "Redundancy hit.", signals: ["redundancy-signal"] },
+      expectations_ref: "openspec/changes/demo/expectations.yaml",
+    })
+    expect(first.redundancy).toEqual({
+      probed: true,
+      hits: 1,
+      contradictions: 0,
+      references: ["odf-learned/demo", "sale/models/sale_order.py"],
+    })
+    expect(first.assessment_gate).toEqual({ mode: "assess", reason: "Redundancy hit.", signals: ["redundancy-signal"] })
+    expect(first.expectations_ref).toBe("openspec/changes/demo/expectations.yaml")
+    expect(first.manifest_digest).toBe(second.manifest_digest)
+  })
+
+  it("changes the digest when the assessment gate changes", () => {
+    const skip = buildContextManifest({ assessment_gate: { mode: "skip", reason: "Clear." } })
+    const assess = buildContextManifest({ assessment_gate: { mode: "assess", reason: "Clear." } })
+    expect(skip.manifest_digest).not.toBe(assess.manifest_digest)
+  })
+
+  it("drops unsafe redundancy, gate, and Expectations inputs", () => {
+    const manifest = buildContextManifest({
+      redundancy: { probed: true, hits: -1, references: ["../secret"] },
+      assessment_gate: { mode: "later" as any, reason: "line\nbreak" },
+      expectations_ref: "../outside",
+    })
+    expect(manifest.redundancy).toEqual({ probed: false, hits: 0, contradictions: 0, references: [] })
+    expect(manifest.assessment_gate).toBeNull()
+    expect(manifest.expectations_ref).toBeNull()
+    expect(manifest.missing_facts).toEqual(expect.arrayContaining(["redundancy", "assessment-gate", "expectations-ref"]))
+  })
+
+  it("exposes redundancy, gate, and Expectations reference through the tool", async () => {
+    const manifestTool = createODFContextManifest() as any
+    const output = JSON.parse(await manifestTool.execute({
+      project: "demo",
+      redundancy: { probed: true, hits: 2, contradictions: 1 },
+      assessment_gate: { mode: "assess", reason: "Needs review.", signals: ["redundancy-signal"] },
+      expectations_ref: "openspec/changes/demo/expectations.yaml",
+    }))
+    expect(output.redundancy).toMatchObject({ probed: true, hits: 2, contradictions: 1 })
+    expect(output.assessment_gate).toMatchObject({ mode: "assess" })
+    expect(output.expectations_ref).toBe("openspec/changes/demo/expectations.yaml")
+  })
+
   it("does not persist anything", () => {
     const directory = fs.mkdtempSync(path.join(os.tmpdir(), "odf-context-manifest-"))
     try {

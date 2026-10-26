@@ -23,7 +23,7 @@ The ODF plugin injects **29 tools** into the orchestrator's tool list at runtime
 | `odf_workflow_status` | read | Canonical status from OpenSpec / Engram / `.odf` |
 | `odf_feedback_submit` | write | Preview or submit one explicitly confirmed, privacy-bounded feedback aggregate |
 | `odf_entry_triage` | read | Classify micro / standard / full entry + pick work type |
-| `odf_context_manifest` | read | Bounded, reference-only context manifest for a candidate |
+| `odf_context_manifest` | read | Bounded, reference-only context manifest: project facts, references, redundancy counts, gate decision, Expectations ref |
 | `odf_skill_inject` | read | Match and inject skill compact rules into a prompt |
 | `odf_skill_resolve` | read | Preview matching skills **without** executing |
 | `odf_registry_read` | read | Read + cache `odf-registry.json` (TTL + file watcher) |

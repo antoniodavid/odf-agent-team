@@ -24,6 +24,10 @@ When the delegation carries `work_type: feature-inline`, produce the canonical
   with `mode: performed`, `outcome` (`standard-coverage`, `custom`,
   `extend-existing`, `complex`, or `blocked`), `strategy`, `scope`, `risks`,
   `unknowns`, and a bounded `reason`.
+- Consume the forwarded `## Context Manifest` unchanged: use its references,
+  source roots, CodeGraph reference, redundancy counts, and Expectations ref.
+  Do not re-run project discovery or redundancy while it is fresh. If it is
+  missing or stale, do bounded discovery and report `manifest-stale`.
 - Check standard coverage first, then name affected modules, models, views, and
   data; include dependency or migration risk and any unresolved ambiguity.
 - Do NOT create `proposal`, `assess`, `design`, `qa-plan`, or `tasks` artifacts.

@@ -16,9 +16,10 @@ orchestrator. Never infer the plan mode from triage labels or missing artifacts.
 - When the route has `plan: required`, require approved ASSESS/Expectations,
   DESIGN with `design_closed: true`, and its closed task breakdown. Missing,
   false, stale, or unverifiable design is a hard block that reopens PLAN.
-- When the route has `plan: inline` (`small-change` or `bugfix`), require its
-  completed DECIDE/FIX entry evidence, approved Expectations, and the bounded
-  inline implementation tasks and QA plan forwarded by the orchestrator. Formal
+- When the route has `plan: inline` (`small-change`, `feature-inline`, or
+  `bugfix`), require its completed DECIDE/FIX entry evidence, approved
+  Expectations, the forwarded Context Manifest, and the bounded inline
+  implementation tasks and QA plan forwarded by the orchestrator. Formal
   ASSESS, QA-PLAN, DESIGN, and task artifacts are not prerequisites for this
   route. Do not invent REQ-XX or pretend a formal design exists.
 - A `plan: none` route does not run BUILD. Missing or contradictory route
@@ -38,6 +39,7 @@ scope or promote inline notes into formal artifacts.
 | Route-specific acceptance criteria | On `plan: required`, read REQ-XX from ASSESS for each task; on `plan: inline`, trace each task directly to approved EXP-XX and the inline task/QA plan |
 | Follow approved decisions | On formal-plan routes follow DESIGN; on inline routes follow the approved inline plan. If either is wrong, NOTE IT and stop for orchestrator disposition |
 | Project context | Name per `project_context.glossary` and follow `project_context.principles` from `odf-init/{project}`; a conflict with the approved route plan or a principle is reported and blocked — never silently deviated |
+| Context Manifest | Consume the forwarded manifest unchanged: references, source roots, CodeGraph reference, redundancy counts, and Expectations ref. Never paste source content; do not re-run project discovery or redundancy while it is fresh. Missing or stale → bounded discovery + `manifest-stale` |
 | Tests with code | Tests belong in the same commit as the behavior they verify |
 | Smoke tests per batch | Run pre-commit + pylint-odoo on changed files after each batch |
 | Stop-validation evidence | Settle all candidate-affecting files (including merged progress/task artifacts), run the tier's stop-validation commands, then write `<worktree>/.odf/validation-evidence-{change}.json` last — a batch WITHOUT verified evidence does NOT close |
@@ -57,7 +59,7 @@ scope or promote inline notes into formal artifacts.
 
 ## Execution Steps
 
-1. **Retrieve route-specific inputs** from the selected store and forwarded workflow context. Require the persisted `work_type`, route plan mode, completed entry stage, approved Expectations, and exact approved scope. For `plan: required`, also read ASSESS and DESIGN/tasks and verify `design_closed === true`; otherwise stop with `blocked`, `next_recommended: ["design"]`, and no code/task edits. For `plan: inline`, use the approved Expectations and forwarded inline tasks/QA plan; do not require formal ASSESS/DESIGN/task artifacts. If required inputs are absent or conflict with the persisted route, stop and ask the orchestrator to resolve or escalate.
+1. **Retrieve route-specific inputs** from the selected store and forwarded workflow context. Require the persisted `work_type`, route plan mode, completed entry stage, approved Expectations, the forwarded `## Context Manifest` when the route supplies one, and exact approved scope. Consume the manifest unchanged; do not re-run project discovery or redundancy while it is fresh. If it is missing or stale, do bounded discovery and report `manifest-stale`. For `plan: required`, also read ASSESS and DESIGN/tasks and verify `design_closed === true`; otherwise stop with `blocked`, `next_recommended: ["design"]`, and no code/task edits. For `plan: inline`, use the approved Expectations and forwarded inline tasks/QA plan; do not require formal ASSESS/DESIGN/task artifacts. If required inputs are absent or conflict with the persisted route, stop and ask the orchestrator to resolve or escalate.
 2. **Read patterns**: Check existing Odoo source for the module being extended
 3. **Implement tasks**: For each task, read its REQ-XX on `plan: required` routes or its approved EXP-XX trace on `plan: inline` routes → read source patterns → write code (OCA standards) → run focused tests; mark [x] only after the behavior is verified
 4. **Smoke test**: run pre-commit --files {changed} + pylint-odoo on changed files; finish any source/test fixes before proceeding

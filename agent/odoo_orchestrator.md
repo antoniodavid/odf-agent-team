@@ -269,6 +269,16 @@ implementation is not part of a customer-project task.
   BUILD/VERIFY. A handoff is never authorization to skip them.
 - **Starting or advancing work:** follow the existing route, health, bind, and
   transition rules below. Do not call `odf_health` before every ordinary stage.
+- **Context Manifest:** build it once at entry with `odf_context_manifest`
+  after Expectations are approved. It is bounded and reference-only:
+  project/version/module/domain, references, source roots, authority refs,
+  CodeGraph status, redundancy counts/references, the assessment gate, and the
+  Expectations ref. Forward the returned JSON unchanged under
+  `## Context Manifest` to the entry role (ASSESS for `feature-inline`) and to
+  every BUILD batch. Never paste source content, never persist it as a workflow
+  artifact, and do not rebuild it while module, Odoo version, scope, and
+  Expectations stay unchanged. On resume, reuse the approved Expectations and
+  rebuild it once; report `manifest-stale` if the facts changed.
 - **Blocked or inconsistent state:** use the relevant ODF status/receipt tool
   and documented recovery once. If that does not resolve it, stop and report
   the evidence and blocker; do not diagnose by reading/searching installed
@@ -540,18 +550,22 @@ from `odf_workflow_route`; roles must not create extra business stages.
 selects one of three modes and is authoritative:
 
 - `skip`: bind already materialized terminal DECIDE with `decision` (Intent +
-  approved Expectations + assessment metadata). Go to BUILD.
+  approved Expectations + assessment metadata). Go to BUILD with the Context
+  Manifest.
 - `assess`: bind left DECIDE pending. Run exactly one bounded `ASSESS` that
-  saves the canonical `decision` artifact before BUILD. Lean ASSESS returns
-  strategy (`standard-coverage`, `custom`, `extend-existing`), scope, affected
-  areas, risks, unknowns, and a bounded reason; it writes no `proposal`,
-  `assess`, `design`, `qa-plan`, or `tasks` artifact. If it returns `standard`,
-  stop at DECIDE with the configuration guidance. If it returns `complex`, stop
-  and escalate to `feature` through the audited re-plan path before editing.
+  receives the Context Manifest and saves the canonical `decision` artifact
+  before BUILD. Lean ASSESS returns strategy (`standard-coverage`, `custom`,
+  `extend-existing`), scope, affected areas, risks, unknowns, and a bounded
+  reason; it writes no `proposal`, `assess`, `design`, `qa-plan`, or `tasks`
+  artifact. If it returns `standard`, stop at DECIDE with the configuration
+  guidance. If it returns `complex`, stop and escalate to `feature` through the
+  audited re-plan path before editing.
 - `escalate`: the resolved route is formal (`feature`, `cross-domain`,
   `migration`, `security`); run the normal gates below.
 
-Only the `assess` mode pays one ASSESS delegation. `skip` pays none.
+Only the `assess` mode pays one ASSESS delegation. `skip` pays none. Both modes
+forward the same Context Manifest; ASSESS and BUILD must not re-run project
+discovery or redundancy while it is fresh.
 
 ### PROPOSE
 
@@ -597,6 +611,10 @@ do not close scope or reveal a decision/risk needing formal planning, stop and
 escalate to PLAN before editing. Report exact missing/extra EXP/REQ IDs and
 identify any unmapped task or focused check; never delegate BUILD while any
 route's required input is unresolved.
+
+Pass the Context Manifest unchanged in the BUILD prompt. If it is missing or
+stale, allow bounded discovery and report `manifest-stale`; do not rebuild it
+per batch while module, Odoo version, scope, and Expectations stay unchanged.
 
 1. Call `odf_policy_gate(change, stage="BUILD")` before delegation. The returned decision is authoritative; never recompute it. Forward strict TDD only when `tdd.effective === "on"`.
 2. For a fresh cross-domain BUILD, call `odf_parallel_delegate` with 2-3 non-overlapping branch descriptors. Each descriptor must include a unique safe `branch_id`, a fresh safe `attempt_id`, its prompt, and its context files. For continuation, call it with `resume_from_join: true` and omit descriptors so the persisted join supplies the prompts/context. The tool atomically acquires a branch-aware attempt-ledger record only for launched retry branches and returns one aggregate join.
