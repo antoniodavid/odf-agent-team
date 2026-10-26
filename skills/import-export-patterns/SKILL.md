@@ -1,6 +1,6 @@
 ---
 name: import-export-patterns
-description: "Import Export Patterns. Trigger: import, export, load, CSV import, odoo csv."
+description: "Use when importing or exporting Odoo data: CSV loads, programmatic import, external IDs, batch processing, and export reports. Covers validation, previews, and error reporting."
 license: MIT
 metadata:
   author: antoniodavid

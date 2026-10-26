@@ -1,6 +1,6 @@
 ---
 name: odoo-editions
-description: "Odoo Editions. Trigger: community enterprise, odoo editions, enterprise features."
+description: "Use when a task depends on Odoo Community vs Enterprise: available apps, licensing, repository layout, and runtime feature detection. Covers edition-specific views and module licensing."
 license: MIT
 metadata:
   author: antoniodavid

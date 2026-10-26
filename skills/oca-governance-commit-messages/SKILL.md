@@ -1,6 +1,6 @@
 ---
 name: oca-governance-commit-messages
-description: "OCA Commit Messages. Trigger: commit, git, message, history."
+description: "Use when writing OCA commit messages: [TAG] module: summary, imperative mood, body, issue references, and multi-module commits. Covers the tag vocabulary."
 license: MIT
 metadata:
   author: antoniodavid

@@ -1,6 +1,6 @@
 ---
 name: constraint-patterns
-description: "Constraint Patterns. Trigger: constraint, validation, check, _sql_constraints."
+description: "Use when validating Odoo data: @api.constrains, _sql_constraints, ValidationError, and create/write flows. Covers multi-field checks, imports, and error messages."
 license: MIT
 metadata:
   author: antoniodavid

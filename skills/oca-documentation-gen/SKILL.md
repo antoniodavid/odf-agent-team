@@ -1,6 +1,6 @@
 ---
 name: oca-documentation-gen
-description: "Oca Documentation Gen. Trigger: generate docs, documentation generation, readme gen."
+description: "Use when generating OCA documentation: README, DESCRIPTION, USAGE, CONTRIBUTORS, and HISTORY files with the manifest values."
 license: MIT
 metadata:
   author: antoniodavid

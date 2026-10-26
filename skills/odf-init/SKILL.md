@@ -1,6 +1,6 @@
 ---
 name: odf-init
-description: "Detect + persist Odoo project context: version, modules, test runner, lint tools, conventions. Trigger: /odf-init, first time in a project."
+description: "Use when initializing an ODF project: detect the Odoo version, modules, runner, lint, and conventions, and persist partial context."
 license: MIT
 metadata:
   author: antoniodavid

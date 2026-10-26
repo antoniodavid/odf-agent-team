@@ -1,6 +1,6 @@
 ---
 name: oca-pr-checkout
-description: "Use when fetching the code of an OCA pull request: read PR metadata, checkout with gh or a manual fetch, and handle dependency PRs first."
+description: "Use when fetching the code of an OCA pull request: read metadata, checkout with gh or manual fetch, and handle dependencies."
 license: MIT
 metadata:
   author: antoniodavid

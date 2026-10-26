@@ -1,6 +1,6 @@
 ---
 name: cron-automation-patterns
-description: "Cron Automation Patterns. Trigger: ir.cron, scheduled action, automation job."
+description: "Use when scheduling Odoo jobs: ir.cron, interval configuration, batch processing, idempotency, and queue_job. Covers logging, savepoints, and safe re-runs."
 license: MIT
 metadata:
   author: antoniodavid

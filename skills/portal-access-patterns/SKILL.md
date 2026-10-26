@@ -1,6 +1,6 @@
 ---
 name: portal-access-patterns
-description: "Portal Access Patterns. Trigger: portal user, public access, website security, portal."
+description: "Use when building Odoo portal access: portal.mixin, controllers, templates, access tokens, and public routes. Covers token scope, permissions, and expiry."
 license: MIT
 metadata:
   author: antoniodavid

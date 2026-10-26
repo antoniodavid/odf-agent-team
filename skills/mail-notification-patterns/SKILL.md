@@ -1,6 +1,6 @@
 ---
 name: mail-notification-patterns
-description: "Mail Notification Patterns. Trigger: mail template, notification, message_post, email template."
+description: "Use when adding Odoo mail and notifications: mail.thread, templates, message_post, followers, activities, and bus notifications. Covers email rendering, batching, and tracking."
 license: MIT
 metadata:
   author: antoniodavid

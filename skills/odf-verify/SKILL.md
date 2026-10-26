@@ -1,6 +1,6 @@
 ---
 name: odf-verify
-description: "Quality gate for ODF: evidence-based risk tiers (0/1/4 lenses), spec compliance matrix, single-attempt correction budget. Trigger: Phase 4 (VERIFY) of /odf-new."
+description: "Use when verifying an Odoo implementation: classify risk, run the real suite, build the compliance matrix, and issue PASS, FAIL, or BLOCKED."
 license: MIT
 metadata:
   author: antoniodavid

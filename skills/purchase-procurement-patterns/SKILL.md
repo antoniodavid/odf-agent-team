@@ -1,6 +1,6 @@
 ---
 name: purchase-procurement-patterns
-description: "Purchase Procurement Patterns. Trigger: purchase order, procurement, rfq, vendor."
+description: "Use when implementing Odoo purchasing: purchase.order, RFQs, vendor management, approvals, receipts, and price history. Covers multi-company and blanket orders."
 license: MIT
 metadata:
   author: antoniodavid

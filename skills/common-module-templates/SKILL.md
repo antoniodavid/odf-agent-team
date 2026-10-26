@@ -1,6 +1,6 @@
 ---
 name: common-module-templates
-description: "Common Module Templates. Trigger: module templates, common module structure, scaffold."
+description: "Use when starting from an Odoo module template: sale, stock, HR, CRM, accounting, website, or project. Covers the OCA layout and version adaptation."
 license: MIT
 metadata:
   author: antoniodavid

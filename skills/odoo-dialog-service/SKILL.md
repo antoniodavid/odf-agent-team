@@ -1,6 +1,6 @@
 ---
 name: odoo-dialog-service
-description: "Odoo Dialog Service. Trigger: dialog service, wizard, form dialog, owl dialog."
+description: "Use when building Odoo dialogs and wizards: dialog service, confirmation, alert and form dialogs, notifications, sizes, and version differences. Covers cancel handling and custom components."
 license: MIT
 metadata:
   author: antoniodavid

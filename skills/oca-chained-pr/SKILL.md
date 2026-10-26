@@ -1,6 +1,6 @@
 ---
 name: oca-chained-pr
-description: "Split oversized OCA PRs (>400 lines) into reviewable chained PRs. Trigger: PR >400 lines, SDD forecast High risk, 'chained', 'stacked PR'."
+description: "Use when a change exceeds the review budget: split into chained or stacked PRs, slice by work unit, and justify size exceptions."
 license: Apache-2.0
 metadata:
   author: antoniodavid

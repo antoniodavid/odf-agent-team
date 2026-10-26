@@ -1,6 +1,6 @@
 ---
 name: lot-serial-patterns
-description: "Lot Serial Patterns. Trigger: lot number, serial number, stock.quant, tracking."
+description: "Use when working with Odoo lots and serial numbers: tracking configuration, stock moves, expiration, FEFO, and traceability. Covers stock.lot, stock.quant, and validation."
 license: MIT
 metadata:
   author: antoniodavid

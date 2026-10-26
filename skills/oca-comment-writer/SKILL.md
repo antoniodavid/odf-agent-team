@@ -1,6 +1,6 @@
 ---
 name: oca-comment-writer
-description: "Write warm, direct collaboration comments for ODF. Trigger: PR feedback, issue replies, code review comments, async team updates."
+description: "Use when writing PR comments, review feedback, or issue replies: direct, warm, short, and focused on the highest-value issue."
 license: Apache-2.0
 metadata:
   author: antoniodavid

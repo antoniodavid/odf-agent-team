@@ -1,6 +1,6 @@
 ---
 name: odoo-test-patterns
-description: "Odoo Test Patterns. Trigger: test, TransactionCase, SavepointCase, HttpCase, tests/."
+description: "Use when writing Odoo tests: TransactionCase, HttpCase, tours, fixtures, tags, and test commands. Covers CRUD, computes, constraints, access rights, and version-specific patterns."
 license: MIT
 metadata:
   author: antoniodavid

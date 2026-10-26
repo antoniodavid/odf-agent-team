@@ -1,6 +1,6 @@
 ---
 name: oca-migration-status
-description: "Use when reporting OCA migration progress: list modules in a branch, compare target versions, classify MIGRATED/IN_PR/MISSING, and compute progress."
+description: "Use when reporting OCA migration progress: list modules, compare branches, classify MIGRATED, IN_PR, or MISSING, and compute percentages."
 license: MIT
 metadata:
   author: antoniodavid

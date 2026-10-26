@@ -1,6 +1,6 @@
 ---
 name: oca-search-migration-prs
-description: "Use when looking for OCA migration pull requests: search [MIG] PRs for a module, parse PR titles, and report state and author."
+description: "Use when finding OCA migration PRs: search [MIG] titles for a module, parse variants, and report state."
 license: MIT
 metadata:
   author: antoniodavid

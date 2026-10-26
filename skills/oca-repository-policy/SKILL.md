@@ -1,6 +1,6 @@
 ---
 name: oca-repository-policy
-description: "Oca Repository Policy. Trigger: repository policy, repo structure, stability policy."
+description: "Use when working in an OCA repository: mission, stability policy, branch layout, dependencies, and incubation. Covers API-stable changes and breaking-change rules."
 license: MIT
 metadata:
   author: antoniodavid

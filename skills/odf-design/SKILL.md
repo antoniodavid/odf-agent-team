@@ -1,6 +1,6 @@
 ---
 name: odf-design
-description: "Create a CLOSED technical design document + IMPLEMENT plan for Odoo module. Trigger: Phase 2 (DESIGN) of /odf-new after ASSESS approved."
+description: "Use when turning approved requirements into a closed Odoo design: source evidence, field and view tables, tasks, and design_closed."
 license: MIT
 metadata:
   author: antoniodavid

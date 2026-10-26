@@ -1,6 +1,6 @@
 ---
 name: computed-field-patterns
-description: "Computed Field Patterns. Trigger: @api.depends, computed, store, inverse, compute."
+description: "Use when implementing Odoo computed fields: @api.depends, store, inverse, search, related fields, and batch computation. Covers performance, empty recordsets, and circular dependencies."
 license: MIT
 metadata:
   author: antoniodavid

@@ -1,6 +1,6 @@
 ---
 name: dashboard-kpi-patterns
-description: "Dashboard Kpi Patterns. Trigger: dashboard, KPI, graph view, metrics."
+description: "Use when building Odoo dashboards and KPIs: pivot and graph models, stat buttons, OWL dashboard components, filters, and performance. Covers SQL aggregation and caching."
 license: MIT
 metadata:
   author: antoniodavid

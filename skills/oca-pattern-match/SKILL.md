@@ -1,6 +1,6 @@
 ---
 name: oca-pattern-match
-description: "Oca Pattern Match. Trigger: find pattern, pattern search, odoo/odoo pattern."
+description: "Use when looking for an Odoo or OCA pattern: search local source or odoo/odoo, match the target version, and report file:line."
 license: MIT
 metadata:
   author: antoniodavid
@@ -13,12 +13,12 @@ Find patterns in Odoo official + OCA community repos.
 
 ## Search Commands
 
-```python
-# Odoo Official
-grep_app_searchGitHub(repo="odoo/odoo", query="@api.depends", language=["Python"])
+```bash
+# Odoo official source (resolved by odf-init)
+rg -n "@api.depends" <odoo-source-root>/odoo --glob "*.py" | head -20
 
-# OCA Community
-grep_app_searchGitHub(repo="OCA/", query="@api.depends", language=["Python"])
+# OCA community source, when cloned locally
+rg -n "@api.depends" <oca-repos-root> --glob "*.py" | head -20
 ```
 
 ## When to Use Each

@@ -1,6 +1,6 @@
 ---
 name: oca-naming-conv
-description: "Oca Naming Conv. Trigger: naming conventions, XML ID naming, file naming."
+description: "Use when naming Odoo and OCA modules, files, XML IDs, fields, and methods. Covers singular module names, prefixes, and repository conventions."
 license: MIT
 metadata:
   author: antoniodavid

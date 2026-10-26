@@ -1,6 +1,6 @@
 ---
 name: odoo-model-patterns
-description: "Odoo Model Patterns. Trigger: model patterns, ORM patterns, version model guide."
+description: "Use when writing Odoo model code across versions: ORM patterns, command class, model_create_multi, company checks, type hints, and SQL builder. Covers the target-version file."
 license: MIT
 metadata:
   author: antoniodavid

@@ -1,6 +1,6 @@
 ---
 name: oca-manifest-format
-description: "OCA Manifest Format. Trigger: __manifest__.py, manifest, module dependencies."
+description: "Use when writing an OCA manifest: required keys, version format, license, author, website, dependencies, and data order. Covers development_status and images."
 license: MIT
 metadata:
   author: antoniodavid

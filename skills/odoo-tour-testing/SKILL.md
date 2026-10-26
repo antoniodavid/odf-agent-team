@@ -1,6 +1,6 @@
 ---
 name: odoo-tour-testing
-description: "Odoo Tour Testing. Trigger: tour test, qUnit tour, HttpCase UI, chrome tour."
+description: "Use when writing Odoo browser tours: QUnit and HttpCase tours, step triggers, selectors, running, and debugging. Covers deterministic waits and edition differences."
 license: MIT
 metadata:
   author: antoniodavid

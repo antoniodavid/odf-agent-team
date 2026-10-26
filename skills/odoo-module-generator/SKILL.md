@@ -1,6 +1,6 @@
 ---
 name: odoo-module-generator
-description: "Odoo Module Generator. Trigger: generate module, module skeleton, new module scaffolding."
+description: "Use when scaffolding a new Odoo module: manifest, __init__, models, views, security, and data skeleton. Covers version-specific output and reference verification."
 license: MIT
 metadata:
   author: antoniodavid

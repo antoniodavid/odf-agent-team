@@ -1,6 +1,6 @@
 ---
 name: odf-explore
-description: "Deep investigation of Odoo codebase to understand patterns before proposing solutions. Trigger: /odf-explore, 'how does Odoo handle X', research, investigation."
+description: "Use when investigating Odoo behavior before a change: search the local source, read the real files, and cite evidence."
 license: MIT
 metadata:
   author: antoniodavid

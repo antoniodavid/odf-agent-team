@@ -1,6 +1,6 @@
 ---
 name: pricelist-pricing-patterns
-description: "Pricelist Pricing Patterns. Trigger: pricelist, pricing rule, discount, price computation."
+description: "Use when implementing Odoo pricing: pricelists, rules, quantity breaks, currencies, dates, and customer-specific prices. Covers sequence, rounding, and price computation."
 license: MIT
 metadata:
   author: antoniodavid

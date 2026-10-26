@@ -1,6 +1,6 @@
 ---
 name: end-to-end-examples
-description: "End To End Examples. Trigger: end to end example, complete module example, full module walkthrough."
+description: "Use when you need a complete Odoo module walkthrough: equipment tracking, a minimal v17 module, and a v16 to v18 upgrade. Covers the full file set and agent execution summary."
 license: MIT
 metadata:
   author: antoniodavid

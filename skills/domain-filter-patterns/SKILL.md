@@ -1,6 +1,6 @@
 ---
 name: domain-filter-patterns
-description: "Domain Filter Patterns. Trigger: domain, search filter, recordset filter, expression domain."
+description: "Use when building Odoo domains: search filters, operators, child_of and parent_of, record rules, and dynamic domains. Covers the expression module and performance."
 license: MIT
 metadata:
   author: antoniodavid

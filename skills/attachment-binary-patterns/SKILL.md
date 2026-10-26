@@ -1,6 +1,6 @@
 ---
 name: attachment-binary-patterns
-description: "Attachment Binary Patterns. Trigger: binary field, file attachment, ir.attachment, upload."
+description: "Use when storing or serving files in Odoo: Binary fields, ir.attachment, upload controllers, image processing, and file validation. Covers large files, thumbnails, and attachment cleanup."
 license: MIT
 metadata:
   author: antoniodavid

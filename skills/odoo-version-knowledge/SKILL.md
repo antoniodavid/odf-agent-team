@@ -1,6 +1,6 @@
 ---
 name: odoo-version-knowledge
-description: "Odoo Version Knowledge. Trigger: version, migration, upgrade, Odoo 16, Odoo 17, Odoo 18."
+description: "Use when targeting a specific Odoo version: supported versions, breaking changes, deprecations, and detection hints. Covers 16-19 with 15 as migration source only."
 license: MIT
 metadata:
   author: antoniodavid

@@ -1,6 +1,6 @@
 ---
 name: odf-oca-governance
-description: "Trigger: target=oca or an explicit governance target context. Apply the OCA AI governance gate before publication."
+description: "Use when working with target=oca: load the AI policy, record provenance, and run the governance check before commit or PR."
 license: MIT
 metadata:
   author: "odf-agent-team"

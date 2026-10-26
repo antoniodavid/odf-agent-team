@@ -1,6 +1,6 @@
 ---
 name: oca-odoo-local-search
-description: "Use when searching a local Odoo source tree: locate models, views, and tests with rg or find, and cite file:line evidence instead of guessing."
+description: "Use when searching a local Odoo source tree: locate models, views, and tests with rg or find and cite file:line evidence."
 license: MIT
 metadata:
   author: antoniodavid
@@ -69,7 +69,7 @@ $ODOO_SRC/enterprise/pos_*/
 
 ## DO NOT
 
-- ❌ Use `grep_app_searchGitHub` if local exists
+- ❌ Use a remote search tool when the local source exists
 - ❌ Search entire codebase (be specific)
 - ❌ Clone repos (already cloned)
 

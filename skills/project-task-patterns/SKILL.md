@@ -1,6 +1,6 @@
 ---
 name: project-task-patterns
-description: "Project Task Patterns. Trigger: project task, project.task, milestone, timesheet."
+description: "Use when extending Odoo projects and tasks: project.task, stages, dependencies, timesheets, and automation. Covers progress, templates, and notifications."
 license: MIT
 metadata:
   author: antoniodavid

@@ -1,6 +1,6 @@
 ---
 name: owl-components
-description: "OWL Component Patterns. Trigger: OWL, component, JavaScript, JS, widget, static/src."
+description: "Use when building OWL components: ES modules, props, templates, hooks, asset registration, and version differences. Covers the target-version API instead of legacy patterns."
 license: MIT
 metadata:
   author: antoniodavid

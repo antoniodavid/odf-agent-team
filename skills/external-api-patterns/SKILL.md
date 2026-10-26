@@ -1,6 +1,6 @@
 ---
 name: external-api-patterns
-description: "External Api Patterns. Trigger: xmlrpc, jsonrpc, external API, api client, odoo client."
+description: "Use when integrating Odoo with external services: XML-RPC and JSON-RPC clients, REST calls, webhooks, OAuth2, retries, and rate limits. Covers credentials, timeouts, and response validation."
 license: MIT
 metadata:
   author: antoniodavid

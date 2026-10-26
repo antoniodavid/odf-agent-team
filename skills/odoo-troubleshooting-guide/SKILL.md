@@ -1,6 +1,6 @@
 ---
 name: odoo-troubleshooting-guide
-description: "Odoo Troubleshooting Guide. Trigger: troubleshooting, debug error, module not loading, common issues."
+description: "Use when diagnosing an Odoo error: version-specific failures, XML, security, ORM, performance, OWL, and install errors. Covers a quick lookup table and debug techniques."
 license: MIT
 metadata:
   author: antoniodavid

@@ -232,6 +232,7 @@ export function formatCompactRules(skills: ODFSkill[]): string {
 }
 
 const SKILL_BODY_LIMIT = 20_000
+const STANDARD_BODY_LIMIT = 8_000
 
 function stripFrontmatter(text: string): string {
   const clean = text.replace(/^\uFEFF/, "")
@@ -263,16 +264,19 @@ export interface SkillInstructions {
 }
 
 /** Read the full SKILL.md body for progressive disclosure, never the live prompt text. */
-export async function readSkillInstructions(skill: Pick<ODFSkill, "path">): Promise<SkillInstructions | null> {
+export async function readSkillInstructions(
+  skill: Pick<ODFSkill, "path">,
+  limit = SKILL_BODY_LIMIT,
+): Promise<SkillInstructions | null> {
   try {
     const text = await fs.readFile(skill.path, "utf8")
     const body = stripFrontmatter(text).trim()
     if (!body) return null
     const bundled = await listBundledResources(skill.path)
-    const truncated = body.length > SKILL_BODY_LIMIT
+    const truncated = body.length > limit
     return {
       body: truncated
-        ? `${body.slice(0, SKILL_BODY_LIMIT)}\n\n[truncated at ${SKILL_BODY_LIMIT} characters; read the skill file for the rest]`
+        ? `${body.slice(0, limit)}\n\n[truncated at ${limit} characters; read the skill file for the rest]`
         : body,
       truncated,
       bundled,
@@ -298,14 +302,23 @@ export async function formatDelegationSkills(skills: ODFSkill[]): Promise<string
   sections.push(KARPATHY_COMPACT_RULES)
   sections.push("")
 
-  for (const skill of skills) {
-    const canonical = Boolean((skill as ODFSkill & { _canonical?: boolean })._canonical)
-    sections.push(`### ${skill.title}`)
+  const canonical = skills.find((skill) => Boolean((skill as ODFSkill & { _canonical?: boolean })._canonical))
+  const standard = skills.find((skill) => !Boolean((skill as ODFSkill & { _canonical?: boolean })._canonical))
+  const bodyTargets = new Map<string, number>()
+  if (canonical) bodyTargets.set(canonical.name, SKILL_BODY_LIMIT)
+  if (standard) bodyTargets.set(standard.name, STANDARD_BODY_LIMIT)
 
-    if (canonical) {
-      const instructions = await readSkillInstructions(skill)
+  for (const skill of skills) {
+    sections.push(`### ${skill.title}`)
+    const limit = bodyTargets.get(skill.name)
+
+    if (limit !== undefined) {
+      const instructions = await readSkillInstructions(skill, limit)
       if (instructions) {
-        sections.push("Full stage instructions loaded from the skill file. Follow them as the procedure for this delegation.")
+        const label = limit === SKILL_BODY_LIMIT
+          ? "Full stage instructions loaded from the skill file. Follow them as the procedure for this delegation."
+          : "Full standard instructions loaded from the skill file. Apply them to the matched domain work."
+        sections.push(label)
         if (instructions.bundled.length > 0) {
           sections.push(`Bundled resources (read on demand): ${instructions.bundled.join(", ")}.`)
         }
@@ -314,7 +327,9 @@ export async function formatDelegationSkills(skills: ODFSkill[]): Promise<string
         sections.push("")
         continue
       }
-      sections.push("_Full stage instructions unavailable; using compact rules._")
+      sections.push(limit === SKILL_BODY_LIMIT
+        ? "_Full stage instructions unavailable; using compact rules._"
+        : "_Full standard instructions unavailable; using compact rules._")
     }
 
     sections.push(skill.compact_rules)
