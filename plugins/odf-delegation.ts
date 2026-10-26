@@ -9468,6 +9468,7 @@ const workflowEntryRouteBindingSchema = tool.schema.object({
     "investigation",
     "standard-config",
     "small-change",
+    "feature-inline",
     "feature",
     "cross-domain",
     "bugfix",
@@ -9507,6 +9508,7 @@ const workflowAdvanceSchema = tool.schema.object({
           "investigation",
           "standard-config",
           "small-change",
+          "feature-inline",
           "feature",
           "cross-domain",
           "bugfix",
@@ -9552,6 +9554,7 @@ interface WorkflowBindArgs {
   entry_route_binding?: EntryRouteBinding
   fast_lane_policy?: FastLanePolicy
   terminal_stage?: "DECIDE" | "FIX"
+  assessment?: { mode: "skip" | "assess" | "escalate"; reason: string; signals?: string[] }
   intent?: string
   expectations_approved?: boolean
   root_cause?: string
@@ -9688,6 +9691,7 @@ only after canonical state exists. Existing state and Expectations are reused on
           "investigation",
           "standard-config",
           "small-change",
+          "feature-inline",
           "feature",
           "cross-domain",
           "bugfix",
@@ -9735,6 +9739,11 @@ only after canonical state exists. Existing state and Expectations are reused on
         .enum(["DECIDE", "FIX"])
         .optional()
         .describe("Materialize the terminal micro prefix before BUILD"),
+      assessment: tool.schema.object({
+        mode: tool.schema.enum(["skip", "assess", "escalate"]),
+        reason: tool.schema.string().max(512),
+        signals: tool.schema.array(tool.schema.string().max(64)).max(16).optional(),
+      }).optional().describe("Deterministic entry assessment gate; a feature-inline terminal DECIDE requires mode skip"),
       intent: tool.schema.string().max(20_000).optional().describe("User intent for a terminal DECIDE"),
       expectations_approved: tool.schema.boolean().optional().describe("Whether the user's Expectations were approved"),
       root_cause: tool.schema.string().max(20_000).optional().describe("Root-cause analysis for a terminal FIX"),
@@ -9771,7 +9780,7 @@ only after canonical state exists. Existing state and Expectations are reused on
       }
       const artifactStore = args.artifact_store || "openspec"
       const terminalStage = args.terminal_stage
-      const validTerminal = (args.work_type === "small-change" || args.work_type === "standard-config") && terminalStage === "DECIDE" ||
+      const validTerminal = (args.work_type === "small-change" || args.work_type === "standard-config" || args.work_type === "feature-inline") && terminalStage === "DECIDE" ||
         args.work_type === "bugfix" && terminalStage === "FIX"
       if (terminalStage !== undefined && !validTerminal) return blocked("invalid-terminal-stage", "The terminal stage is not valid for this work type.")
       const expectationsIntent = args.expectations?.intent.trim()
@@ -9783,6 +9792,17 @@ only after canonical state exists. Existing state and Expectations are reused on
       }
       if (args.intent?.trim() && expectationsIntent && args.intent.trim() !== expectationsIntent) {
         return blocked("expectations-intent-mismatch", "The terminal intent does not match the approved Expectations artifact.")
+      }
+      if (args.work_type === "feature-inline" && terminalStage === "DECIDE") {
+        if (!args.assessment) {
+          return blocked("assessment-gate-required", "A feature-inline terminal DECIDE requires the deterministic assessment gate result.")
+        }
+        if (args.assessment.mode !== "skip") {
+          return blocked("assessment-gate-conflict", "A feature-inline entry with an assess or escalate gate must not use a terminal DECIDE.")
+        }
+      }
+      if (args.assessment !== undefined && args.work_type !== "feature-inline") {
+        return blocked("assessment-gate-not-applicable", "The assessment gate only applies to feature-inline.")
       }
 
       let preflight: PreflightRecord | null = null
@@ -9823,7 +9843,7 @@ only after canonical state exists. Existing state and Expectations are reused on
         authorization.sessionID === sessionID && (authorization.changeName === null || authorization.changeName === changeName) &&
         (!authorization.entryKind || (authorization.entryKind === "bugfix"
           ? args.work_type === "bugfix"
-          : ["standard-config", "small-change", "feature", "cross-domain", "migration", "security"].includes(args.work_type))) &&
+          : ["standard-config", "small-change", "feature-inline", "feature", "cross-domain", "migration", "security"].includes(args.work_type))) &&
         authorization.workspaceRoot === workspaceRoot)
       if (authorization && !capabilityMatches) {
         return blocked("workflow-start-unauthorized", "Workflow initialization authorization does not match this session, change, or workspace. Recovery: re-run the clean slash command `/odf-new <change>` in this workspace and let odf_health run first, then retry the bind.")
@@ -9969,7 +9989,9 @@ only after canonical state exists. Existing state and Expectations are reused on
         try {
           const existing = parseDocument(existingContent).toJSON() as Record<string, unknown>
           const matches = terminalStage === "DECIDE"
-            ? existing.status === "passed" && existing.intent === (args.intent?.trim() || expectationsIntent) && existing.expectations_approved === true
+            ? existing.status === "passed" && existing.intent === (args.intent?.trim() || expectationsIntent) && existing.expectations_approved === true &&
+              (args.work_type !== "feature-inline" ||
+                canonicalWorkflowValue(existing.assessment ?? null) === canonicalWorkflowValue(args.assessment ?? null))
             : existing.status === "passed" && existing.root_cause === args.root_cause!.trim() && existing.regression === args.regression!.trim()
           return matches ? "reused" : "terminal-artifact-conflict"
         } catch {
@@ -10025,7 +10047,13 @@ only after canonical state exists. Existing state and Expectations are reused on
           if (terminalStage && terminalAction === "persisted") {
             const artifactType = terminalStage === "DECIDE" ? "decision" : "fix"
             const artifact = terminalStage === "DECIDE"
-              ? { status: "passed", intent: (args.intent?.trim() || expectationsIntent)!, expectations_approved: true, resolved_at: new Date().toISOString() }
+              ? {
+                status: "passed",
+                intent: (args.intent?.trim() || expectationsIntent)!,
+                expectations_approved: true,
+                ...(args.work_type === "feature-inline" ? { assessment: args.assessment } : {}),
+                resolved_at: new Date().toISOString(),
+              }
               : { status: "passed", root_cause: args.root_cause!.trim(), regression: args.regression!.trim(), resolved_at: new Date().toISOString() }
             const artifactError = saveEngramTopic(workspaceRoot, project, `odf/${changeName}/${artifactType}`, JSON.stringify(artifact))
             if (artifactError) return blocked(artifactError, "Canonical state exists, but the terminal artifact could not be persisted.")
@@ -10108,6 +10136,7 @@ only after canonical state exists. Existing state and Expectations are reused on
             status: "passed",
             intent: (args.intent?.trim() || expectationsIntent)!,
             expectations_approved: true,
+            ...(args.work_type === "feature-inline" ? { assessment: args.assessment } : {}),
             resolved_at: new Date().toISOString(),
           } : {
             status: "passed",
@@ -10157,6 +10186,7 @@ function createODFWorkflowRoute(): ReturnType<typeof tool> {
           "investigation",
           "standard-config",
           "small-change",
+          "feature-inline",
           "feature",
           "cross-domain",
           "bugfix",
@@ -11075,6 +11105,7 @@ function createODFWorkflowAdvance(): ReturnType<typeof tool> {  return tool({
           "investigation",
           "standard-config",
           "small-change",
+          "feature-inline",
           "feature",
           "cross-domain",
           "bugfix",

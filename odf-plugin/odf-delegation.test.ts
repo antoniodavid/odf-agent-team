@@ -1670,6 +1670,105 @@ describe("createODFWorkflowBind", () => {
     }
   })
 
+  it("materializes a terminal DECIDE for a feature-inline entry with a skipped assessment gate", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "odf-inline-bind-"))
+    const change = "inline-change"
+    const { bind, context } = authorizedWorkflowBind(change, root)
+    const args = {
+      change_name: change,
+      work_type: "feature-inline" as const,
+      preflight: completePreflight(change),
+      expectations: approvedExpectations(change),
+      terminal_stage: "DECIDE" as const,
+      assessment: { mode: "skip" as const, reason: "Entry facts are clear and no assessment trigger fired.", signals: [] },
+      intent: "Implement the requested behavior",
+      expectations_approved: true,
+      workspace_dir: root,
+    }
+
+    try {
+      const output = JSON.parse(await bind.execute(args, context) as string)
+      expect(output).toMatchObject({ status: "bound", terminal_stage: "DECIDE" })
+      expect(YAML.parse(await fs.readFile(path.join(root, "openspec", "changes", change, "state.yaml"), "utf8"))).toMatchObject({
+        work_type: "feature-inline",
+        canonical_stage: "DECIDE",
+        completed_canonical_stages: ["DECIDE"],
+      })
+      expect(YAML.parse(await fs.readFile(path.join(root, "openspec", "changes", change, "decision.yaml"), "utf8"))).toMatchObject({
+        status: "passed",
+        intent: "Implement the requested behavior",
+        expectations_approved: true,
+        assessment: { mode: "skip" },
+      })
+
+      const retry = JSON.parse(await bind.execute(args, context) as string)
+      expect(retry).toMatchObject({ status: "bound", terminal_action: "reused" })
+    } finally {
+      await fs.rm(root, { recursive: true, force: true })
+    }
+  })
+
+  it("blocks a feature-inline terminal DECIDE without a skipped assessment gate", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "odf-inline-gate-"))
+    const change = "inline-gate"
+    const { bind, context } = authorizedWorkflowBind(change, root)
+    const baseArgs = {
+      change_name: change,
+      work_type: "feature-inline" as const,
+      preflight: completePreflight(change),
+      expectations: approvedExpectations(change),
+      terminal_stage: "DECIDE" as const,
+      intent: "Implement the requested behavior",
+      expectations_approved: true,
+      workspace_dir: root,
+    }
+
+    try {
+      const missing = JSON.parse(await bind.execute(baseArgs, context) as string)
+      expect(missing).toMatchObject({ status: "blocked", reason: "assessment-gate-required" })
+
+      const assessed = JSON.parse(await bind.execute({
+        ...baseArgs,
+        assessment: { mode: "assess" as const, reason: "Needs a bounded assessment.", signals: ["redundancy-signal"] },
+      }, context) as string)
+      expect(assessed).toMatchObject({ status: "blocked", reason: "assessment-gate-conflict" })
+
+      const otherRoute = JSON.parse(await bind.execute({
+        ...baseArgs,
+        work_type: "small-change",
+        assessment: { mode: "skip" as const, reason: "Not applicable.", signals: [] },
+      }, context) as string)
+      expect(otherRoute).toMatchObject({ status: "blocked", reason: "assessment-gate-not-applicable" })
+    } finally {
+      await fs.rm(root, { recursive: true, force: true })
+    }
+  })
+
+  it("leaves DECIDE pending when a feature-inline entry is bound for a bounded ASSESS", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "odf-inline-assess-"))
+    const change = "inline-assess"
+    const { bind, context } = authorizedWorkflowBind(change, root)
+
+    try {
+      const output = JSON.parse(await bind.execute({
+        change_name: change,
+        work_type: "feature-inline",
+        preflight: completePreflight(change),
+        expectations: approvedExpectations(change),
+        workspace_dir: root,
+      }, context) as string)
+      expect(output).toMatchObject({ status: "bound" })
+      expect(YAML.parse(await fs.readFile(path.join(root, "openspec", "changes", change, "state.yaml"), "utf8"))).toMatchObject({
+        canonical_stage: "DECIDE",
+        completed_canonical_stages: [],
+      })
+      await expect(fs.readFile(path.join(root, "openspec", "changes", change, "decision.yaml"), "utf8"))
+        .rejects.toMatchObject({ code: "ENOENT" })
+    } finally {
+      await fs.rm(root, { recursive: true, force: true })
+    }
+  })
+
   it("emits the bounded terminal funnel prefix for small-change after bind validation", async () => {
     clearMetricsBuffer()
     const root = await fs.mkdtemp(path.join(os.tmpdir(), "odf-micro-metrics-"))

@@ -45,8 +45,8 @@ code, edit fixes, or replace the domain agents. A code review is evidence/input
 only; the VERIFY verdict is owned here and must be based on recorded evidence.
 
 Every code-changing route needs focused QA tied to approved Expectations. Keep
-the test/check plan inline for `small-change` and `bugfix`; do not require a
-separate `qa-plan` artifact or QA-PLAN handoff unless the resolved route or an
+the test/check plan inline for `small-change`, `feature-inline`, and `bugfix`; do
+not require a separate `qa-plan` artifact or QA-PLAN handoff unless the resolved route or an
 explicit risk/complexity escalation selects formal PLAN. When invoked for VERIFY
 on an inline-plan route, verify the required test/evidence gates without
 inventing a missing formal QA artifact.

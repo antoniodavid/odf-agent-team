@@ -6,6 +6,7 @@ import {
   descriptionClarity,
   detectRiskSignals,
   predictEntryRouteShadow,
+  resolveAssessmentGate,
   validateEntryRouteBinding,
   type EntryRouteBinding,
   type EntryTriageInput,
@@ -118,7 +119,7 @@ describe("classifyEntryTriage", () => {
     expect(classifyEntryTriage({ ...input, expected_files: 5 }))
       .toMatchObject({ work_type: "small-change", needs_question: false })
     expect(classifyEntryTriage({ ...input, expected_files: 6 }))
-      .toMatchObject({ work_type: "feature", needs_question: false })
+      .toMatchObject({ work_type: "feature-inline", needs_question: false })
   })
 
   it.each(["security", "migration", "payment", "public-api", "data-loss", "pii"])(
@@ -156,7 +157,7 @@ describe("classifyEntryTriage", () => {
     expect(r.question).toContain("module")
   })
 
-  it("falls back to feature standard when data is complete but not micro-sized", () => {
+  it("falls back to the inline standard feature when data is complete but not micro-sized", () => {
     const r = classifyEntryTriage(base({
       module: "sale",
       domain: "sales",
@@ -164,7 +165,7 @@ describe("classifyEntryTriage", () => {
       expectations_clear: true,
     }))
     expect(r.level).toBe("standard")
-    expect(r.work_type).toBe("feature")
+    expect(r.work_type).toBe("feature-inline")
     expect(r.needs_question).toBe(false)
   })
 
@@ -178,6 +179,68 @@ describe("classifyEntryTriage", () => {
     }))
     expect(r.level).toBe("standard")
     expect(r.work_type).toBe("feature")
+  })
+})
+
+describe("assessment gate", () => {
+  const inline = (overrides: Partial<EntryTriageInput> = {}): EntryTriageInput =>
+    shadowReady({ expected_files: 6, ...overrides })
+
+  it("skips ASSESS when the inline entry is clear", () => {
+    const result = classifyEntryTriage(inline())
+    expect(result.work_type).toBe("feature-inline")
+    expect(result.assessment_gate).toEqual({
+      mode: "skip",
+      reason: "Entry facts are clear and no assessment trigger fired.",
+      signals: [],
+    })
+  })
+
+  it("requires ASSESS when redundancy finds a hit or contradiction", () => {
+    const hit = classifyEntryTriage(inline({ redundancy: { hits: 1, contradictions: 0 } }))
+    expect(hit.assessment_gate.mode).toBe("assess")
+    expect(hit.assessment_gate.signals).toContain("redundancy-signal")
+
+    const contradiction = classifyEntryTriage(inline({ redundancy: { hits: 0, contradictions: 1 } }))
+    expect(contradiction.assessment_gate.mode).toBe("assess")
+  })
+
+  it("requires ASSESS when the change touches existing code surfaces", () => {
+    const result = classifyEntryTriage(inline({ context_files: ["sale/models/sale_order.py"] }))
+    expect(result.assessment_gate.mode).toBe("assess")
+    expect(result.assessment_gate.signals).toContain("existing-code-surface")
+  })
+
+  it("requires ASSESS above the file threshold or on explicit request", () => {
+    expect(classifyEntryTriage(inline({ expected_files: 11 })).assessment_gate).toMatchObject({
+      mode: "assess",
+      signals: expect.arrayContaining(["expected-files-above-threshold"]),
+    })
+    expect(classifyEntryTriage(inline({ explicit_assess: true })).assessment_gate).toMatchObject({
+      mode: "assess",
+      signals: expect.arrayContaining(["explicit-assess"]),
+    })
+  })
+
+  it("requires ASSESS for an unknown module", () => {
+    const result = classifyEntryTriage(inline({ module: "unknown_mod", known_modules: ["sale"] }))
+    expect(result.assessment_gate.mode).toBe("assess")
+    expect(result.assessment_gate.signals).toContain("unknown-module")
+  })
+
+  it("escalates formal routes and protected risk signals", () => {
+    expect(classifyEntryTriage(base({ explicit_work_type: "feature" })).assessment_gate.mode).toBe("escalate")
+    expect(classifyEntryTriage(base({ explicit_work_type: "security" })).assessment_gate.mode).toBe("escalate")
+  })
+
+  it("skips routes that do not use the gate", () => {
+    expect(classifyEntryTriage(shadowReady()).assessment_gate.mode).toBe("skip")
+  })
+
+  it("exposes the same decision through the pure resolver", () => {
+    const input = inline({ redundancy: { hits: 1, contradictions: 0 } })
+    const result = classifyEntryTriage(input, false)
+    expect(resolveAssessmentGate(input, result)).toEqual(result.assessment_gate)
   })
 })
 
@@ -327,7 +390,7 @@ describe("ICE triage improvements", () => {
         },
       },
     }))
-    expect(r).toMatchObject({ level: "standard", work_type: "feature", needs_question: false })
+    expect(r).toMatchObject({ level: "standard", work_type: "feature-inline", needs_question: false })
   })
 
   it("fails closed for unsafe context references", () => {
@@ -488,7 +551,7 @@ describe("predictEntryRouteShadow", () => {
 
   it("blocks FAST beyond the five-file boundary, including an explicit small-change override", () => {
     const six = predictEntryRouteShadow(shadowReady({ expected_files: 6 }))
-    expect(six).toMatchObject({ predicted_route: "feature", micro_policy: "ineligible" })
+    expect(six).toMatchObject({ predicted_route: "feature-inline", micro_policy: "ineligible" })
     expect(six.blocking_reasons).toContain("blast radius exceeds the <=5 file boundary")
     const explicit = predictEntryRouteShadow(shadowReady({ expected_files: 6, explicit_work_type: "small-change" }))
     expect(explicit).toMatchObject({ predicted_route: "small-change", micro_policy: "ineligible" })
