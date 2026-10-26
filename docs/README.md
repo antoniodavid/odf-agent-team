@@ -11,20 +11,16 @@ Everything about ODF — spec-driven Odoo delivery on OpenCode. Pick what you ne
 | **Write a skill** — structure, frontmatter, compact rules, validation | [Skill style guide](skill-style-guide.md) |
 | **Measure routing quality** — decision report, local reviews, cadence | [Decision evaluation](decision-evaluation.md) |
 
-## What changed in 1.6.1
+## What changed in 1.6.2
 
 | Area | Change |
 |------|--------|
-| Routes | `feature-inline` is the default standard-feature route with a deterministic `skip` / `assess` / `escalate` gate. |
-| Context | One bounded, reference-only Context Manifest is built at entry and forwarded unchanged to ASSESS and BUILD. |
-| Delegation | Native children are bound to parent/agent/model/workspace, cancellation propagates, and expired tokens recover through `odf_delegation_late_seal_prepare`. |
-| Stops | Every blocked/failed envelope names a `stop_disposition` with the only allowed recovery. |
-| Status | Canonical only: the legacy projection, legacy state read path, and `odf_status` are gone; `odf_workflow_status` exposes a persisted `next_handoff`. |
-| Skills | Agent Skills validation (`npm run validate:skills`) plus all 87 `compact_rules` regenerated. |
-| Evaluation | Decision-quality report, local decision reviews, human/judge agreement, period comparison, cadence, and improvement proposals. |
-| Activation | ODF is scoped to initialized projects (`.odf/project.json`) with an explicit reload requirement. |
+| Docs site | Every documentation link renders as a styled page with a grouped sidebar, in-page TOC, breadcrumbs, prev/next, reading time, search palette, 404, sitemap, and robots. |
+| Generation | `npm run docs:build` renders 25 sources; `npm run docs:check` runs in CI and fails on stale output. |
+| Privacy | No personal paths in shipped files: the installers rewrite any `/home/<user>/.config/opencode`, skill metadata uses the project handle, and the timesheet binary is rebuilt with `-trimpath`. |
+| Guardrails | A privacy test fails the suite when a published file gains a home path, provider email, private key, token format, URL with credentials, or literal password. |
 
-Full detail: [CHANGELOG.md](../CHANGELOG.md).
+1.6.1 introduced `feature-inline` with its conditional ASSESS gate, the Context Manifest, decision-quality evaluation, `stop_disposition`, persisted `next_handoff`, and project-scoped activation. Full detail: [CHANGELOG.md](../CHANGELOG.md).
 
 ## Diagrams
 

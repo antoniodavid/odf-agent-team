@@ -1,5 +1,28 @@
 # Changelog — ODF Agent Team
 
+## 1.6.2 (2026-10-26)
+
+### Added
+- **A real documentation site**: every documentation link renders as a standalone page with a grouped sidebar, in-page table of contents, breadcrumbs, reading time, prev/next navigation, and the search palette. `scripts/odf-docs-build.js` rewrites Markdown links (registered sources → relative pages, repository files → GitHub blob URLs, external links untouched), reproduces GitHub heading anchors, and generates `search-index.json`, `sitemap.xml`, `robots.txt`, and `.nojekyll` (#186).
+- `npm run docs:build` / `npm run docs:check`, a CI step, and unit tests for the slugger and link rewriter keep the generated pages in sync (#186).
+- A Diagrams group in every docs sidebar, plus a styled 404 page (#186, #187).
+- A privacy guard test that fails when a published file gains an absolute home path, Windows home path, provider email, private-key block, known token format, URL with credentials, or literal password (#188).
+
+### Changed
+- `install.sh` and the TUI installer rewrite any `/home/<user>/.config/opencode` path instead of one hardcoded author path, so the pack is portable without embedding a username (#188).
+- Skill frontmatter uses the public project handle; internal task logs, SDD state, and the archived verification report use generic paths (#188).
+- The tracked timesheet binary is rebuilt with `go build -trimpath -ldflags="-s -w"` (9.8 MB → 7.9 MB) and no longer embeds build-machine paths (#188).
+- The landing page links locally, keeps search inside the site, and documents the 1.6.2 docs and privacy work.
+
+### Fixed
+- The safety contract shows `password=<value>` instead of a literal-looking password (#188).
+- Removed stale internal notes and a `/tmp` reference from the landing page source (#188).
+
+### Verification boundary
+- Local validation covers 1405 Vitest tests (52 files), 331 YAML scenarios, 18 dedicated harness checks, `npm run typecheck`, registry validation, skill validation, `npm run docs:check`, `bash -n install.sh`, and `node --check` on the TUI installer.
+- A full internal crawl of the generated site resolves every link and anchor; 32 published files were re-scanned for personal data and credentials and are clean.
+- No npm package is published. Git history and the `v1.6.1` tag still contain the pre-fix installer path; this release makes the newest downloadable artifact clean without rewriting history.
+
 ## 1.6.1 (2026-10-26)
 
 ### Added

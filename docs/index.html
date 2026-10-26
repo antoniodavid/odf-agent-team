@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>ODF — spec-driven Odoo delivery on OpenCode</title>
-  <meta name="description" content="Spec-driven Odoo delivery on OpenCode: one resolved route, 11 agents, 87 validated skills, 29 plugin tools, and gates that run before code does. Current release 1.6.1.">
+  <meta name="description" content="Spec-driven Odoo delivery on OpenCode: one resolved route, 11 agents, 87 validated skills, 29 plugin tools, and gates that run before code does. Current release 1.6.2.">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -50,7 +50,7 @@
     }
 
     * { box-sizing: border-box; }
-    html { scroll-behavior: smooth; }
+    html { scroll-behavior: smooth; scroll-padding-top: 4.5rem; }
     body {
       margin: 0;
       font-family: "IBM Plex Sans", system-ui, sans-serif;
@@ -593,7 +593,7 @@
 <main>
   <div class="wrap">
     <div class="hero">
-      <p class="eyebrow">spec-driven Odoo delivery on OpenCode · v1.6.1</p>
+      <p class="eyebrow">spec-driven Odoo delivery on OpenCode · v1.6.2</p>
       <h1>Ship Odoo changes with <em>evidence</em>, not guesses.</h1>
       <p class="lede">
         ODF turns OpenCode into a structured Odoo delivery team — 87 validated skills,
@@ -601,7 +601,7 @@
         specialist writes a line.
       </p>
       <div class="quickpath">
-        <button class="cmd" data-copy="curl -fsSL https://raw.githubusercontent.com/antoniodavid/odf-agent-team/v1.6.1/install.sh | BRANCH=v1.6.1 bash" title="Copy install command">
+        <button class="cmd" data-copy="curl -fsSL https://raw.githubusercontent.com/antoniodavid/odf-agent-team/v1.6.2/install.sh | BRANCH=v1.6.2 bash" title="Copy install command">
           <span class="n">01</span>
           <span class="t"><b>Install</b> · curl install.sh</span>
         </button>
@@ -619,7 +619,7 @@
         <div class="stat"><b>11</b><span>agents</span></div>
         <div class="stat"><b>23</b><span>commands</span></div>
         <div class="stat"><b>29</b><span>plugin tools</span></div>
-        <div class="stat"><b>1370</b><span>unit tests</span></div>
+        <div class="stat"><b>1405</b><span>unit tests</span></div>
         <div class="stat"><b>331</b><span>YAML scenarios</span></div>
       </div>
     </div>
@@ -658,7 +658,41 @@
 
     <section id="whatsnew">
       <div class="sec-head">
-        <h2>What's new in 1.6.1</h2>
+        <h2>What's new in 1.6.2</h2>
+        <a href="changelog.html">Full changelog →</a>
+      </div>
+      <p class="section-lede">
+        The documentation became a real website — every link opens a styled page —
+        and the shipped pack stopped carrying personal paths.
+      </p>
+      <div class="grid grid-3">
+        <a class="card new-card" href="docs.html">
+          <span class="tag release">1.6.2 · docs</span>
+          <h3>Every link is a page</h3>
+          <p>Twenty-five documentation sources render as pages with a grouped sidebar, in-page TOC, breadcrumbs, prev/next, reading time, and the search palette.</p>
+          <p>Markdown links are rewritten at build time, so no documentation link points at a raw <code>.md</code> file.</p>
+          <span class="go">Documentation index <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 12h14m-6-6 6 6-6 6"/></svg></span>
+        </a>
+        <a class="card new-card" href="changelog.html">
+          <span class="tag release">1.6.2 · privacy</span>
+          <h3>No personal paths in the pack</h3>
+          <p>Both installers rewrite any <code>/home/&lt;user&gt;/.config/opencode</code>, skill metadata uses the project handle, and the timesheet binary is rebuilt with <code>-trimpath</code>.</p>
+          <p>Internal task logs and SDD state use <code>$HOME</code> or a relative root.</p>
+          <span class="go">Changelog <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 12h14m-6-6 6 6-6 6"/></svg></span>
+        </a>
+        <a class="card new-card" href="https://github.com/antoniodavid/odf-agent-team/blob/main/scripts/odf-docs-privacy.test.ts">
+          <span class="tag release">1.6.2 · guardrails</span>
+          <h3>A privacy test that fails the build</h3>
+          <p>Twenty-nine assertions scan the published surface for home paths, provider emails, private keys, token formats, URL credentials, and literal passwords.</p>
+          <p><code>docs:check</code> keeps every generated page in sync.</p>
+          <span class="go">Privacy test <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 12h14m-6-6 6 6-6 6"/></svg></span>
+        </a>
+      </div>
+    </section>
+
+    <section id="release-1-6-1">
+      <div class="sec-head">
+        <h2>1.6.1 highlights</h2>
         <a href="changelog.html">Full changelog →</a>
       </div>
       <p class="section-lede">
@@ -959,7 +993,7 @@
             <li><a href="metrics-and-engram-maintenance.html">Metrics &amp; Engram maintenance</a> — evaluation commands, retention, prune</li>
             <li><a href="decision-evaluation.html">Decision evaluation</a> — decision-quality report, reviews, cadence</li>
             <li><a href="skill-style-guide.html">Skill validation</a> — <code>npm run validate:skills</code></li>
-            <li><a href="readme.html#development">Development</a> — 1370 unit + 331 YAML + 18 harness tests</li>
+            <li><a href="readme.html#development">Development</a> — 1405 unit + 331 YAML + 18 harness tests</li>
             <li><a href="archive/index.html">Archive</a> — completed roadmaps and plans</li>
             <li>Press <kbd style="font:500 .7rem/1 'IBM Plex Mono',monospace;border:1px solid var(--line-strong);border-radius:4px;padding:.15rem .35rem">/</kbd> anywhere to search everything above</li>
           </ul>
@@ -973,7 +1007,7 @@
       <span>ODF · spec-driven Odoo delivery on OpenCode · MIT</span>
       <span>
         <a href="https://github.com/antoniodavid/odf-agent-team">Source</a> ·
-        v1.6.1 ·
+        v1.6.2 ·
         <a href="agents.html">AGENTS.md</a>
       </span>
     </footer>
