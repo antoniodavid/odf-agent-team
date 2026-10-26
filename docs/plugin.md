@@ -28,7 +28,7 @@ The ODF plugin injects **29 tools** into the orchestrator's tool list at runtime
 | `odf_skill_resolve` | read | Preview matching skills **without** executing |
 | `odf_registry_read` | read | Read + cache `odf-registry.json` (TTL + file watcher) |
 | `odf_profile_select` | read | Which model profile applies to a stage role |
-| `odf_policy_gate` | write | Resolve + persist TDD/risk gate before IMPLEMENT/VERIFY |
+| `odf_policy_gate` | write | Resolve + persist TDD/risk gate before BUILD/VERIFY |
 | `odf_receipt` | write | Persist a failure-disposition receipt |
 | `odf_community_tool_detect` | read | Is an optional tool (e.g. CodeGraph) available? |
 | `odf_community_tool_install` | write | Install + wire an optional tool |
@@ -53,6 +53,10 @@ The entrypoint stays a monolith for the delegation core; self-contained concerns
 | `odf-delegation-receipts.ts` | Failure receipts |
 | `odf-workflow.ts` | Canonical stage state machine |
 | `odf-workflow-status.ts` | Read-only status merger (OpenSpec authority) |
+| `odf-artifact-contract.ts` | Canonical artifact vocabulary, aliases, completion sets, handoff gates |
+| `odf-artifact-stores.js` | Store values and their supported artifact subsets |
+| `odf-result-contract.ts` | ODF Result schema plus deterministic `stop_disposition` classification |
+| `scripts/lib/odf-project-activation.js` | `.odf/project.json` activation manifest (idempotent first-activation record) |
 | `entry-triage.ts` | Deterministic micro/standard/full classification |
 | `odf-expectations.ts` | Human Expectations + revisions |
 | `odf-governance.ts` | OCA governance gate |
@@ -177,6 +181,55 @@ child liveness/result, handoff integrity, seal, and canonical commit distinct.
 Liveness is `unknown` until a V2 `session.status` event has been observed; the
 reported next action is advisory and never performs recovery.
 
+### Native delegation lifecycle and recovery
+
+Prepared, launched, and sealed delegations are one lifecycle with three failure
+families that never silently replay:
+
+- **Cancellation.** Cancelling the parent propagates to the delegated child: the
+  plugin aborts it, waits a bounded time, settles the attempt as failed, and
+  returns `reason: task-cancelled` with `kind: terminal`. A cancelled child is
+  never relaunched by the seal.
+- **Binding.** The child must match the prepared parent, agent, model, workspace,
+  and prompt digest. A mismatch reports the precise seal reason and keeps the
+  token for a valid retry; it never returns a success envelope.
+- **Expiry.** When the original two-hour token expires after a successful launch,
+  `odf_delegation_late_seal_prepare` verifies the exact original child (ancestry,
+  agent, workspace, idle state, prompt bytes) and returns a ten-minute,
+  single-use capability bound to that token, attempt, parent, and child. The
+  original expiry is never refreshed or edited.
+
+### Safe stop classification
+
+Every `blocked`/`failed` envelope carries a `stop_disposition`:
+
+```json
+{
+  "kind": "human-decision",
+  "user_action_required": true,
+  "automatic_recovery": "none",
+  "reason": "expectations-not-approved",
+  "next_action": "Ask the user for the specific approval or disposition named by the gate."
+}
+```
+
+`kind` is one of `human-decision`, `safety`, `repairable`, `dependency`,
+`terminal`, or `unclassified`; `automatic_recovery` is one of `none`,
+`repair-in-phase`, `retry-once`, or `wait`. Unknown reasons classify as
+`unclassified` with `user_action_required: true`, so an unrecognized failure can
+never auto-continue. A child-reported disposition is accepted only when it cannot
+weaken the deterministic classification.
+
+### Project-scoped activation
+
+ODF is active only in an initialized project. `/odf-init` writes
+`.odf/project.json` (`schema_version`, `enabled`, `kind: odoo`, canonical `root`,
+`project`, `initialized_at`), and re-scanning the same root and project returns
+the existing manifest unchanged. Because the plugin registers tools per project
+when the runtime boots, activation created after boot prints
+`ODF runtime reload required:`; full restart of OpenCode (all windows plus the
+`opencode serve --service` daemon) is the recovery, not a reinstall.
+
 ### Active-change discovery and recovery
 
 When `odf_workflow_status` is called without `change_name`,
@@ -261,6 +314,7 @@ inspect the transcript. If the prompt was not admitted, the seal fails closed.
 
 - BUILD and VERIFY can never be skipped; only DECIDE/PLAN via audited `odf_workflow_override`.
 - Max **5** skill compact rules per delegation.
-- Policy Gate for IMPLEMENT/VERIFY is authoritative and recomputed only by `odf_policy_gate`.
+- Policy Gate for BUILD/VERIFY is authoritative and recomputed only by `odf_policy_gate`.
+- A `blocked`/`failed` envelope always names its stop disposition; an unclassified reason never auto-continues.
 - Task failures auto-seal a receipt.
 - Registry relative paths resolve against the directory containing `odf-registry.json`; absolute legacy paths keep working.

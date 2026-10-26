@@ -290,11 +290,20 @@ Regression runner. It:
 3. If preflight is missing/invalid, the orchestrator asks preflight questions.
 4. Preflight record is written to `openspec/changes/{change}/state.yaml`.
 5. Orchestrator resolves the thin-spine route for the work type.
-6. It runs DECIDE through its PROPOSE and ASSESS roles via `odf_delegate`.
-7. Plugin resolves agent/skills, enforces gates, selects the native adapter or
+6. It builds one bounded Context Manifest (`odf_context_manifest`) after the
+   entry gate and approved Expectations, and forwards it unchanged to ASSESS and
+   BUILD.
+7. It runs DECIDE through its PROPOSE and ASSESS roles via `odf_delegate`. For
+   `feature-inline`, the deterministic entry gate selects `skip` (terminal
+   `decision`), `assess` (one bounded ASSESS), or `escalate` (formal `feature`
+   route).
+8. Plugin resolves agent/skills, enforces gates, selects the native adapter or
    SDK child-session transport, and returns the result.
-8. Orchestrator updates state and shows an approval gate.
-9. Optional PLAN, then BUILD, then VERIFY repeat the delegate-update-gate cycle according to the resolved route.
+9. Orchestrator updates state and shows an approval gate.
+10. Optional PLAN, then BUILD, then VERIFY repeat the delegate-update-gate cycle according to the resolved route.
+
+Every blocked or failed envelope carries a `stop_disposition`, so the
+orchestrator reports the named continuation instead of guessing a recovery.
 
 ### `/odf-continue`
 

@@ -1,19 +1,43 @@
 # Changelog — ODF Agent Team
 
-## Unreleased
+## 1.6.1 (2026-10-26)
 
 ### Added
-- Agent Skills validation: `scripts/odf-skill-validate.js` (`npm run validate:skills`) checks frontmatter, name/directory parity, description limits, and the compact-rule contract; wired into CI and covered by dedicated tests.
+- **`feature-inline` route with a conditional ASSESS gate** (#180): the default standard-feature route runs DECIDE → BUILD → VERIFY and keeps the Intent + Expectations contract. A deterministic entry gate selects `skip` (terminal DECIDE before BUILD), `assess` (one bounded ASSESS writes the canonical `decision`), or `escalate` (the formal `feature` route keeps DECIDE + PLAN). ASSESS here returns strategy, scope, affected areas, risks, and unknowns — never a functional spec.
+- **Bounded Context Manifest (ICE)** (#181): `odf_context_manifest` builds one read-only, reference-only manifest at entry with `redundancy`, `assessment_gate`, and `expectations_ref` included in `manifest_digest`, and forwards it unchanged to ASSESS and every BUILD batch. Redundancy is a gate signal for `feature-inline`, not a blocking user question.
+- **Decision-quality evaluation** (#171–#173): `odf-evaluation decisions` reports routing quality against golden trajectories; a local decision review at archive/verify records a human label; the report adds human/judge agreement, period comparison, a review cadence, and improvement proposals. A null judge verdict is treated as unavailable, never as agreement.
+- **Persisted stage handoff** (#142): `odf_workflow_status.next_handoff` derives the next stage role's inputs from the route, selected store, and persisted artifact references so the orchestrator never rebuilds them from result prose.
+- **Safe stop classification** (#144): every `blocked`/`failed` envelope carries `stop_disposition` (`kind`, `user_action_required`, `automatic_recovery`, `reason`, `next_action`). Unknown reasons fail closed as `unclassified`; child-reported dispositions cannot weaken the deterministic class.
+- **Project-scoped activation** (#151, #163): `.odf/project.json` marks an initialized Odoo project, re-scanning the same root is idempotent and preserves `initialized_at`, and activation created after runtime boot prints `ODF runtime reload required:` instead of suggesting a reinstall.
+- **Native delegation lifecycle** (#139, #140, #161, #162): child sessions bind to the parent, agent, model, workspace, and prompt digest; parent cancellation aborts the child and settles the attempt as failed; `odf_delegation_late_seal_prepare` recovers an expired original token through a ten-minute, single-use capability; seal failures report a precise reason instead of a generic block.
+- **Agent Skills validation** (#182): `scripts/odf-skill-validate.js` (`npm run validate:skills`) validates frontmatter, name/directory parity, description limits, path containment, and the compact-rule contract, and runs in CI.
+- **Route/stage contract matrix** (#169): `odf-plugin/odf-route-contract.test.ts` walks every route, transition, stage/role, and artifact/gate requirement; `docs/route-contract.md` mirrors it.
+- **Boundary hardening** (#145, #153, #155, #157): evidence and local security hardening, exact cross-root resolution, blocked absolute traversal destinations, rejected prose-redirect bypasses, and recoverable aborted launches.
 
 ### Changed
-- Regenerated all 87 `compact_rules` from each skill's own rules and best practices: 150–600 characters, complete sentences, no banners, no duplicates.
-- Skill selection now breaks score ties by registry order instead of `compact_rules` length, so prompt length no longer decides which skills are injected; the YAML runner honors an explicit `phase` for canonical selection.
-- Fixed invalid or incomplete frontmatter in five OCA tool skills, `karpathy-precision`, and the OCA index name.
-- Blocked delegate envelopes preserve the resolved agent, skills, profile and Policy Gate; Policy Gate blocks use a stable reason; community tools accept package uninstall; nested Expectations inputs are bounded.
-, validated and labeled profiles as advisory, corrected community tool detection/install, and refined skill, registry, receipt, and status previews.
+- **Canonical status only** (#164–#167): removed the legacy compatibility layer. `odf_workflow_status` no longer emits `phase`, `artifacts`, `applyProgress`, `lastUpdated`, or `legacy_phase`; the legacy state read path is gone, artifact-only changes report `state_kind: none` and stay non-resumable, and legacy launch tokens are rejected instead of upgraded. Only the `route.legacy_phases` alias survives, for bind comparison.
+- **Centralized artifact vocabulary** (#141): canonical artifact names, aliases, route completion alternatives, and OpenSpec discovery stems live in `odf-artifact-contract.ts`; store values and subsets live in `odf-artifact-stores.js`.
+- **Strict VERIFY completion** (#170): VERIFY completes only through a terminal `verify-report`.
+- **Delegation API on canonical stages** (#168): the public delegation contract accepts the canonical stage plus a role for the composite stages only.
+- **Canonical status discovery** (#174): active-change resolution reports `none` / `unambiguous` / `ambiguous` / `incomplete` and surfaces Engram errors instead of swallowing them.
+- **Delegate hardening** (#175, #178, #179): bounded workspace, artifact references, and task errors; blocked envelopes preserve the resolved agent, skills, profile, and Policy Gate; Policy Gate blocks use a stable reason; nested Expectations inputs are bounded; profiles are validated and labeled advisory; skill, registry, receipt, and status previews refined.
+- **Skills** (#182): all 87 `compact_rules` regenerated from each skill's own rules (150–600 characters, complete sentences, no banners, no duplicates); selection breaks score ties by registry order instead of prompt length; five OCA tool skills, `karpathy-precision`, and the OCA index frontmatter corrected.
+- **Documentation** (#146, #183): artifact store persistence clarified; the protected-`main` branch → PR → auto-merge workflow documented in `AGENTS.md`.
 
 ### Removed
-- Removed `odf_notebooklm_lookup` and the `notebooklm_sources` registry map. NotebookLM enrichment, when used, stays external to ODF.
+- `odf_status` (#165) — use `odf_workflow_status`.
+- The legacy dual-read compatibility layer, legacy status projection, and legacy state read path (#164, #166, #167).
+- `odf_notebooklm_lookup` and the `notebooklm_sources` registry map (#176); NotebookLM enrichment, when used, stays external to ODF.
+
+### Fixed
+- Cancellation and aborts: parent cancellation propagates to delegated children, cancelled delegations stop cleanly, and aborted children bind with a precise seal reason (#149, #159, #161).
+- Late seal verifies the prepared prompt without an assistant result (#162), and aborted native children no longer dead-end recovery (#159).
+- Safety: absolute traversal destinations are blocked (#155), prose-redirect bypasses are rejected (#157), false cross-root blocks no longer stop valid work (#153), and evidence/local security is hardened (#145).
+- The registry fixture resolves from the repository root, so the suite no longer depends on the invocation directory (#177).
+
+### Verification boundary
+- Local validation covers 1370 Vitest tests (50 files), 331 YAML scenarios, 18 dedicated harness checks, `npm run typecheck`, registry validation, and `npm run validate:skills`.
+- No npm package is published; the release is the tagged pack plus the GitHub release. Odoo-specific end-to-end validation and efficacy claims remain ODF 2.0 gates.
 
 ## 1.6.0 (2026-10-09)
 
