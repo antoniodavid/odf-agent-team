@@ -1,0 +1,1291 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="auto" data-base="../">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ODF Harness Continuous Improvement Roadmap · ODF Docs</title>
+  <meta name="description" content="ODF already has a credible control plane: specialized agents, bounded workflow routes, persisted state, attempts, receipts, recovery, and risk-aware verification. The next improvements must strengthen the **authority of ">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <script>(function(){var d=document.documentElement,s=localStorage.getItem("odf-theme"),m=matchMedia("(prefers-color-scheme: dark)").matches;d.dataset.theme=s||(m?"dark":"light");})();</script>
+  <link rel="stylesheet" href="../assets/docs.css">
+</head>
+<body>
+<a class="skip" href="#content">Skip to content</a>
+<header class="bar">
+  <div class="bar-in">
+    <a class="brand" href="../index.html">
+      <svg class="brand-glyph" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <rect x="2" y="9" width="6" height="6" rx="1.5" fill="currentColor" opacity=".95"/>
+        <rect x="9" y="9" width="6" height="6" rx="1.5" fill="currentColor" opacity=".65"/>
+        <rect x="16" y="9" width="6" height="6" rx="1.5" fill="currentColor" opacity=".35"/>
+        <path d="M8 12h1M15 12h1" stroke="currentColor" stroke-width="1.5"/>
+      </svg>
+      ODF <small>docs</small>
+    </a>
+    <div class="bar-spacer"></div>
+    <nav class="bar-nav" aria-label="Sections">
+      <a href="../index.html#whatsnew">What's new</a>
+      <a href="../index.html#flows">Flows</a>
+      <a href="../index.html#skills">Skills</a>
+      <a href="../docs.html">Docs</a>
+    </nav>
+    <button class="searchbtn" id="openSearch" aria-label="Search documentation">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+      <span class="lbl">Search docs…</span>
+      <kbd>/</kbd>
+    </button>
+    <button class="icon-btn" id="themeToggle" aria-label="Toggle dark mode" title="Toggle theme">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M4.9 4.9l1.4 1.4m11.4 11.4 1.4 1.4M2 12h2m16 0h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
+    </button>
+    <a class="gh" href="https://github.com/antoniodavid/odf-agent-team" target="_blank" rel="noopener">GitHub ↗</a>
+  </div>
+</header>
+<div class="shell">
+  <details class="side" open><summary>Documentation menu</summary><div class="side-inner"><a class="side-home" href="../docs.html">Documentation index</a><p class="side-group">Overview</p><a href="../docs.html">Docs index</a><a href="../intended-usage.html">Intended usage</a><a href="../architecture.html">Architecture</a><a href="../opencode-v2-migration.html">OpenCode V2 migration</a><p class="side-group">Contracts</p><a href="../route-contract.html">Route &amp; stage</a><a href="../design-contract.html">Design</a><a href="../expectations-contract.html">Expectations</a><a href="../context-contract.html">Context Manifest</a><a href="../safety-contract.html">Safety</a><a href="../judge-shadow-contract.html">Judge shadow</a><a href="../learning-loop-contract.html">Learning loop</a><p class="side-group">Operations</p><a href="../metrics-and-engram-maintenance.html">Metrics &amp; Engram</a><a href="../decision-evaluation.html">Decision evaluation</a><p class="side-group">Reference</p><a href="../plugin.html">Plugin reference</a><a href="../skill-style-guide.html">Skill style guide</a><p class="side-group">Project</p><a href="../readme.html">README</a><a href="../changelog.html">Changelog</a><a href="../agents.html">Contributing</a><p class="side-group">History</p><a href="index.html">Archive index</a><a href="harness-roadmap.html" class="active" aria-current="page">Harness roadmap</a><a href="odf-fast-lane-plan.html">Fast-lane plan</a><a href="odf-fast-lane-tasks.html">Fast-lane tasks</a><a href="odf-fast-lane-baseline-2026-09-13.html">Baseline 2026-09-13</a><a href="odf-fast-lane-baseline-2026-09-16.html">Baseline 2026-09-16</a><a href="../odf-linear-cycles-baseline-2026-10-01.html">Linear-cycles baseline</a></div></details>
+  <main id="content" class="doc">
+    <nav class="crumb" aria-label="Breadcrumb">
+      <a href="../index.html">ODF</a><span>/</span><a href="../docs.html">Docs</a><span>/</span><span>History</span>
+    </nav>
+    <article class="prose">
+      <h1>ODF Harness Continuous Improvement Roadmap</h1>
+      <p class="doc-meta">28 min read</p>
+      <p>ODF already has a credible control plane: specialized agents, bounded workflow
+routes, persisted state, attempts, receipts, recovery, and risk-aware
+verification. The next improvements must strengthen the <strong>authority of its
+evidence</strong>, reduce the cost of small changes, and only then add semantic
+evaluation and learning.</p>
+<blockquote>
+<p><strong>Start with T1.</strong> Do not build a judge, dashboard, RAG layer, or more agents
+before ODF can prove which exact candidate bytes were verified and who
+produced the verification evidence.</p>
+</blockquote>
+<h2 id="roadmap-authority" tabindex="-1"><a class="anchor" href="#roadmap-authority" aria-label="Link to this section">#</a>Roadmap authority</h2>
+<ul>
+<li>This file is the canonical, team-facing execution roadmap.</li>
+<li>Engram topic <code>roadmap/odf-world-class-harness/execution-queue</code> is the recovery
+copy, not an independent source of truth.</li>
+<li>Update task status here and refresh the Engram recovery copy in the same work
+unit.</li>
+<li>Audit baseline: repository HEAD <code>190584d</code>, NotebookLM notebook
+<code>b6f56bd5-c9f9-4571-a72e-293c392b21c6</code>.</li>
+</ul>
+<h2 id="executive-assessment" tabindex="-1"><a class="anchor" href="#executive-assessment" aria-label="Link to this section">#</a>Executive assessment</h2>
+<p>The audit rated ODF at approximately <strong>2.5/5</strong>. This is a directional maturity
+score, not a benchmark result.</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Plane</th>
+<th>Current state</th>
+<th>Main gap</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Control</td>
+<td>Strong</td>
+<td>Legacy paths can still bypass strict proof requirements</td>
+</tr>
+<tr>
+<td>Evidence</td>
+<td>Weak</td>
+<td>Candidate identity and VERIFY receipts are not strongly bound</td>
+</tr>
+<tr>
+<td>Data</td>
+<td>Weak</td>
+<td>No real token, model-version, tool-call, or trace coverage</td>
+</tr>
+<tr>
+<td>Evaluation</td>
+<td>Weak</td>
+<td>Fixtures and error rates do not measure semantic correctness</td>
+</tr>
+<tr>
+<td>Safety</td>
+<td>Weak</td>
+<td>No systematic pre-tool PII/injection/path corpus</td>
+</tr>
+<tr>
+<td>Learning</td>
+<td>Partial</td>
+<td>Metrics exist, but verified runs do not yet drive memory or skills</td>
+</tr>
+</tbody>
+</table></div>
+<p>The target is not “more machinery.” The target is a smaller set of trustworthy
+contracts that can prove:</p>
+<ol>
+<li>which candidate was reviewed and tested;</li>
+<li>which actor produced each piece of evidence;</li>
+<li>why the workflow selected its route and risk tier;</li>
+<li>whether the result satisfies human-owned expectations;</li>
+<li>what the harness learned without promoting unverified behavior.</li>
+</ol>
+<h2 id="execution-rules" tabindex="-1"><a class="anchor" href="#execution-rules" aria-label="Link to this section">#</a>Execution rules</h2>
+<ol>
+<li>Execute one reviewable work unit at a time.</li>
+<li>Keep behavior, tests, and user-facing documentation in the same work unit.</li>
+<li>Do not start a task until all dependencies are complete with named evidence.</li>
+<li>Record a focused test command, exact result, runtime smoke result or explicit
+<code>N/A</code>, and rollback boundary for every task.</li>
+<li>Human blocking is reserved for consent, unresolved product expectations, and
+terminal failure disposition. Mechanical gates should remain silent.</li>
+<li>Do not force a full SDD planning cycle on a bounded roadmap task whose
+outcome and acceptance criteria are already clear.</li>
+<li>Do not add a state, flag, framework, agent, or parallel representation unless
+a measured failure proves it is needed.</li>
+<li>If a work unit approaches 400 authored changed lines, split it by behavior,
+not by file type.</li>
+</ol>
+<h2 id="status-legend" tabindex="-1"><a class="anchor" href="#status-legend" aria-label="Link to this section">#</a>Status legend</h2>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Marker</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>[ ]</code></td>
+<td>Pending</td>
+</tr>
+<tr>
+<td><code>[~]</code></td>
+<td>In progress</td>
+</tr>
+<tr>
+<td><code>[x]</code></td>
+<td>Complete with evidence</td>
+</tr>
+<tr>
+<td><code>[!]</code></td>
+<td>Blocked; continuation must be named</td>
+</tr>
+<tr>
+<td><code>[-]</code></td>
+<td>Removed because evidence showed it was unnecessary</td>
+</tr>
+</tbody>
+</table></div>
+<h2 id="delivery-sequence" tabindex="-1"><a class="anchor" href="#delivery-sequence" aria-label="Link to this section">#</a>Delivery sequence</h2>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Release slice</th>
+<th>Tasks</th>
+<th>Outcome</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>A — Evidence authority</td>
+<td>T1–T3</td>
+<td>Candidate identity and VERIFY become trustworthy</td>
+</tr>
+<tr>
+<td>B — Proportional delivery</td>
+<td>T4–T6</td>
+<td>Small changes stop paying the full-pipeline tax</td>
+</tr>
+<tr>
+<td>C — Trustworthy data</td>
+<td>T7–T8</td>
+<td>Evaluation receives complete, honest telemetry</td>
+</tr>
+<tr>
+<td>D — Semantic quality and safety</td>
+<td>T9–T11</td>
+<td>Human expectations, judge calibration, and pre-tool safety</td>
+</tr>
+<tr>
+<td>E — Verified learning</td>
+<td>T12</td>
+<td>Memory and skill proposals learn only from proven runs</td>
+</tr>
+</tbody>
+</table></div>
+<p>Critical dependency path:</p>
+<pre><code class="language-text">T1 → T2 → T3 → T6 → T7 → T9 → T10 → T12
+                ↑
+          T4 → T5
+
+T7 → T8
+T7 → T11
+</code></pre>
+<p>T4–T5 may be implemented in parallel with T1–T3, but proportionality work must
+not delay evidence integrity.</p>
+<hr>
+<h2 id="p0-evidence-authority" tabindex="-1"><a class="anchor" href="#p0-evidence-authority" aria-label="Link to this section">#</a>P0 — Evidence authority</h2>
+<h3 id="x-t1-build-a-canonical-candidate-manifest-and-digest" tabindex="-1"><a class="anchor" href="#x-t1-build-a-canonical-candidate-manifest-and-digest" aria-label="Link to this section">#</a>[x] T1 — Build a canonical candidate manifest and digest</h3>
+<p><strong>Status:</strong> implemented; evidence recorded below.</p>
+<p><strong>Outcome:</strong> <code>frozen_diff_ref</code> is replaced or superseded by an identity derived
+from the candidate bytes, not merely from <code>HEAD</code>.</p>
+<p><strong>Root problem</strong></p>
+<ul>
+<li>Current policy logic can treat <code>HEAD</code> as the frozen reference.</li>
+<li>Untracked files may be absent from the candidate and risk classification.</li>
+<li>Path and mode changes need to participate in identity.</li>
+</ul>
+<p><strong>Minimum implementation</strong></p>
+<ul>
+<li>Represent the repository base separately from the candidate digest.</li>
+<li>Build a deterministic manifest containing path, status, mode, and content
+identity for staged, unstaged, and untracked files.</li>
+<li>Use existing Git primitives and <code>node:crypto</code>; add no dependency.</li>
+<li>Sort and serialize canonically before hashing.</li>
+<li>Keep generated evidence bounded; do not copy candidate contents into metrics.</li>
+</ul>
+<p><strong>Acceptance criteria</strong></p>
+<ul>
+<li>[x] The same repository candidate always produces the same manifest and digest.</li>
+<li>[x] A byte, path, status, or mode change changes the digest.</li>
+<li>[x] Untracked files participate in the digest.</li>
+<li>[x] An untracked ACL, migration, or security file participates in risk analysis.</li>
+<li>[x] Empty candidates have an explicit representation rather than an inferred one.</li>
+</ul>
+<p><strong>Required evidence</strong></p>
+<ul>
+<li>Focused deterministic tests for tracked, staged, unstaged, untracked, rename,
+delete, and mode-change cases.</li>
+<li>Full Vitest suite and typecheck.</li>
+<li>Rollback boundary: candidate-manifest helper, its integration point, and tests.</li>
+</ul>
+<p><strong>KPI:</strong> 100% of gated candidates have a reproducible digest.</p>
+<p><strong>Implementation evidence (2026-08-17)</strong></p>
+<ul>
+<li>New <code>plugins/candidate-manifest.ts</code>: <code>buildCandidateManifest</code>, <code>computeCandidateDigest</code>,
+<code>extractChangedPaths</code>, <code>CandidateManifest</code>/<code>CandidateEntry</code>. Source of truth is
+<code>git status --porcelain=v1 -z --untracked-files=all</code> plus <code>git rev-parse HEAD</code>;
+sha256 per path from <code>node:crypto</code>; canonical sort + compact JSON digest. Empty
+candidate has an explicit stable digest. <code>.odf/</code> harness state is excluded so
+ODF's own gate saves do not invalidate the candidate.</li>
+<li>Integration in <code>plugins/odf-delegation.ts</code>: <code>PolicyGateDecision</code> gains
+<code>candidate_digest</code> and <code>base_head</code> (<code>frozen_diff_ref</code> kept for compatibility);
+VERIFY now derives <code>changed_paths</code> (including untracked), risk, and the digest
+from the manifest; idempotency compares the real candidate digest, so a
+byte/untracked change invalidates reuse. IMPLEMENT and no-git fail-open (<code>LOW</code>)
+are unchanged (the latter is T3).</li>
+<li>Tests: <code>plugins/candidate-manifest.test.ts</code> (12 tests: determinism, byte change,
+rename, delete, mode change, untracked participation, untracked security file →
+HIGH risk, integration with <code>computePolicyGate</code>, empty candidate, no-git).</li>
+<li>Verification: <code>npm run test:unit -- plugins/candidate-manifest.test.ts</code> → 12/12
+pass; <code>npm run typecheck</code> → clean; <code>npm test</code> → full suite green (411 Vitest +
+126 YAML, 0 failed).</li>
+<li>Runtime smoke: <code>N/A</code> — plugin unit tests run with mocked <code>task()</code>; no live
+OpenCode/Odoo runtime boundary for this unit.</li>
+<li>Rollback boundary: remove <code>plugins/candidate-manifest.ts</code> and
+<code>plugins/candidate-manifest.test.ts</code>; revert <code>plugins/odf-delegation.ts</code> and
+<code>plugins/odf-delegation.test.ts</code>.</li>
+</ul>
+<p><strong>Out of scope:</strong> signing, remote attestation, OTel, or a generalized content
+addressable storage layer.</p>
+<h3 id="x-t2-bind-gates-attempts-and-receipts-to-the-candidate" tabindex="-1"><a class="anchor" href="#x-t2-bind-gates-attempts-and-receipts-to-the-candidate" aria-label="Link to this section">#</a>[x] T2 — Bind gates, attempts, and receipts to the candidate</h3>
+<p><strong>Status:</strong> implemented; evidence recorded below.</p>
+<p><strong>Outcome:</strong> changing the candidate invalidates every content-bound decision.</p>
+<p><strong>Dependencies:</strong> T1.</p>
+<p><strong>Minimum implementation</strong></p>
+<ul>
+<li>Bind policy gate, risk tier, attempt token, validation evidence, and receipt to
+the candidate digest.</li>
+<li>Recompute identity immediately before each content-bound transition.</li>
+<li>Reject reuse when candidate identity changes.</li>
+<li>Preserve the existing bounded-attempt contract; mutation must not silently
+create or consume another budget.</li>
+</ul>
+<p><strong>Acceptance criteria</strong></p>
+<ul>
+<li>[x] A mutation after policy classification invalidates that classification.</li>
+<li>[x] A mutation after BUILD evidence invalidates the evidence.</li>
+<li>[x] A receipt for candidate A cannot approve candidate B.</li>
+<li>[x] Retry and resume rediscover committed state without duplicating attempts.</li>
+</ul>
+<p><strong>Required evidence</strong></p>
+<ul>
+<li>Named <code>mutation-after-gate</code>, <code>mutation-after-build</code>, and <code>digest-mismatch</code>
+regression tests.</li>
+<li>Full Vitest suite and typecheck.</li>
+</ul>
+<p><strong>KPI:</strong> zero accepted stale-candidate fixtures.</p>
+<p><strong>Implementation evidence (2026-08-17)</strong></p>
+<ul>
+<li><code>AttemptLedgerRecord</code> gains <code>candidate_digest?: string | null</code>; recorded at
+<code>acquireAttempt</code> (null without Git) and preserved by <code>settleAttempt</code>.</li>
+<li><code>ValidationEvidenceFile</code> gains <code>candidate_digest?: string | null</code>;
+<code>validateValidationEvidence</code> returns <code>invalid</code> with reason
+<code>candidate digest mismatch ...</code> when the stored digest differs from the fresh
+candidate. Legacy evidence without a digest keeps current behavior.</li>
+<li><code>WorkflowReceipt</code>/<code>ODFReceipt</code> gain <code>candidate_digest?: string | null</code>;
+<code>mergeReceipt</code> writes the fresh digest so a mutated candidate cannot reuse a
+stale receipt, while terminal reads keep the original digest for detection.</li>
+<li><code>commitWorkflowTransition</code> blocks with reason <code>candidate-digest-mismatch</code>
+(inside the lock, after <code>inspectPersistedTransition</code>) when a persisted gate,
+evidence, or receipt digest differs from the fresh candidate. A mismatch
+never creates or consumes an attempt (bounded-attempt contract preserved);
+null digests (legacy/no-git) do not block (strict enforcement is T3).</li>
+<li>Tests (6 new, named): <code>mutation-after-gate</code>, <code>mutation-after-build</code>,
+<code>digest-mismatch</code>, <code>compatibility: transitions with no candidate digests are not blocked by digest</code>, <code>compatibility: legacy evidence without candidate_digest still verifies even with git present</code>,
+<code>acquireAttempt records the candidate digest and settleAttempt preserves it</code>.</li>
+<li>Verification: <code>npx vitest run plugins/odf-delegation.test.ts</code> → 229/229 pass;
+<code>npm run typecheck</code> → clean; <code>npm test</code> → full suite green (325 Vitest + 126
+YAML, 0 failed).</li>
+<li>Runtime smoke: <code>N/A</code> — plugin unit tests run with mocked <code>task()</code>; no live
+OpenCode/Odoo runtime boundary for this unit.</li>
+<li>Rollback boundary: revert <code>plugins/odf-delegation.ts</code>,
+<code>plugins/odf-workflow-status.ts</code>, and <code>plugins/odf-delegation.test.ts</code>.</li>
+</ul>
+<h3 id="x-t3-make-verify-fail-closed-with-executor-owned-receipts" tabindex="-1"><a class="anchor" href="#x-t3-make-verify-fail-closed-with-executor-owned-receipts" aria-label="Link to this section">#</a>[x] T3 — Make VERIFY fail closed with executor-owned receipts</h3>
+<p><strong>Status:</strong> implemented; evidence recorded below.</p>
+<p><strong>Outcome:</strong> VERIFY succeeds only with fresh, complete evidence produced by the
+execution boundary and bound to the current candidate.</p>
+<p><strong>Dependencies:</strong> T1, T2.</p>
+<p><strong>Minimum implementation</strong></p>
+<ul>
+<li>Separate an agent's report from the harness/executor's test receipt.</li>
+<li>Require candidate digest, command identity, execution context or database,
+exit code, bounded output evidence, timestamp, test identity, and executor
+identity.</li>
+<li>Validate freshness and candidate binding at the VERIFY transition.</li>
+<li>Return a typed unavailable/blocked result when Git or candidate evidence is
+unavailable. Never degrade to <code>LOW/allow</code>.</li>
+</ul>
+<p><strong>Acceptance criteria</strong></p>
+<ul>
+<li>[x] <code>status: passed</code> without execution evidence is rejected.</li>
+<li>[x] Stale receipts are rejected.</li>
+<li>[x] Digest mismatches are rejected.</li>
+<li>[x] Missing Git or incomplete candidate discovery never permits VERIFY.</li>
+<li>[x] A complete, fresh, matching receipt permits the expected transition.</li>
+</ul>
+<p><strong>Required evidence</strong></p>
+<ul>
+<li>One regression test for each invalid shape and one reproducible happy path.</li>
+<li>Full test suite, typecheck, and registry validation.</li>
+</ul>
+<p><strong>KPI:</strong> 100% of successful VERIFY transitions have a fresh bound receipt.</p>
+<p><strong>Implementation evidence (2026-08-17)</strong></p>
+<ul>
+<li><code>computePolicyGate</code> VERIFY branch no longer degrades to <code>LOW/allow</code> when Git is
+unavailable: it returns <code>gate: &quot;block&quot;</code> with reason
+<code>verification-unavailable</code> (actionable continuation named). <code>createODFDelegate</code>
+now maps a blocked gate to a blocked envelope (no delegation). IMPLEMENT
+unchanged.</li>
+<li><code>validateValidationEvidence</code> enforces the VERIFY receipt contract: non-empty
+<code>commands</code>; per command <code>command</code>, <code>database</code>, <code>exit_code === 0</code>, and
+output; freshness window; required <code>candidate_digest</code> (when Git present);
+required <code>executor</code> and <code>test_identity</code> (new optional fields on
+<code>ValidationEvidenceFile</code>). Status-only/passed-only and legacy weak evidence
+are rejected. IMPLEMENT validation unchanged.</li>
+<li><code>commitWorkflowTransition</code> re-validates the evidence file at the VERIFY
+transition and blocks with <code>verification-evidence-missing</code> or
+<code>verification-evidence-invalid</code>; digest-mismatch blocking from T2 retained
+without duplication.</li>
+<li>Docs updated surgically: <code>skills/odf-verify/SKILL.md</code>,
+<code>skills/odf-implement/SKILL.md</code>, <code>agent/odoo_qa_engineer.md</code>,
+<code>command/odf-verify.md</code> now instruct executors to emit
+<code>candidate_digest</code>/<code>executor</code>/<code>test_identity</code> with the receipt.</li>
+<li>Tests (10 new, named): <code>verify-fail-closed-without-git</code> (gate + delegation),
+<code>verify-rejects-status-only-evidence</code>, <code>verify-rejects-missing-required-fields</code>,
+<code>verify-rejects-nonzero-exit</code>, <code>verify-rejects-stale-evidence</code>,
+<code>verify-rejects-missing-executor-or-test-identity</code>,
+<code>verify-accepts-complete-fresh-evidence</code>, <code>verify-digest-required</code>, and
+fail-closed transition tests (missing/invalid).</li>
+<li>Verification: <code>npx vitest run plugins/odf-delegation.test.ts</code> → 239/239 pass;
+<code>npm run typecheck</code> → clean; <code>npm test</code> → full suite green (335 Vitest + 126
+YAML, 0 failed).</li>
+<li>Authored diff ≈ 440 lines (above the 400 guidance). If this were re-sliced it
+would split as runtime (<code>odf-delegation.ts</code>) then contract/tests; recorded for
+future slices, no rework performed.</li>
+<li>Runtime smoke: <code>N/A</code> — plugin unit tests run with mocked <code>task()</code>; no live
+OpenCode/Odoo runtime boundary for this unit.</li>
+<li>Rollback boundary: revert <code>plugins/odf-delegation.ts</code>,
+<code>plugins/odf-delegation.test.ts</code>, <code>plugins/candidate-manifest.test.ts</code>, and the
+four doc files.</li>
+</ul>
+<p><strong>Out of scope:</strong> a new CI platform. The first version should strengthen the
+existing local execution contract.</p>
+<hr>
+<h2 id="p1-proportional-delivery-and-enforceable-contracts" tabindex="-1"><a class="anchor" href="#p1-proportional-delivery-and-enforceable-contracts" aria-label="Link to this section">#</a>P1 — Proportional delivery and enforceable contracts</h2>
+<h3 id="x-t4-add-deterministic-entry-triage-using-existing-work-types" tabindex="-1"><a class="anchor" href="#x-t4-add-deterministic-entry-triage-using-existing-work-types" aria-label="Link to this section">#</a>[x] T4 — Add deterministic entry triage using existing work types</h3>
+<p><strong>Status:</strong> implemented; evidence recorded below.</p>
+<p><strong>Outcome:</strong> <code>/odf-new</code> selects the cheapest safe existing route instead of
+defaulting small work into the full planning path.</p>
+<p><strong>Dependencies:</strong> none. Execute after T3 unless explicitly run in parallel.</p>
+<p><strong>Do not create new work types.</strong> Project three UX levels onto the routes that
+already exist in <code>plugins/odf-workflow.ts</code>:</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>UX level</th>
+<th>Existing work types</th>
+<th>Planning behavior</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Micro</td>
+<td><code>bugfix</code>, <code>small-change</code>, <code>standard-config</code></td>
+<td>Inline intent/expectations; no QA-PLAN or DESIGN</td>
+</tr>
+<tr>
+<td>Standard</td>
+<td><code>feature</code></td>
+<td>DECIDE, BUILD, VERIFY; PLAN only where the route requires it</td>
+</tr>
+<tr>
+<td>Full</td>
+<td><code>cross-domain</code>, <code>migration</code>, <code>security</code></td>
+<td>Full planning and risk controls</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>Micro eligibility</strong></p>
+<ul>
+<li>One module and one business domain.</li>
+<li>Clear human intent and expectations.</li>
+<li>Expected scope of at most three files.</li>
+<li>No migration, security boundary, payment/money path, public API, or data-loss
+risk. Such work must never be classified as micro.</li>
+</ul>
+<p><strong>Acceptance criteria</strong></p>
+<ul>
+<li>[x] Explicit commands such as <code>/odf-fix</code> keep their intended route.</li>
+<li>[x] Migration and security work never select micro.</li>
+<li>[x] Ambiguity produces at most one user question.</li>
+<li>[x] Routing output records the selected existing <code>work_type</code> and reason.</li>
+<li>[x] Table-driven tests cover micro, standard, full, and ambiguous inputs.</li>
+</ul>
+<p><strong>KPI:</strong> small changes reach BUILD with at most one human interruption.</p>
+<p><strong>Implementation evidence (2026-08-17)</strong></p>
+<ul>
+<li>New pure module <code>plugins/entry-triage.ts</code> (no I/O): <code>classifyEntryTriage</code> +
+<code>detectRiskSignals</code> (<code>security</code>, <code>migration</code>, <code>payment</code>, <code>public-api</code>,
+<code>data-loss</code>). Signals never select micro; explicit work types are respected
+(risk signals escalate an explicit micro choice to full); missing facts
+produce <code>needs_question</code> with exactly one grouped question; fallback is
+<code>feature</code>/standard.</li>
+<li>New plugin tool <code>odf_entry_triage</code> registered in <code>plugins/odf-delegation.ts</code>
+(mirrors <code>createODFWorkflowRoute</code>; returns JSON with <code>level</code>, <code>work_type</code>,
+<code>reason</code>, <code>needs_question</code>). <code>ODF_REGISTERED_TOOLS</code> is now exported for
+registration tests.</li>
+<li>Docs updated: <code>command/odf-new.md</code> adds an entry-triage step before
+<code>odf_workflow_route</code>/<code>odf_workflow_bind</code> (one grouped question when ambiguous,
+no free-form work-type choice); <code>agent/odoo_orchestrator.md</code> adds the
+classify-before-route rule.</li>
+<li>Tests: <code>plugins/entry-triage.test.ts</code> (16 table-driven) + registration and
+ambiguity tests in <code>plugins/odf-delegation.test.ts</code>.</li>
+<li>Verification: <code>npx vitest run plugins/entry-triage.test.ts plugins/odf-delegation.test.ts</code> → 258/258 pass; <code>npm run typecheck</code> → clean;
+<code>npm test</code> → full suite green (354 Vitest + 126 YAML, 0 failed).</li>
+<li>Authored diff ≈ 389 lines (under the 400 guidance).</li>
+<li>Runtime smoke: <code>N/A</code> — pure classifier and plugin tool tested at unit level;
+no live OpenCode/Odoo runtime boundary for this unit.</li>
+<li>Rollback boundary: remove <code>plugins/entry-triage.ts</code> and
+<code>plugins/entry-triage.test.ts</code>; revert <code>plugins/odf-delegation.ts</code> and
+<code>plugins/odf-delegation.test.ts</code>; revert the two doc files.</li>
+</ul>
+<h3 id="x-t5-make-the-micro-path-genuinely-low-friction" tabindex="-1"><a class="anchor" href="#x-t5-make-the-micro-path-genuinely-low-friction" aria-label="Link to this section">#</a>[x] T5 — Make the micro path genuinely low-friction</h3>
+<p><strong>Status:</strong> implemented; evidence recorded below.</p>
+<p><strong>Outcome:</strong> a correctly classified small change no longer pays for proposal,
+assessment, QA plan, and design ceremonies that add no decision value.</p>
+<p><strong>Dependencies:</strong> T4.</p>
+<p><strong>Minimum implementation</strong></p>
+<ul>
+<li>When intent and expectations are complete, ask no planning question.</li>
+<li>When one required fact is missing, ask one grouped question.</li>
+<li>Keep mechanical policy and evidence gates silent.</li>
+<li>Clarify that <code>/odf-fix</code> “No gates” means no human phase approvals, not no
+policy or evidence controls.</li>
+<li>Prove precedence between global execution mode and FIX → BUILD → VERIFY.</li>
+</ul>
+<p><strong>Acceptance criteria</strong></p>
+<ul>
+<li>[x] <code>small-change</code> omits QA-PLAN and DESIGN.</li>
+<li>[x] Complete micro input reaches BUILD without a human approval loop.</li>
+<li>[x] <code>/odf-fix</code> preserves root-cause analysis and a regression check.</li>
+<li>[x] Any discovered high-risk condition escalates before editing.</li>
+</ul>
+<p><strong>KPI:</strong> median human blocks before micro BUILD ≤ 1.</p>
+<p><strong>Implementation evidence (2026-08-17)</strong></p>
+<ul>
+<li><code>skills/odf-fix/SKILL.md</code>: &quot;No gates&quot; clarified as no human phase-approval
+pauses; mechanical gates (<code>odf_policy_gate</code>, validation evidence, VERIFY, risk
+escalation) remain mandatory and run silently.</li>
+<li><code>command/odf-fix.md</code>: same clarification in &quot;Qué hace&quot;; step 5 reinforced to
+escalate to DECIDE → PLAN <strong>before editing</strong> on architecture/multi-file/high
+risk.</li>
+<li><code>command/odf-new.md</code> step 7: micro with <code>needs_question: false</code> skips
+PROPOSE/ASSESS approval rounds (inline plan → BUILD → VERIFY); escalate on any
+high-risk signal before editing.</li>
+<li><code>agent/odoo_orchestrator.md</code>: &quot;Micro path&quot; rule — skip approval rounds when
+complete, ask at most one grouped question when a fact is missing, escalate on
+high-risk signals.</li>
+<li>Tests (4 new, <code>precedence</code> block in <code>plugins/entry-triage.test.ts</code>): complete
+<code>/odf-fix</code> input routes bugfix/micro with <code>needs_question: false</code>; complete
+micro input needs no question; ambiguous input yields exactly one grouped
+question; high-risk escalates even with complete micro input.</li>
+<li>Verification: <code>npx vitest run plugins/entry-triage.test.ts</code> → 20/20 pass;
+<code>npm run typecheck</code> → clean; <code>npm test</code> → full suite green (126 YAML + Vitest,
+0 failed).</li>
+<li>Runtime smoke: <code>N/A</code> — routing-layer precedence proven at unit level; no live
+OpenCode/Odoo runtime boundary for this unit.</li>
+<li>Rollback boundary: revert the four doc files and the <code>precedence</code> test block
+in <code>plugins/entry-triage.test.ts</code>.</li>
+</ul>
+<h3 id="x-t6-remove-legacy-bypasses-and-enable-strict-workflow" tabindex="-1"><a class="anchor" href="#x-t6-remove-legacy-bypasses-and-enable-strict-workflow" aria-label="Link to this section">#</a>[x] T6 — Remove legacy bypasses and enable strict workflow</h3>
+<p><strong>Status:</strong> implemented; evidence recorded below.</p>
+<p><strong>Outcome:</strong> every BUILD and VERIFY invocation uses the same binding, attempt,
+proof, and receipt contracts.</p>
+<p><strong>Dependencies:</strong> T3, T5.</p>
+<p><strong>Minimum implementation</strong></p>
+<ul>
+<li>Instrument remaining legacy callers.</li>
+<li>Migrate each caller to the canonical transition path.</li>
+<li>Enable strict workflow only after the caller inventory reaches zero.</li>
+<li>Remove compatibility branches after evidence proves they are unused.</li>
+</ul>
+<p><strong>Acceptance criteria</strong></p>
+<ul>
+<li>[x] BUILD without binding, attempt ID, or required validation fails before
+<code>task()</code>.</li>
+<li>[x] VERIFY without a bound receipt fails before <code>task()</code>.</li>
+<li>[x] No retained command relies on a removed compatibility path.</li>
+<li>[x] Runtime smoke evidence is recorded, or <code>N/A</code> explains why no runtime
+boundary exists.</li>
+</ul>
+<p><strong>KPI:</strong> zero gated delegations through legacy proof-optional paths.</p>
+<p><strong>Implementation evidence (2026-08-17)</strong></p>
+<ul>
+<li><code>odf-registry.json</code> default flipped to <code>&quot;strict_workflow&quot;: true</code>. The plugin
+gate already blocked IMPLEMENT/VERIFY without <code>workflow_advance</code> under strict;
+no new runtime code was needed.</li>
+<li>Caller inventory: <code>odf-new.md</code>, <code>odf-continue.md</code>, and <code>odoo_orchestrator.md</code>
+already passed the three required fields; migrated the remaining documented
+flows — <code>command/odf-fix.md</code> (BUILD/VERIFY steps), <code>command/odf-apply.md</code>
+(BUILD), and <code>command/odf-qa.md</code> (lens delegation note). No scripts/YAML
+depended on legacy omission.</li>
+<li>Decision: a missing <code>strict_workflow</code> flag stays non-blocking (legacy registry
+compatibility); activation happens through the registry value.</li>
+<li><code>odf_parallel_delegate</code> already requires the shared proof unconditionally
+(strictly stronger than the flag), so the parallel path has no bypass; a test
+pins that behavior.</li>
+<li>The explicit <code>strict_workflow: false</code> opt-out branch is retained as a
+self-service exit until telemetry proves disuse (T12); no evidence of active
+opt-out consumers yet.</li>
+<li>Tests: default assertion flipped to <code>true</code>; new/renamed
+<code>strict-default-blocks-legacy-omission</code>, <code>strict-opt-out-allows-legacy</code>,
+<code>strict-parallel-delegate-blocks-without-shared-proof</code>, <code>strict-happy-path</code>;
+6 legacy-internal tests now run under the explicit opt-out.</li>
+<li>Verification: <code>npx vitest run plugins/odf-delegation.test.ts</code> → 245/245 pass;
+<code>npm run typecheck</code> → clean; <code>npm test</code> → full suite green (361 Vitest + 126
+YAML, 0 failed); registry validator → all registered paths valid.</li>
+<li>Runtime smoke: <code>N/A</code> — plugin unit tests run with mocked <code>task()</code>; no live
+OpenCode/Odoo runtime boundary for this unit.</li>
+<li>Rollback boundary: revert <code>odf-registry.json</code>, the migrated doc lines in
+<code>command/odf-fix.md</code>, <code>command/odf-apply.md</code>, <code>command/odf-qa.md</code>,
+<code>command/odf-new.md</code>, <code>command/odf-continue.md</code>,
+<code>agent/odoo_orchestrator.md</code>, and <code>plugins/odf-delegation.test.ts</code>.</li>
+</ul>
+<hr>
+<h2 id="p1-trustworthy-telemetry" tabindex="-1"><a class="anchor" href="#p1-trustworthy-telemetry" aria-label="Link to this section">#</a>P1 — Trustworthy telemetry</h2>
+<h3 id="x-t7-emit-versioned-local-traces-with-real-runtime-metadata" tabindex="-1"><a class="anchor" href="#x-t7-emit-versioned-local-traces-with-real-runtime-metadata" aria-label="Link to this section">#</a>[x] T7 — Emit versioned local traces with real runtime metadata</h3>
+<p><strong>Status:</strong> implemented; evidence recorded below.</p>
+<p><strong>Outcome:</strong> evaluation can reconstruct what happened without relying on the
+current <code>prompt.length / 4</code> token estimate.</p>
+<p><strong>Dependencies:</strong> T3, T6.</p>
+<p><strong>Minimum implementation</strong></p>
+<ul>
+<li>Define a versioned local event schema for run, trace, and span.</li>
+<li>Capture phase, task, tool, model, provider, model version, input/output tokens,
+latency, status, retry, work type, candidate digest, and receipt identity when
+the host exposes them.</li>
+<li>Represent unavailable provider fields honestly; never synthesize precision.</li>
+<li>Continue with bounded JSONL storage first. Add no OTel backend yet.</li>
+</ul>
+<p><strong>Acceptance criteria</strong></p>
+<ul>
+<li>[x] Parent and child spans correlate to one run.</li>
+<li>[x] Real token fields replace the heuristic when available.</li>
+<li>[x] Missing provider data is explicit and test-covered.</li>
+<li>[x] Sensitive prompt, source, path, and environment content is not logged.</li>
+<li>[x] Buffer, flush, cap, and failure behavior remain bounded.</li>
+</ul>
+<p><strong>KPI:</strong> at least 95% of delegations contain model, version, candidate digest,
+and honest token availability.</p>
+<p><strong>Implementation evidence (2026-08-17)</strong></p>
+<ul>
+<li><code>DelegationMetrics</code> extended (retrocompatible): <code>event: &quot;run&quot; | &quot;span&quot;</code>,
+<code>schema_version: 1</code>, <code>trace_id</code>/<code>span_id</code>/<code>parent_span_id?</code>, <code>task?</code>,
+<code>tool?</code>, <code>retry_count?</code>, <code>model</code>/<code>provider</code>/<code>model_version</code> (null when
+absent), <code>model_available</code>, <code>tokens: { input?, output?, estimated? }</code>,
+<code>candidate_digest?</code>, <code>receipt_ref?</code>. No second JSONL stream — the existing
+<code>delegations-*.jsonl</code> was extended (minimal change).</li>
+<li>Host discovery: <code>ToolContext</code> exposes only <code>sessionID, messageID, agent, directory, worktree, abort, metadata, ask</code> — no model/provider/usage. So
+<code>model/provider/tokens</code> default to explicit <code>null</code>/<code>model_available: false</code>
+and are never synthesized; <code>estimateTokens</code> remains only as <code>tokens.estimated</code>
+(marked). A defensive <code>hostTelemetryFromContext</code> reads them if a future host
+adds them.</li>
+<li><code>scrubMetricSecrets</code> added; <code>sanitizeError</code> now scrubs secrets and stays ≤200
+chars. Prompt contents, absolute user paths, and env values are never logged.</li>
+<li>Tests (6 new): <code>telemetry-schema-versioned</code>,
+<code>telemetry-parent-child-correlate</code>, <code>telemetry-tokens-honest</code>,
+<code>telemetry-no-secrets</code>, <code>telemetry-buffer-bounded</code>,
+<code>telemetry-model-available-flag</code>.</li>
+<li>Verification: <code>npx vitest run plugins/odf-delegation.test.ts</code> → 251/251 pass;
+<code>npm run typecheck</code> → clean; <code>npm test</code> → full suite green (367 Vitest + 126
+YAML, 0 failed).</li>
+<li>Authored diff ≈ 290 lines (well under 400).</li>
+<li>Runtime smoke: <code>N/A</code> — telemetry produced at plugin unit level with mocked
+<code>task()</code>/<code>toolCtx</code>; no live OpenCode/Odoo runtime boundary for this unit.</li>
+<li>Rollback boundary: revert <code>plugins/odf-delegation.ts</code> and
+<code>plugins/odf-delegation.test.ts</code>.</li>
+</ul>
+<h3 id="x-t8-represent-absent-and-incomplete-data-honestly" tabindex="-1"><a class="anchor" href="#x-t8-represent-absent-and-incomplete-data-honestly" aria-label="Link to this section">#</a>[x] T8 — Represent absent and incomplete data honestly</h3>
+<p><strong>Outcome:</strong> zero records no longer appear as perfect performance.</p>
+<p><strong>Dependencies:</strong> T7.</p>
+<p><strong>Minimum implementation</strong></p>
+<ul>
+<li>Introduce <code>no_data</code>/<code>N/A</code> semantics in offline evaluation, online evaluation,
+metrics summaries, and any dashboard view.</li>
+<li>Distinguish complete, partial, unavailable, and invalid evidence.</li>
+<li>Preserve backwards-compatible reading only where it cannot misstate results.</li>
+</ul>
+<p><strong>Acceptance criteria</strong></p>
+<ul>
+<li>[x] Zero records never produce score <code>1</code> or <code>100%</code>.</li>
+<li>[x] Partial datasets expose coverage and freshness.</li>
+<li>[x] Tests cover empty, partial, invalid, and complete datasets.</li>
+</ul>
+<p><strong>KPI:</strong> zero success claims generated from absent evidence.</p>
+<p><strong>Implementation evidence (2026-08-17)</strong></p>
+<ul>
+<li><code>scripts/odf-evaluation.js</code>: <code>evaluateOffline</code>/<code>evaluateOnline</code> return
+<code>data_status: &quot;no_data&quot;</code> with <code>score: null</code> and <code>score_label: &quot;N/A&quot;</code> on empty
+or non-array input (never <code>score: 1</code>). With data they return
+<code>data_status: &quot;complete&quot;</code> (or <code>&quot;partial&quot;</code> when some records lack T7 telemetry),
+and online exposes <code>coverage</code> / <code>records_with_telemetry</code> without distorting the
+score.</li>
+<li><code>scripts/odf-metrics.js</code>: percentages with zero base now return <code>null</code> with an
+<code>*Label: &quot;N/A&quot;</code>; <code>buildDashboard</code> gains <code>data_status</code>, <code>coverage</code>,
+<code>records_with_telemetry</code>. Shared <code>hasTelemetry</code> heuristic: a record is
+telemetry-bearing if it has any of <code>event</code>, <code>schema_version</code>,
+<code>model_available</code>, <code>candidate_digest</code>; a dataset is <code>partial</code> when
+<code>records.length &gt; 0 &amp;&amp; withTelemetry &lt; records.length</code>;
+<code>coverage = withTelemetry / total</code> (null when not partial).</li>
+<li>Type declarations updated (<code>odf-evaluation.d.ts</code>, <code>odf-metrics.d.ts</code>).</li>
+<li>CLI confirmed: <code>ODF_CONFIG_DIR=&lt;empty-metrics&gt; node scripts/odf-evaluation.js online</code> prints <code>{&quot;mode&quot;:&quot;online&quot;,&quot;data_status&quot;:&quot;no_data&quot;,&quot;total&quot;:0, &quot;errors&quot;:0,&quot;error_rate&quot;:null,&quot;score&quot;:null,&quot;score_label&quot;:&quot;N/A&quot;}</code>.</li>
+<li>Tests: <code>offline-empty-no-data</code> (2), <code>offline-complete</code>, <code>online-empty-no-data</code>,
+<code>online-complete</code>, <code>online-partial-coverage</code>, <code>dashboard-no-data</code>,
+<code>dashboard-partial</code>; adjusted CLI module test and float-ratio assertions.</li>
+<li>Verification: focused → 20/20 pass; <code>npm run typecheck</code> → clean; <code>npm test</code> →
+full suite green (126 YAML + Vitest, 0 failed).</li>
+<li>Runtime smoke: <code>node scripts/odf-evaluation.js online</code> on an empty metrics dir
+returned <code>no_data</code>/N/A (recorded above).</li>
+<li>Rollback boundary: revert <code>scripts/odf-evaluation.js</code>,
+<code>scripts/odf-metrics.js</code>, <code>scripts/odf-evaluation.d.ts</code>,
+<code>scripts/odf-metrics.d.ts</code>, and their <code>.test.ts</code> files.</li>
+</ul>
+<h2 id="p2-semantic-evaluation-and-safety" tabindex="-1"><a class="anchor" href="#p2-semantic-evaluation-and-safety" aria-label="Link to this section">#</a>P2 — Semantic evaluation and safety</h2>
+<h3 id="x-t9-separate-human-expectations-and-build-golden-trajectories" tabindex="-1"><a class="anchor" href="#x-t9-separate-human-expectations-and-build-golden-trajectories" aria-label="Link to this section">#</a>[x] T9 — Separate human expectations and build golden trajectories</h3>
+<p><strong>Status:</strong> implemented; evidence recorded below.</p>
+<p><strong>Outcome:</strong> ODF evaluates against a human-owned contract rather than criteria
+written and judged by the same model.</p>
+<p><strong>Dependencies:</strong> T3, T7.</p>
+<p><strong>Minimum implementation</strong></p>
+<ul>
+<li>Persist Intent and Expectations separately from generated plans and REQ IDs.</li>
+<li>Make approved Expectations immutable for the candidate.</li>
+<li>Build a small representative corpus per work type and risk tier.</li>
+<li>Include success, failure, recovery, stale evidence, unsafe tool attempts, and
+Odoo-specific edge cases.</li>
+<li>Add a golden whenever a harness defect is fixed.</li>
+</ul>
+<p><strong>Acceptance criteria</strong></p>
+<ul>
+<li>[x] Agents cannot silently rewrite approved Expectations.</li>
+<li>[x] Goldens evaluate outcomes and trajectories, not only JSON shape.</li>
+<li>[x] Corpus cases name the defect or contract they protect.</li>
+<li>[x] Generated fixtures remain part of candidate identity even when excluded
+from authored-line workload estimates.</li>
+</ul>
+<p><strong>KPI:</strong> golden coverage by work type and risk tier, with zero unexplained
+Expectation rewrites.</p>
+<p><strong>Implementation evidence (2026-08-17)</strong></p>
+<ul>
+<li>New canonical contract <code>docs/expectations-contract.md</code>: the <code>expectations</code>
+artifact is human-owned (<code>EXP-XX</code>, <code>owned_by: &quot;human&quot;</code>, <code>approved</code>, immutable
+after approval). REQ-XX derived by ASSESS is now a technical plan that
+references EXP-XX rather than replacing them. VERIFY evaluates against
+approved EXP-XX and blocks on <code>expectations-not-approved</code> or tampering; legacy
+changes without the artifact keep REQ-based verification with an explicit
+<code>missing-expectations</code> warning.</li>
+<li>Updated <code>agent/odoo_orchestrator.md</code> (capture/persist/approve EXP at entry,
+forward as primary VERIFY criterion), <code>skills/odf-assess/SKILL.md</code>,
+<code>agent/odoo_qa_engineer.md</code>, <code>command/odf-new.md</code>, <code>command/odf-verify.md</code>.</li>
+<li>Golden corpus <code>scripts/fixtures/golden-trajectories.json</code>: 7 entries covering
+feature success, migration failure, recovery-correction, stale evidence, unsafe
+tool, multi-company edge case, unapproved expectations.</li>
+<li><code>evaluateGoldens(goldens)</code> added to <code>scripts/odf-evaluation.js</code> (deterministic
+shape/consistency verifier: <code>work_type</code>, <code>risk</code>, <code>outcome</code>, <code>protects</code>,
+<code>expectation</code>, <code>golden</code>, <code>trajectory</code>), integrated as CLI mode <code>golden</code>;
+empty → <code>no_data</code>/N/A (consistent with T8).</li>
+<li>Verification: focused → 17/17 pass; <code>npm run typecheck</code> → clean; <code>npm test</code> →
+full suite green (126 YAML + Vitest, 0 failed); CLI <code>golden</code> → complete, 7/7;
+offline CLI still 1/1; registry valid.</li>
+<li>Authored diff &gt; 400 lines (contract/docs + corpus + engine/tests). Recorded
+re-slice suggestion: (1) contract + docs/agents/skills, (2) golden corpus,
+(3) engine + tests. No rework performed.</li>
+<li>Runtime smoke: <code>N/A</code> — deterministic evaluator and docs; no live OpenCode/Odoo
+runtime boundary for this unit.</li>
+<li>Rollback boundary: revert <code>docs/expectations-contract.md</code>,
+<code>scripts/fixtures/golden-trajectories.json</code>, <code>scripts/odf-evaluation.js</code>,
+<code>scripts/odf-evaluation.d.ts</code>, <code>scripts/odf-evaluation.test.ts</code>, and the
+edited agent/skill/command files.</li>
+</ul>
+<h3 id="x-t10-calibrate-an-llm-judge-in-shadow-mode" tabindex="-1"><a class="anchor" href="#x-t10-calibrate-an-llm-judge-in-shadow-mode" aria-label="Link to this section">#</a>[x] T10 — Calibrate an LLM judge in shadow mode</h3>
+<p><strong>Status:</strong> implemented; evidence recorded below.</p>
+<p><strong>Outcome:</strong> ODF measures semantic correctness without granting an uncalibrated
+model delivery authority.</p>
+<p><strong>Dependencies:</strong> T9.</p>
+<p><strong>Minimum implementation</strong></p>
+<ul>
+<li>Version judge prompt, rubric, model, provider, and result schema.</li>
+<li>Bind each judgment to Expectations, candidate digest, and trace identity.</li>
+<li>Run shadow-only; do not block delivery.</li>
+<li>Compare against labeled human decisions and deterministic checks.</li>
+</ul>
+<p><strong>Acceptance criteria</strong></p>
+<ul>
+<li>[x] Shadow judgments never change workflow state.</li>
+<li>[x] Agreement, false-pass, false-block, unavailable, and cost are recorded.</li>
+<li>[x] Judge failures cannot be mistaken for positive judgments.</li>
+<li>[x] Promotion to any blocking role requires a separate human decision backed
+by measured calibration.</li>
+</ul>
+<p><strong>KPI:</strong> measured human/judge agreement and false-pass rate; no gate impact.</p>
+<p><strong>Implementation evidence (2026-08-17)</strong></p>
+<ul>
+<li>New <code>scripts/odf-judge.js</code>: <code>JUDGE_SCHEMA_VERSION = 1</code>,
+<code>defaultJudgeRubric()</code> (correctness_vs_expectations .6, regression_risk .25,
+evidence_quality .15), <code>evaluateShadow(...)</code> returning
+<code>{ mode:&quot;shadow&quot;, schema_version, judge_version:{rubric_version, model, provider}, verdict, verdict_label, rationale, bound_to:{expectation_ids, candidate_digest, trace_ref}, data_status }</code>, <code>compareHumanJudge(...)</code>
+computing <code>{ agreement, false_pass, false_block, unavailable }</code>,
+<code>recordShadowJudgment(...)</code>, and <code>appendShadowJudgment(...)</code>. No provider
+configured (<code>ODF_JUDGE_MODEL</code> absent) → <code>verdict: &quot;unavailable&quot;</code>,
+<code>data_status: &quot;no_data&quot;</code>, never synthesized. Provider is an explicit extension
+point (<code>runJudge</code>), never a gate; no workflow state change.</li>
+<li>New <code>docs/judge-shadow-contract.md</code> (shadow semantics, schema, metrics, the
+no-blocking rule, and the human-decision + measured-calibration promotion
+gate).</li>
+<li>CLI mode <code>node scripts/odf-judge.js shadow &lt;input.json&gt;</code> returns the shadow
+JSON; with no provider it reports <code>unavailable</code>/<code>N/A</code>/<code>no_data</code> (verified).</li>
+<li>Tests (10): <code>shadow-no-provider-unavailable</code>, <code>shadow-versioned</code>, <code>shadow-bound</code>,
+<code>compare-human-judge-agreement</code>, <code>compare-false-pass</code>, <code>compare-false-block</code>,
+<code>compare-unavailable</code>, <code>compare-disagreement</code>, <code>append-shadow-judgment</code>,
+<code>record-shadow-judgment</code>.</li>
+<li>Verification: <code>npx vitest run scripts/odf-judge.test.ts</code> → 10/10 pass; <code>npm run typecheck</code> → clean; <code>npm test</code> → full suite green (126 YAML + Vitest, 0
+failed); CLI shadow with valid input reports <code>unavailable</code>/N/A without a
+provider.</li>
+<li>Authored diff ≈ 374 lines (under 400), 4 new cohesive files.</li>
+<li>Runtime smoke: CLI shadow verified above; no live OpenCode/Odoo runtime
+boundary for this unit.</li>
+<li>Rollback boundary: remove <code>scripts/odf-judge.js</code>, <code>scripts/odf-judge.d.ts</code>,
+<code>scripts/odf-judge.test.ts</code>, and <code>docs/judge-shadow-contract.md</code>.</li>
+</ul>
+<h3 id="x-t11-enforce-safety-before-tool-execution" tabindex="-1"><a class="anchor" href="#x-t11-enforce-safety-before-tool-execution" aria-label="Link to this section">#</a>[x] T11 — Enforce safety before tool execution</h3>
+<p><strong>Status:</strong> implemented; evidence recorded below.</p>
+<p><strong>Outcome:</strong> destructive, escaping, privacy-sensitive, and injected tool calls
+are stopped before execution rather than detected afterward.</p>
+<p><strong>Dependencies:</strong> T7.</p>
+<p><strong>Minimum implementation</strong></p>
+<ul>
+<li>Use host-native permissions and hooks first.</li>
+<li>Add custom argument inspection only for proven host gaps.</li>
+<li>Build a corpus for destructive commands, path escape, secrets/PII, prompt
+injection, jailbreak, and writes outside authorized roots.</li>
+<li>Log bounded decisions without retaining secrets or raw sensitive arguments.</li>
+</ul>
+<p><strong>Acceptance criteria</strong></p>
+<ul>
+<li>[x] Critical corpus cases block before the tool runs.</li>
+<li>[x] Allowed equivalents continue to work.</li>
+<li>[x] Each refusal names a runnable safe continuation.</li>
+<li>[x] False-positive rate is measured before broadening policy.</li>
+</ul>
+<p><strong>KPI:</strong> 100% block rate for critical corpus cases, with false positives tracked.</p>
+<p><strong>Implementation evidence (2026-08-17)</strong></p>
+<ul>
+<li>New <code>scripts/odf-safety.js</code>: <code>SAFETY_SCHEMA_VERSION = 1</code>, <code>SAFETY_RULES</code>
+(classes <code>destructive</code>, <code>path-escape</code>, <code>secrets-pii</code>, <code>injection</code>, <code>jailbreak</code>,
+<code>cross-root-write</code>), <code>inspectToolArgs({ tool, args, authorized_roots })</code> →
+<code>{ blocked, decision, classes, matched_rules, reason, safe_continuation }</code>,
+<code>safeContinuation(class)</code>, and an exported corpus. Each rejection names an
+executable safe continuation (never a dead-end); it complements (does not
+replace) OpenCode's native permissions.</li>
+<li>Integrated into <code>odf_delegate</code> before <code>findTaskApi</code>/<code>invokeTask</code> (never
+reaches <code>task()</code> on a block): returns a <code>blocked</code> envelope with reason
+<code>pre-tool-safety</code> plus <code>classes</code>/<code>matched_rules</code>/<code>safe_continuation</code> (via an
+optional <code>extra</code> on <code>blockWorkflow</code>), and records a blocked metric. It scans
+<code>args.prompt</code> (the user payload), not the enriched boundary prompt, to avoid a
+false positive from the executor-boundary text that names DROP/TRUNCATE as
+prohibitions.</li>
+<li>New <code>docs/safety-contract.md</code> (blocked classes, native-permission complement,
+every-rejection-names-a-continuation rule, false-positive measurement).</li>
+<li>Tests: <code>scripts/odf-safety.test.ts</code> (23: destructive/path-escape/secrets/
+injection/jailbreak blocks, benign allow, safe-equivalent allow, executable
+continuation, schema version, cross-root-write, false-positive rate) +
+<code>plugins/odf-delegation.test.ts</code> (2: destructive prompt blocked pre-tool and
+never delegates; benign prompt still delegates).</li>
+<li>Verification: <code>npx vitest run scripts/odf-safety.test.ts</code> → 23/23 pass; <code>npm run typecheck</code> → clean; <code>npm test</code> → full suite green (126 YAML + Vitest, 0
+failed); false positives = 0 on normal ODF commands in the corpus.</li>
+<li>Authored diff ≈ 518 lines (adapters + tests + integration); if committed it
+would split as the self-contained <code>scripts/odf-safety*</code> +
+<code>docs/safety-contract.md</code> unit plus two small <code>odf-delegation.ts</code> hunks.</li>
+<li>Runtime smoke: <code>N/A</code> — pre-tool inspection is deterministic string matching
+proven at unit level; no live OpenCode/Odoo runtime boundary for this unit.</li>
+<li>Rollback boundary: remove <code>scripts/odf-safety.js</code>, <code>scripts/odf-safety.d.ts</code>,
+<code>scripts/odf-safety.test.ts</code>, and <code>docs/safety-contract.md</code>; revert the two
+hunks in <code>plugins/odf-delegation.ts</code> and the two tests.</li>
+</ul>
+<h2 id="p2-verified-learning-loop" tabindex="-1"><a class="anchor" href="#p2-verified-learning-loop" aria-label="Link to this section">#</a>P2 — Verified learning loop</h2>
+<h3 id="x-t12-propose-memory-and-skills-only-from-verified-runs" tabindex="-1"><a class="anchor" href="#x-t12-propose-memory-and-skills-only-from-verified-runs" aria-label="Link to this section">#</a>[x] T12 — Propose memory and skills only from verified runs</h3>
+<p><strong>Status:</strong> implemented; evidence recorded below.</p>
+<p><strong>Outcome:</strong> ODF learns from trustworthy outcomes without automatically turning
+plausible mistakes into permanent procedure.</p>
+<p><strong>Dependencies:</strong> T9, T10.</p>
+<p><strong>Minimum implementation</strong></p>
+<ul>
+<li>Admit only runs with a valid candidate digest, receipt, Expectations, and
+known outcome.</li>
+<li>Consolidate episodic evidence into reviewable memory candidates.</li>
+<li>Propose a skill candidate after a difficult verified trajectory, including the
+Hermes-inspired five-plus-tool-call signal as one signal, not sufficient proof.</li>
+<li>Run candidates against goldens before presenting them for human approval.</li>
+<li>Never autoactivate skills.</li>
+</ul>
+<p><strong>Acceptance criteria</strong></p>
+<ul>
+<li>[x] Unverified and failed runs cannot create promotable candidates.</li>
+<li>[x] Each candidate cites source run, Expectations, receipt, and regressions.</li>
+<li>[x] Human approval is required before memory/skill activation.</li>
+<li>[x] Rollback removes the candidate without rewriting source evidence.</li>
+</ul>
+<p><strong>KPI:</strong> candidate acceptance rate, regressions avoided, and rollback rate.</p>
+<p><strong>Implementation evidence (2026-08-17)</strong></p>
+<ul>
+<li>New <code>scripts/odf-learning.js</code> (pure, no Engram/skill writes): <code>isVerifiedRun</code>
+(fail-closed: requires 64-hex <code>candidate_digest</code>, a <code>receipt</code>/<code>receipt_ref</code>
+with matching digest and <code>success</code>/<code>verified</code> status, non-empty approved
+<code>expectations</code>, and known <code>outcome</code>), <code>consolidateMemory</code> (verified episodes →
+reviewable memory candidates, <code>no_data</code> when none), <code>proposeSkillCandidate</code>
+(only from a verified, difficult (<code>tool_call_count &gt;= 5</code>, a signal not proof),
+successful run; never activates), <code>runGoldenRegression</code> (blocks conflicting
+candidates), <code>approveCandidates</code> (human approval required), <code>rollbackCandidate</code>
+(adds <code>rolled_back</code> without touching source evidence), and <code>buildPlan</code> with a
+KPI report (<code>accepted</code>, <code>regressions_avoided</code>, <code>rolled_back</code>, <code>pending</code>).</li>
+<li>CLI <code>node scripts/odf-learning.js &lt;runs.json&gt;</code>: empty input → <code>no_data</code>/N/A;
+verified run → complete with pending memory+skill candidates awaiting human
+approval (verified via CLI).</li>
+<li>New <code>docs/learning-loop-contract.md</code> (verified-run admission, difficulty
+signal, golden regression before presenting, mandatory human approval,
+evidence-preserving rollback, and metrics). Auto-activation remains out of
+scope (parking lot).</li>
+<li>Tests (9): <code>admits-only-verified-runs</code>, <code>no-verified-runs-no-data</code>,
+<code>consolidates-episodic-to-memory</code>, <code>skill-only-from-difficult-verified-success</code>,
+<code>golden-regression-blocks-conflicting</code>, <code>approval-required</code>,
+<code>rollback-preserves-evidence</code>, <code>kpi-report</code>, <code>schema-versioned</code>.</li>
+<li>Verification: <code>npx vitest run scripts/odf-learning.test.ts</code> → 9/9 pass; <code>npm run typecheck</code> → clean; <code>npm test</code> → full suite green (126 YAML + Vitest, 0
+failed); CLI empty input → <code>no_data</code> (recorded).</li>
+<li>Authored diff ≈ 588 lines (4 new files); a re-slice would be module+types,
+tests, doc — three reviewable units. No rework performed.</li>
+<li>Runtime smoke: CLI verified above; no live OpenCode/Odoo runtime boundary for
+this unit.</li>
+<li>Rollback boundary: remove <code>scripts/odf-learning.js</code>, <code>scripts/odf-learning.d.ts</code>,
+<code>scripts/odf-learning.test.ts</code>, and <code>docs/learning-loop-contract.md</code>.</li>
+</ul>
+<hr>
+<h2 id="roadmap-completion" tabindex="-1"><a class="anchor" href="#roadmap-completion" aria-label="Link to this section">#</a>Roadmap completion</h2>
+<p>All roadmap tasks T1–T12 are implemented with recorded evidence (2026-08-17).
+The post-roadmap hardening work is also implemented in the current working tree:
+phase artifact gates, executable micro/FIX routes, store-aware ARCHIVE,
+installable contracts, phase-aware skill routing, store-neutral persistence
+instructions, and Expectations validation before proof-backed VERIFY.
+The continuous-improvement loop components (goldens, verified telemetry,
+shadow judge, memory/skill candidates) now exist as deterministic contracts;
+activation of any blocking judge role or auto-skill creation still requires a
+separate human decision backed by measured calibration (see the conditional
+backlog and parking lot). At published HEAD <code>1cd9b81</code> (<code>v1.2.1</code>), the
+implementation commits are pushed; this roadmap reconciliation is a local,
+uncommitted documentation change, not a new implementation claim.</p>
+<p>Post-roadmap hardening delivered after the original <code>6035f94</code> baseline:</p>
+<ul>
+<li><code>3ff2b08</code> — materialize legacy ASSESS/DESIGN boundaries into canonical
+DECIDE/PLAN workflow state with selected-store persistence and idempotency.</li>
+<li><code>312011a</code> — add project-local installation with isolated runtime state,
+launcher, lock metadata, backups, and duplicate-plugin protection.</li>
+<li><code>1cd9b81</code> — require a VERIFY policy gate before recording manual evidence and
+explain why IMPLEMENT gates intentionally have no candidate digest.</li>
+</ul>
+<hr>
+<h2 id="continuous-improvement-loop" tabindex="-1"><a class="anchor" href="#continuous-improvement-loop" aria-label="Link to this section">#</a>Continuous improvement loop</h2>
+<pre><code class="language-text">offline goldens
+  → instrumented online runs
+  → deterministic checks
+  → shadow judge
+  → comparison with human Expectations
+  → failure diagnosis
+  → memory/skill candidate
+  → golden regression
+  → human approval
+  → new baseline
+</code></pre>
+<p>The loop is healthy only when failures add reusable evidence. Adding another
+gate without adding a named regression is process growth, not improvement.</p>
+<h2 id="dashboard-and-observability-reassessment-2026-08-24" tabindex="-1"><a class="anchor" href="#dashboard-and-observability-reassessment-2026-08-24" aria-label="Link to this section">#</a>Dashboard and observability reassessment (2026-08-24)</h2>
+<p>The current ODF implementation is materially stronger than the original
+dashboard study. It now has canonical workflow state, candidate-bound policy
+and receipts, durable <code>IMPLEMENT</code>/<code>VERIFY</code> attempt-ledger records, bounded
+parallel-join snapshots, richer versioned telemetry, source precision checks,
+dependency/health probes, and an integral harness smoke test.</p>
+<p>This changes the dashboard decision from “insufficient foundation” to
+“valuable, but still not ready for a live web UI.” O1 now emits correlated
+started/finished lifecycle records with bounded run/change/attempt identity for
+actual delegations, and the read-side excludes start markers from finished
+aggregates while exposing unfinished runs. It still cannot support a
+trustworthy full-run live trace because legacy/early records can lack usable
+identity, production spans are not emitted, finish telemetry is
+buffered/best-effort JSONL with a 30-second flush, and the read-side does not
+yet combine the attempt ledger with canonical workflow state.</p>
+<p>The existing telemetry coverage heuristic is also too permissive: the presence
+of <code>event</code>, <code>schema_version</code>, or <code>model_available</code> does not prove usable
+identity, lifecycle, model, or token coverage. Host-provided model/provider and
+real token usage remain unavailable in the current <code>ToolContext</code>; estimates
+must remain visibly estimated.</p>
+<h3 id="revised-observability-plan" tabindex="-1"><a class="anchor" href="#revised-observability-plan" aria-label="Link to this section">#</a>Revised observability plan</h3>
+<ol>
+<li>
+<p><strong>O1 — Define usable run identity and lifecycle coverage [x].</strong> Added validated
+change/run/attempt linkage and explicit start/finish outcomes for every
+actual delegated phase. Reused candidate digests, receipts, and join records
+without adding a parallel authority. Coverage now requires a finished
+lifecycle record with valid identity, not merely the presence of T7 fields.</p>
+</li>
+<li>
+<p><strong>O2 — Make the read-side status truthful [x].</strong> Added a bounded,
+per-change observability timeline to both <code>odf_status</code> and
+<code>odf_workflow_status</code>. It combines canonical workflow/receipt state,
+attempt-ledger records, validated joins, and filtered lifecycle JSONL;
+reports active, unfinished, partial, and no-data states without inferring
+activity from <code>canonical_stage</code> alone. Stale classification remains deferred.</p>
+</li>
+<li>
+<p><strong>O3 — Add production spans only where they answer a measured question [x].</strong>
+Instrument delegation, task invocation, and parallel branches with real
+parent/child relationships. Measure required-field coverage, not schema
+presence.</p>
+<p><strong>Implementation evidence (2026-08-24)</strong></p>
+<ul>
+<li>Sequential delegation now emits one explicit run tree (root run plus task
+invocation span). Parallel execution emits one scheduler root, launched
+branch spans, and task invocation children in one trace; early validation
+failures do not fabricate branch or task spans.</li>
+<li>The read-side accepts valid span rows without projecting them as extra O2
+delegation events. Metrics totals exclude spans, while run, span, model,
+provider, and real-token coverage are reported separately.</li>
+<li>Verification: focused telemetry tests <code>335/335</code>; <code>npm test</code> <code>658/658</code>
+Vitest and <code>150/150</code> YAML scenarios; typecheck, registry validation, and
+<code>git diff --check</code> passed.</li>
+</ul>
+</li>
+<li>
+<p><strong>O4 — Revalidate the web UI gate [ ].</strong> Only after O1–O3 reach stable coverage
+should the project add a local, read-only web observatory. Its first views
+should be run timeline, bottlenecks, harness health, and deterministic
+replay/simulation. The current one-day global measurement (2026-08-26) is
+not sufficient: 8/10 runs have T7 telemetry (80%), no run is unfinished,
+and model/provider/real-token fields are 0/34. Keep this gate closed.</p>
+</li>
+<li>
+<p><strong>O5 — Defer operational controls and remote observability [ ].</strong> Abort/resume,
+WebSockets, OTel, remote storage, and team-wide retention require a separate
+measured need and must not become dashboard-side workflow authority.</p>
+</li>
+</ol>
+<h3 id="current-decision" tabindex="-1"><a class="anchor" href="#current-decision" aria-label="Link to this section">#</a>Current decision</h3>
+<p>Keep the dashboard as a conditional roadmap item. O1, O2, O3, and S1
+source-authority hardening are implemented, but O4 is not yet ready for
+implementation because the observed telemetry coverage is below the 95% gate
+and host metadata is absent. First improve or measure the live telemetry
+coverage; do not start a React application yet. The prior
+local-first, read-only architecture remains correct, but the dashboard should
+be named a <strong>control-plane observatory</strong>, not a full tracing platform.</p>
+<h3 id="error-learning-audit-source-authority-resolution-2026-08-24" tabindex="-1"><a class="anchor" href="#error-learning-audit-source-authority-resolution-2026-08-24" aria-label="Link to this section">#</a>Error-learning audit: source-authority resolution (2026-08-24)</h3>
+<p>The vendor-bills incident is a real systemic bug class: <strong>source-authority
+resolution is unsound and unenforced</strong>. The agent searched for a plausible
+generic view instead of tracing the authoritative chain:</p>
+<pre><code class="language-text">action_move_in_invoice_type
+  → search_view_id
+  → account.view_account_bill_filter
+  → inherited target
+</code></pre>
+<p>The current precision tools do not yet prevent recurrence:</p>
+<ul>
+<li><code>sourceLookup</code> skips files larger than 128 KiB, which can hide the correct
+definition in a large Odoo source file.</li>
+<li>Module filtering does not fully constrain unqualified <code>id=</code> matches.</li>
+<li><code>verifyRefs</code> proves textual existence, not that an action points to the
+selected view.</li>
+<li>The plugin injects precision instructions but does not recompute or enforce
+the action-to-view chain before accepting a result.</li>
+<li>Failed/blocked runs are recorded operationally, but do not automatically
+enter the T12 learning pipeline as causal prevention candidates.</li>
+</ul>
+<p>The separate work unit <strong>S1 — source-authority precision</strong> is implemented in
+two bounded slices:</p>
+<ol>
+<li><strong>S1-A [x]</strong> Add an action-relation query, bounded non-skipping large-file
+scanning, strict module qualification, fail-closed learning admission, and
+version fixtures for Odoo 16, 17, 18, and current 19.0.</li>
+<li><strong>S1-B [x]</strong> Require deterministic, structured source-authority evidence for
+narrow view-related DESIGN/IMPLEMENT work and block workflow advancement on
+a missing, unavailable, malformed, or mismatched chain. The caller must
+provide the exact Odoo source root; ODF never infers it from agent prose.</li>
+</ol>
+<p>Generic memory such as “be more careful” is not sufficient learning. A useful
+lesson must become an executable lookup, validator, or regression. T12 should
+propose that lesson for human review; it must not auto-activate unverified
+skills.</p>
+<h2 id="program-level-success-measures" tabindex="-1"><a class="anchor" href="#program-level-success-measures" aria-label="Link to this section">#</a>Program-level success measures</h2>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Capability</th>
+<th>Measure</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Candidate integrity</td>
+<td>Successful VERIFY transitions bound to a reproducible digest: 100%</td>
+</tr>
+<tr>
+<td>Evidence authority</td>
+<td>Successful VERIFY transitions with fresh executor receipts: 100%</td>
+</tr>
+<tr>
+<td>Micro UX</td>
+<td>Median human blocks before BUILD: ≤ 1</td>
+</tr>
+<tr>
+<td>Strict workflow</td>
+<td>Gated legacy invocations: 0</td>
+</tr>
+<tr>
+<td>Telemetry</td>
+<td>Runs with valid identity/lifecycle fields: ≥ 95%</td>
+</tr>
+<tr>
+<td>Host metadata</td>
+<td>Model/provider/real-token coverage measured separately; estimates never substitute</td>
+</tr>
+<tr>
+<td>Evaluation honesty</td>
+<td>Success claims from <code>no_data</code>: 0</td>
+</tr>
+<tr>
+<td>Judge quality</td>
+<td>Agreement and false-pass rate measured, not assumed</td>
+</tr>
+<tr>
+<td>Safety</td>
+<td>Critical pre-tool corpus block rate: 100%</td>
+</tr>
+<tr>
+<td>Learning</td>
+<td>Promoted candidates without verified provenance: 0</td>
+</tr>
+</tbody>
+</table></div>
+<h2 id="conditional-backlog-do-not-schedule-yet" tabindex="-1"><a class="anchor" href="#conditional-backlog-do-not-schedule-yet" aria-label="Link to this section">#</a>Conditional backlog — do not schedule yet</h2>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Item</th>
+<th>Activation condition</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Web dashboard</td>
+<td>At least 95% valid identity/lifecycle coverage and a stable event schema</td>
+</tr>
+<tr>
+<td>Semantic skill resolver</td>
+<td>Measured misses or false matches from trigger matching</td>
+</tr>
+<tr>
+<td>Plugin extraction</td>
+<td>A measured blast-radius or testability problem, not file length</td>
+</tr>
+<tr>
+<td>Executable archive receipt</td>
+<td>Evidence that the current archive path creates inconsistent state</td>
+</tr>
+<tr>
+<td>OTel backend</td>
+<td>Stable local trace schema and a real multi-process operations need</td>
+</tr>
+<tr>
+<td>Cordis-style lifecycle</td>
+<td>Hot unload/self-modification and costly in-process reconstruction</td>
+</tr>
+<tr>
+<td>RAG/vector memory</td>
+<td>Measured BM25/keyword retrieval failure at real volume</td>
+</tr>
+<tr>
+<td>Additional graph framework</td>
+<td>Existing routes cannot represent proven SOPs</td>
+</tr>
+<tr>
+<td>More specialist agents</td>
+<td>Routing data demonstrates a missing expertise boundary</td>
+</tr>
+<tr>
+<td>More human gates</td>
+<td>A genuine consent, irreversibility, or product-decision requirement</td>
+</tr>
+</tbody>
+</table></div>
+<p>Unlimited correction loops are permanently out of scope.</p>
+<h2 id="evidence-behind-this-roadmap" tabindex="-1"><a class="anchor" href="#evidence-behind-this-roadmap" aria-label="Link to this section">#</a>Evidence behind this roadmap</h2>
+<p>Repository evidence reviewed:</p>
+<ul>
+<li>
+<p><code>odf-plugin/odf-delegation-metrics.ts</code> — versioned telemetry, buffering,
+sanitization, and honest model/token fields.</p>
+</li>
+<li>
+<p><code>odf-plugin/odf-delegation-health.ts</code> and
+<code>odf-plugin/odf-delegation-loopguard.ts</code> — runtime health and duplicate-entry
+protection.</p>
+</li>
+<li>
+<p><code>odf-plugin/odf-parallel-join.ts</code> — durable bounded branch/join evidence.</p>
+</li>
+<li>
+<p><code>scripts/odf-toolkit.js</code> — source lookup and XML ref/model precision checks.</p>
+</li>
+<li>
+<p><code>scripts/odf-harness.test.ts</code> — integral harness smoke coverage.</p>
+</li>
+<li>
+<p><code>plugins/odf-delegation.ts</code> — policy, evidence, attempts, receipts, metrics,
+and learning summaries.</p>
+</li>
+<li>
+<p><code>plugins/odf-workflow.ts</code> — canonical routes and existing work types.</p>
+</li>
+<li>
+<p><code>plugins/odf-workflow-status.ts</code> — workflow and receipt state.</p>
+</li>
+<li>
+<p><code>scripts/odf-evaluation.js</code> — deterministic offline and error-rate online
+evaluation.</p>
+</li>
+<li>
+<p><code>scripts/odf-metrics.js</code> — current metrics summaries.</p>
+</li>
+<li>
+<p><code>scripts/odf-engram-maintenance.js</code> — maintenance wrapper.</p>
+</li>
+<li>
+<p><code>command/odf-new.md</code>, <code>command/odf-fix.md</code>, and
+<code>agent/odoo_orchestrator.md</code> — entry UX and orchestration contracts.</p>
+</li>
+<li>
+<p><code>skills/odf-verify/SKILL.md</code> — verification policy.</p>
+</li>
+</ul>
+<p>Notebook evidence reviewed:</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Subject</th>
+<th>Source ID</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>DeepSeek Harness</td>
+<td><code>79010a71-15ea-4879-b9e7-5283d38b46a5</code></td>
+</tr>
+<tr>
+<td>DeepSeek Web UI</td>
+<td><code>d2f96fee-2ad0-42b8-a772-1b60ec53b95d</code></td>
+</tr>
+<tr>
+<td>Harness engineering</td>
+<td><code>2704d514-fd0b-4882-ba98-d84b35056886</code></td>
+</tr>
+<tr>
+<td>Agent harness and loops</td>
+<td><code>67d12874-949a-429b-980f-d1fa11489bad</code></td>
+</tr>
+<tr>
+<td>Hermes</td>
+<td><code>1ff53092-4d17-4ef3-b019-6541536c9e8f</code></td>
+</tr>
+<tr>
+<td>Loop vs. graph</td>
+<td><code>a8aea89d-fbe4-44c4-ba9b-4a3142c888e5</code></td>
+</tr>
+<tr>
+<td><code>paper.pdf</code> / Cordis</td>
+<td><code>8c798065-5541-4c56-820b-eb9affd8ba3c</code></td>
+</tr>
+<tr>
+<td>SDD vs. IDSD</td>
+<td><code>9caa35e3-c049-4543-920a-c8fa25fae107</code></td>
+</tr>
+<tr>
+<td>Hybrid Intelligence</td>
+<td><code>23ef459f-34f8-46f8-8f77-6168f3402276</code></td>
+</tr>
+</tbody>
+</table></div>
+<h2 id="standard-verification-after-each-work-unit" tabindex="-1"><a class="anchor" href="#standard-verification-after-each-work-unit" aria-label="Link to this section">#</a>Standard verification after each work unit</h2>
+<pre><code class="language-bash">npm test
+npm run typecheck
+ODF_CONFIG_DIR=&quot;$PWD&quot; node scripts/odf-registry-validate.js
+</code></pre>
+<p>Run the smallest relevant focused test before the full checks. Installation,
+commit, push, and runtime deployment remain separate explicit actions.</p>
+<h2 id="next-action" tabindex="-1"><a class="anchor" href="#next-action" aria-label="Link to this section">#</a>Next action</h2>
+<p>Do not start a web UI or restart T1–T12. The next action is to establish stable
+live telemetry coverage and host metadata; revalidate the O4 gate only after
+the 95% identity/lifecycle threshold is met. The standard verification commands
+remain required for the eventual O4 work unit.</p>
+
+    </article>
+    <nav class="pager" aria-label="Documentation pagination"><a class="pager-link prev" href="index.html"><span>Previous</span><b>Archive index</b></a><a class="pager-link next" href="odf-fast-lane-plan.html"><span>Next</span><b>Fast-lane plan</b></a></nav>
+  </main>
+  <aside class="toc" aria-label="On this page"><p class="toc-title">On this page</p><nav><a class="toc-l2" href="#roadmap-authority">Roadmap authority</a><a class="toc-l2" href="#executive-assessment">Executive assessment</a><a class="toc-l2" href="#execution-rules">Execution rules</a><a class="toc-l2" href="#status-legend">Status legend</a><a class="toc-l2" href="#delivery-sequence">Delivery sequence</a><a class="toc-l2" href="#p0-evidence-authority">P0 — Evidence authority</a><a class="toc-l3" href="#x-t1-build-a-canonical-candidate-manifest-and-digest">[x] T1 — Build a canonical candidate manifest and digest</a><a class="toc-l3" href="#x-t2-bind-gates-attempts-and-receipts-to-the-candidate">[x] T2 — Bind gates, attempts, and receipts to the candidate</a><a class="toc-l3" href="#x-t3-make-verify-fail-closed-with-executor-owned-receipts">[x] T3 — Make VERIFY fail closed with executor-owned receipts</a><a class="toc-l2" href="#p1-proportional-delivery-and-enforceable-contracts">P1 — Proportional delivery and enforceable contracts</a><a class="toc-l3" href="#x-t4-add-deterministic-entry-triage-using-existing-work-types">[x] T4 — Add deterministic entry triage using existing work types</a><a class="toc-l3" href="#x-t5-make-the-micro-path-genuinely-low-friction">[x] T5 — Make the micro path genuinely low-friction</a><a class="toc-l3" href="#x-t6-remove-legacy-bypasses-and-enable-strict-workflow">[x] T6 — Remove legacy bypasses and enable strict workflow</a><a class="toc-l2" href="#p1-trustworthy-telemetry">P1 — Trustworthy telemetry</a><a class="toc-l3" href="#x-t7-emit-versioned-local-traces-with-real-runtime-metadata">[x] T7 — Emit versioned local traces with real runtime metadata</a><a class="toc-l3" href="#x-t8-represent-absent-and-incomplete-data-honestly">[x] T8 — Represent absent and incomplete data honestly</a><a class="toc-l2" href="#p2-semantic-evaluation-and-safety">P2 — Semantic evaluation and safety</a><a class="toc-l3" href="#x-t9-separate-human-expectations-and-build-golden-trajectories">[x] T9 — Separate human expectations and build golden trajectories</a><a class="toc-l3" href="#x-t10-calibrate-an-llm-judge-in-shadow-mode">[x] T10 — Calibrate an LLM judge in shadow mode</a><a class="toc-l3" href="#x-t11-enforce-safety-before-tool-execution">[x] T11 — Enforce safety before tool execution</a><a class="toc-l2" href="#p2-verified-learning-loop">P2 — Verified learning loop</a><a class="toc-l3" href="#x-t12-propose-memory-and-skills-only-from-verified-runs">[x] T12 — Propose memory and skills only from verified runs</a><a class="toc-l2" href="#roadmap-completion">Roadmap completion</a><a class="toc-l2" href="#continuous-improvement-loop">Continuous improvement loop</a><a class="toc-l2" href="#dashboard-and-observability-reassessment-2026-08-24">Dashboard and observability reassessment (2026-08-24)</a><a class="toc-l3" href="#revised-observability-plan">Revised observability plan</a><a class="toc-l3" href="#current-decision">Current decision</a><a class="toc-l3" href="#error-learning-audit-source-authority-resolution-2026-08-24">Error-learning audit: source-authority resolution (2026-08-24)</a><a class="toc-l2" href="#program-level-success-measures">Program-level success measures</a><a class="toc-l2" href="#conditional-backlog-do-not-schedule-yet">Conditional backlog — do not schedule yet</a><a class="toc-l2" href="#evidence-behind-this-roadmap">Evidence behind this roadmap</a><a class="toc-l2" href="#standard-verification-after-each-work-unit">Standard verification after each work unit</a><a class="toc-l2" href="#next-action">Next action</a></nav></aside>
+</div>
+<div class="overlay" id="overlay" role="dialog" aria-modal="true" aria-label="Search documentation">
+  <div class="palette">
+    <div class="palette-input">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true" style="color:var(--ink-faint)"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+      <input id="q" type="search" placeholder="Search docs, diagrams, contracts…" autocomplete="off" spellcheck="false">
+      <kbd>esc</kbd>
+    </div>
+    <div class="results" id="results"></div>
+    <div class="palette-foot"><span>↑↓ navigate</span><span>↵ open</span><span>esc close</span></div>
+  </div>
+</div>
+<div class="toast" id="toast" role="status"></div>
+<script src="../assets/docs.js"></script>
+</body>
+</html>

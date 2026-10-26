@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url><loc>https://antoniodavid.github.io/odf-agent-team/index.html</loc></url>
+  <url><loc>https://antoniodavid.github.io/odf-agent-team/docs.html</loc></url>
+  <url><loc>https://antoniodavid.github.io/odf-agent-team/intended-usage.html</loc></url>
+  <url><loc>https://antoniodavid.github.io/odf-agent-team/architecture.html</loc></url>
+  <url><loc>https://antoniodavid.github.io/odf-agent-team/opencode-v2-migration.html</loc></url>
+  <url><loc>https://antoniodavid.github.io/odf-agent-team/route-contract.html</loc></url>
+  <url><loc>https://antoniodavid.github.io/odf-agent-team/design-contract.html</loc></url>
+  <url><loc>https://antoniodavid.github.io/odf-agent-team/expectations-contract.html</loc></url>
+  <url><loc>https://antoniodavid.github.io/odf-agent-team/context-contract.html</loc></url>
+  <url><loc>https://antoniodavid.github.io/odf-agent-team/safety-contract.html</loc></url>
+  <url><loc>https://antoniodavid.github.io/odf-agent-team/judge-shadow-contract.html</loc></url>
+  <url><loc>https://antoniodavid.github.io/odf-agent-team/learning-loop-contract.html</loc></url>
+  <url><loc>https://antoniodavid.github.io/odf-agent-team/metrics-and-engram-maintenance.html</loc></url>
+  <url><loc>https://antoniodavid.github.io/odf-agent-team/decision-evaluation.html</loc></url>
+  <url><loc>https://antoniodavid.github.io/odf-agent-team/plugin.html</loc></url>
+  <url><loc>https://antoniodavid.github.io/odf-agent-team/skill-style-guide.html</loc></url>
+  <url><loc>https://antoniodavid.github.io/odf-agent-team/readme.html</loc></url>
+  <url><loc>https://antoniodavid.github.io/odf-agent-team/changelog.html</loc></url>
+  <url><loc>https://antoniodavid.github.io/odf-agent-team/agents.html</loc></url>
+  <url><loc>https://antoniodavid.github.io/odf-agent-team/archive/index.html</loc></url>
+  <url><loc>https://antoniodavid.github.io/odf-agent-team/archive/harness-roadmap.html</loc></url>
+  <url><loc>https://antoniodavid.github.io/odf-agent-team/archive/odf-fast-lane-plan.html</loc></url>
+  <url><loc>https://antoniodavid.github.io/odf-agent-team/archive/odf-fast-lane-tasks.html</loc></url>
+  <url><loc>https://antoniodavid.github.io/odf-agent-team/archive/odf-fast-lane-baseline-2026-09-13.html</loc></url>
+  <url><loc>https://antoniodavid.github.io/odf-agent-team/archive/odf-fast-lane-baseline-2026-09-16.html</loc></url>
+  <url><loc>https://antoniodavid.github.io/odf-agent-team/odf-linear-cycles-baseline-2026-10-01.html</loc></url>
+  <url><loc>https://antoniodavid.github.io/odf-agent-team/odf-agent-phase-flow.html</loc></url>
+  <url><loc>https://antoniodavid.github.io/odf-agent-team/harness-architecture.html</loc></url>
+  <url><loc>https://antoniodavid.github.io/odf-agent-team/delegation-flow.html</loc></url>
+</urlset>

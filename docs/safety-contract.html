@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="auto" data-base="">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ODF Pre-Tool Safety Contract (T11) · ODF Docs</title>
+  <meta name="description" content="Deterministic, pre-execution safety inspection for ODF delegation. This adapter is a **complement to, not a substitute for**, OpenCode&#39;s native permissions layer (`permission.allow`/`deny` in `opencode.json`).">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <script>(function(){var d=document.documentElement,s=localStorage.getItem("odf-theme"),m=matchMedia("(prefers-color-scheme: dark)").matches;d.dataset.theme=s||(m?"dark":"light");})();</script>
+  <link rel="stylesheet" href="assets/docs.css">
+</head>
+<body>
+<a class="skip" href="#content">Skip to content</a>
+<header class="bar">
+  <div class="bar-in">
+    <a class="brand" href="index.html">
+      <svg class="brand-glyph" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <rect x="2" y="9" width="6" height="6" rx="1.5" fill="currentColor" opacity=".95"/>
+        <rect x="9" y="9" width="6" height="6" rx="1.5" fill="currentColor" opacity=".65"/>
+        <rect x="16" y="9" width="6" height="6" rx="1.5" fill="currentColor" opacity=".35"/>
+        <path d="M8 12h1M15 12h1" stroke="currentColor" stroke-width="1.5"/>
+      </svg>
+      ODF <small>docs</small>
+    </a>
+    <div class="bar-spacer"></div>
+    <nav class="bar-nav" aria-label="Sections">
+      <a href="index.html#whatsnew">What's new</a>
+      <a href="index.html#flows">Flows</a>
+      <a href="index.html#skills">Skills</a>
+      <a href="docs.html">Docs</a>
+    </nav>
+    <button class="searchbtn" id="openSearch" aria-label="Search documentation">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+      <span class="lbl">Search docs…</span>
+      <kbd>/</kbd>
+    </button>
+    <button class="icon-btn" id="themeToggle" aria-label="Toggle dark mode" title="Toggle theme">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M4.9 4.9l1.4 1.4m11.4 11.4 1.4 1.4M2 12h2m16 0h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
+    </button>
+    <a class="gh" href="https://github.com/antoniodavid/odf-agent-team" target="_blank" rel="noopener">GitHub ↗</a>
+  </div>
+</header>
+<div class="shell">
+  <details class="side" open><summary>Documentation menu</summary><div class="side-inner"><a class="side-home" href="docs.html">Documentation index</a><p class="side-group">Overview</p><a href="docs.html">Docs index</a><a href="intended-usage.html">Intended usage</a><a href="architecture.html">Architecture</a><a href="opencode-v2-migration.html">OpenCode V2 migration</a><p class="side-group">Contracts</p><a href="route-contract.html">Route &amp; stage</a><a href="design-contract.html">Design</a><a href="expectations-contract.html">Expectations</a><a href="context-contract.html">Context Manifest</a><a href="safety-contract.html" class="active" aria-current="page">Safety</a><a href="judge-shadow-contract.html">Judge shadow</a><a href="learning-loop-contract.html">Learning loop</a><p class="side-group">Operations</p><a href="metrics-and-engram-maintenance.html">Metrics &amp; Engram</a><a href="decision-evaluation.html">Decision evaluation</a><p class="side-group">Reference</p><a href="plugin.html">Plugin reference</a><a href="skill-style-guide.html">Skill style guide</a><p class="side-group">Project</p><a href="readme.html">README</a><a href="changelog.html">Changelog</a><a href="agents.html">Contributing</a><p class="side-group">History</p><a href="archive/index.html">Archive index</a><a href="archive/harness-roadmap.html">Harness roadmap</a><a href="archive/odf-fast-lane-plan.html">Fast-lane plan</a><a href="archive/odf-fast-lane-tasks.html">Fast-lane tasks</a><a href="archive/odf-fast-lane-baseline-2026-09-13.html">Baseline 2026-09-13</a><a href="archive/odf-fast-lane-baseline-2026-09-16.html">Baseline 2026-09-16</a><a href="odf-linear-cycles-baseline-2026-10-01.html">Linear-cycles baseline</a></div></details>
+  <main id="content" class="doc">
+    <nav class="crumb" aria-label="Breadcrumb">
+      <a href="index.html">ODF</a><span>/</span><a href="docs.html">Docs</a><span>/</span><span>Contracts</span>
+    </nav>
+    <article class="prose">
+      <h1>ODF Pre-Tool Safety Contract (T11)</h1>
+      <p class="doc-meta">2 min read</p>
+      <p>Deterministic, pre-execution safety inspection for ODF delegation. This
+adapter is a <strong>complement to, not a substitute for</strong>, OpenCode's native
+permissions layer (<code>permission.allow</code>/<code>deny</code> in <code>opencode.json</code>).</p>
+<h2 id="what-native-permissions-already-do" tabindex="-1"><a class="anchor" href="#what-native-permissions-already-do" aria-label="Link to this section">#</a>What native permissions already do</h2>
+<p>Native OpenCode permissions gate a tool call by <strong>tool + resolved path</strong> at the
+platform boundary. If a path or tool is denied, the host blocks it before the
+tool runs. This is the first line of defense and stays authoritative.</p>
+<h2 id="what-this-adapter-adds" tabindex="-1"><a class="anchor" href="#what-this-adapter-adds" aria-label="Link to this section">#</a>What this adapter adds</h2>
+<p>Native permissions cannot see <strong>dangerous arguments inside an allowed tool's
+payload</strong>: a destructive command passed to <code>bash</code>, a <code>../</code> escape in a <code>read</code>
+arg, a secret literal being echoed, or prompt-injection text being delegated to
+a sub-agent. <code>scripts/odf-safety.js</code> inspects those argument strings
+deterministically before <code>odf_delegate</code> launches a sub-agent.</p>
+<p>It never executes commands — it only matches regexes against string/args and
+returns an <code>allow</code>/<code>block</code> decision.</p>
+<h2 id="classes-blocked" tabindex="-1"><a class="anchor" href="#classes-blocked" aria-label="Link to this section">#</a>Classes blocked</h2>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Class</th>
+<th>What matches</th>
+<th>Example</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>destructive</code></td>
+<td>dropdb / DROP DATABASE / TRUNCATE / DROP TABLE / <code>rm -rf /</code></td>
+<td><code>dropdb mydb</code></td>
+</tr>
+<tr>
+<td><code>path-escape</code></td>
+<td><code>../</code> traversal, <code>..%2f</code> / <code>%2e%2e</code></td>
+<td><code>../../etc/passwd</code></td>
+</tr>
+<tr>
+<td><code>secrets-pii</code></td>
+<td><code>password=</code>, <code>api_key=</code>, <code>secret=</code>, <code>token=</code>, emails</td>
+<td><code>password=secret123</code></td>
+</tr>
+<tr>
+<td><code>injection</code></td>
+<td>&quot;ignore previous instructions&quot;, &quot;you are now the system&quot;</td>
+<td>prompt override</td>
+</tr>
+<tr>
+<td><code>jailbreak</code></td>
+<td>&quot;DAN&quot;, &quot;do anything now&quot;, &quot;no restrictions&quot;</td>
+<td>override phrases</td>
+</tr>
+<tr>
+<td><code>cross-root-write</code></td>
+<td>write/copy/move escaping <code>authorized_roots</code> (evaluated only when roots are supplied)</td>
+<td><code>echo x &gt; /etc/evil</code></td>
+</tr>
+</tbody>
+</table></div>
+<h2 id="every-rejection-names-an-executable-continuation" tabindex="-1"><a class="anchor" href="#every-rejection-names-an-executable-continuation" aria-label="Link to this section">#</a>Every rejection names an executable continuation</h2>
+<p>Each block returns a <code>safe_continuation</code> — a real command/action the agent can
+run instead, never a dead-end like &quot;stop&quot;. Examples:</p>
+<ul>
+<li><code>destructive</code>: &quot;Run the command in a scratch worktree or request explicit user
+consent for the exact target: <code>mkdir -p /tmp/odf-scratch &amp;&amp; cd /tmp/odf-scratch</code>.&quot;</li>
+<li><code>path-escape</code>: &quot;Operate inside <code>&lt;root&gt;</code>: <code>cd &lt;root&gt;</code> and use relative paths, or
+get explicit authorization for the external path.&quot;</li>
+<li><code>secrets-pii</code>: &quot;Store the value in the environment or a secret manager; read it
+via <code>$VARIABLE</code> at runtime, never inline.&quot;</li>
+<li><code>injection</code>/<code>jailbreak</code>: &quot;Pass data as arguments, never concatenated into a prompt.&quot;</li>
+</ul>
+<h2 id="how-false-positives-are-measured-before-widening-policy" tabindex="-1"><a class="anchor" href="#how-false-positives-are-measured-before-widening-policy" aria-label="Link to this section">#</a>How false positives are measured before widening policy</h2>
+<p>The corpus is deliberately narrow to keep the false-positive rate near zero on
+normal ODF flow. Two guards enforce this:</p>
+<ol>
+<li><code>scripts/odf-safety.test.ts</code> has a <code>allows-benign</code> + <code>corpus-false-positive-rate</code>
+suite asserting normal commands (<code>echo</code>, <code>ls</code>, <code>cat models/product.py</code>) and
+ordinary ODF prompts (<code>create a new model</code>, <code>add a constraint</code>) are <strong>not</strong>
+blocked.</li>
+<li>The adapter scans <strong>only the user task payload</strong> (<code>args.prompt</code>), never the
+enriched delegation prompt — the latter embeds system-instructive material
+(skill rules, the executor boundary) that legitimately names &quot;DROP DATABASE&quot;
+and would otherwise be a false-positive machine.</li>
+</ol>
+<p>Before adding a new pattern or class, extend the benign corpus and confirm the
+false-positive rate stays zero; only widen scope for a proven real argument gap
+(e.g. a destructive command native permissions cannot catch).</p>
+<h2 id="schema" tabindex="-1"><a class="anchor" href="#schema" aria-label="Link to this section">#</a>Schema</h2>
+<p><code>SAFETY_SCHEMA_VERSION = 1</code>. <code>inspectToolArgs</code> output always carries
+<code>schema_version</code> so policy changes are versioned and auditable.</p>
+
+    </article>
+    <nav class="pager" aria-label="Documentation pagination"><a class="pager-link prev" href="context-contract.html"><span>Previous</span><b>Context Manifest</b></a><a class="pager-link next" href="judge-shadow-contract.html"><span>Next</span><b>Judge shadow</b></a></nav>
+  </main>
+  <aside class="toc" aria-label="On this page"><p class="toc-title">On this page</p><nav><a class="toc-l2" href="#what-native-permissions-already-do">What native permissions already do</a><a class="toc-l2" href="#what-this-adapter-adds">What this adapter adds</a><a class="toc-l2" href="#classes-blocked">Classes blocked</a><a class="toc-l2" href="#every-rejection-names-an-executable-continuation">Every rejection names an executable continuation</a><a class="toc-l2" href="#how-false-positives-are-measured-before-widening-policy">How false positives are measured before widening policy</a><a class="toc-l2" href="#schema">Schema</a></nav></aside>
+</div>
+<div class="overlay" id="overlay" role="dialog" aria-modal="true" aria-label="Search documentation">
+  <div class="palette">
+    <div class="palette-input">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true" style="color:var(--ink-faint)"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+      <input id="q" type="search" placeholder="Search docs, diagrams, contracts…" autocomplete="off" spellcheck="false">
+      <kbd>esc</kbd>
+    </div>
+    <div class="results" id="results"></div>
+    <div class="palette-foot"><span>↑↓ navigate</span><span>↵ open</span><span>esc close</span></div>
+  </div>
+</div>
+<div class="toast" id="toast" role="status"></div>
+<script src="assets/docs.js"></script>
+</body>
+</html>

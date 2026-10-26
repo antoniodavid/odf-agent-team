@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="auto" data-base="">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>OpenCode V2 migration support · ODF Docs</title>
+  <meta name="description" content="ODF ships **one V2-only `odf-delegation` entrypoint**: the official `Plugin.define({ id, setup })` shape. The V1 `server` export has been retired — OpenCode V2 has no V1 runtime, and the dual `{ id, setup, server }` obje">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <script>(function(){var d=document.documentElement,s=localStorage.getItem("odf-theme"),m=matchMedia("(prefers-color-scheme: dark)").matches;d.dataset.theme=s||(m?"dark":"light");})();</script>
+  <link rel="stylesheet" href="assets/docs.css">
+</head>
+<body>
+<a class="skip" href="#content">Skip to content</a>
+<header class="bar">
+  <div class="bar-in">
+    <a class="brand" href="index.html">
+      <svg class="brand-glyph" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <rect x="2" y="9" width="6" height="6" rx="1.5" fill="currentColor" opacity=".95"/>
+        <rect x="9" y="9" width="6" height="6" rx="1.5" fill="currentColor" opacity=".65"/>
+        <rect x="16" y="9" width="6" height="6" rx="1.5" fill="currentColor" opacity=".35"/>
+        <path d="M8 12h1M15 12h1" stroke="currentColor" stroke-width="1.5"/>
+      </svg>
+      ODF <small>docs</small>
+    </a>
+    <div class="bar-spacer"></div>
+    <nav class="bar-nav" aria-label="Sections">
+      <a href="index.html#whatsnew">What's new</a>
+      <a href="index.html#flows">Flows</a>
+      <a href="index.html#skills">Skills</a>
+      <a href="docs.html">Docs</a>
+    </nav>
+    <button class="searchbtn" id="openSearch" aria-label="Search documentation">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+      <span class="lbl">Search docs…</span>
+      <kbd>/</kbd>
+    </button>
+    <button class="icon-btn" id="themeToggle" aria-label="Toggle dark mode" title="Toggle theme">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M4.9 4.9l1.4 1.4m11.4 11.4 1.4 1.4M2 12h2m16 0h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
+    </button>
+    <a class="gh" href="https://github.com/antoniodavid/odf-agent-team" target="_blank" rel="noopener">GitHub ↗</a>
+  </div>
+</header>
+<div class="shell">
+  <details class="side" open><summary>Documentation menu</summary><div class="side-inner"><a class="side-home" href="docs.html">Documentation index</a><p class="side-group">Overview</p><a href="docs.html">Docs index</a><a href="intended-usage.html">Intended usage</a><a href="architecture.html">Architecture</a><a href="opencode-v2-migration.html" class="active" aria-current="page">OpenCode V2 migration</a><p class="side-group">Contracts</p><a href="route-contract.html">Route &amp; stage</a><a href="design-contract.html">Design</a><a href="expectations-contract.html">Expectations</a><a href="context-contract.html">Context Manifest</a><a href="safety-contract.html">Safety</a><a href="judge-shadow-contract.html">Judge shadow</a><a href="learning-loop-contract.html">Learning loop</a><p class="side-group">Operations</p><a href="metrics-and-engram-maintenance.html">Metrics &amp; Engram</a><a href="decision-evaluation.html">Decision evaluation</a><p class="side-group">Reference</p><a href="plugin.html">Plugin reference</a><a href="skill-style-guide.html">Skill style guide</a><p class="side-group">Project</p><a href="readme.html">README</a><a href="changelog.html">Changelog</a><a href="agents.html">Contributing</a><p class="side-group">History</p><a href="archive/index.html">Archive index</a><a href="archive/harness-roadmap.html">Harness roadmap</a><a href="archive/odf-fast-lane-plan.html">Fast-lane plan</a><a href="archive/odf-fast-lane-tasks.html">Fast-lane tasks</a><a href="archive/odf-fast-lane-baseline-2026-09-13.html">Baseline 2026-09-13</a><a href="archive/odf-fast-lane-baseline-2026-09-16.html">Baseline 2026-09-16</a><a href="odf-linear-cycles-baseline-2026-10-01.html">Linear-cycles baseline</a></div></details>
+  <main id="content" class="doc">
+    <nav class="crumb" aria-label="Breadcrumb">
+      <a href="index.html">ODF</a><span>/</span><a href="docs.html">Docs</a><span>/</span><span>Overview</span>
+    </nav>
+    <article class="prose">
+      <h1>OpenCode V2 migration support</h1>
+      <p class="doc-meta">6 min read</p>
+      <p>ODF ships <strong>one V2-only <code>odf-delegation</code> entrypoint</strong>: the official
+<code>Plugin.define({ id, setup })</code> shape. The V1 <code>server</code> export has been retired —
+OpenCode V2 has no V1 runtime, and the dual <code>{ id, setup, server }</code> object
+existed only for the transition window. Runtime code no longer imports
+<code>@opencode-ai/plugin</code>; the shared <code>tool</code> helper lives in <code>odf-plugin/odf-tool.ts</code>
+on top of the declared <code>zod</code> dependency, so the plugin graph carries only
+host-provided <code>@opencode/plugin</code> plus <code>zod</code> and <code>yaml</code>.</p>
+<blockquote>
+<p>V1 references in this document describe the historical mapping that shaped the
+V2 seams. They are no longer a supported surface.</p>
+</blockquote>
+<h2 id="support-matrix" tabindex="-1"><a class="anchor" href="#support-matrix" aria-label="Link to this section">#</a>Support matrix</h2>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Surface</th>
+<th>V1</th>
+<th>V2</th>
+<th>Support boundary</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Host floor</td>
+<td>OpenCode <code>1.18.29+</code></td>
+<td>OpenCode V2 beta <code>0.0.0-beta-19059</code> in the isolated harness</td>
+<td>Plugin loading and resource discovery pass; full tool/delegation validation remains pending.</td>
+</tr>
+<tr>
+<td>Package/runtime</td>
+<td><code>@opencode-ai/plugin</code> and <code>@opencode-ai/sdk</code> <code>^1.15.0</code></td>
+<td><code>@opencode/plugin</code> <code>^2.0.12</code> with <code>Plugin.define</code>/<code>setup</code></td>
+<td>Node.js <code>18+</code>; the V2 CLI is not installed or assumed by this repository.</td>
+</tr>
+<tr>
+<td>Plugin identity</td>
+<td><code>odf-delegation</code></td>
+<td><code>odf-delegation</code></td>
+<td>The installed entrypoint is <code>plugins/odf-delegation.ts</code>; load it once.</td>
+</tr>
+<tr>
+<td>Install scope</td>
+<td>Global <code>~/.config/opencode/</code> or project <code>.opencode/</code></td>
+<td>Global <code>~/.config/opencode/</code> or project <code>.opencode/</code></td>
+<td>Each scope owns one <code>plugins/odf-delegation.ts</code>; project launchers prevent a global duplicate.</td>
+</tr>
+<tr>
+<td>MCP configuration</td>
+<td>Legacy <code>mcp</code> entries with <code>enabled: true</code></td>
+<td>Native <code>mcp.servers</code> entries with <code>disabled: false</code></td>
+<td>Existing fields are preserved; the installer does not convert the whole file automatically.</td>
+</tr>
+<tr>
+<td>JSONC</td>
+<td>Read by the host</td>
+<td>Read by the host</td>
+<td><code>--configure-mcp</code> does not rewrite <code>opencode.jsonc</code>; edit it manually or convert to strict JSON first.</td>
+</tr>
+<tr>
+<td>Agent/command discovery</td>
+<td><code>agent/</code> and <code>command/</code></td>
+<td><code>agents/</code> and <code>commands/</code></td>
+<td>The installer copies both layouts from the same source files.</td>
+</tr>
+<tr>
+<td>Tool contract</td>
+<td>V1 tool factories and validation</td>
+<td>JSON Schema generated from the V1 factories, with V1 parsing before execution</td>
+<td>Contract fixtures cover all registered tools without claiming host execution.</td>
+</tr>
+<tr>
+<td>Hooks and lifecycle</td>
+<td><code>command.execute.before</code>, <code>chat.message</code>, tool hooks, system transform, events, dispose</td>
+<td>Tool <code>execute.before/after</code>, <code>session.context</code>, <code>session.prompt</code>, event subscription, setup cleanup</td>
+<td><code>session.prompt</code> detects both the raw <code>/odf-new</code> form and the command-expanded document; the entry capability maps are shared with the registered tools.</td>
+</tr>
+</tbody>
+</table></div>
+<h2 id="hook-mapping" tabindex="-1"><a class="anchor" href="#hook-mapping" aria-label="Link to this section">#</a>Hook mapping</h2>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>V1 seam</th>
+<th>V2 seam</th>
+<th>Note</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>tool.execute.before</code></td>
+<td><code>ctx.tool.hook(&quot;execute.before&quot;)</code></td>
+<td>Supported.</td>
+</tr>
+<tr>
+<td><code>tool.execute.after</code></td>
+<td><code>ctx.tool.hook(&quot;execute.after&quot;)</code></td>
+<td>Supported.</td>
+</tr>
+<tr>
+<td><code>experimental.chat.system.transform</code></td>
+<td><code>ctx.session.hook(&quot;context&quot;)</code></td>
+<td>Injects the shared ODF system rules.</td>
+</tr>
+<tr>
+<td><code>command.execute.before</code> + <code>chat.message</code></td>
+<td><code>ctx.session.hook(&quot;prompt&quot;)</code></td>
+<td>Detects the raw <code>/odf-new</code> form and the expanded command document (template body + appended arguments); V2 has no command-before hook, so timing still differs from V1.</td>
+</tr>
+<tr>
+<td><code>event</code></td>
+<td><code>ctx.event.subscribe({ signal })</code></td>
+<td>Abort the subscription during cleanup.</td>
+</tr>
+<tr>
+<td><code>dispose</code></td>
+<td><code>setup</code> cleanup function</td>
+<td>Disposes registrations, event subscription, and loop-guard state.</td>
+</tr>
+</tbody>
+</table></div>
+<h2 id="resource-discovery-and-startup-timing" tabindex="-1"><a class="anchor" href="#resource-discovery-and-startup-timing" aria-label="Link to this section">#</a>Resource discovery and startup timing</h2>
+<p>The source tree keeps the V1-compatible <code>agent/</code> and <code>command/</code> directories.
+<code>install.sh</code> also copies them to <code>agents/</code> and <code>commands/</code>, which are the
+resource layouts OpenCode V2 discovers. Both installed layouts therefore share
+one source of truth.</p>
+<p>V2 loads the command and agent catalog asynchronously after the plugin starts.
+An immediate catalog query can show only built-ins or an empty list while the
+server is still initializing. Wait for startup to settle or restart the session,
+then verify the catalog through the V2 API:</p>
+<pre><code class="language-bash">opencode2 api --standalone GET /api/command
+opencode2 api --standalone GET /api/agent
+</code></pre>
+<p>The current registry should expose 23 ODF commands and 11 ODF agents in
+addition to the host's built-ins. A provider/model error is independent of this
+catalog check; validate discovery before diagnosing model connectivity.</p>
+<h2 id="live-host-gate-before-v2-becomes-default" tabindex="-1"><a class="anchor" href="#live-host-gate-before-v2-becomes-default" aria-label="Link to this section">#</a>Live-host gate before V2 becomes default</h2>
+<p>Run this checklist only with an actual V2 host. The current V1 host and Vitest fixtures are not substitutes.</p>
+<ul>
+<li>[x] Record a V2 host version and confirm it loads <code>@opencode/plugin</code> <code>2.x</code> and Node.js <code>18+</code>. — OpenCode <code>2.0.16</code>, <code>@opencode/plugin@2.0.16</code>, Node <code>v24.15.0</code>.</li>
+<li>[x] Test a global install and a project-local install in isolated config directories; confirm each has exactly one ODF plugin entry. — isolated config under an isolated <code>XDG_*</code> set yields exactly one <code>odf-delegation</code> entry.</li>
+<li>[x] Start the V2 host and confirm one plugin load with ID <code>odf-delegation</code>, no duplicate-registration warning, and no startup error. — 88 plugins, 88 active, <strong>0 failed</strong>, no <code>failed to load plugin</code> in the log.</li>
+<li>[ ] Enumerate all 31 registered ODF tools; invoke representative valid and invalid inputs and confirm schema rejection plus V1-equivalent result envelopes. — The recorded live run predates the current tool surface and reported 22 tools; invalid-input/schema-rejection coverage is Vitest-only (<code>opencode-v2-contract.test.ts</code>), and there is no HTTP endpoint for tool enumeration (<code>/api/tool</code> → 404), so current live model round trips remain outstanding.</li>
+<li>[ ] Exercise context injection, tool-before/after hooks, raw <code>/odf-new</code> prompt handling, event subscription, and cleanup. — context/system injection confirmed live and asserted by fixtures; tool hooks, <code>/odf-new</code> detection, event subscription and cleanup are fixture-covered but not yet exercised against a real host session.</li>
+<li>[x] Run one real delegation, cancel it, and confirm the child session is interrupted without a fabricated success result. — the first live run <strong>failed</strong> and exposed a real bug: <code>findTaskApi</code> re-wrapped the adapter's own V2 task bridge in <code>createNativeTaskApi</code>, so the promise the bridge's abort keys on was replaced, <code>pending.get()</code> missed and the interrupt was silently dropped. The child ran past the timeout and finished on its own (<code>outcome: succeeded</code>, 63 output tokens, 1.0s after the parent gave up). Fixed by using an ODF-owned bridge as is; re-run: envelope <code>status: &quot;timeout&quot;</code>, <code>result: null</code> (no fabricated success), child <code>outcome: interrupted</code>, <code>finish: error</code>, <strong>0 tokens</strong>, and <code>/api/session/active</code> empty.</li>
+<li>[x] Reload the host and repeat the load/tool checks; confirm no duplicate tools, hooks, or event subscriptions. — service restarted clean after the changes; single <code>odf-delegation</code>, 88/88 active, no duplicates.</li>
+<li>[ ] Re-run the V1 host smoke and the repository checks before changing the default runtime. — moot: V1 is retired. Repository checks re-run green after the change.</li>
+</ul>
+<p><strong>Current result:</strong> the plugin loads and validates end-to-end on a real V2 host
+(<code>OpenCode 2.0.16</code>): <code>odf-delegation</code> is <code>active</code>, the catalog exposes 22 ODF
+commands and 11 ODF agents, and <code>odf_health</code> executed in-session reporting
+<code>plugin.loaded: true</code> with all 22 tools. Remaining unchecked items are live
+delegation/cancellation and per-tool schema-rejection round trips.</p>
+<h2 id="pack-discovery" tabindex="-1"><a class="anchor" href="#pack-discovery" aria-label="Link to this section">#</a>Pack discovery</h2>
+<p><code>scripts/lib/config-dir.js</code> resolves the pack directory in this order:</p>
+<ol>
+<li><code>ODF_CONFIG_DIR</code> (absolute) — the explicit override, and the channel the
+project launcher exports.</li>
+<li>The pack the running module ships in, when it carries <code>odf-registry.json</code>.</li>
+<li><code>$XDG_CONFIG_HOME/opencode</code>.</li>
+<li><code>~/.config/opencode</code>.</li>
+</ol>
+<p>Step 2 is what makes a global install work under <code>XDG_CONFIG_HOME</code> and a
+project-local <code>&lt;project&gt;/.opencode</code> work without the launcher: the plugin and
+every CLI live inside the pack, so they locate themselves. <code>getOdfConfigDir()</code>
+and the five CLI copies of the logic share this resolver, and <code>install.sh</code>
+already ordered its own default the same way.</p>
+<p><code>REGISTRY_PATH</code> and the registry cache are module-level constants evaluated at
+import time, when the workspace is not known yet — that is why self-location and
+environment variables are the only mechanisms that can work at this layer, and a
+workspace-driven fallback could not have fixed the project-local case.</p>
+<p>The <code>/odf-*</code> prompts default <code>PACK</code> to steps 1, 3 and 4
+(<code>ODF_CONFIG_DIR</code> → XDG → home). For a project-local pack, prefer the project
+launcher, which exports <code>ODF_CONFIG_DIR</code>.</p>
+<h2 id="delegated-session-location" tabindex="-1"><a class="anchor" href="#delegated-session-location" aria-label="Link to this section">#</a>Delegated session location</h2>
+<p><code>context_files</code> are validated against the resolved workspace root and then handed
+to the agent as <strong>relative</strong> paths. That is only correct while the delegated
+session works in that same root, so <code>odf_delegate</code> now creates the child session
+in the resolved workspace root (<code>TaskApiInput.directory</code> →
+<code>session.create({ location })</code> / <code>query.directory</code> on the SDK bridge). The V2 host
+honours it, verified live: the child came up in a scratch directory with its own
+<code>projectID</code> and read a relative <code>context_files</code> entry from there.</p>
+<p>Omitting <code>workspace_dir</code> keeps the previous behaviour exactly — the root resolves
+to the host session's directory, which is where the child already ran. Delegation
+is a no-op unless a caller passes a different root, which is the only case that
+used to resolve context paths against the wrong tree.</p>
+<p>Delegating into the installed pack itself is refused (<code>unsafe-workspace-path</code>):
+the session would run inside <code>~/.config/opencode</code>. The check is narrow, so a
+project-local pack used as a workspace and ODF's own checkout stay legal.</p>
+
+    </article>
+    <nav class="pager" aria-label="Documentation pagination"><a class="pager-link prev" href="architecture.html"><span>Previous</span><b>Architecture</b></a><a class="pager-link next" href="route-contract.html"><span>Next</span><b>Route &amp; stage</b></a></nav>
+  </main>
+  <aside class="toc" aria-label="On this page"><p class="toc-title">On this page</p><nav><a class="toc-l2" href="#support-matrix">Support matrix</a><a class="toc-l2" href="#hook-mapping">Hook mapping</a><a class="toc-l2" href="#resource-discovery-and-startup-timing">Resource discovery and startup timing</a><a class="toc-l2" href="#live-host-gate-before-v2-becomes-default">Live-host gate before V2 becomes default</a><a class="toc-l2" href="#pack-discovery">Pack discovery</a><a class="toc-l2" href="#delegated-session-location">Delegated session location</a></nav></aside>
+</div>
+<div class="overlay" id="overlay" role="dialog" aria-modal="true" aria-label="Search documentation">
+  <div class="palette">
+    <div class="palette-input">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true" style="color:var(--ink-faint)"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+      <input id="q" type="search" placeholder="Search docs, diagrams, contracts…" autocomplete="off" spellcheck="false">
+      <kbd>esc</kbd>
+    </div>
+    <div class="results" id="results"></div>
+    <div class="palette-foot"><span>↑↓ navigate</span><span>↵ open</span><span>esc close</span></div>
+  </div>
+</div>
+<div class="toast" id="toast" role="status"></div>
+<script src="assets/docs.js"></script>
+</body>
+</html>

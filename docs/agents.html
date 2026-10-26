@@ -1,0 +1,615 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="auto" data-base="">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ODF Agent Team — AGENTS.md · ODF Docs</title>
+  <meta name="description" content="This repo is **the source for the ODF Agent Team**, an OpenCode skill/agent pack for structured Odoo development. It is **not** an Odoo project itself. It installs into `~/.config/opencode/` via `install.sh` and is used ">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <script>(function(){var d=document.documentElement,s=localStorage.getItem("odf-theme"),m=matchMedia("(prefers-color-scheme: dark)").matches;d.dataset.theme=s||(m?"dark":"light");})();</script>
+  <link rel="stylesheet" href="assets/docs.css">
+</head>
+<body>
+<a class="skip" href="#content">Skip to content</a>
+<header class="bar">
+  <div class="bar-in">
+    <a class="brand" href="index.html">
+      <svg class="brand-glyph" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <rect x="2" y="9" width="6" height="6" rx="1.5" fill="currentColor" opacity=".95"/>
+        <rect x="9" y="9" width="6" height="6" rx="1.5" fill="currentColor" opacity=".65"/>
+        <rect x="16" y="9" width="6" height="6" rx="1.5" fill="currentColor" opacity=".35"/>
+        <path d="M8 12h1M15 12h1" stroke="currentColor" stroke-width="1.5"/>
+      </svg>
+      ODF <small>docs</small>
+    </a>
+    <div class="bar-spacer"></div>
+    <nav class="bar-nav" aria-label="Sections">
+      <a href="index.html#whatsnew">What's new</a>
+      <a href="index.html#flows">Flows</a>
+      <a href="index.html#skills">Skills</a>
+      <a href="docs.html">Docs</a>
+    </nav>
+    <button class="searchbtn" id="openSearch" aria-label="Search documentation">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+      <span class="lbl">Search docs…</span>
+      <kbd>/</kbd>
+    </button>
+    <button class="icon-btn" id="themeToggle" aria-label="Toggle dark mode" title="Toggle theme">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M4.9 4.9l1.4 1.4m11.4 11.4 1.4 1.4M2 12h2m16 0h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
+    </button>
+    <a class="gh" href="https://github.com/antoniodavid/odf-agent-team" target="_blank" rel="noopener">GitHub ↗</a>
+  </div>
+</header>
+<div class="shell">
+  <details class="side" open><summary>Documentation menu</summary><div class="side-inner"><a class="side-home" href="docs.html">Documentation index</a><p class="side-group">Overview</p><a href="docs.html">Docs index</a><a href="intended-usage.html">Intended usage</a><a href="architecture.html">Architecture</a><a href="opencode-v2-migration.html">OpenCode V2 migration</a><p class="side-group">Contracts</p><a href="route-contract.html">Route &amp; stage</a><a href="design-contract.html">Design</a><a href="expectations-contract.html">Expectations</a><a href="context-contract.html">Context Manifest</a><a href="safety-contract.html">Safety</a><a href="judge-shadow-contract.html">Judge shadow</a><a href="learning-loop-contract.html">Learning loop</a><p class="side-group">Operations</p><a href="metrics-and-engram-maintenance.html">Metrics &amp; Engram</a><a href="decision-evaluation.html">Decision evaluation</a><p class="side-group">Reference</p><a href="plugin.html">Plugin reference</a><a href="skill-style-guide.html">Skill style guide</a><p class="side-group">Project</p><a href="readme.html">README</a><a href="changelog.html">Changelog</a><a href="agents.html" class="active" aria-current="page">Contributing</a><p class="side-group">History</p><a href="archive/index.html">Archive index</a><a href="archive/harness-roadmap.html">Harness roadmap</a><a href="archive/odf-fast-lane-plan.html">Fast-lane plan</a><a href="archive/odf-fast-lane-tasks.html">Fast-lane tasks</a><a href="archive/odf-fast-lane-baseline-2026-09-13.html">Baseline 2026-09-13</a><a href="archive/odf-fast-lane-baseline-2026-09-16.html">Baseline 2026-09-16</a><a href="odf-linear-cycles-baseline-2026-10-01.html">Linear-cycles baseline</a></div></details>
+  <main id="content" class="doc">
+    <nav class="crumb" aria-label="Breadcrumb">
+      <a href="index.html">ODF</a><span>/</span><a href="docs.html">Docs</a><span>/</span><span>Project</span>
+    </nav>
+    <article class="prose">
+      <h1>ODF Agent Team — AGENTS.md</h1>
+      <p class="doc-meta">9 min read</p>
+      <p>This repo is <strong>the source for the ODF Agent Team</strong>, an OpenCode skill/agent pack for
+structured Odoo development. It is <strong>not</strong> an Odoo project itself. It installs into <code>~/.config/opencode/</code> via <code>install.sh</code> and is used from Odoo worktrees.</p>
+<hr>
+<h2 id="odf-overview-what-it-does" tabindex="-1"><a class="anchor" href="#odf-overview-what-it-does" aria-label="Link to this section">#</a>ODF Overview — What It Does</h2>
+<p>ODF is a route-driven harness for delivering Odoo changes:</p>
+<pre><code>init → health/preflight → one resolved route → required QA/VERIFY → archived when applicable
+</code></pre>
+<p>The route determines which stages and roles apply; not every request runs every stage. The orchestrator never writes code — it delegates, tracks state, and enforces required evidence and human gates.</p>
+<h3 id="what-you-can-do" tabindex="-1"><a class="anchor" href="#what-you-can-do" aria-label="Link to this section">#</a>What you can do</h3>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Command</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>/odf-new &lt;name&gt;</code></td>
+<td>Start a new change on its resolved route; planning is proportional to risk/scope</td>
+</tr>
+<tr>
+<td><code>/odf-continue [name]</code></td>
+<td>Resume a change from its last completed stage</td>
+</tr>
+<tr>
+<td><code>/odf-status [name]</code></td>
+<td>Show change state, artifacts, task progress</td>
+</tr>
+<tr>
+<td><code>/odf-explore &lt;topic&gt;</code></td>
+<td>Investigate Odoo patterns before committing to a change</td>
+</tr>
+<tr>
+<td><code>/odf-fix &lt;description&gt;</code></td>
+<td>Lightweight 3-step bugfix: diagnose → fix → verify</td>
+</tr>
+<tr>
+<td><code>/odf-agent-new &lt;description&gt;</code></td>
+<td>Create custom Odoo sub-agents from natural language</td>
+</tr>
+<tr>
+<td><code>/odf-profile switch</code></td>
+<td>Toggle between <code>default</code> (r1 for ASSESS/VERIFY, kimi for others) and <code>cheap</code> (kimi for all)</td>
+</tr>
+<tr>
+<td><code>/odf-registry-refresh</code></td>
+<td>Pick up skill/agent changes after install</td>
+</tr>
+<tr>
+<td><code>/odf-tdd on/off</code></td>
+<td>Toggle strict test-before-code enforcement</td>
+</tr>
+<tr>
+<td><code>/odf-health</code></td>
+<td>Verify installation and project detection</td>
+</tr>
+<tr>
+<td><code>/odf-feedback &lt;change&gt;</code></td>
+<td>Preview and optionally submit explicitly confirmed, privacy-bounded feedback</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="pipeline-stages" tabindex="-1"><a class="anchor" href="#pipeline-stages" aria-label="Link to this section">#</a>Pipeline stages</h3>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Stage</th>
+<th>Role</th>
+<th>Agent</th>
+<th>Output</th>
+<th>Gate</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>DECIDE</strong></td>
+<td><strong>PROPOSE</strong></td>
+<td><code>odoo_proposer</code></td>
+<td>Business intent, scope, capabilities, risks for routes that need formal DECIDE</td>
+<td>Ask only for an unresolved human decision</td>
+</tr>
+<tr>
+<td><strong>DECIDE</strong></td>
+<td><strong>ASSESS</strong></td>
+<td><code>odoo_functional_consultant</code></td>
+<td>Strategy (standard vs custom) + functional spec when formal DECIDE is routed</td>
+<td>Continue/adjust only at a required decision</td>
+</tr>
+<tr>
+<td><strong>PLAN</strong></td>
+<td><strong>QA-PLAN (conditional)</strong></td>
+<td><code>odoo_qa_engineer</code></td>
+<td>Formal test plan, scenarios, coverage targets for routes requiring PLAN or explicit risk escalation</td>
+<td>Approve/adjust only when this formal plan is required; small changes keep focused QA inline</td>
+</tr>
+<tr>
+<td><strong>PLAN</strong></td>
+<td><strong>DESIGN</strong></td>
+<td><code>odoo_backend_engineer</code> / <code>odoo_frontend_engineer</code></td>
+<td>Technical design + tasks when formal PLAN is routed</td>
+<td>Approve/adjust only when the plan is required</td>
+</tr>
+<tr>
+<td><strong>BUILD</strong></td>
+<td>—</td>
+<td>Agent by task domain</td>
+<td>Code + focused tests/checks, in batches, when the route includes BUILD</td>
+<td>Pause only at a required gate or real decision</td>
+</tr>
+<tr>
+<td><strong>VERIFY</strong></td>
+<td>—</td>
+<td><code>odoo_qa_engineer</code></td>
+<td>Test run, lint, spec compliance when required by the route</td>
+<td>PASS or FAIL; evidence gate remains mandatory</td>
+</tr>
+<tr>
+<td><strong>FIX</strong></td>
+<td>—</td>
+<td>Agent by task domain</td>
+<td>Root-cause analysis + minimal regression for the bugfix route</td>
+<td>Evidence gate remains mandatory</td>
+</tr>
+<tr>
+<td><strong>EXPLORE</strong></td>
+<td>—</td>
+<td><code>odoo_functional_consultant</code></td>
+<td>Investigation report; ephemeral, not a bound workflow</td>
+<td>—</td>
+</tr>
+<tr>
+<td><strong>ARCHIVED</strong></td>
+<td>—</td>
+<td>(auto)</td>
+<td>Retrospective saved to Engram; only for VERIFY-terminal routes</td>
+<td>—</td>
+</tr>
+</tbody>
+</table></div>
+<p>These are available stage roles, not a promise that every request runs every row.
+The user sees one route selected by <code>work_type</code>; triage labels and stage roles
+are internal mappings. Every code-changing route carries focused QA, while a
+formal QA-PLAN is conditional on the resolved route or an explicit risk
+escalation.</p>
+<hr>
+<h2 id="architecture" tabindex="-1"><a class="anchor" href="#architecture" aria-label="Link to this section">#</a>Architecture</h2>
+<pre><code>                   ┌──────────────────────┐
+                   │   odoo_orchestrator   │  ← NEVER writes code, only delegates
+                   │   (AGENT)             │
+                   └──────┬───────┬───────┘
+                          │       │
+              ┌───────────┘       └───────────┐
+              ▼                               ▼
+   ┌──────────────────────┐       ┌──────────────────────┐
+    │   odf-delegation.ts  │       │   10 sub-agents       │
+   │   (PLUGIN)           │──────▶│   (via task())        │
+   │                      │       │                       │
+   │   Registry cache     │       │  odoo_backend_engineer │
+   │   Profile resolution │       │  odoo_frontend_enginee │
+   │   Skill injection    │       │  odoo_qa_engineer      │
+   │   Status resolver    │       │  odoo_functional_con.  │
+   │   Community tools    │       │  odoo_code_reviewer    │
+   └──────────────────────┘       │  odoo_api_integrator   │
+                                  │  odoo_dba_devops       │
+                                   │  odoo_upgrade_migrator │
+                                  └──────────────────────┘
+</code></pre>
+<h3 id="plugin-tools-odf-delegationts" tabindex="-1"><a class="anchor" href="#plugin-tools-odf-delegationts" aria-label="Link to this section">#</a>Plugin tools (<code>odf-delegation.ts</code>)</h3>
+<p>29 tools injected at runtime into the orchestrator's tool list:</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Tool</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>odf_delegate</code></td>
+<td>Route a stage role + prompt to the right sub-agent with skill injection</td>
+</tr>
+<tr>
+<td><code>odf_delegation_prepare</code></td>
+<td>Resolve agent/skills/profile/prompt and mint a bounded delegation token</td>
+</tr>
+<tr>
+<td><code>odf_delegation_launch</code></td>
+<td>Digest-check and submit prepared prompts through the V2 session API</td>
+</tr>
+<tr>
+<td><code>odf_delegation_late_seal_prepare</code></td>
+<td>Verify an expired native child and issue a bound, single-use late-seal capability</td>
+</tr>
+<tr>
+<td><code>odf_proposal_write</code></td>
+<td>Persist the token-bound PROPOSE artifact to its canonical OpenSpec path</td>
+</tr>
+<tr>
+<td><code>odf_delegation_seal</code></td>
+<td>Seal a native delegation: verify the child session, run the stage gates, return the standard envelope</td>
+</tr>
+<tr>
+<td><code>odf_parallel_delegate</code></td>
+<td>Run a cross-domain BUILD as 2-3 parallel branches with one aggregate join</td>
+</tr>
+<tr>
+<td><code>odf_parallel_prepare</code></td>
+<td>Prepare a native parallel BUILD (branch prompts + one token)</td>
+</tr>
+<tr>
+<td><code>odf_parallel_seal</code></td>
+<td>Seal a native parallel BUILD: verify the branch sessions, run the aggregate scheduler and commit once</td>
+</tr>
+<tr>
+<td><code>odf_workflow_route</code></td>
+<td>Resolve the canonical stage route for a work type</td>
+</tr>
+<tr>
+<td><code>odf_workflow_advance</code></td>
+<td>Preview/verify a canonical workflow transition (read-only)</td>
+</tr>
+<tr>
+<td><code>odf_workflow_archive</code></td>
+<td>Locked, idempotent terminal ARCHIVE transition through the selected store</td>
+</tr>
+<tr>
+<td><code>odf_workflow_override</code></td>
+<td>Audited skip/re-enter/re-plan/settle-stale-attempt for an existing change</td>
+</tr>
+<tr>
+<td><code>odf_workflow_bind</code></td>
+<td>Start or bind canonical workflow state in the selected store</td>
+</tr>
+<tr>
+<td><code>odf_entry_triage</code></td>
+<td>Classify a change entry (micro/standard/full) and pick the work type</td>
+</tr>
+<tr>
+<td><code>odf_context_manifest</code></td>
+<td>Bounded, read-only context manifest for a change candidate</td>
+</tr>
+<tr>
+<td><code>odf_skill_inject</code></td>
+<td>Match and inject relevant skill compact rules into a prompt</td>
+</tr>
+<tr>
+<td><code>odf_skill_resolve</code></td>
+<td>Preview which skills match a task WITHOUT executing</td>
+</tr>
+<tr>
+<td><code>odf_registry_read</code></td>
+<td>Read and cache <code>odf-registry.json</code> with TTL and file watcher</td>
+</tr>
+<tr>
+<td><code>odf_profile_select</code></td>
+<td>Preview which model profile applies to a stage role</td>
+</tr>
+<tr>
+<td><code>odf_community_tool_detect</code></td>
+<td>Check if a community tool (e.g., CodeGraph) is available</td>
+</tr>
+<tr>
+<td><code>odf_community_tool_install</code></td>
+<td>Install and wire a community tool</td>
+</tr>
+<tr>
+<td><code>odf_workflow_status</code></td>
+<td>Read canonical workflow status (stages, receipts, resumability)</td>
+</tr>
+<tr>
+<td><code>odf_feedback_submit</code></td>
+<td>Preview or submit one explicitly confirmed, privacy-bounded feedback aggregate</td>
+</tr>
+<tr>
+<td><code>odf_policy_gate</code></td>
+<td>Resolve + persist the TDD/risk Policy Gate before IMPLEMENT/VERIFY</td>
+</tr>
+<tr>
+<td><code>odf_receipt</code></td>
+<td>Persist a failure-disposition receipt for a change</td>
+</tr>
+<tr>
+<td><code>odf_governance_provenance</code></td>
+<td>Record OCA AI provenance in <code>.odf/ai-provenance.json</code></td>
+</tr>
+<tr>
+<td><code>odf_governance_check</code></td>
+<td>Read-only OCA governance gate (diff, trailers, provenance)</td>
+</tr>
+<tr>
+<td><code>odf_health</code></td>
+<td>Read-only installed/runtime ODF health check</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="skills-system" tabindex="-1"><a class="anchor" href="#skills-system" aria-label="Link to this section">#</a>Skills system</h3>
+<p>87 skills covering:</p>
+<ul>
+<li><strong>OCA governance</strong>: PR workflow, maturity levels, commit messages, contribution guidelines</li>
+<li><strong>OCA style</strong>: Python, XML, JavaScript/CSS standards</li>
+<li><strong>Odoo patterns</strong>: field types, computed fields, inheritance, constraints, domains, onchange, context/env, security, data migration, API integration, migration guides, debug patterns</li>
+<li><strong>ODF stage roles</strong>: assess, design, implement, bounded batch implementation, verify, fix, TDD, QA, exploration, agent builder, chained PR</li>
+<li><strong>Shared conventions</strong>: Engram persistence, result contract, skill resolver, Odoo source paths</li>
+<li><strong>ODF onboarding</strong>: guided walkthrough of the full pipeline on a real codebase</li>
+</ul>
+<p>Max 5 skills per delegation via compact rules.</p>
+<h3 id="model-profiles" tabindex="-1"><a class="anchor" href="#model-profiles" aria-label="Link to this section">#</a>Model profiles</h3>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Profile</th>
+<th>ASSESS</th>
+<th>VERIFY</th>
+<th>Other stage roles</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>default</code></td>
+<td>current</td>
+<td>current</td>
+<td>current</td>
+</tr>
+<tr>
+<td><code>cheap</code></td>
+<td>current</td>
+<td>current</td>
+<td>current</td>
+</tr>
+</tbody>
+</table></div>
+<p>All stage roles inherit the <strong>current session model</strong> (no hardcoded model override). Profiles apply ONLY to SDD pipeline stage roles. General queries and non-SDD tasks use the default runtime model.</p>
+<h3 id="community-tools" tabindex="-1"><a class="anchor" href="#community-tools" aria-label="Link to this section">#</a>Community tools</h3>
+<p>ODF can install and detect optional tools:</p>
+<ul>
+<li><strong>CodeGraph</strong> (<code>npm install -g @colbymchenry/codegraph</code>): SQLite knowledge graph for structural queries — one round-trip instead of grep + Read loops. Install with <code>--with-codegraph</code> flag or via <code>odf_community_tool_install</code>.</li>
+</ul>
+<h3 id="persistence" tabindex="-1"><a class="anchor" href="#persistence" aria-label="Link to this section">#</a>Persistence</h3>
+<p>The preflight <code>artifact_store</code> selects the authoritative workflow state and
+role-artifact store:</p>
+<ul>
+<li><strong>OpenSpec</strong>: <code>openspec/changes/{change}/</code> state and artifact files.</li>
+<li><strong>Engram</strong>: deterministic <code>odf/{change}/{artifact-type}</code> state/artifact refs.</li>
+<li><strong>Hybrid</strong>: OpenSpec is canonical; matching Engram state/artifacts are
+mirrored on commits, which must fail if either write fails. Status can recover
+missing OpenSpec state from the mirror without merging conflicting content.</li>
+</ul>
+<p>Runtime Policy Gate, validation evidence, and failure receipts remain in
+<code>.odf/*.json</code> regardless of the selected artifact store. Legacy dual-read is
+for migration only; old changes are not rewritten automatically.</p>
+<h3 id="preflight-gate" tabindex="-1"><a class="anchor" href="#preflight-gate" aria-label="Link to this section">#</a>Preflight gate</h3>
+<p>9 fields required before any stage runs:</p>
+<ul>
+<li><code>change</code> (kebab-case name)</li>
+<li><code>execution_mode</code> (interactive | batch | auto)</li>
+<li><code>artifact_store</code> (engram | openspec | hybrid)</li>
+<li><code>delivery_strategy</code> (ask-always | ask-on-risk | auto-chain | single-pr)</li>
+<li><code>review_budget_lines</code> (100-5000)</li>
+<li><code>odoo_version</code> (16 | 17 | 18 | 19)</li>
+<li><code>tdd_mode</code> (true | false)</li>
+<li><code>solution_strategy</code> (standard | custom | pending)</li>
+<li><code>chain_strategy</code> (none | chained | feature-branch)</li>
+</ul>
+<p>Missing fields are collected via <code>question</code> tool.</p>
+<h3 id="orchestrator-safety-checks-gentle-ai-inspired" tabindex="-1"><a class="anchor" href="#orchestrator-safety-checks-gentle-ai-inspired" aria-label="Link to this section">#</a>Orchestrator safety checks (gentle-ai inspired)</h3>
+<ul>
+<li><strong>Sub-agent launch deduplication</strong>: same (stage role, fingerprint) never launched twice</li>
+<li><strong>Fresh review rule</strong>: adversarial review gets a fresh context for independent judgment</li>
+<li><strong>Incident rule</strong>: after state corruption, stop and audit before continuing</li>
+<li><strong>Long-session rule</strong>: after ~20 tool calls or 5 file reads without delegation, delegate instead of accumulating context</li>
+<li><strong>Apply-progress continuity</strong>: continuation batches merge with existing progress, never overwrite</li>
+<li><strong>Model routing scope</strong>: profiles only apply to SDD pipeline stage roles, not general queries</li>
+</ul>
+<h2 id="development-and-collaboration-practices" tabindex="-1"><a class="anchor" href="#development-and-collaboration-practices" aria-label="Link to this section">#</a>Development and collaboration practices</h2>
+<p>These practices apply when changing the ODF harness repository. In customer Odoo projects, follow that project's instructions and the relevant OCA/Odoo skills; do not impose this repository's language or tooling conventions there.</p>
+<h3 id="communication-and-scope" tabindex="-1"><a class="anchor" href="#communication-and-scope" aria-label="Link to this section">#</a>Communication and scope</h3>
+<ul>
+<li>Answer the user's direct question first. Be concise, concrete, and clear; explain non-trivial designs as <strong>problem → example or behavior → solution</strong>, including why the solution is needed.</li>
+<li>State assumptions and uncertainty. Verify details rather than guessing, especially for external APIs, framework behavior, and repository-specific commands.</li>
+<li>Keep changes focused on the request. Avoid unrelated cleanup, speculative abstractions, compatibility layers, or dependency upgrades. Understand apparently intentional behavior before proposing its removal; ask before making a consequential removal outside the requested scope.</li>
+</ul>
+<h3 id="programming-practices" tabindex="-1"><a class="anchor" href="#programming-practices" aria-label="Link to this section">#</a>Programming practices</h3>
+<ul>
+<li>Follow nearby code, tests, and the repository's authoritative documentation. Prefer the smallest readable change that preserves existing module boundaries and sources of truth.</li>
+<li>Keep the main path easy to follow. Use helpers when they name a meaningful concept, isolate non-trivial logic, or are reused; avoid extracting trivial one-use expressions without a readability benefit.</li>
+<li>Prefer explicit domain types and validation at trust boundaries. Avoid <code>any</code>, unchecked casts, and weakening validation to make a change pass; use the narrowest type or a runtime guard that fits the codebase.</li>
+<li>Handle errors at the boundary that can make a useful decision. Do not silently swallow failures. Comments should explain non-obvious constraints, invariants, or surprising behavior—not restate the code.</li>
+<li>Before editing generated or derived files, identify their authoritative source and generation process. Update the source and use the documented generator where applicable; do not hand-edit generated output by default.</li>
+<li>Avoid new runtime dependencies unless they are justified. Treat dependency manifests and lockfiles as one change; review the resulting dependency diff and consult authoritative release notes when an upgrade may change behavior.</li>
+</ul>
+<h3 id="tests-and-verification" tabindex="-1"><a class="anchor" href="#tests-and-verification" aria-label="Link to this section">#</a>Tests and verification</h3>
+<ul>
+<li>Test observable behavior through the real implementation where practical. Avoid duplicating production logic in tests; use mocks only at external, nondeterministic, or otherwise difficult-to-control boundaries.</li>
+<li>Add or update focused regression coverage for bug fixes and behavior changes. For routing, state, authorization, or evidence-handling changes, cover relevant invalid, duplicate/retry, stale, and failure cases as well as the happy path.</li>
+<li>Run the focused tests and documented checks relevant to the change. If a test file changes, run that test; do not trigger networked, paid, production, or destructive test paths without explicit authorization.</li>
+<li>Report exactly what was run and its result. Never describe an unrun check as passing; call out remaining validation clearly.</li>
+</ul>
+<h3 id="repository-and-workflow-safety" tabindex="-1"><a class="anchor" href="#repository-and-workflow-safety" aria-label="Link to this section">#</a>Repository and workflow safety</h3>
+<ul>
+<li>Inspect <code>git status</code> and the relevant diff before editing or operating on Git state. Preserve changes made by the user or other agents; work only on files in scope.</li>
+<li>Stage explicit paths. Never use broad or destructive cleanup/rollback commands such as <code>git reset --hard</code>, <code>git checkout --</code>, <code>git clean</code>, <code>git stash</code>, <code>git add -A</code>, or <code>git add .</code>. Never force-push, and commit only when the user explicitly asks.</li>
+<li>These practices do not replace ODF's route, Policy Gate, required seals, evidence, or human approvals. Never bypass a mandatory workflow gate or treat explanatory prose as machine-validated evidence.</li>
+<li>For OCA governance, Odoo coding standards, issues, and PR workflows, use the relevant registered skills and repository guidance rather than copying project-specific rules into this section.</li>
+</ul>
+<h3 id="branch-pr-and-merge-workflow" tabindex="-1"><a class="anchor" href="#branch-pr-and-merge-workflow" aria-label="Link to this section">#</a>Branch, PR, and merge workflow</h3>
+<p><code>main</code> is protected. Every change reaches it through a pull request, never a direct push — including one-line fixes.</p>
+<pre><code class="language-bash"># 1. Sync and branch
+git fetch origin
+git switch main
+git merge --ff-only origin/main
+git switch -c &lt;type&gt;/&lt;short-description&gt;
+
+# 2. Implement, then verify
+npm run typecheck
+npm run test:unit
+npm run test:yaml
+npm run validate:skills
+node scripts/odf-registry-validate.js
+
+# 3. Stage explicit paths only
+git add path/one path/two
+git commit -m &quot;type(scope): summary&quot;
+
+# 4. Push and open the PR
+git push -u origin &lt;type&gt;/&lt;short-description&gt;
+gh pr create --base main --head &lt;type&gt;/&lt;short-description&gt; \
+  --title &quot;type(scope): summary&quot; --body-file &lt;body.md&gt;
+</code></pre>
+<ul>
+<li>CI (<code>.github/workflows/ci.yml</code>) runs typecheck, unit tests, YAML scenarios, registry validation, skill validation, and a diff check.</li>
+<li>The <code>auto-merge</code> job squash-merges same-repository, non-draft PRs once the <code>test</code> job passes. Opening the PR is enough: do not merge manually and do not force-push the branch.</li>
+<li>Keep the PR body problem-first: why, what, verification (commands and observed results), and risk.</li>
+<li>After merge, sync and clean up:</li>
+</ul>
+<pre><code class="language-bash">git switch main
+git fetch origin
+git merge --ff-only origin/main
+git branch -d &lt;type&gt;/&lt;short-description&gt;
+</code></pre>
+<ul>
+<li>If CI fails, fix on the same branch and push again; do not open a second PR. Never push directly to <code>main</code>, never force-push, and never use <code>git add -A</code> or <code>git add .</code>.</li>
+</ul>
+<hr>
+<h2 id="key-structure" tabindex="-1"><a class="anchor" href="#key-structure" aria-label="Link to this section">#</a>Key structure</h2>
+<pre><code>agent/              — 11 agent instructions (orchestrator + 10 sub-agents)
+command/            — 23 slash command definitions (Markdown)
+plugins/            — odf-delegation.ts (OpenCode plugin)
+scripts/            — test runner (1370 Vitest tests + 331 YAML scenarios), CLI wrapper, registry and skill validators
+skills/              — 87 skills (OCA governance, ODF stage roles, patterns)
+  _shared/          — conventions (engram persistence, skill-resolver, Odoo sources)
+  oca/              — OCA governance, style, patterns
+  odf-{stage-role}/ — stage-role skills (assess, design, implement, etc.)
+openspec/           — SDD change artifacts (when artifact_store=openspec)
+docs/               — intended-usage, architecture, skill-style-guide
+install.sh          — idempotent installer (backup, --dry-run, --force)
+odf-registry.json   — SINGLE SOURCE OF TRUTH (87 skills, 11 agents, 2 profiles, community tools)
+</code></pre>
+<h2 id="quick-start" tabindex="-1"><a class="anchor" href="#quick-start" aria-label="Link to this section">#</a>Quick start</h2>
+<pre><code class="language-bash"># From an Odoo worktree:
+curl -fsSL https://raw.githubusercontent.com/antoniodavid/odf-agent-team/main/install.sh | bash
+# Or with CodeGraph:
+curl -fsSL https://raw.githubusercontent.com/antoniodavid/odf-agent-team/main/install.sh | bash -s -- --with-codegraph
+
+# Then inside OpenCode:
+/odf-init           # Detect project context
+/odf-new my-feature # Start first change
+</code></pre>
+<h2 id="odf-vs-sdd" tabindex="-1"><a class="anchor" href="#odf-vs-sdd" aria-label="Link to this section">#</a>ODF vs SDD</h2>
+<p>ODF is a superset of the generic SDD workflow:</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Aspect</th>
+<th>SDD (gentle-ai)</th>
+<th>ODF</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Phases</td>
+<td>propose → spec → design → tasks → apply → verify</td>
+<td>propose → assess → qa-plan → design → implement → verify</td>
+</tr>
+<tr>
+<td>Domain</td>
+<td>Generic</td>
+<td>Odoo-specific</td>
+</tr>
+<tr>
+<td>Sub-agents</td>
+<td>7 generic agents</td>
+<td>10 specialized Odoo agents (backend, frontend, QA, DBA, etc.)</td>
+</tr>
+<tr>
+<td>Skills</td>
+<td>Code style, commit conventions</td>
+<td>OCA governance, Odoo patterns, migration guides</td>
+</tr>
+<tr>
+<td>Profile system</td>
+<td>No</td>
+<td>Yes (default/cheap profiles per stage role)</td>
+</tr>
+<tr>
+<td>Community tools</td>
+<td>CodeGraph</td>
+<td>CodeGraph + extensible via plugin tools</td>
+</tr>
+<tr>
+<td>Persistence</td>
+<td>Engram default</td>
+<td>Selected <code>openspec</code>, <code>engram</code>, or <code>hybrid</code> mode</td>
+</tr>
+</tbody>
+</table></div>
+<h2 id="tests" tabindex="-1"><a class="anchor" href="#tests" aria-label="Link to this section">#</a>Tests</h2>
+<pre><code class="language-bash">npm test              # 1370 Vitest tests + 331 YAML scenarios
+npm run test:yaml     # YAML scenario runner only
+npm run test:unit     # Vitest only
+npm run typecheck     # tsc --noEmit
+npm run validate:skills                # Agent Skills + compact-rule validation
+npm run docs:build                     # regenerate docs/*.html + search index
+npm run docs:check                     # fail if generated docs are stale
+node scripts/odf-registry-validate.js   # validates all registered paths exist
+</code></pre>
+<p><strong>Registry selection</strong>: the test runner honors an absolute <code>ODF_CONFIG_DIR</code>, otherwise <code>scripts/lib/config-dir.js</code> derives the registry from the pack the module ships in, then <code>XDG_CONFIG_HOME/opencode</code>, then <code>HOME/.config/opencode</code>. Set <code>ODF_CONFIG_DIR=/path/to/repo</code> to validate against the repo copy.</p>
+<h2 id="registry-lifecycle" tabindex="-1"><a class="anchor" href="#registry-lifecycle" aria-label="Link to this section">#</a>Registry lifecycle</h2>
+<ol>
+<li>Update skills/agents/commands in this repo</li>
+<li>Run <code>node scripts/odf-registry-validate.js</code> (with <code>ODF_CONFIG_DIR</code> set to repo root) to catch broken paths</li>
+<li>Publish → install into <code>~/.config/opencode/</code> → run <code>/odf-registry-refresh</code> from inside an Odoo project</li>
+</ol>
+<h2 id="gotchas" tabindex="-1"><a class="anchor" href="#gotchas" aria-label="Link to this section">#</a>Gotchas</h2>
+<ul>
+<li><code>openspec/config.yaml</code> has <code>testing.strict_tdd: false</code> — correct; this repo uses YAML scenarios + Vitest, not a traditional coverage suite</li>
+<li><code>scripts/odf-cli.js</code> is a minimal parser that emits orchestrator routing envelopes, NOT the orchestrator itself</li>
+<li>Plugin tools are injected at runtime into the model's tool list — they are NOT MCP tools</li>
+<li><code>docs/*.html</code> (except the diagrams and <code>index.html</code>) are generated from Markdown by <code>npm run docs:build</code>; edit the <code>.md</code> source, never the generated page, and commit both</li>
+<li>After modifying an agent or skill file, run <code>/odf-registry-refresh</code> from inside an Odoo project to pick up changes</li>
+</ul>
+
+    </article>
+    <nav class="pager" aria-label="Documentation pagination"><a class="pager-link prev" href="changelog.html"><span>Previous</span><b>Changelog</b></a><a class="pager-link next" href="archive/index.html"><span>Next</span><b>Archive index</b></a></nav>
+  </main>
+  <aside class="toc" aria-label="On this page"><p class="toc-title">On this page</p><nav><a class="toc-l2" href="#odf-overview-what-it-does">ODF Overview — What It Does</a><a class="toc-l3" href="#what-you-can-do">What you can do</a><a class="toc-l3" href="#pipeline-stages">Pipeline stages</a><a class="toc-l2" href="#architecture">Architecture</a><a class="toc-l3" href="#plugin-tools-odf-delegationts">Plugin tools (odf-delegation.ts)</a><a class="toc-l3" href="#skills-system">Skills system</a><a class="toc-l3" href="#model-profiles">Model profiles</a><a class="toc-l3" href="#community-tools">Community tools</a><a class="toc-l3" href="#persistence">Persistence</a><a class="toc-l3" href="#preflight-gate">Preflight gate</a><a class="toc-l3" href="#orchestrator-safety-checks-gentle-ai-inspired">Orchestrator safety checks (gentle-ai inspired)</a><a class="toc-l2" href="#development-and-collaboration-practices">Development and collaboration practices</a><a class="toc-l3" href="#communication-and-scope">Communication and scope</a><a class="toc-l3" href="#programming-practices">Programming practices</a><a class="toc-l3" href="#tests-and-verification">Tests and verification</a><a class="toc-l3" href="#repository-and-workflow-safety">Repository and workflow safety</a><a class="toc-l3" href="#branch-pr-and-merge-workflow">Branch, PR, and merge workflow</a><a class="toc-l2" href="#key-structure">Key structure</a><a class="toc-l2" href="#quick-start">Quick start</a><a class="toc-l2" href="#odf-vs-sdd">ODF vs SDD</a><a class="toc-l2" href="#tests">Tests</a><a class="toc-l2" href="#registry-lifecycle">Registry lifecycle</a><a class="toc-l2" href="#gotchas">Gotchas</a></nav></aside>
+</div>
+<div class="overlay" id="overlay" role="dialog" aria-modal="true" aria-label="Search documentation">
+  <div class="palette">
+    <div class="palette-input">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true" style="color:var(--ink-faint)"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+      <input id="q" type="search" placeholder="Search docs, diagrams, contracts…" autocomplete="off" spellcheck="false">
+      <kbd>esc</kbd>
+    </div>
+    <div class="results" id="results"></div>
+    <div class="palette-foot"><span>↑↓ navigate</span><span>↵ open</span><span>esc close</span></div>
+  </div>
+</div>
+<div class="toast" id="toast" role="status"></div>
+<script src="assets/docs.js"></script>
+</body>
+</html>

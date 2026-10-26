@@ -1,0 +1,581 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="auto" data-base="">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Plugin Reference — odf-delegation · ODF Docs</title>
+  <meta name="description" content="The ODF plugin injects **29 tools** into the orchestrator&#39;s tool list at runtime. They are **not MCP tools** — they are registered by the OpenCode plugin host from `plugins/odf-delegation.ts`.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <script>(function(){var d=document.documentElement,s=localStorage.getItem("odf-theme"),m=matchMedia("(prefers-color-scheme: dark)").matches;d.dataset.theme=s||(m?"dark":"light");})();</script>
+  <link rel="stylesheet" href="assets/docs.css">
+</head>
+<body>
+<a class="skip" href="#content">Skip to content</a>
+<header class="bar">
+  <div class="bar-in">
+    <a class="brand" href="index.html">
+      <svg class="brand-glyph" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <rect x="2" y="9" width="6" height="6" rx="1.5" fill="currentColor" opacity=".95"/>
+        <rect x="9" y="9" width="6" height="6" rx="1.5" fill="currentColor" opacity=".65"/>
+        <rect x="16" y="9" width="6" height="6" rx="1.5" fill="currentColor" opacity=".35"/>
+        <path d="M8 12h1M15 12h1" stroke="currentColor" stroke-width="1.5"/>
+      </svg>
+      ODF <small>docs</small>
+    </a>
+    <div class="bar-spacer"></div>
+    <nav class="bar-nav" aria-label="Sections">
+      <a href="index.html#whatsnew">What's new</a>
+      <a href="index.html#flows">Flows</a>
+      <a href="index.html#skills">Skills</a>
+      <a href="docs.html">Docs</a>
+    </nav>
+    <button class="searchbtn" id="openSearch" aria-label="Search documentation">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+      <span class="lbl">Search docs…</span>
+      <kbd>/</kbd>
+    </button>
+    <button class="icon-btn" id="themeToggle" aria-label="Toggle dark mode" title="Toggle theme">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M4.9 4.9l1.4 1.4m11.4 11.4 1.4 1.4M2 12h2m16 0h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
+    </button>
+    <a class="gh" href="https://github.com/antoniodavid/odf-agent-team" target="_blank" rel="noopener">GitHub ↗</a>
+  </div>
+</header>
+<div class="shell">
+  <details class="side" open><summary>Documentation menu</summary><div class="side-inner"><a class="side-home" href="docs.html">Documentation index</a><p class="side-group">Overview</p><a href="docs.html">Docs index</a><a href="intended-usage.html">Intended usage</a><a href="architecture.html">Architecture</a><a href="opencode-v2-migration.html">OpenCode V2 migration</a><p class="side-group">Contracts</p><a href="route-contract.html">Route &amp; stage</a><a href="design-contract.html">Design</a><a href="expectations-contract.html">Expectations</a><a href="context-contract.html">Context Manifest</a><a href="safety-contract.html">Safety</a><a href="judge-shadow-contract.html">Judge shadow</a><a href="learning-loop-contract.html">Learning loop</a><p class="side-group">Operations</p><a href="metrics-and-engram-maintenance.html">Metrics &amp; Engram</a><a href="decision-evaluation.html">Decision evaluation</a><p class="side-group">Reference</p><a href="plugin.html" class="active" aria-current="page">Plugin reference</a><a href="skill-style-guide.html">Skill style guide</a><p class="side-group">Project</p><a href="readme.html">README</a><a href="changelog.html">Changelog</a><a href="agents.html">Contributing</a><p class="side-group">History</p><a href="archive/index.html">Archive index</a><a href="archive/harness-roadmap.html">Harness roadmap</a><a href="archive/odf-fast-lane-plan.html">Fast-lane plan</a><a href="archive/odf-fast-lane-tasks.html">Fast-lane tasks</a><a href="archive/odf-fast-lane-baseline-2026-09-13.html">Baseline 2026-09-13</a><a href="archive/odf-fast-lane-baseline-2026-09-16.html">Baseline 2026-09-16</a><a href="odf-linear-cycles-baseline-2026-10-01.html">Linear-cycles baseline</a></div></details>
+  <main id="content" class="doc">
+    <nav class="crumb" aria-label="Breadcrumb">
+      <a href="index.html">ODF</a><span>/</span><a href="docs.html">Docs</a><span>/</span><span>Reference</span>
+    </nav>
+    <article class="prose">
+      <h1>Plugin Reference — odf-delegation</h1>
+      <p class="doc-meta">10 min read</p>
+      <p>The ODF plugin injects <strong>29 tools</strong> into the orchestrator's tool list at runtime. They are <strong>not MCP tools</strong> — they are registered by the OpenCode plugin host from <code>plugins/odf-delegation.ts</code>.</p>
+<h2 id="tool-inventory" tabindex="-1"><a class="anchor" href="#tool-inventory" aria-label="Link to this section">#</a>Tool inventory</h2>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Tool</th>
+<th>Kind</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>odf_delegate</code></td>
+<td>write</td>
+<td>Route a stage role + prompt to the right sub-agent with skill injection</td>
+</tr>
+<tr>
+<td><code>odf_delegation_prepare</code></td>
+<td>write</td>
+<td>Resolve agent/skills/profile/prompt and mint a bounded delegation token</td>
+</tr>
+<tr>
+<td><code>odf_delegation_launch</code></td>
+<td>write</td>
+<td>Verify prepared prompt bytes against the token and submit them through the V2 session API</td>
+</tr>
+<tr>
+<td><code>odf_delegation_late_seal_prepare</code></td>
+<td>write</td>
+<td>Verify an expired original child and mint a token/attempt/parent/child-bound, single-use late-seal capability</td>
+</tr>
+<tr>
+<td><code>odf_proposal_write</code></td>
+<td>write</td>
+<td>Persist the token-bound PROPOSE artifact to its canonical OpenSpec path</td>
+</tr>
+<tr>
+<td><code>odf_delegation_seal</code></td>
+<td>write</td>
+<td>Bind the child session to the token, run the stage gates and return the standard envelope</td>
+</tr>
+<tr>
+<td><code>odf_parallel_delegate</code></td>
+<td>write</td>
+<td>Cross-domain BUILD as 2–3 parallel branches, one aggregate join</td>
+</tr>
+<tr>
+<td><code>odf_parallel_prepare</code></td>
+<td>write</td>
+<td>Prepare a native parallel BUILD: branch prompts + one token</td>
+</tr>
+<tr>
+<td><code>odf_parallel_seal</code></td>
+<td>write</td>
+<td>Seal a native parallel BUILD: verify branch sessions, run the aggregate scheduler, commit once</td>
+</tr>
+<tr>
+<td><code>odf_workflow_route</code></td>
+<td>read</td>
+<td>Canonical thin-spine route for a work type</td>
+</tr>
+<tr>
+<td><code>odf_workflow_advance</code></td>
+<td>read</td>
+<td>Preview/verify a transition (never mutates)</td>
+</tr>
+<tr>
+<td><code>odf_workflow_archive</code></td>
+<td>write</td>
+<td>Locked, idempotent terminal ARCHIVE transition through the selected store</td>
+</tr>
+<tr>
+<td><code>odf_workflow_override</code></td>
+<td>write</td>
+<td>Audited skip / re-enter / re-plan / settle-stale-attempt (BUILD &amp; VERIFY can never be skipped)</td>
+</tr>
+<tr>
+<td><code>odf_workflow_bind</code></td>
+<td>write</td>
+<td>Start or bind workflow state in the selected store</td>
+</tr>
+<tr>
+<td><code>odf_workflow_status</code></td>
+<td>read</td>
+<td>Canonical status from OpenSpec / Engram / <code>.odf</code></td>
+</tr>
+<tr>
+<td><code>odf_feedback_submit</code></td>
+<td>write</td>
+<td>Preview or submit one explicitly confirmed, privacy-bounded feedback aggregate</td>
+</tr>
+<tr>
+<td><code>odf_entry_triage</code></td>
+<td>read</td>
+<td>Classify micro / standard / full entry + pick work type</td>
+</tr>
+<tr>
+<td><code>odf_context_manifest</code></td>
+<td>read</td>
+<td>Bounded, reference-only context manifest: project facts, references, redundancy counts, gate decision, Expectations ref</td>
+</tr>
+<tr>
+<td><code>odf_skill_inject</code></td>
+<td>read</td>
+<td>Match and inject skill compact rules into a prompt</td>
+</tr>
+<tr>
+<td><code>odf_skill_resolve</code></td>
+<td>read</td>
+<td>Preview matching skills <strong>without</strong> executing</td>
+</tr>
+<tr>
+<td><code>odf_registry_read</code></td>
+<td>read</td>
+<td>Read + cache <code>odf-registry.json</code> (TTL + file watcher)</td>
+</tr>
+<tr>
+<td><code>odf_profile_select</code></td>
+<td>read</td>
+<td>Which model profile applies to a stage role</td>
+</tr>
+<tr>
+<td><code>odf_policy_gate</code></td>
+<td>write</td>
+<td>Resolve + persist TDD/risk gate before BUILD/VERIFY</td>
+</tr>
+<tr>
+<td><code>odf_receipt</code></td>
+<td>write</td>
+<td>Persist a failure-disposition receipt</td>
+</tr>
+<tr>
+<td><code>odf_community_tool_detect</code></td>
+<td>read</td>
+<td>Is an optional tool (e.g. CodeGraph) available?</td>
+</tr>
+<tr>
+<td><code>odf_community_tool_install</code></td>
+<td>write</td>
+<td>Install + wire an optional tool</td>
+</tr>
+<tr>
+<td><code>odf_governance_provenance</code></td>
+<td>write</td>
+<td>Record OCA AI provenance in <code>.odf/ai-provenance.json</code></td>
+</tr>
+<tr>
+<td><code>odf_governance_check</code></td>
+<td>read</td>
+<td>OCA governance gate: diff, trailers, provenance</td>
+</tr>
+<tr>
+<td><code>odf_health</code></td>
+<td>read</td>
+<td>Installed/runtime health check</td>
+</tr>
+</tbody>
+</table></div>
+<h2 id="modules-odf-plugin" tabindex="-1"><a class="anchor" href="#modules-odf-plugin" aria-label="Link to this section">#</a>Modules (<code>odf-plugin/</code>)</h2>
+<p>The entrypoint stays a monolith for the delegation core; self-contained concerns live beside it:</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Module</th>
+<th>Responsibility</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>odf-delegation-shared.ts</code></td>
+<td>Safe paths, registry type model, <code>ODF_REGISTERED_TOOLS</code></td>
+</tr>
+<tr>
+<td><code>odf-delegation-metrics.ts</code></td>
+<td>Telemetry records, flush loop, token estimation</td>
+</tr>
+<tr>
+<td><code>odf-feedback.ts</code></td>
+<td>Local-session aggregate preview and opt-in HTTPS feedback submission</td>
+</tr>
+<tr>
+<td><code>odf-delegation-health.ts</code></td>
+<td>Read-only health, native task adapter, SDK session fallback</td>
+</tr>
+<tr>
+<td><code>odf-delegation-policy.ts</code></td>
+<td>Policy Gate resolution/persistence</td>
+</tr>
+<tr>
+<td><code>odf-delegation-loopguard.ts</code></td>
+<td>Duplicate-launch and loop protection</td>
+</tr>
+<tr>
+<td><code>odf-late-seal-capability.ts</code></td>
+<td>One-time, short-TTL authority bound to an expired token/attempt/parent/child</td>
+</tr>
+<tr>
+<td><code>odf-session-status.ts</code></td>
+<td>Bounded process-local cache of observed V2 child liveness</td>
+</tr>
+<tr>
+<td><code>odf-delegation-receipts.ts</code></td>
+<td>Failure receipts</td>
+</tr>
+<tr>
+<td><code>odf-workflow.ts</code></td>
+<td>Canonical stage state machine</td>
+</tr>
+<tr>
+<td><code>odf-workflow-status.ts</code></td>
+<td>Read-only status merger (OpenSpec authority)</td>
+</tr>
+<tr>
+<td><code>odf-artifact-contract.ts</code></td>
+<td>Canonical artifact vocabulary, aliases, completion sets, handoff gates</td>
+</tr>
+<tr>
+<td><code>odf-artifact-stores.js</code></td>
+<td>Store values and their supported artifact subsets</td>
+</tr>
+<tr>
+<td><code>odf-result-contract.ts</code></td>
+<td>ODF Result schema plus deterministic <code>stop_disposition</code> classification</td>
+</tr>
+<tr>
+<td><code>scripts/lib/odf-project-activation.js</code></td>
+<td><code>.odf/project.json</code> activation manifest (idempotent first-activation record)</td>
+</tr>
+<tr>
+<td><code>entry-triage.ts</code></td>
+<td>Deterministic micro/standard/full classification</td>
+</tr>
+<tr>
+<td><code>odf-expectations.ts</code></td>
+<td>Human Expectations + revisions</td>
+</tr>
+<tr>
+<td><code>odf-governance.ts</code></td>
+<td>OCA governance gate</td>
+</tr>
+<tr>
+<td><code>odf-observability.ts</code></td>
+<td>Structured logging</td>
+</tr>
+<tr>
+<td><code>odf-parallel-join.ts</code></td>
+<td>Aggregate join for parallel branches</td>
+</tr>
+<tr>
+<td><code>odf-registry-io.ts</code></td>
+<td>Registry read/cache</td>
+</tr>
+<tr>
+<td><code>odf-skills.ts</code></td>
+<td>Skill matching + compact-rule injection</td>
+</tr>
+<tr>
+<td><code>odf-source-authority.ts</code></td>
+<td>Local Odoo source resolution</td>
+</tr>
+<tr>
+<td><code>odf-context-manifest.ts</code></td>
+<td>Bounded context manifest</td>
+</tr>
+<tr>
+<td><code>candidate-manifest.ts</code></td>
+<td>Candidate tracking</td>
+</tr>
+<tr>
+<td><code>odf-community-tools.ts</code></td>
+<td>CodeGraph detect/install</td>
+</tr>
+<tr>
+<td><code>opencode-v2-adapter.ts</code></td>
+<td>Official V2 <code>Plugin.define</code>/<code>setup</code> adapter (tools, hooks, session bridge)</td>
+</tr>
+<tr>
+<td><code>opencode-v2-entrypoint.ts</code></td>
+<td>V2-only entrypoint re-export</td>
+</tr>
+<tr>
+<td><code>odf-tool.ts</code></td>
+<td>Host-neutral <code>tool</code> helper (identity function + <code>zod</code> schema namespace) that replaces the runtime import of <code>@opencode-ai/plugin</code></td>
+</tr>
+<tr>
+<td><code>runtime-boundary.ts</code></td>
+<td>Host-neutral plugin id/lifecycle seam</td>
+</tr>
+</tbody>
+</table></div>
+<h2 id="odfdelegate-flow" tabindex="-1"><a class="anchor" href="#odfdelegate-flow" aria-label="Link to this section">#</a><code>odf_delegate</code> flow</h2>
+<pre><code>orchestrator
+   │  odf_delegate(stage, role, prompt, context_files)
+   ▼
+┌─ plugin ─────────────────────────────────────────────┐
+│ 1. load odf-registry.json (TTL cache)                │
+│ 2. resolve agent  (stage role + keywords → agent)    │
+│ 3. match ≤5 skills (role-aware canonical matcher)    │
+│ 4. inject compact rules + active profile into prompt │
+│ 5. enforce Policy Gate / evidence seal / design_closed│
+│ 6. transport:                                         │
+│      native toolCtx.task  ──or──  SDK child session   │
+│ 7. return envelope {status, agent, skills, result}    │
+│    status ∈ delegated | blocked | error | timeout     │
+└──────────────────────────────────────────────────────┘
+   │
+   ▼
+specialist agent  ──►  Odoo worktree (edits, tests)
+</code></pre>
+<p><strong>Why one call is efficient:</strong> the orchestrator issues a single <code>odf_delegate</code> round-trip. The plugin does registry lookup, agent resolution, skill matching, profile selection, and gate enforcement <em>inside that call</em> — the specialist arrives pre-loaded with rules instead of spending its own turns grepping the repo.</p>
+<p><strong>Blocked envelope:</strong> if no task API is available, the tool returns <code>{status:&quot;blocked&quot;, reason:&quot;task-api-unavailable&quot;}</code> and <strong>never</strong> hands back an executable fallback prompt.</p>
+<h2 id="native-prepareseal-flow-opencode-v2" tabindex="-1"><a class="anchor" href="#native-prepareseal-flow-opencode-v2" aria-label="Link to this section">#</a>Native prepare/seal flow (OpenCode V2)</h2>
+<p>The native prepare/launch/seal flow creates visible child sessions through the
+V2 API instead of handing prompt text to the host <code>subagent</code> tool:</p>
+<pre><code>orchestrator
+   │ 1. odf_delegation_prepare(stage, role, change, prompt, …)
+   │      → { token, delegation: { agent, description, prompt } }
+   │ 2. odf_delegation_launch({ token, change, prompt })
+   │      → session.prompt(text: exact prepared bytes) → child sessionID
+   │ 3. odf_delegation_seal({ token, change, session_id })
+   ▼
+plugin
+   • verifies the child session (agent, prompt digest, workspace, parentID when present)
+   • reads the ODF Result through the V2 session API
+   • runs the composite gates or replays the authoritative delegate for BUILD/VERIFY
+     (proof revalidation, prepared policy gate, validation-evidence seal, workflow commit,
+      attempt settlement, failure receipts)
+   • consumes the token and returns the standard envelope (+ task_session_id)
+</code></pre>
+<ul>
+<li>Launch checks the prompt digest and UTF-8 byte length before creating a child,
+then submits the same string directly through <code>session.prompt</code>. The seal
+independently hashes the child transcript; a successful API call or returned
+session ID is not proof of receipt.</li>
+<li>A durable launch record binds parent and child IDs. Retries reuse the same
+session and never resend prompts in <code>sending</code>, <code>uncertain</code>, or <code>interrupted</code>
+states. Only a persisted <code>created</code> state can resume submission.</li>
+<li>The seal reads the transcript through the documented V2 <code>session.context</code>
+API, including its projected V2 message and supported response-envelope
+shapes. Empty, incomplete, malformed, or failed reads return a bounded
+<code>conversation_read.context</code> diagnostic; raw host error text is not exposed.</li>
+<li>For proof-backed attempts, the returned child ID is first recorded as
+<code>native_child_observed_session_id</code> (unverified). It becomes
+<code>native_child_session_id</code> only after ancestry, agent, workspace, idle, and
+exact prompt-digest checks pass. An observed ID alone never completes or
+settles an attempt; an unreadable transcript leaves the token and attempt
+available for a safe retry.</li>
+<li>The token is a bounded opaque <code>odf-tok-…</code> file under <code>.odf/</code> (two-hour TTL);
+binding failures keep it for a retry, processed delegations consume it.</li>
+<li>IMPLEMENT/VERIFY also require <code>artifact_store</code>, the exact <code>workflow_advance</code>
+proof and a fresh <code>attempt_id</code>; the attempt is acquired at prepare time and
+settled by the seal. Fast-lane BUILD/VERIFY stays on <code>odf_delegate</code>.</li>
+<li>If the original two-hour token expires after launch, call
+<code>odf_delegation_late_seal_prepare</code> in the original parent session with the
+original token and child ID. It verifies the still-running attempt, child
+ancestry/agent/workspace, idle state, and exact prompt bytes without changing
+the token or attempt. Pass the returned ten-minute capability to
+<code>odf_delegation_seal</code>; ordinary evidence and workflow gates still apply. Only
+an accepted seal consumes the capability; do not relaunch the child or edit
+the original expiry.</li>
+</ul>
+<h3 id="native-parallel-build-cross-domain" tabindex="-1"><a class="anchor" href="#native-parallel-build-cross-domain" aria-label="Link to this section">#</a>Native parallel BUILD (cross-domain)</h3>
+<p><code>odf_parallel_prepare</code> → one <code>odf_delegation_launch</code> call with every exact branch
+prompt → <code>odf_parallel_seal</code> runs the same aggregate scheduler as
+<code>odf_parallel_delegate</code> with visible branch sessions: per-branch validation evidence, the
+<code>.odf/parallel-join-{change}.json</code> artifact, one BUILD commit and one aggregate
+receipt on failure. The aggregate envelope matches <code>odf_parallel_delegate</code> plus
+per-branch <code>task_session_id</code>. Branch context files must not overlap and branches
+range from two to three.</p>
+<h3 id="causal-workflow-diagnostics" tabindex="-1"><a class="anchor" href="#causal-workflow-diagnostics" aria-label="Link to this section">#</a>Causal workflow diagnostics</h3>
+<p><code>odf_workflow_status</code> includes a bounded <code>observability.causal_sequence</code> from
+native delegation token records: prepared, host-dispatch, seal-start,
+child-result-read, workflow-commit-observed, and seal-result milestones. These
+timestamps represent when ODF persisted or observed each boundary, not inferred
+provider timestamps. <code>causal_gaps</code> and partial source coverage identify
+timestamps or milestones that were not persisted; the status
+does not invent times or expose the token, full prompt, or raw seal envelope.
+Each event carries the change and sanitized stage artifact references. The
+child-result event compares prepared, dispatched, and received digest prefixes
+and UTF-8 lengths, with a bounded difference summary. Only safe session IDs are
+included for correlation. Reads are capped at 1,000 <code>.odf/</code> directory entries
+and 100 token records per change.
+<code>observability.delegation_status</code> keeps stage-artifact presence, latest observed
+child liveness/result, handoff integrity, seal, and canonical commit distinct.
+Liveness is <code>unknown</code> until a V2 <code>session.status</code> event has been observed; the
+reported next action is advisory and never performs recovery.</p>
+<h3 id="native-delegation-lifecycle-and-recovery" tabindex="-1"><a class="anchor" href="#native-delegation-lifecycle-and-recovery" aria-label="Link to this section">#</a>Native delegation lifecycle and recovery</h3>
+<p>Prepared, launched, and sealed delegations are one lifecycle with three failure
+families that never silently replay:</p>
+<ul>
+<li><strong>Cancellation.</strong> Cancelling the parent propagates to the delegated child: the
+plugin aborts it, waits a bounded time, settles the attempt as failed, and
+returns <code>reason: task-cancelled</code> with <code>kind: terminal</code>. A cancelled child is
+never relaunched by the seal.</li>
+<li><strong>Binding.</strong> The child must match the prepared parent, agent, model, workspace,
+and prompt digest. A mismatch reports the precise seal reason and keeps the
+token for a valid retry; it never returns a success envelope.</li>
+<li><strong>Expiry.</strong> When the original two-hour token expires after a successful launch,
+<code>odf_delegation_late_seal_prepare</code> verifies the exact original child (ancestry,
+agent, workspace, idle state, prompt bytes) and returns a ten-minute,
+single-use capability bound to that token, attempt, parent, and child. The
+original expiry is never refreshed or edited.</li>
+</ul>
+<h3 id="safe-stop-classification" tabindex="-1"><a class="anchor" href="#safe-stop-classification" aria-label="Link to this section">#</a>Safe stop classification</h3>
+<p>Every <code>blocked</code>/<code>failed</code> envelope carries a <code>stop_disposition</code>:</p>
+<pre><code class="language-json">{
+  &quot;kind&quot;: &quot;human-decision&quot;,
+  &quot;user_action_required&quot;: true,
+  &quot;automatic_recovery&quot;: &quot;none&quot;,
+  &quot;reason&quot;: &quot;expectations-not-approved&quot;,
+  &quot;next_action&quot;: &quot;Ask the user for the specific approval or disposition named by the gate.&quot;
+}
+</code></pre>
+<p><code>kind</code> is one of <code>human-decision</code>, <code>safety</code>, <code>repairable</code>, <code>dependency</code>,
+<code>terminal</code>, or <code>unclassified</code>; <code>automatic_recovery</code> is one of <code>none</code>,
+<code>repair-in-phase</code>, <code>retry-once</code>, or <code>wait</code>. Unknown reasons classify as
+<code>unclassified</code> with <code>user_action_required: true</code>, so an unrecognized failure can
+never auto-continue. A child-reported disposition is accepted only when it cannot
+weaken the deterministic classification.</p>
+<h3 id="project-scoped-activation" tabindex="-1"><a class="anchor" href="#project-scoped-activation" aria-label="Link to this section">#</a>Project-scoped activation</h3>
+<p>ODF is active only in an initialized project. <code>/odf-init</code> writes
+<code>.odf/project.json</code> (<code>schema_version</code>, <code>enabled</code>, <code>kind: odoo</code>, canonical <code>root</code>,
+<code>project</code>, <code>initialized_at</code>), and re-scanning the same root and project returns
+the existing manifest unchanged. Because the plugin registers tools per project
+when the runtime boots, activation created after boot prints
+<code>ODF runtime reload required:</code>; full restart of OpenCode (all windows plus the
+<code>opencode serve --service</code> daemon) is the recovery, not a reinstall.</p>
+<h3 id="active-change-discovery-and-recovery" tabindex="-1"><a class="anchor" href="#active-change-discovery-and-recovery" aria-label="Link to this section">#</a>Active-change discovery and recovery</h3>
+<p>When <code>odf_workflow_status</code> is called without <code>change_name</code>,
+<code>active_change_resolution.status</code> is one of <code>none</code>, <code>unambiguous</code>, <code>ambiguous</code>,
+or <code>incomplete</code>; an explicitly named query reports <code>explicit</code>. Candidate
+projections and source scanning are bounded and read-only; <code>candidate_count</code> is
+<code>null</code> when a source is missing, malformed, or truncated. Continuation
+may use the returned snapshot only for <code>unambiguous</code> with one resumable
+candidate; multiple candidates require a user choice, and any discovery warning
+blocks implicit selection. OpenSpec and Engram are both enumerated because a
+single OpenSpec-authoritative change does not prove that no Engram-only change
+also exists. The selected workflow state remains authoritative, and the same
+snapshot used to establish uniqueness is used to render the selected status.
+Passing an exact <code>change_name</code> can resolve candidate ambiguity, but does not
+clear receipts, make a non-resumable change resumable, or bypass any gate.</p>
+<p>Recovery remains separate from diagnosis. <code>busy</code> or <code>retry</code> child liveness means
+wait for that exact child; missing liveness is <code>unknown</code>, never idle. An idle
+child still requires the original prompt-integrity and seal/evidence checks.
+Stale attempts use the audited <code>odf_workflow_override</code> recovery path only after
+the parent/child bindings and idle state are proven. An expired native token
+requires <code>odf_delegation_late_seal_prepare</code> to mint a different ten-minute,
+single-use capability bound to the original token, attempt, parent, and child;
+the original expiry is unchanged, and the resulting seal reruns normal gates.
+These recommendations do not automatically launch, settle, or mutate work.
+Before a recovery mutation, the orchestrator reports its observed cause,
+evidence references, bounded action, and possible effects. Afterward it reports
+the persisted change and remaining pending gates. Recovery outcomes and elapsed
+time are local bounded metric spans; host-provided <code>cost_usd</code> and real token
+counts are captured only when present, never synthesized.</p>
+<h3 id="conversational-routing-and-offline-evidence" tabindex="-1"><a class="anchor" href="#conversational-routing-and-offline-evidence" aria-label="Link to this section">#</a>Conversational routing and offline evidence</h3>
+<p>Explicit slash commands override natural-language routing. Read-only
+investigation stays in EXPLORE; implementation after exploration requires an
+explicit user request and a fresh authorized workflow. Direct feature and
+bugfix starts are recognized narrowly by the V2 adapter and receive the same
+first-operation <code>odf_health</code> gate and same-session bind capability as command
+starts. The natural entry capability is bound to a compatible work type and a
+single chosen change name; ambiguous or unsupported text does not mint it.</p>
+<p>Deterministic offline journeys (<code>scripts/odf-issue-122-journeys.test.ts</code>) cover
+exploration-to-feature, bugfix-to-verified-fix, follow-up/resume, ambiguous
+intent, active-child wait timeout, and scope escalation. Focused regressions also
+exercise prompt detection and bind authorization
+(<code>opencode-v2-adapter.test.ts</code>), active-change selection and store failures
+(<code>odf-delegation.test.ts</code>, <code>orchestrator.test.ts</code>), child timeout/settlement
+(<code>odf-delegation-prepare-seal.test.ts</code>, <code>odf-native-attempt-recovery.test.ts</code>),
+and redacted causal diagnostics (<code>odf-observability.test.ts</code>). These deterministic
+tests validate implementation boundaries; they do not simulate model judgment
+or claim conversational-quality improvements. Evaluation remains offline and
+provider-agnostic.</p>
+<h3 id="explicit-online-feedback" tabindex="-1"><a class="anchor" href="#explicit-online-feedback" aria-label="Link to this section">#</a>Explicit online feedback</h3>
+<p><code>/odf-feedback &lt;change&gt;</code> previews an aggregate from the current session's local
+metrics. It sends nothing until the user reviews the destination and values and
+confirms. The endpoint is operator-configured, HTTPS-only, and disabled by
+default. Only an explicit 1–5 rating and bounded aggregate counts, duration,
+latest stage status, and host-provided token/cost values are sent. Prompts,
+outputs, free text, identifiers, paths, model/provider names, and estimates are
+excluded. There is no durable outbox or retry. The endpoint owner must enforce
+the configured 1–30-day retention; ODF cannot verify remote retention. See
+<a href="metrics-and-engram-maintenance.html"><code>metrics-and-engram-maintenance.md</code></a> for the
+payload and configuration contract.</p>
+<p><strong>Visibility and interruptions:</strong> programmatic launch returns child session IDs;
+the parent transcript need not contain a host <code>subagent</code> row. With legacy
+<code>odf_delegate</code> the delegation runs inside the tool call, so the child session —
+titled <code>ODF &lt;stage&gt; &lt;role&gt; → &lt;agent&gt; · &lt;change&gt;</code> — is visible under <code>/sessions</code> while
+it runs. An interrupted or uncertain programmatic submission is never resent;
+retry the seal with that same session ID so it can independently wait for and
+inspect the transcript. If the prompt was not admitted, the seal fails closed.</p>
+<h2 id="transport" tabindex="-1"><a class="anchor" href="#transport" aria-label="Link to this section">#</a>Transport</h2>
+<ol>
+<li><strong>Native</strong> — host exposes <code>toolCtx.task</code>; permissions derive from the host.</li>
+<li><strong>SDK child session</strong> — <code>client.session.create</code> + <code>client.session.prompt</code>; parent session, agent, model, and workspace-relative context are forwarded. Best-effort metadata binding; native permissions remain authoritative when available.</li>
+<li>Neither → blocked (see above).</li>
+</ol>
+<h2 id="invariants" tabindex="-1"><a class="anchor" href="#invariants" aria-label="Link to this section">#</a>Invariants</h2>
+<ul>
+<li>BUILD and VERIFY can never be skipped; only DECIDE/PLAN via audited <code>odf_workflow_override</code>.</li>
+<li>Max <strong>5</strong> skill compact rules per delegation.</li>
+<li>Policy Gate for BUILD/VERIFY is authoritative and recomputed only by <code>odf_policy_gate</code>.</li>
+<li>A <code>blocked</code>/<code>failed</code> envelope always names its stop disposition; an unclassified reason never auto-continues.</li>
+<li>Task failures auto-seal a receipt.</li>
+<li>Registry relative paths resolve against the directory containing <code>odf-registry.json</code>; absolute legacy paths keep working.</li>
+</ul>
+
+    </article>
+    <nav class="pager" aria-label="Documentation pagination"><a class="pager-link prev" href="decision-evaluation.html"><span>Previous</span><b>Decision evaluation</b></a><a class="pager-link next" href="skill-style-guide.html"><span>Next</span><b>Skill style guide</b></a></nav>
+  </main>
+  <aside class="toc" aria-label="On this page"><p class="toc-title">On this page</p><nav><a class="toc-l2" href="#tool-inventory">Tool inventory</a><a class="toc-l2" href="#modules-odf-plugin">Modules (odf-plugin/)</a><a class="toc-l2" href="#odfdelegate-flow">odf_delegate flow</a><a class="toc-l2" href="#native-prepareseal-flow-opencode-v2">Native prepare/seal flow (OpenCode V2)</a><a class="toc-l3" href="#native-parallel-build-cross-domain">Native parallel BUILD (cross-domain)</a><a class="toc-l3" href="#causal-workflow-diagnostics">Causal workflow diagnostics</a><a class="toc-l3" href="#native-delegation-lifecycle-and-recovery">Native delegation lifecycle and recovery</a><a class="toc-l3" href="#safe-stop-classification">Safe stop classification</a><a class="toc-l3" href="#project-scoped-activation">Project-scoped activation</a><a class="toc-l3" href="#active-change-discovery-and-recovery">Active-change discovery and recovery</a><a class="toc-l3" href="#conversational-routing-and-offline-evidence">Conversational routing and offline evidence</a><a class="toc-l3" href="#explicit-online-feedback">Explicit online feedback</a><a class="toc-l2" href="#transport">Transport</a><a class="toc-l2" href="#invariants">Invariants</a></nav></aside>
+</div>
+<div class="overlay" id="overlay" role="dialog" aria-modal="true" aria-label="Search documentation">
+  <div class="palette">
+    <div class="palette-input">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true" style="color:var(--ink-faint)"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+      <input id="q" type="search" placeholder="Search docs, diagrams, contracts…" autocomplete="off" spellcheck="false">
+      <kbd>esc</kbd>
+    </div>
+    <div class="results" id="results"></div>
+    <div class="palette-foot"><span>↑↓ navigate</span><span>↵ open</span><span>esc close</span></div>
+  </div>
+</div>
+<div class="toast" id="toast" role="status"></div>
+<script src="assets/docs.js"></script>
+</body>
+</html>

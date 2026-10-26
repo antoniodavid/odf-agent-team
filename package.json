@@ -18,7 +18,9 @@
     "typecheck": "tsc --noEmit",
     "validate:skills": "node scripts/odf-skill-validate.js",
     "engram:maintenance": "node scripts/odf-engram-maintenance.js",
-    "test:harness": "vitest run scripts/odf-harness.test.ts"
+    "test:harness": "vitest run scripts/odf-harness.test.ts",
+    "docs:build": "node scripts/odf-docs-build.js",
+    "docs:check": "node scripts/odf-docs-build.js --check"
   },
   "dependencies": {
     "yaml": "^2.7.0",
@@ -28,6 +30,7 @@
     "@opencode-ai/plugin": "^1.15.0",
     "@opencode-ai/sdk": "^1.15.0",
     "@types/node": "^22.13.0",
+    "markdown-it": "^14.3.3",
     "typescript": "^5.7.3",
     "vitest": "^3.0.5"
   },

@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="auto" data-base="">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ODF Intended Usage · ODF Docs</title>
+  <meta name="description" content="This document describes the mental model for using ODF inside OpenCode.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <script>(function(){var d=document.documentElement,s=localStorage.getItem("odf-theme"),m=matchMedia("(prefers-color-scheme: dark)").matches;d.dataset.theme=s||(m?"dark":"light");})();</script>
+  <link rel="stylesheet" href="assets/docs.css">
+</head>
+<body>
+<a class="skip" href="#content">Skip to content</a>
+<header class="bar">
+  <div class="bar-in">
+    <a class="brand" href="index.html">
+      <svg class="brand-glyph" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <rect x="2" y="9" width="6" height="6" rx="1.5" fill="currentColor" opacity=".95"/>
+        <rect x="9" y="9" width="6" height="6" rx="1.5" fill="currentColor" opacity=".65"/>
+        <rect x="16" y="9" width="6" height="6" rx="1.5" fill="currentColor" opacity=".35"/>
+        <path d="M8 12h1M15 12h1" stroke="currentColor" stroke-width="1.5"/>
+      </svg>
+      ODF <small>docs</small>
+    </a>
+    <div class="bar-spacer"></div>
+    <nav class="bar-nav" aria-label="Sections">
+      <a href="index.html#whatsnew">What's new</a>
+      <a href="index.html#flows">Flows</a>
+      <a href="index.html#skills">Skills</a>
+      <a href="docs.html">Docs</a>
+    </nav>
+    <button class="searchbtn" id="openSearch" aria-label="Search documentation">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+      <span class="lbl">Search docs…</span>
+      <kbd>/</kbd>
+    </button>
+    <button class="icon-btn" id="themeToggle" aria-label="Toggle dark mode" title="Toggle theme">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M4.9 4.9l1.4 1.4m11.4 11.4 1.4 1.4M2 12h2m16 0h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
+    </button>
+    <a class="gh" href="https://github.com/antoniodavid/odf-agent-team" target="_blank" rel="noopener">GitHub ↗</a>
+  </div>
+</header>
+<div class="shell">
+  <details class="side" open><summary>Documentation menu</summary><div class="side-inner"><a class="side-home" href="docs.html">Documentation index</a><p class="side-group">Overview</p><a href="docs.html">Docs index</a><a href="intended-usage.html" class="active" aria-current="page">Intended usage</a><a href="architecture.html">Architecture</a><a href="opencode-v2-migration.html">OpenCode V2 migration</a><p class="side-group">Contracts</p><a href="route-contract.html">Route &amp; stage</a><a href="design-contract.html">Design</a><a href="expectations-contract.html">Expectations</a><a href="context-contract.html">Context Manifest</a><a href="safety-contract.html">Safety</a><a href="judge-shadow-contract.html">Judge shadow</a><a href="learning-loop-contract.html">Learning loop</a><p class="side-group">Operations</p><a href="metrics-and-engram-maintenance.html">Metrics &amp; Engram</a><a href="decision-evaluation.html">Decision evaluation</a><p class="side-group">Reference</p><a href="plugin.html">Plugin reference</a><a href="skill-style-guide.html">Skill style guide</a><p class="side-group">Project</p><a href="readme.html">README</a><a href="changelog.html">Changelog</a><a href="agents.html">Contributing</a><p class="side-group">History</p><a href="archive/index.html">Archive index</a><a href="archive/harness-roadmap.html">Harness roadmap</a><a href="archive/odf-fast-lane-plan.html">Fast-lane plan</a><a href="archive/odf-fast-lane-tasks.html">Fast-lane tasks</a><a href="archive/odf-fast-lane-baseline-2026-09-13.html">Baseline 2026-09-13</a><a href="archive/odf-fast-lane-baseline-2026-09-16.html">Baseline 2026-09-16</a><a href="odf-linear-cycles-baseline-2026-10-01.html">Linear-cycles baseline</a></div></details>
+  <main id="content" class="doc">
+    <nav class="crumb" aria-label="Breadcrumb">
+      <a href="index.html">ODF</a><span>/</span><a href="docs.html">Docs</a><span>/</span><span>Overview</span>
+    </nav>
+    <article class="prose">
+      <h1>ODF Intended Usage</h1>
+      <p class="doc-meta">5 min read</p>
+      <p>This document describes the mental model for using ODF inside OpenCode.</p>
+<blockquote>
+<p>Visual version: <a href="https://github.com/antoniodavid/odf-agent-team/blob/main/docs/odf-agent-phase-flow.html">phase flow</a> · <a href="https://github.com/antoniodavid/odf-agent-team/blob/main/docs/harness-architecture.html">harness architecture</a> · <a href="https://github.com/antoniodavid/odf-agent-team/blob/main/docs/delegation-flow.html">delegation efficiency</a> (interactive HTML).</p>
+</blockquote>
+<h2 id="what-odf-is" tabindex="-1"><a class="anchor" href="#what-odf-is" aria-label="Link to this section">#</a>What ODF Is</h2>
+<p>ODF is an OpenCode skill/agent pack that turns a generic AI assistant into a structured Odoo delivery team. It provides:</p>
+<ul>
+<li>A <strong>registry</strong> of 87 skills and 11 agents.</li>
+<li>A <strong>conversational orchestrator</strong> that runs a preflight gate, resolves the thin-spine workflow route, builds one bounded Context Manifest, and delegates work stages.</li>
+<li>A <strong>plugin</strong> (<code>odf-delegation.ts</code>) that resolves skills/agents, enforces the Policy Gate and validation evidence, uses a native task adapter when the host exposes one, falls back to an SDK child session, and derives canonical status from OpenSpec/Engram.</li>
+<li>An <strong>installer</strong> that deploys the pack idempotently into <code>~/.config/opencode</code>.</li>
+</ul>
+<h2 id="when-to-use-each-entry-point" tabindex="-1"><a class="anchor" href="#when-to-use-each-entry-point" aria-label="Link to this section">#</a>When to Use Each Entry Point</h2>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Entry point</th>
+<th>Use when</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>/odf-init</code></td>
+<td>You opened a new Odoo project and want ODF to detect version, modules, test runner, etc.</td>
+</tr>
+<tr>
+<td><code>/odf-new &lt;name&gt;</code></td>
+<td>You want to start a change on its resolved route. Runs health/preflight first and shows one route.</td>
+</tr>
+<tr>
+<td><code>/odf-continue [name]</code></td>
+<td>You want to resume an active change from the last completed stage.</td>
+</tr>
+<tr>
+<td><code>/odf-status [name]</code></td>
+<td>You want to see active changes or inspect one in detail (canonical thin-spine status).</td>
+</tr>
+<tr>
+<td><code>/odf-explore &lt;topic&gt;</code></td>
+<td>You want to research a topic without creating a formal change.</td>
+</tr>
+<tr>
+<td><code>/odf-fix &lt;topic&gt;</code></td>
+<td>You have a focused bug: diagnose → BUILD → VERIFY, escalating to full ODF when architecture changes are needed.</td>
+</tr>
+<tr>
+<td><code>/odf-apply</code></td>
+<td>BUILD alias for an existing planned change (legacy IMPLEMENT adapter).</td>
+</tr>
+<tr>
+<td><code>/odf-verify</code></td>
+<td>You finished implementation and want the quality gate.</td>
+</tr>
+<tr>
+<td><code>/odf-qa</code></td>
+<td>Formal QA lens when routed; small changes keep focused QA inline.</td>
+</tr>
+</tbody>
+</table></div>
+<h2 id="the-workflow" tabindex="-1"><a class="anchor" href="#the-workflow" aria-label="Link to this section">#</a>The Workflow</h2>
+<p>A change follows one resolved route; the orchestrator does not show every
+adapter phase as a separate handoff:</p>
+<pre><code>/odf-new my-feature
+   │
+   ▼
+Health + one intake ──► show the resolved route and next action
+   ├── EXPLORE                         question / investigation
+   ├── DECIDE                          standard configuration
+   ├── DECIDE → BUILD → VERIFY         small change (inline QA)
+   ├── DECIDE → BUILD → VERIFY         feature-inline (bounded ASSESS only when gated)
+   ├── FIX → BUILD → VERIFY            bugfix (inline regression QA)
+   ├── DECIDE → PLAN → BUILD → VERIFY  feature / cross-domain / elevated risk
+   └── VERIFY                          verify-only
+</code></pre>
+<p>Routing decides how much of the spine a change needs:</p>
+<ul>
+<li><strong>Standard config</strong> (known standard feature): ends after DECIDE; no custom BUILD.</li>
+<li><strong>Small change</strong>: inline plan and focused QA before BUILD; no separate QA-PLAN/design handoffs.</li>
+<li><strong>Feature inline</strong>: the default standard-feature route. It keeps Intent +
+Expectations and drops the formal PLAN; DECIDE is terminal when the entry gate
+reads <code>skip</code>, runs one bounded ASSESS when it reads <code>assess</code>, and escalates to
+the formal <code>feature</code> route when it reads <code>escalate</code>.</li>
+<li><strong>Feature / cross-domain / migration / security</strong>: formal DECIDE → PLAN → BUILD → VERIFY, with QA-PLAN when the route or escalation requires it.</li>
+<li><strong>Bugfix</strong> (<code>/odf-fix</code>): diagnose → BUILD → VERIFY, escalating only when architecture changes appear.</li>
+<li><strong>Investigation</strong>: <code>/odf-explore</code>, no formal change created.</li>
+</ul>
+<p>Show one user-facing route selected by <code>work_type</code>; triage level
+(<code>micro/standard/full</code>) and legacy phase names are internal mappings. Every
+code-changing route carries focused QA tied to approved Expectations. Small
+changes and bugfixes keep the test/check plan inline and need no separate
+<code>qa-plan</code> artifact; formal QA-PLAN is used when the resolved route requires PLAN
+or risk/complexity explicitly escalates it. QA-REVIEW/QA-AGGREGATE/QA-REPORT are
+conditional lenses, not universal handoffs. Legacy phase names remain adapters
+(<code>DECIDE = PROPOSE + ASSESS</code>, <code>PLAN = QA-PLAN + DESIGN</code>, <code>BUILD = IMPLEMENT</code>).</p>
+<p>Ask for a human decision only at a required approval or when scope/Expectations
+are unresolved; adapter transitions do not add approval pauses. The selected
+artifact store is <code>openspec</code>, <code>engram</code>, or <code>hybrid</code>; state-machine helpers
+persist workflow state and phase artifacts to that selected store. In <code>hybrid</code>,
+OpenSpec remains canonical and matching Engram references are mirrored;
+conflicting artifacts are never silently merged.</p>
+<p>After the entry gate and approved Expectations, <code>/odf-new</code> builds <strong>one</strong> bounded,
+reference-only Context Manifest and forwards it unchanged to the ASSESS and BUILD
+roles. Redundancy is a gate signal for <code>feature-inline</code>, not a blocking question.
+See <a href="context-contract.html">Context contract</a>.</p>
+<h2 id="project-activation" tabindex="-1"><a class="anchor" href="#project-activation" aria-label="Link to this section">#</a>Project activation</h2>
+<p>ODF is scoped to initialized Odoo projects. <code>/odf-init</code> writes
+<code>.odf/project.json</code>; that manifest is what makes the harness available in the
+project, and re-running the scan for the same canonical root and project is
+idempotent (<code>initialized_at</code> keeps the first activation).</p>
+<p>The plugin registers its tools per project when the runtime boots, so a project
+activated afterwards stays inert for that runtime. When the scan prints
+<code>ODF runtime reload required:</code>, fully restart OpenCode — every window <strong>and</strong> the
+<code>opencode serve --service</code> daemon — then verify with <code>/odf-health</code>. Do not
+reinstall the pack: the manifest is already persisted and the installed bytes are
+unchanged.</p>
+<h2 id="stopping-safely" tabindex="-1"><a class="anchor" href="#stopping-safely" aria-label="Link to this section">#</a>Stopping safely</h2>
+<p>Every <code>blocked</code> or <code>failed</code> envelope carries a <code>stop_disposition</code> with <code>kind</code>,
+<code>user_action_required</code>, <code>automatic_recovery</code>, <code>reason</code>, and <code>next_action</code>, so a
+stop names its continuation instead of dead-ending the chat:</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th><code>kind</code></th>
+<th>Meaning</th>
+<th>Automatic recovery</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>safety</code></td>
+<td>A safety, policy, digest, or database invariant failed</td>
+<td><code>none</code> — never retried around</td>
+</tr>
+<tr>
+<td><code>human-decision</code></td>
+<td>Expectations, receipts, governance, scope, or change selection needs a human</td>
+<td><code>none</code></td>
+</tr>
+<tr>
+<td><code>repairable</code></td>
+<td>A missing or non-terminal artifact, or an invalid ODF Result, inside the approved scope</td>
+<td><code>repair-in-phase</code></td>
+</tr>
+<tr>
+<td><code>dependency</code></td>
+<td>Transport timeout/unavailable (retry once if the child is idle) or a missing registry/Engram</td>
+<td><code>retry-once</code> / <code>wait</code></td>
+</tr>
+<tr>
+<td><code>terminal</code></td>
+<td>Cancellation, empty result, seal error, or attempt-settlement failure</td>
+<td><code>none</code> — explain and ask for a disposition</td>
+</tr>
+<tr>
+<td><code>unclassified</code></td>
+<td>The reason could not be matched safely</td>
+<td><code>none</code> — fail closed</td>
+</tr>
+</tbody>
+</table></div>
+<p>Ordinary REPL output is not a stop; ODF never auto-continues an unclassified
+reason.</p>
+<h2 id="state-persistence" tabindex="-1"><a class="anchor" href="#state-persistence" aria-label="Link to this section">#</a>State Persistence</h2>
+<p>With an <code>openspec</code> store, each change gets a folder under
+<code>openspec/changes/{change-name}/</code> containing:</p>
+<ul>
+<li><code>state.yaml</code> — runtime preflight and canonical stage state (authoritative
+when OpenSpec is selected)</li>
+<li><code>decision.yaml</code> — business scope + standard/custom decision (DECIDE)</li>
+<li><code>plan.yaml</code> — design/architecture + tasks when PLAN is used</li>
+<li><code>build.yaml</code> — implementation progress when BUILD is used</li>
+<li><code>verify-report-slice*.yaml</code> — verification evidence</li>
+</ul>
+<p>With an <code>engram</code> store, state and phase artifacts use deterministic
+<code>odf/{change}/{artifact-type}</code> refs and Engram is authoritative. With <code>hybrid</code>,
+OpenSpec is canonical and matching Engram state/artifacts are mirrored on
+commits; both writes must succeed. Status prefers OpenSpec and can recover
+missing state from the Engram mirror without merging conflicting artifact
+content. Runtime seals live in <code>.odf/*.json</code>:</p>
+<ul>
+<li><code>policy-gate-{change}.json</code> — Policy Gate result</li>
+<li><code>validation-evidence-{change}.json</code> — stop-validation evidence seal</li>
+<li><code>receipt-{change}.json</code> — failure disposition receipt</li>
+</ul>
+<p>Legacy state/artifacts remain readable for migration, but old changes are never
+rewritten automatically.</p>
+<h2 id="compatibility" tabindex="-1"><a class="anchor" href="#compatibility" aria-label="Link to this section">#</a>Compatibility</h2>
+<p>Existing ODF users keep working:</p>
+<ul>
+<li>Absolute paths in old <code>odf-registry.json</code> entries still resolve.</li>
+<li>The plugin uses a native-shaped <code>toolCtx.task</code> when the host exposes it;
+otherwise the supported current fallback uses SDK child sessions. If neither is
+available, it returns a structured <code>blocked</code> envelope with
+<code>reason: task-api-unavailable</code> and never returns an executable fallback prompt.</li>
+<li>SDK child sessions receive the parent session, agent, known model, and validated
+workspace-relative context references. SDK transport cannot reproduce native
+task permission derivation, so native host permissions remain authoritative
+when available.</li>
+<li>Existing slash commands and persisted canonical workflow artifacts keep working
+across upgrades.</li>
+</ul>
+<p>The legacy read path is gone. <code>odf_workflow_status</code> reports canonical state only:
+it no longer emits <code>phase</code>, <code>artifacts</code>, <code>applyProgress</code>, <code>lastUpdated</code>, or a
+<code>legacy_phase</code>, and the deprecated <code>odf_status</code> tool was removed in favor of
+<code>odf_workflow_status</code>. States bound by an older release keep their
+<code>route.legacy_phases</code> alias only for bind comparison; new states do not project
+it. Changes that exist only as loose artifacts report <code>state_kind: none</code> and stay
+non-resumable — artifacts alone are not a resumable workflow. Delegation tokens
+must carry the current prepare/launch shape; legacy launch tokens are rejected
+instead of silently upgraded.</p>
+<h2 id="quick-checks" tabindex="-1"><a class="anchor" href="#quick-checks" aria-label="Link to this section">#</a>Quick Checks</h2>
+<pre><code class="language-bash"># Validate the installed registry
+node scripts/odf-registry-validate.js
+
+# Run the full test suite
+npm test
+
+# Run only YAML scenarios
+node scripts/odf-test-runner.js
+</code></pre>
+
+    </article>
+    <nav class="pager" aria-label="Documentation pagination"><a class="pager-link prev" href="docs.html"><span>Previous</span><b>Docs index</b></a><a class="pager-link next" href="architecture.html"><span>Next</span><b>Architecture</b></a></nav>
+  </main>
+  <aside class="toc" aria-label="On this page"><p class="toc-title">On this page</p><nav><a class="toc-l2" href="#what-odf-is">What ODF Is</a><a class="toc-l2" href="#when-to-use-each-entry-point">When to Use Each Entry Point</a><a class="toc-l2" href="#the-workflow">The Workflow</a><a class="toc-l2" href="#project-activation">Project activation</a><a class="toc-l2" href="#stopping-safely">Stopping safely</a><a class="toc-l2" href="#state-persistence">State Persistence</a><a class="toc-l2" href="#compatibility">Compatibility</a><a class="toc-l2" href="#quick-checks">Quick Checks</a></nav></aside>
+</div>
+<div class="overlay" id="overlay" role="dialog" aria-modal="true" aria-label="Search documentation">
+  <div class="palette">
+    <div class="palette-input">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true" style="color:var(--ink-faint)"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+      <input id="q" type="search" placeholder="Search docs, diagrams, contracts…" autocomplete="off" spellcheck="false">
+      <kbd>esc</kbd>
+    </div>
+    <div class="results" id="results"></div>
+    <div class="palette-foot"><span>↑↓ navigate</span><span>↵ open</span><span>esc close</span></div>
+  </div>
+</div>
+<div class="toast" id="toast" role="status"></div>
+<script src="assets/docs.js"></script>
+</body>
+</html>

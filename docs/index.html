@@ -576,7 +576,7 @@
       <a href="#whatsnew">What's new</a>
       <a href="#flows">Flows</a>
       <a href="#skills">Skills</a>
-      <a href="#guides">Docs</a>
+      <a href="docs.html">Docs</a>
     </nav>
     <button class="searchbtn" id="openSearch" aria-label="Search documentation">
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
@@ -627,22 +627,22 @@
     <div class="rail-section">
       <p class="rail-label">The thin spine — one resolved route decides which stages run</p>
       <nav class="rail" id="rail" aria-label="ODF pipeline stages">
-        <a href="https://github.com/antoniodavid/odf-agent-team/blob/main/docs/route-contract.md">
+        <a href="route-contract.html">
           <span class="stage"><span class="gate"></span>DECIDE</span>
           <span class="desc">Business framing + a deterministic ASSESS gate. Terminal for standard config.</span>
           <span class="legacy">was PROPOSE + ASSESS</span>
         </a>
-        <a href="https://github.com/antoniodavid/odf-agent-team/blob/main/docs/architecture.md">
+        <a href="architecture.html">
           <span class="stage"><span class="gate"></span>PLAN</span>
           <span class="desc">Closed design + task breakdown, only when the route requires it.</span>
           <span class="legacy">was QA-PLAN + DESIGN</span>
         </a>
-        <a href="https://github.com/antoniodavid/odf-agent-team/blob/main/docs/plugin.md">
+        <a href="plugin.html">
           <span class="stage"><span class="gate"></span>BUILD</span>
           <span class="desc">Specialist writes code + tests under the policy gate.</span>
           <span class="legacy">was IMPLEMENT</span>
         </a>
-        <a href="https://github.com/antoniodavid/odf-agent-team/blob/main/docs/route-contract.md">
+        <a href="route-contract.html">
           <span class="stage"><span class="gate"></span>VERIFY</span>
           <span class="desc">Tests + compliance sealed through a terminal verify report.</span>
           <span class="legacy">evidence gate</span>
@@ -652,14 +652,14 @@
         Routes: <code>feature-inline</code> · <code>small-change</code> · <code>bugfix</code> ·
         <code>feature</code> · <code>cross-domain</code> · <code>migration</code> ·
         <code>security</code> · <code>verify-only</code> ·
-        <a href="https://github.com/antoniodavid/odf-agent-team/blob/main/docs/route-contract.md">full matrix →</a>
+        <a href="route-contract.html">full matrix →</a>
       </p>
     </div>
 
     <section id="whatsnew">
       <div class="sec-head">
         <h2>What's new in 1.6.1</h2>
-        <a href="https://github.com/antoniodavid/odf-agent-team/blob/main/CHANGELOG.md">Full changelog →</a>
+        <a href="changelog.html">Full changelog →</a>
       </div>
       <p class="section-lede">
         Thirty-six merged commits since 1.6.0: a leaner default route, one bounded
@@ -667,7 +667,7 @@
         stops that name their continuation, and a decision-quality loop.
       </p>
       <div class="grid grid-3">
-        <a class="card new-card" href="https://github.com/antoniodavid/odf-agent-team/blob/main/docs/route-contract.md">
+        <a class="card new-card" href="route-contract.html">
           <span class="tag release">1.6.1 · route</span>
           <h3>Feature-inline with a real gate</h3>
           <p>The default standard-feature route is DECIDE → BUILD → VERIFY, and DECIDE is deterministic:</p>
@@ -678,14 +678,14 @@
           </ul>
           <span class="go">Route matrix <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 12h14m-6-6 6 6-6 6"/></svg></span>
         </a>
-        <a class="card new-card" href="https://github.com/antoniodavid/odf-agent-team/blob/main/docs/context-contract.md">
+        <a class="card new-card" href="context-contract.html">
           <span class="tag release">1.6.1 · context</span>
           <h3>One Context Manifest, forwarded unchanged</h3>
           <p>The entry builds a bounded, reference-only manifest — project facts, references, redundancy counts, gate decision, Expectations ref — and forwards the same bytes to ASSESS and BUILD.</p>
           <p>Its digest covers every field; redundancy gates the route instead of interrogating the user.</p>
           <span class="go">Context contract <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 12h14m-6-6 6 6-6 6"/></svg></span>
         </a>
-        <a class="card new-card" href="https://github.com/antoniodavid/odf-agent-team/blob/main/docs/plugin.md#native-delegation-lifecycle-and-recovery">
+        <a class="card new-card" href="plugin.html#native-delegation-lifecycle-and-recovery">
           <span class="tag release">1.6.1 · delegation</span>
           <h3>A lifecycle that survives reality</h3>
           <p>Prepare → launch → seal binds the child to parent, agent, model, workspace, and prompt digest.</p>
@@ -696,21 +696,21 @@
           </ul>
           <span class="go">Delegation lifecycle <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 12h14m-6-6 6 6-6 6"/></svg></span>
         </a>
-        <a class="card new-card" href="https://github.com/antoniodavid/odf-agent-team/blob/main/docs/intended-usage.md#stopping-safely">
+        <a class="card new-card" href="intended-usage.html#stopping-safely">
           <span class="tag release">1.6.1 · safety</span>
           <h3>Stops that name their continuation</h3>
           <p>Every blocked or failed envelope carries a <code>stop_disposition</code>: safety, human decision, repairable, dependency, terminal, or unclassified.</p>
           <p>Unknown reasons fail closed instead of auto-continuing.</p>
           <span class="go">Stopping safely <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 12h14m-6-6 6 6-6 6"/></svg></span>
         </a>
-        <a class="card new-card" href="https://github.com/antoniodavid/odf-agent-team/blob/main/docs/decision-evaluation.md">
+        <a class="card new-card" href="decision-evaluation.html">
           <span class="tag release">1.6.1 · evaluation</span>
           <h3>Routing quality you can measure</h3>
           <p>Golden trajectories, a decision-quality report, local human reviews, human/judge agreement, period comparison, review cadence, and improvement proposals.</p>
           <p>A missing judge verdict is unavailable — never agreement.</p>
           <span class="go">Decision evaluation <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 12h14m-6-6 6 6-6 6"/></svg></span>
         </a>
-        <a class="card new-card" href="https://github.com/antoniodavid/odf-agent-team/blob/main/docs/intended-usage.md#project-activation">
+        <a class="card new-card" href="intended-usage.html#project-activation">
           <span class="tag release">1.6.1 · activation</span>
           <h3>Scoped to initialized projects</h3>
           <p><code>.odf/project.json</code> marks a project as initialized and keeps the first activation timestamp across re-scans.</p>
@@ -723,7 +723,7 @@
     <section id="flows">
       <div class="sec-head">
         <h2>The flows</h2>
-        <a href="https://github.com/antoniodavid/odf-agent-team/blob/main/docs/route-contract.md">Route contract →</a>
+        <a href="route-contract.html">Route contract →</a>
       </div>
       <p class="section-lede">
         One route per change; the orchestrator shows the route, not every adapter.
@@ -799,7 +799,7 @@
     <section id="skills">
       <div class="sec-head">
         <h2>Skill quality, enforced</h2>
-        <a href="https://github.com/antoniodavid/odf-agent-team/blob/main/docs/skill-style-guide.md">Skill style guide →</a>
+        <a href="skill-style-guide.html">Skill style guide →</a>
       </div>
       <p class="section-lede">
         1.6.1 treats a skill's compact rules as a product surface. All 87 skills are
@@ -821,46 +821,46 @@
         </div>
       </div>
       <div class="term"><span class="ok">$</span> npm run validate:skills<br>ODF skill validation: 87 skills<br><span class="ok">✅ errors: 0</span></div>
-      <p class="flow-note">CI runs the validator alongside typecheck, unit tests, YAML scenarios, and registry validation. Adding a skill? Start at the <a href="https://github.com/antoniodavid/odf-agent-team/blob/main/docs/skill-style-guide.md" style="color:var(--plum)">style guide</a>.</p>
+      <p class="flow-note">CI runs the validator alongside typecheck, unit tests, YAML scenarios, and registry validation. Adding a skill? Start at the <a href="skill-style-guide.html" style="color:var(--plum)">style guide</a>.</p>
     </section>
 
     <section id="guides">
       <div class="sec-head">
         <h2>I want to…</h2>
-        <a href="https://github.com/antoniodavid/odf-agent-team/blob/main/docs/README.md">Full index →</a>
+        <a href="docs.html">Full index →</a>
       </div>
       <div class="grid grid-3">
-        <a class="card" href="https://github.com/antoniodavid/odf-agent-team/blob/main/docs/intended-usage.md">
+        <a class="card" href="intended-usage.html">
           <span class="tag">start</span>
           <h3>Start using ODF</h3>
           <p>Mental model, entry commands, routes, activation, and how to read a stop.</p>
           <span class="go">Intended usage <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 12h14m-6-6 6 6-6 6"/></svg></span>
         </a>
-        <a class="card" href="https://github.com/antoniodavid/odf-agent-team/blob/main/docs/route-contract.md">
+        <a class="card" href="route-contract.html">
           <span class="tag">route</span>
           <h3>Routes &amp; gates</h3>
           <p>Every work type, stage, canonical artifact, completion rule, and gate.</p>
           <span class="go">Route contract <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 12h14m-6-6 6 6-6 6"/></svg></span>
         </a>
-        <a class="card" href="https://github.com/antoniodavid/odf-agent-team/blob/main/docs/architecture.md">
+        <a class="card" href="architecture.html">
           <span class="tag">understand</span>
           <h3>Understand the system</h3>
           <p>Stages, components, persistence roles, and data flow.</p>
           <span class="go">Architecture <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 12h14m-6-6 6 6-6 6"/></svg></span>
         </a>
-        <a class="card" href="https://github.com/antoniodavid/odf-agent-team/blob/main/docs/plugin.md">
+        <a class="card" href="plugin.html">
           <span class="tag">extend</span>
           <h3>Extend the plugin</h3>
           <p>The 29 runtime tools, modules, native delegation, and the odf_delegate path.</p>
           <span class="go">Plugin reference <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 12h14m-6-6 6 6-6 6"/></svg></span>
         </a>
-        <a class="card" href="https://github.com/antoniodavid/odf-agent-team/blob/main/docs/skill-style-guide.md">
+        <a class="card" href="skill-style-guide.html">
           <span class="tag">contribute</span>
           <h3>Write a skill</h3>
           <p>Structure, frontmatter, the compact-rule contract, and validation.</p>
           <span class="go">Style guide <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 12h14m-6-6 6 6-6 6"/></svg></span>
         </a>
-        <a class="card" href="https://github.com/antoniodavid/odf-agent-team/blob/main/docs/decision-evaluation.md">
+        <a class="card" href="decision-evaluation.html">
           <span class="tag">measure</span>
           <h3>Measure routing quality</h3>
           <p>Decision-quality report, local reviews, agreement, cadence, and proposals.</p>
@@ -931,36 +931,36 @@
       </div>
       <div class="grid grid-2">
         <div class="chips">
-          <a class="chip" href="https://github.com/antoniodavid/odf-agent-team/blob/main/docs/route-contract.md">
+          <a class="chip" href="route-contract.html">
             <strong>Route &amp; stage</strong><span>work types, artifacts, gates</span>
           </a>
-          <a class="chip" href="https://github.com/antoniodavid/odf-agent-team/blob/main/docs/context-contract.md">
+          <a class="chip" href="context-contract.html">
             <strong>Context</strong><span>one bounded, reference-only manifest</span>
           </a>
-          <a class="chip" href="https://github.com/antoniodavid/odf-agent-team/blob/main/docs/design-contract.md">
+          <a class="chip" href="design-contract.html">
             <strong>Design</strong><span>closed-design rules before BUILD</span>
           </a>
-          <a class="chip" href="https://github.com/antoniodavid/odf-agent-team/blob/main/docs/expectations-contract.md">
+          <a class="chip" href="expectations-contract.html">
             <strong>Expectations</strong><span>human-owned EXP-XX, revisions</span>
           </a>
-          <a class="chip" href="https://github.com/antoniodavid/odf-agent-team/blob/main/docs/safety-contract.md">
+          <a class="chip" href="safety-contract.html">
             <strong>Safety</strong><span>pre-tool checks, DB guardrails</span>
           </a>
-          <a class="chip" href="https://github.com/antoniodavid/odf-agent-team/blob/main/docs/judge-shadow-contract.md">
+          <a class="chip" href="judge-shadow-contract.html">
             <strong>Judge shadow</strong><span>adversarial review semantics</span>
           </a>
-          <a class="chip" href="https://github.com/antoniodavid/odf-agent-team/blob/main/docs/learning-loop-contract.md">
+          <a class="chip" href="learning-loop-contract.html">
             <strong>Learning loop</strong><span>Engram admits only verified runs</span>
           </a>
         </div>
         <div class="ops-note">
           <strong>Running the pack</strong>
           <ul>
-            <li><a href="https://github.com/antoniodavid/odf-agent-team/blob/main/docs/metrics-and-engram-maintenance.md">Metrics &amp; Engram maintenance</a> — evaluation commands, retention, prune</li>
-            <li><a href="https://github.com/antoniodavid/odf-agent-team/blob/main/docs/decision-evaluation.md">Decision evaluation</a> — decision-quality report, reviews, cadence</li>
-            <li><a href="https://github.com/antoniodavid/odf-agent-team/blob/main/docs/skill-style-guide.md">Skill validation</a> — <code>npm run validate:skills</code></li>
-            <li><a href="https://github.com/antoniodavid/odf-agent-team#development">Development</a> — 1370 unit + 331 YAML + 18 harness tests</li>
-            <li><a href="https://github.com/antoniodavid/odf-agent-team/blob/main/docs/archive/README.md">Archive</a> — completed roadmaps and plans</li>
+            <li><a href="metrics-and-engram-maintenance.html">Metrics &amp; Engram maintenance</a> — evaluation commands, retention, prune</li>
+            <li><a href="decision-evaluation.html">Decision evaluation</a> — decision-quality report, reviews, cadence</li>
+            <li><a href="skill-style-guide.html">Skill validation</a> — <code>npm run validate:skills</code></li>
+            <li><a href="readme.html#development">Development</a> — 1370 unit + 331 YAML + 18 harness tests</li>
+            <li><a href="archive/index.html">Archive</a> — completed roadmaps and plans</li>
             <li>Press <kbd style="font:500 .7rem/1 'IBM Plex Mono',monospace;border:1px solid var(--line-strong);border-radius:4px;padding:.15rem .35rem">/</kbd> anywhere to search everything above</li>
           </ul>
         </div>
@@ -974,7 +974,7 @@
       <span>
         <a href="https://github.com/antoniodavid/odf-agent-team">Source</a> ·
         v1.6.1 ·
-        <a href="https://github.com/antoniodavid/odf-agent-team/blob/main/AGENTS.md">AGENTS.md</a>
+        <a href="agents.html">AGENTS.md</a>
       </span>
     </footer>
   </div>
@@ -1095,11 +1095,8 @@
     let html = "", lastG = null;
     items.forEach((e, i) => {
       if (e.kind !== lastG) { html += '<div class="group">' + G[e.kind] + "</div>"; lastG = e.kind; }
-      const href = e.kind === "doc" || e.kind === "archive"
-        ? "https://github.com/antoniodavid/odf-agent-team/blob/main/docs/" + e.href
-        : e.href;
-      html += '<a class="result' + (i === 0 ? " active" : "") + '" data-i="' + i + '" href="' + href + '"' +
-        (e.kind === "diagram" ? "" : ' target="_blank" rel="noopener"') + '>' +
+      const href = e.href;
+      html += '<a class="result' + (i === 0 ? " active" : "") + '" data-i="' + i + '" href="' + href + '">' +
         '<span class="rt">' + mark(e.title, q) + "</span>" +
         '<span class="rx">' + esc(e.excerpt || "") + "</span></a>";
     });

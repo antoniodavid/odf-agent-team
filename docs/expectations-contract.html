@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="auto" data-base="">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Expectations Contract (T9) · ODF Docs</title>
+  <meta name="description" content="Separates **human intent** (Expectations, `EXP-XX`) from the **AI-generated technical plan** (Requirements, `REQ-XX`). The goal is to break circular self-evaluation: previously the same system wrote the `REQ-XX` in ASSES">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <script>(function(){var d=document.documentElement,s=localStorage.getItem("odf-theme"),m=matchMedia("(prefers-color-scheme: dark)").matches;d.dataset.theme=s||(m?"dark":"light");})();</script>
+  <link rel="stylesheet" href="assets/docs.css">
+</head>
+<body>
+<a class="skip" href="#content">Skip to content</a>
+<header class="bar">
+  <div class="bar-in">
+    <a class="brand" href="index.html">
+      <svg class="brand-glyph" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <rect x="2" y="9" width="6" height="6" rx="1.5" fill="currentColor" opacity=".95"/>
+        <rect x="9" y="9" width="6" height="6" rx="1.5" fill="currentColor" opacity=".65"/>
+        <rect x="16" y="9" width="6" height="6" rx="1.5" fill="currentColor" opacity=".35"/>
+        <path d="M8 12h1M15 12h1" stroke="currentColor" stroke-width="1.5"/>
+      </svg>
+      ODF <small>docs</small>
+    </a>
+    <div class="bar-spacer"></div>
+    <nav class="bar-nav" aria-label="Sections">
+      <a href="index.html#whatsnew">What's new</a>
+      <a href="index.html#flows">Flows</a>
+      <a href="index.html#skills">Skills</a>
+      <a href="docs.html">Docs</a>
+    </nav>
+    <button class="searchbtn" id="openSearch" aria-label="Search documentation">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+      <span class="lbl">Search docs…</span>
+      <kbd>/</kbd>
+    </button>
+    <button class="icon-btn" id="themeToggle" aria-label="Toggle dark mode" title="Toggle theme">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M4.9 4.9l1.4 1.4m11.4 11.4 1.4 1.4M2 12h2m16 0h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
+    </button>
+    <a class="gh" href="https://github.com/antoniodavid/odf-agent-team" target="_blank" rel="noopener">GitHub ↗</a>
+  </div>
+</header>
+<div class="shell">
+  <details class="side" open><summary>Documentation menu</summary><div class="side-inner"><a class="side-home" href="docs.html">Documentation index</a><p class="side-group">Overview</p><a href="docs.html">Docs index</a><a href="intended-usage.html">Intended usage</a><a href="architecture.html">Architecture</a><a href="opencode-v2-migration.html">OpenCode V2 migration</a><p class="side-group">Contracts</p><a href="route-contract.html">Route &amp; stage</a><a href="design-contract.html">Design</a><a href="expectations-contract.html" class="active" aria-current="page">Expectations</a><a href="context-contract.html">Context Manifest</a><a href="safety-contract.html">Safety</a><a href="judge-shadow-contract.html">Judge shadow</a><a href="learning-loop-contract.html">Learning loop</a><p class="side-group">Operations</p><a href="metrics-and-engram-maintenance.html">Metrics &amp; Engram</a><a href="decision-evaluation.html">Decision evaluation</a><p class="side-group">Reference</p><a href="plugin.html">Plugin reference</a><a href="skill-style-guide.html">Skill style guide</a><p class="side-group">Project</p><a href="readme.html">README</a><a href="changelog.html">Changelog</a><a href="agents.html">Contributing</a><p class="side-group">History</p><a href="archive/index.html">Archive index</a><a href="archive/harness-roadmap.html">Harness roadmap</a><a href="archive/odf-fast-lane-plan.html">Fast-lane plan</a><a href="archive/odf-fast-lane-tasks.html">Fast-lane tasks</a><a href="archive/odf-fast-lane-baseline-2026-09-13.html">Baseline 2026-09-13</a><a href="archive/odf-fast-lane-baseline-2026-09-16.html">Baseline 2026-09-16</a><a href="odf-linear-cycles-baseline-2026-10-01.html">Linear-cycles baseline</a></div></details>
+  <main id="content" class="doc">
+    <nav class="crumb" aria-label="Breadcrumb">
+      <a href="index.html">ODF</a><span>/</span><a href="docs.html">Docs</a><span>/</span><span>Contracts</span>
+    </nav>
+    <article class="prose">
+      <h1>Expectations Contract (T9)</h1>
+      <p class="doc-meta">3 min read</p>
+      <p>Separates <strong>human intent</strong> (Expectations, <code>EXP-XX</code>) from the <strong>AI-generated
+technical plan</strong> (Requirements, <code>REQ-XX</code>). The goal is to break circular
+self-evaluation: previously the same system wrote the <code>REQ-XX</code> in ASSESS and
+then judged them in VERIFY. Now VERIFY evaluates against the approved human
+<code>EXP-XX</code>, and uses the plan/REQ only as technical context.</p>
+<h2 id="canonical-expectations-artifact" tabindex="-1"><a class="anchor" href="#canonical-expectations-artifact" aria-label="Link to this section">#</a>Canonical <code>expectations</code> artifact</h2>
+<p>An artifact persisted in the selected store (<code>openspec/changes/{change}/expectations.yaml</code>
+or Engram <code>odf/{change}/expectations</code>), separate from <code>assess</code>/<code>propose</code>.</p>
+<pre><code class="language-yaml">change: sale-discount-field
+intent: &quot;Apply a configurable percentage discount by partner category on sales orders&quot;
+expectations:
+  - id: &quot;EXP-01&quot;
+    statement: &quot;The discount applies to the order total on confirmation.&quot;
+    testable: true
+    owned_by: &quot;human&quot;
+  - id: &quot;EXP-02&quot;
+    statement: &quot;The maximum discount is limited by company-level configuration.&quot;
+    testable: true
+    owned_by: &quot;human&quot;
+  - id: &quot;EXP-03&quot;
+    statement: &quot;The configuration is only editable by the sales manager.&quot;
+    testable: true
+    owned_by: &quot;human&quot;
+constraints:
+  - &quot;Do not modify invoice totals.&quot;
+success_scenarios:
+  - { id: &quot;SUC-01&quot;, statement: &quot;A valid discount is applied on order confirmation.&quot;, testable: true, owned_by: &quot;human&quot; }
+failure_scenarios:
+  - { id: &quot;FAL-01&quot;, statement: &quot;An invalid discount is rejected.&quot;, testable: true, owned_by: &quot;human&quot; }
+connections:
+  - { id: &quot;CON-01&quot;, relation: &quot;supports&quot;, reference: &quot;EXP-01&quot; }
+approved: true
+approved_by: &quot;user&quot;
+approved_at: &quot;2026-08-17T00:00:00Z&quot;
+immutable_since: &quot;2026-08-17T00:00:00Z&quot;
+</code></pre>
+<h3 id="fields" tabindex="-1"><a class="anchor" href="#fields" aria-label="Link to this section">#</a>Fields</h3>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>change</code></td>
+<td>string</td>
+<td>Kebab-case change name.</td>
+</tr>
+<tr>
+<td><code>intent</code></td>
+<td>string</td>
+<td>Human phrase stating the change goal (from the user, not the model).</td>
+</tr>
+<tr>
+<td><code>expectations</code></td>
+<td>array</td>
+<td>List of <code>EXP-XX</code>.</td>
+</tr>
+<tr>
+<td><code>expectations[].id</code></td>
+<td>string</td>
+<td><code>EXP-01</code>, <code>EXP-02</code>, … (never <code>REQ-XX</code>).</td>
+</tr>
+<tr>
+<td><code>expectations[].statement</code></td>
+<td>string</td>
+<td>Verifiable criterion written as a user assertion.</td>
+</tr>
+<tr>
+<td><code>expectations[].testable</code></td>
+<td>boolean</td>
+<td>Whether it is checkable by tests/evidence.</td>
+</tr>
+<tr>
+<td><code>expectations[].owned_by</code></td>
+<td>string</td>
+<td>Always <code>&quot;human&quot;</code>. Never <code>&quot;model&quot;</code>/<code>&quot;ai&quot;</code>.</td>
+</tr>
+<tr>
+<td><code>constraints</code></td>
+<td>string array</td>
+<td>Optional; at most 32 non-empty strings, no control characters, up to 512 characters each. Duplicates not allowed.</td>
+</tr>
+<tr>
+<td><code>success_scenarios</code></td>
+<td>array</td>
+<td>Optional; at most 32 exact entries with unique IDs <code>SUC-1</code>–<code>SUC-999</code>.</td>
+</tr>
+<tr>
+<td><code>failure_scenarios</code></td>
+<td>array</td>
+<td>Optional; at most 32 exact entries with unique IDs <code>FAL-1</code>–<code>FAL-999</code>.</td>
+</tr>
+<tr>
+<td><code>success_scenarios[]</code> / <code>failure_scenarios[]</code></td>
+<td>object</td>
+<td>Exactly <code>{ id, statement, testable, owned_by }</code>; <code>owned_by</code> always <code>&quot;human&quot;</code>.</td>
+</tr>
+<tr>
+<td><code>connections</code></td>
+<td>array</td>
+<td>Optional; at most 32 exact entries with unique IDs <code>CON-1</code>–<code>CON-999</code>.</td>
+</tr>
+<tr>
+<td><code>connections[].relation</code></td>
+<td>string</td>
+<td>Lowercase hyphenated relation, up to 32 characters.</td>
+</tr>
+<tr>
+<td><code>connections[].reference</code></td>
+<td>string</td>
+<td>ASCII-safe reference, up to 256 characters, no <code>..</code>.</td>
+</tr>
+<tr>
+<td><code>approved</code></td>
+<td>boolean</td>
+<td><code>true</code> only after explicit user confirmation.</td>
+</tr>
+<tr>
+<td><code>approved_by</code></td>
+<td>string</td>
+<td>Identifier of who approved (the user).</td>
+</tr>
+<tr>
+<td><code>approved_at</code></td>
+<td>ISO date</td>
+<td>When it was approved.</td>
+</tr>
+<tr>
+<td><code>immutable_since</code></td>
+<td>ISO date</td>
+<td>Since when <code>statement</code> cannot be rewritten.</td>
+</tr>
+<tr>
+<td><code>revision</code>, <code>supersedes</code>, <code>replan_from</code></td>
+<td>optional metadata</td>
+<td>Existing revision metadata; this extension adds no history.</td>
+</tr>
+</tbody>
+</table></div>
+<p>Scenario entries have exactly <code>{ id, statement, testable, owned_by }</code>;
+connections have <code>{ id, relation, reference }</code>. Unknown keys, null or
+malformed values, unsafe IDs/references, duplicates and out-of-limit values
+are rejected. Omitting optional fields keeps legacy artifacts valid.</p>
+<p>Protected human content includes <code>change</code>, <code>intent</code>, <code>expectations</code>,
+<code>constraints</code>, <code>success_scenarios</code>, <code>failure_scenarios</code> and <code>connections</code>.
+Approval and revision metadata keep their current behavior.</p>
+<h2 id="origin-who-writes-the-exp" tabindex="-1"><a class="anchor" href="#origin-who-writes-the-exp" aria-label="Link to this section">#</a>Origin (who writes the EXP)</h2>
+<p><code>EXP-XX</code> are captured in PROPOSE/entry from:</p>
+<ol>
+<li>The command description (<code>/odf-new sale-discount-field &quot;...&quot;</code>), and</li>
+<li><strong>ONE clarification round</strong> asked to the user (via <code>question</code>), never from
+the model.</li>
+</ol>
+<p>The orchestrator does NOT author <code>EXP-XX</code> from its own analysis; it only
+rephrases them as verifiable assertions and asks for explicit confirmation.</p>
+<h2 id="immutability-rule" tabindex="-1"><a class="anchor" href="#immutability-rule" aria-label="Link to this section">#</a>Immutability rule</h2>
+<p>Once <code>approved: true</code>:</p>
+<ul>
+<li>No agent may rewrite an <code>EXP</code> <code>statement</code> or its optional fields.</li>
+<li>Only a later explicit <strong>human approval</strong> may modify an <code>EXP</code> or optional
+field: set <code>approved: false</code>, edit, then re-approve with new timestamps.</li>
+</ul>
+<p>The mechanism is a <strong>documented contract</strong> in agent instructions
+(orchestrator, QA, assess) — no DB or infrastructure-level write lock is
+built. The QA engineer (VERIFY) is the guardian: if it detects that an
+approved <code>statement</code> was rewritten, it marks <code>blocked</code>.</p>
+<h2 id="req-vs-exp" tabindex="-1"><a class="anchor" href="#req-vs-exp" aria-label="Link to this section">#</a>REQ vs EXP</h2>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th></th>
+<th><code>EXP-XX</code> (Expectations)</th>
+<th><code>REQ-XX</code> (Requirements)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Author</td>
+<td>Human (user)</td>
+<td>Model (ASSESS technical plan)</td>
+</tr>
+<tr>
+<td>Role</td>
+<td>Immutable contract to evaluate</td>
+<td>Technical plan / context</td>
+</tr>
+<tr>
+<td>Mutability</td>
+<td>Immutable after approval</td>
+<td>Revisable in ASSESS/DESIGN</td>
+</tr>
+<tr>
+<td>Used in VERIFY</td>
+<td>Primary criterion</td>
+<td>Technical context</td>
+</tr>
+</tbody>
+</table></div>
+<p><code>skills/odf-assess/SKILL.md</code> generates <code>REQ-XX</code> as a technical plan and
+<strong>references</strong> the <code>EXP-XX</code> (each <code>REQ</code> states which <code>EXP</code> it covers), but
+does not replace them.</p>
+<h2 id="backward-compatibility-legacy-changes" tabindex="-1"><a class="anchor" href="#backward-compatibility-legacy-changes" aria-label="Link to this section">#</a>Backward compatibility (legacy changes)</h2>
+<p>If no <code>expectations</code> artifact exists (changes started before T9):</p>
+<ul>
+<li>VERIFY keeps evaluating against the <code>REQ-XX</code> as before.</li>
+<li>VERIFY adds an <strong>explicit warning</strong>: <code>missing-expectations</code> — human
+Expectations are missing; evaluation is against the generated plan and may
+suffer circular self-evaluation.</li>
+</ul>
+<p>Omission of optional fields, approval handling, revisions, fallback and
+canonical paths do not change.</p>
+<h2 id="golden-evaluation" tabindex="-1"><a class="anchor" href="#golden-evaluation" aria-label="Link to this section">#</a>Golden evaluation</h2>
+<p>The reference corpus lives in <code>scripts/fixtures/golden-trajectories.json</code> and
+is validated with <code>evaluateGoldens()</code> in <code>scripts/odf-evaluation.js</code>. See
+<code>scripts/odf-evaluation.js</code> for the signature and shape.</p>
+
+    </article>
+    <nav class="pager" aria-label="Documentation pagination"><a class="pager-link prev" href="design-contract.html"><span>Previous</span><b>Design</b></a><a class="pager-link next" href="context-contract.html"><span>Next</span><b>Context Manifest</b></a></nav>
+  </main>
+  <aside class="toc" aria-label="On this page"><p class="toc-title">On this page</p><nav><a class="toc-l2" href="#canonical-expectations-artifact">Canonical expectations artifact</a><a class="toc-l3" href="#fields">Fields</a><a class="toc-l2" href="#origin-who-writes-the-exp">Origin (who writes the EXP)</a><a class="toc-l2" href="#immutability-rule">Immutability rule</a><a class="toc-l2" href="#req-vs-exp">REQ vs EXP</a><a class="toc-l2" href="#backward-compatibility-legacy-changes">Backward compatibility (legacy changes)</a><a class="toc-l2" href="#golden-evaluation">Golden evaluation</a></nav></aside>
+</div>
+<div class="overlay" id="overlay" role="dialog" aria-modal="true" aria-label="Search documentation">
+  <div class="palette">
+    <div class="palette-input">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true" style="color:var(--ink-faint)"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+      <input id="q" type="search" placeholder="Search docs, diagrams, contracts…" autocomplete="off" spellcheck="false">
+      <kbd>esc</kbd>
+    </div>
+    <div class="results" id="results"></div>
+    <div class="palette-foot"><span>↑↓ navigate</span><span>↵ open</span><span>esc close</span></div>
+  </div>
+</div>
+<div class="toast" id="toast" role="status"></div>
+<script src="assets/docs.js"></script>
+</body>
+</html>

@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="auto" data-base="">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ODF Agent Team · ODF Docs</title>
+  <meta name="description" content="**Spec-driven Odoo delivery on OpenCode** — a stage pipeline, 11 specialized agents, 87 skills, and deterministic CLIs so your AI team *finds* the codebase instead of inventing it.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <script>(function(){var d=document.documentElement,s=localStorage.getItem("odf-theme"),m=matchMedia("(prefers-color-scheme: dark)").matches;d.dataset.theme=s||(m?"dark":"light");})();</script>
+  <link rel="stylesheet" href="assets/docs.css">
+</head>
+<body>
+<a class="skip" href="#content">Skip to content</a>
+<header class="bar">
+  <div class="bar-in">
+    <a class="brand" href="index.html">
+      <svg class="brand-glyph" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <rect x="2" y="9" width="6" height="6" rx="1.5" fill="currentColor" opacity=".95"/>
+        <rect x="9" y="9" width="6" height="6" rx="1.5" fill="currentColor" opacity=".65"/>
+        <rect x="16" y="9" width="6" height="6" rx="1.5" fill="currentColor" opacity=".35"/>
+        <path d="M8 12h1M15 12h1" stroke="currentColor" stroke-width="1.5"/>
+      </svg>
+      ODF <small>docs</small>
+    </a>
+    <div class="bar-spacer"></div>
+    <nav class="bar-nav" aria-label="Sections">
+      <a href="index.html#whatsnew">What's new</a>
+      <a href="index.html#flows">Flows</a>
+      <a href="index.html#skills">Skills</a>
+      <a href="docs.html">Docs</a>
+    </nav>
+    <button class="searchbtn" id="openSearch" aria-label="Search documentation">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+      <span class="lbl">Search docs…</span>
+      <kbd>/</kbd>
+    </button>
+    <button class="icon-btn" id="themeToggle" aria-label="Toggle dark mode" title="Toggle theme">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M4.9 4.9l1.4 1.4m11.4 11.4 1.4 1.4M2 12h2m16 0h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
+    </button>
+    <a class="gh" href="https://github.com/antoniodavid/odf-agent-team" target="_blank" rel="noopener">GitHub ↗</a>
+  </div>
+</header>
+<div class="shell">
+  <details class="side" open><summary>Documentation menu</summary><div class="side-inner"><a class="side-home" href="docs.html">Documentation index</a><p class="side-group">Overview</p><a href="docs.html">Docs index</a><a href="intended-usage.html">Intended usage</a><a href="architecture.html">Architecture</a><a href="opencode-v2-migration.html">OpenCode V2 migration</a><p class="side-group">Contracts</p><a href="route-contract.html">Route &amp; stage</a><a href="design-contract.html">Design</a><a href="expectations-contract.html">Expectations</a><a href="context-contract.html">Context Manifest</a><a href="safety-contract.html">Safety</a><a href="judge-shadow-contract.html">Judge shadow</a><a href="learning-loop-contract.html">Learning loop</a><p class="side-group">Operations</p><a href="metrics-and-engram-maintenance.html">Metrics &amp; Engram</a><a href="decision-evaluation.html">Decision evaluation</a><p class="side-group">Reference</p><a href="plugin.html">Plugin reference</a><a href="skill-style-guide.html">Skill style guide</a><p class="side-group">Project</p><a href="readme.html" class="active" aria-current="page">README</a><a href="changelog.html">Changelog</a><a href="agents.html">Contributing</a><p class="side-group">History</p><a href="archive/index.html">Archive index</a><a href="archive/harness-roadmap.html">Harness roadmap</a><a href="archive/odf-fast-lane-plan.html">Fast-lane plan</a><a href="archive/odf-fast-lane-tasks.html">Fast-lane tasks</a><a href="archive/odf-fast-lane-baseline-2026-09-13.html">Baseline 2026-09-13</a><a href="archive/odf-fast-lane-baseline-2026-09-16.html">Baseline 2026-09-16</a><a href="odf-linear-cycles-baseline-2026-10-01.html">Linear-cycles baseline</a></div></details>
+  <main id="content" class="doc">
+    <nav class="crumb" aria-label="Breadcrumb">
+      <a href="index.html">ODF</a><span>/</span><a href="docs.html">Docs</a><span>/</span><span>Project</span>
+    </nav>
+    <article class="prose">
+      <h1>ODF Agent Team</h1>
+      <p class="doc-meta">3 min read</p>
+      <blockquote>
+<p><strong>Spec-driven Odoo delivery on OpenCode</strong> — a stage pipeline, 11 specialized agents, 87 skills, and deterministic CLIs so your AI team <em>finds</em> the codebase instead of inventing it.</p>
+</blockquote>
+<p><a href="#development"><img src="https://img.shields.io/badge/tests-1370%20unit%20%2B%20331%20YAML%20%2B%2018%20harness-brightgreen" alt="Tests"></a>
+<a href="https://github.com/antoniodavid/odf-agent-team/blob/main/odf-registry.json"><img src="https://img.shields.io/badge/registry-87%20skills%20%C2%B7%2011%20agents-blue" alt="Registry"></a>
+<a href="intended-usage.html"><img src="https://img.shields.io/badge/Odoo-16%20%E2%80%93%2019-EE7048" alt="Odoo"></a>
+<a href="https://github.com/antoniodavid/odf-agent-team/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-green" alt="License"></a>
+<a href="changelog.html"><img src="https://img.shields.io/badge/version-1.6.1-informational" alt="Version"></a></p>
+<p><strong>ODF</strong> — spec-driven Odoo delivery on OpenCode. Turns a generic AI assistant into a structured Odoo delivery team. An orchestrator routes every stage through a plugin that resolves the right agent, injects at most five skill rules, enforces Policy Gates, and seals evidence — so nothing ships on a guess.</p>
+<pre><code>odf-delegation plugin ──► task() ──► specialist agent ──► Odoo worktree
+        │                                                          │
+   registry · skills · gates                                tests · lint · refs
+</code></pre>
+<h2 id="quickstart" tabindex="-1"><a class="anchor" href="#quickstart" aria-label="Link to this section">#</a>Quickstart</h2>
+<pre><code class="language-bash"># 1. Install into ~/.config/opencode (release-pinned)
+curl -fsSL https://raw.githubusercontent.com/antoniodavid/odf-agent-team/v1.6.1/install.sh | BRANCH=v1.6.1 bash
+
+# 2. Inside OpenCode, from any Odoo worktree:
+/odf-init           # detect version, modules, test runner
+/odf-new my-feature # preflight → DECIDE → PLAN → BUILD → VERIFY
+</code></pre>
+<p>Need CodeGraph structural queries? Add <code>-- --with-codegraph</code>. Non-interactive CI? Add <code>-- --yes</code>.</p>
+<h2 id="how-it-works" tabindex="-1"><a class="anchor" href="#how-it-works" aria-label="Link to this section">#</a>How it works</h2>
+<pre><code>init → health/preflight → one resolved route → only its required stages → archive when applicable
+</code></pre>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Stage</th>
+<th>Roles</th>
+<th>When</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>DECIDE</code></td>
+<td><code>PROPOSE</code> + <code>ASSESS</code></td>
+<td>routes that include DECIDE; can be terminal for standard config</td>
+</tr>
+<tr>
+<td><code>PLAN</code></td>
+<td><code>QA-PLAN</code> + <code>DESIGN</code></td>
+<td>only when the resolved route or risk requires formal planning</td>
+</tr>
+<tr>
+<td><code>BUILD</code></td>
+<td>—</td>
+<td>plan is closed</td>
+</tr>
+<tr>
+<td><code>VERIFY</code></td>
+<td>—</td>
+<td>verification required</td>
+</tr>
+</tbody>
+</table></div>
+<p>The user sees one route selected by <code>work_type</code>; <code>micro/standard/full</code> is entry triage, not another workflow. Small changes and the default <code>feature-inline</code> route use DECIDE → BUILD → VERIFY with inline QA, where <code>feature-inline</code> runs one bounded ASSESS only when the deterministic entry gate selects <code>assess</code>; bugfixes use FIX → BUILD → VERIFY with inline regression QA; complex/high-risk routes use formal PLAN/QA-PLAN. After the gate and approved Expectations, one bounded Context Manifest is built and forwarded unchanged to ASSESS and BUILD. The shadow prediction is advisory and does not alter execution. Full vocabulary: <a href="architecture.html">docs/architecture.md</a> · route matrix: <a href="route-contract.html">docs/route-contract.md</a>.</p>
+<p><strong>Interactive diagram →</strong> <a href="https://github.com/antoniodavid/odf-agent-team/blob/main/docs/odf-agent-phase-flow.html">Phase flow &amp; agent routing</a> · <a href="https://github.com/antoniodavid/odf-agent-team/blob/main/docs/harness-architecture.html">Harness architecture</a></p>
+<h2 id="commands" tabindex="-1"><a class="anchor" href="#commands" aria-label="Link to this section">#</a>Commands</h2>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Command</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>/odf-new &lt;name&gt;</code></td>
+<td>Start a change on its resolved route; planning scales with risk/scope</td>
+</tr>
+<tr>
+<td><code>/odf-continue [name]</code></td>
+<td>Resume from last completed stage</td>
+</tr>
+<tr>
+<td><code>/odf-status [name]</code></td>
+<td>Canonical thin-spine status</td>
+</tr>
+<tr>
+<td><code>/odf-explore &lt;topic&gt;</code></td>
+<td>Research without creating a change</td>
+</tr>
+<tr>
+<td><code>/odf-fix &lt;description&gt;</code></td>
+<td>Lightweight bugfix: diagnose → BUILD → VERIFY</td>
+</tr>
+<tr>
+<td><code>/odf-verify</code></td>
+<td>Quality gate: tests, lint, spec compliance</td>
+</tr>
+<tr>
+<td><code>/odf-health</code></td>
+<td>Installation + project detection check</td>
+</tr>
+<tr>
+<td><code>/odf-feedback &lt;change&gt;</code></td>
+<td>Preview and optionally submit explicitly confirmed, privacy-bounded feedback</td>
+</tr>
+</tbody>
+</table></div>
+<p>23 commands total — full list in <a href="agents.html">AGENTS.md</a>.</p>
+<h2 id="why-developers-use-it" tabindex="-1"><a class="anchor" href="#why-developers-use-it" aria-label="Link to this section">#</a>Why developers use it</h2>
+<ul>
+<li><strong>One round-trip, not fifty.</strong> The plugin resolves agent + skills + profile in a single <code>odf_delegate</code> call — no grep/read loops to assemble context.</li>
+<li><strong>Evidence over vibes.</strong> Policy Gate, validation seals, attempt ledgers, and receipts run silently before BUILD/VERIFY.</li>
+<li><strong>Never invent IDs.</strong> <code>odf-toolkit lookup</code> / <code>verify-refs</code> resolve every view XML ID and model against local Odoo source (exit 1 otherwise).</li>
+<li><strong>Stops that explain themselves.</strong> Every blocked or failed envelope carries a <code>stop_disposition</code> with the kind, whether a human is required, and the only allowed recovery.</li>
+<li><strong>OCA-ready.</strong> Governance skill enforces PR workflow, commit style, and maturity gates before publication.</li>
+</ul>
+<h2 id="whats-inside" tabindex="-1"><a class="anchor" href="#whats-inside" aria-label="Link to this section">#</a>What's inside</h2>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Piece</th>
+<th>Count / location</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Skills</td>
+<td>87 (<code>skills/</code> — OCA governance/style, Odoo patterns, ODF stage roles)</td>
+</tr>
+<tr>
+<td>Agents</td>
+<td>11 (<code>agent/</code> — orchestrator + 10 specialists)</td>
+</tr>
+<tr>
+<td>Commands</td>
+<td>23 (<code>command/</code>)</td>
+</tr>
+<tr>
+<td>Plugin tools</td>
+<td>29 injected at runtime (<code>plugins/odf-delegation.ts</code> + <code>odf-plugin/</code>)</td>
+</tr>
+<tr>
+<td>Deterministic CLIs</td>
+<td><code>odf-project-scan</code>, <code>odf-toolkit</code> (<code>scripts/</code>)</td>
+</tr>
+</tbody>
+</table></div>
+<h2 id="documentation" tabindex="-1"><a class="anchor" href="#documentation" aria-label="Link to this section">#</a>Documentation</h2>
+<p><strong><a href="docs.html">docs/README.md</a></strong> — full index. Start here:</p>
+<ul>
+<li><a href="intended-usage.html">Intended usage</a> — mental model, entry points, stopping safely, when to use what</li>
+<li><a href="architecture.html">Architecture</a> — thin-spine vocabulary, components, data flow</li>
+<li><a href="route-contract.html">Route &amp; stage contract</a> — every route, stage, artifact, and gate</li>
+<li><a href="context-contract.html">Context contract</a> — the bounded, reference-only Context Manifest</li>
+<li><a href="decision-evaluation.html">Decision evaluation</a> — decision-quality report, local reviews, cadence</li>
+<li><a href="plugin.html">Plugin reference</a> — the 29 tools, modules, <code>odf_delegate</code> path</li>
+<li><a href="skill-style-guide.html">Skill style guide</a> — structure, frontmatter, compact rules, validation</li>
+<li><a href="archive/index.html">Archive</a> — completed roadmaps and plans</li>
+</ul>
+<h2 id="honest-status" tabindex="-1"><a class="anchor" href="#honest-status" aria-label="Link to this section">#</a>Honest status</h2>
+<ul>
+<li><strong>Mature and tested locally</strong>: 1370 unit tests + 331 YAML scenarios + 18 harness checks. Representative Odoo validation and end-to-end telemetry remain ODF 2.0 gates.</li>
+<li><strong>Portable</strong>: Linux/macOS/Windows (Git Bash/WSL), <code>XDG_CONFIG_HOME</code> resolution, author-path rewriting at install time.</li>
+<li><strong>Known limitations</strong>:
+<ul>
+<li><code>plugins/odf-delegation.ts</code> (~6k lines) is still a monolith for the delegation/workflow core; cohesive sections already live in <code>odf-plugin/</code>.</li>
+<li>The <code>engram</code> store needs the <strong>Engram MCP</strong> (or CLI); OpenSpec-only flows work without it.</li>
+<li><code>codegraph</code> / <code>fff</code> / <code>context7</code> are <strong>optional</strong> and degrade gracefully.</li>
+<li>The stage model is strict by design; the escape hatch is audited <code>odf_workflow_override</code>, not a bypass.</li>
+</ul>
+</li>
+</ul>
+<h2 id="dependencies" tabindex="-1"><a class="anchor" href="#dependencies" aria-label="Link to this section">#</a>Dependencies</h2>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Dependency</th>
+<th>Missing</th>
+<th>Impact</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Node.js 18+</td>
+<td>—</td>
+<td>pack does not run</td>
+</tr>
+<tr>
+<td><code>engram</code> (CLI/MCP)</td>
+<td>Engram-only flows block; OpenSpec OK</td>
+<td>optional</td>
+</tr>
+<tr>
+<td><code>codegraph</code></td>
+<td>context packs → FFF/native</td>
+<td>optional</td>
+</tr>
+<tr>
+<td><code>git</code> / <code>docker</code></td>
+<td>digests/evidence, test detection off</td>
+<td>recommended</td>
+</tr>
+</tbody>
+</table></div>
+<p>Full matrix: <code>node &lt;pack&gt;/scripts/odf-toolkit.js deps</code></p>
+<h2 id="development" tabindex="-1"><a class="anchor" href="#development" aria-label="Link to this section">#</a>Development</h2>
+<pre><code class="language-bash">npm test              # full suite: unit + YAML + plugin
+npm run test:unit     # 1370 Vitest
+npm run test:yaml     # 331 YAML scenarios
+npm run test:harness  # 18 harness checks
+npm run typecheck     # tsc --noEmit
+npm run validate:skills
+ODF_CONFIG_DIR=$PWD node scripts/odf-registry-validate.js
+</code></pre>
+<p><code>npm run validate:skills</code> enforces the Agent Skills contract (frontmatter, name/directory parity, bounded descriptions, compact rules); see <a href="skill-style-guide.html">docs/skill-style-guide.md</a>.</p>
+<p>Versioning: <code>VERSION</code> + <code>package.json</code> + <code>package-lock.json</code> + <code>odf-registry.json</code> + <code>CHANGELOG.md</code> must stay in sync. Releases: semver tag + <code>gh release create</code>.</p>
+<h2 id="repository-layout" tabindex="-1"><a class="anchor" href="#repository-layout" aria-label="Link to this section">#</a>Repository layout</h2>
+<pre><code>agent/            11 agent instructions (orchestrator + 10 specialists)
+command/          23 slash commands
+skills/           87 skills (OCA + ODF + shared)
+odf-plugin/       deterministic modules (workflow, triage, policy, …)
+plugins/          odf-delegation.ts — plugin entrypoint, 29 tools
+scripts/          CLIs + test runner + registry validator
+docs/             architecture, usage, plugin reference, diagrams
+install.sh        idempotent installer (backup, TUI, --force, --with-codegraph)
+odf-registry.json single source of truth
+</code></pre>
+<h2 id="license" tabindex="-1"><a class="anchor" href="#license" aria-label="Link to this section">#</a>License</h2>
+<p>MIT</p>
+
+    </article>
+    <nav class="pager" aria-label="Documentation pagination"><a class="pager-link prev" href="skill-style-guide.html"><span>Previous</span><b>Skill style guide</b></a><a class="pager-link next" href="changelog.html"><span>Next</span><b>Changelog</b></a></nav>
+  </main>
+  <aside class="toc" aria-label="On this page"><p class="toc-title">On this page</p><nav><a class="toc-l2" href="#quickstart">Quickstart</a><a class="toc-l2" href="#how-it-works">How it works</a><a class="toc-l2" href="#commands">Commands</a><a class="toc-l2" href="#why-developers-use-it">Why developers use it</a><a class="toc-l2" href="#whats-inside">What&#39;s inside</a><a class="toc-l2" href="#documentation">Documentation</a><a class="toc-l2" href="#honest-status">Honest status</a><a class="toc-l2" href="#dependencies">Dependencies</a><a class="toc-l2" href="#development">Development</a><a class="toc-l2" href="#repository-layout">Repository layout</a><a class="toc-l2" href="#license">License</a></nav></aside>
+</div>
+<div class="overlay" id="overlay" role="dialog" aria-modal="true" aria-label="Search documentation">
+  <div class="palette">
+    <div class="palette-input">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true" style="color:var(--ink-faint)"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+      <input id="q" type="search" placeholder="Search docs, diagrams, contracts…" autocomplete="off" spellcheck="false">
+      <kbd>esc</kbd>
+    </div>
+    <div class="results" id="results"></div>
+    <div class="palette-foot"><span>↑↓ navigate</span><span>↵ open</span><span>esc close</span></div>
+  </div>
+</div>
+<div class="toast" id="toast" role="status"></div>
+<script src="assets/docs.js"></script>
+</body>
+</html>
