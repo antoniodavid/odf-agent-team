@@ -55,7 +55,7 @@ tests:
         - .config/opencode/odf-registry.json
       backup_count: 1
 
-  - name: rewrites author config paths to the installed environment
+  - name: rewrites absolute user config paths to the installed environment
     input:
       args: ['--yes', '--force']
       env:
@@ -69,7 +69,7 @@ tests:
         - .config/opencode/skills/odf-init/SKILL.md
       files_not_contain:
         - path: .config/opencode/skills/odf-init/SKILL.md
-          text: '/home/adruban/.config/opencode'
+          text: '/home/test-user/.config/opencode'
 
   - name: reports environment dependency probes after install
     input:

@@ -3,7 +3,7 @@ name: odf-batch-implement
 description: "Trigger: bounded batch, work unit, IMPLEMENT batch, timeout-sensitive, T8/T9/T10, tests, evidence. Execute one route-aware Odoo implementation slice."
 license: MIT
 metadata:
-  author: adruban
+  author: antoniodavid
   version: "1.3"
 ---
 

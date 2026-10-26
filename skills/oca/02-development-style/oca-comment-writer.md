@@ -3,7 +3,7 @@ name: oca-comment-writer
 description: "Write warm, direct collaboration comments for ODF. Trigger: PR feedback, issue replies, code review comments, async team updates."
 license: Apache-2.0
 metadata:
-  author: adruban
+  author: antoniodavid
   version: "1.0"
 ---
 

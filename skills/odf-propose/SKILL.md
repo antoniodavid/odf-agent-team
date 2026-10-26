@@ -3,7 +3,7 @@ name: odf-propose
 description: "Create an ODF change proposal with business context, scope, and approach. Trigger: Phase 0 (PROPOSE) of /odf-new."
 license: MIT
 metadata:
-  author: adruban
+  author: antoniodavid
   version: "1.2"
 ---
 

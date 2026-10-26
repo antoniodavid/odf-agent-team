@@ -3,7 +3,7 @@ name: odf-assess
 description: "Assess Odoo requirement: determine standard vs custom strategy, analyze functional feasibility, produce functional spec. Trigger: Phase 1 (ASSESS) of /odf-new."
 license: MIT
 metadata:
-  author: adruban
+  author: antoniodavid
   version: "2.2"
 ---
 

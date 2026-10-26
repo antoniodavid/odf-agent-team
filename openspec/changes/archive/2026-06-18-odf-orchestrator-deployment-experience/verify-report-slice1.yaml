@@ -232,7 +232,7 @@ issues_found:
       title: package.json fields differ from installer design
       description: |
         Actual package.json uses version 1.1.0, repository
-        adruban/odf-agent-team, test script "node scripts/odf-test-runner.js --plugin-tests",
+        antoniodavid/odf-agent-team, test script "node scripts/odf-test-runner.js --plugin-tests",
         and devDependencies including @opencode-ai/plugin/sdk and vitest.
         The installer design specified version 1.0.0, repository
         antoniodavid/odf-agent-team, test script without --plugin-tests, and

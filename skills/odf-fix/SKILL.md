@@ -3,7 +3,7 @@ name: odf-fix
 description: "Lightweight 3-step bugfix flow: DIAGNOSE → FIX → VERIFY. Trigger: /odf-fix, bugfix request, error report, 'this is broken'."
 license: MIT
 metadata:
-  author: adruban
+  author: antoniodavid
   version: "2.3"
 ---
 

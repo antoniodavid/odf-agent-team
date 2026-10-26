@@ -616,15 +616,17 @@ async function environmentScreen() {
 }
 
 function rewriteConfigPaths() {
-  const oldPath = '/home/adruban/.config/opencode';
+  // Match any user's config path, not a single hardcoded username.
+  const oldPath = /\/home\/[^/]+\/\.config\/opencode/;
+  const oldPathAll = new RegExp(oldPath.source, 'g');
   const walk = (dir) => {
     for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
       const full = path.join(dir, entry.name);
       if (entry.isDirectory()) walk(full);
       else if (/\.(md|ts|json|js)$/.test(entry.name)) {
         const content = fs.readFileSync(full, 'utf8');
-        if (content.includes(oldPath)) {
-          fs.writeFileSync(full, content.split(oldPath).join(CONFIG_DIR));
+        if (oldPath.test(content)) {
+          fs.writeFileSync(full, content.replace(oldPathAll, () => CONFIG_DIR));
         }
       }
     }

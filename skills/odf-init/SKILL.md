@@ -3,7 +3,7 @@ name: odf-init
 description: "Detect + persist Odoo project context: version, modules, test runner, lint tools, conventions. Trigger: /odf-init, first time in a project."
 license: MIT
 metadata:
-  author: adruban
+  author: antoniodavid
   version: "2.3"
 ---
 

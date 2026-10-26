@@ -3,7 +3,7 @@ name: odf-design
 description: "Create a CLOSED technical design document + IMPLEMENT plan for Odoo module. Trigger: Phase 2 (DESIGN) of /odf-new after ASSESS approved."
 license: MIT
 metadata:
-  author: adruban
+  author: antoniodavid
   version: "3.6"
 ---
 

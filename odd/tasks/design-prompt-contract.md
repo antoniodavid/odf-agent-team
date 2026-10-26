@@ -60,5 +60,5 @@ The backend DESIGN guidance already enforces closed designs and source checks, b
 - Scoped edits were present after the delegated writer cancellation and were verified by the parent.
 - Verification passed: repository registry validation, JSON parsing, whitespace checks, and targeted removal checks.
 - Release evidence: commit `69871db` (`refactor(odf): clarify design prompt contract`) contains the scoped prompt/skill changes; unrelated worktree changes remain excluded.
-- Installed the clean `69871db` snapshot into `/home/adruban/.config/opencode` as ODF `1.3.0`; backup created at `/home/adruban/.config/opencode/backups/install-20260921_162459` and global registry validation passed.
+- Installed the clean `69871db` snapshot into `$HOME/.config/opencode` as ODF `1.3.0`; backup created at `$HOME/.config/opencode/backups/install-20260921_162459` and global registry validation passed.
 - Next step: quit and restart OpenCode, then run `/odf-health` in the Odoo project before using the updated agent/skill prompts.

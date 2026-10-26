@@ -3,7 +3,7 @@ name: odf-qa
 description: "QA workflow for ODF: test planning, coverage analysis, test review, quality gates. Trigger: /odf-qa or orchestrator needs QA in any phase."
 license: MIT
 metadata:
-  author: adruban
+  author: antoniodavid
   version: "2.2"
 ---
 

@@ -27,7 +27,7 @@ returns an `allow`/`block` decision.
 |-------|--------------|---------|
 | `destructive` | dropdb / DROP DATABASE / TRUNCATE / DROP TABLE / `rm -rf /` | `dropdb mydb` |
 | `path-escape` | `../` traversal, `..%2f` / `%2e%2e` | `../../etc/passwd` |
-| `secrets-pii` | `password=`, `api_key=`, `secret=`, `token=`, emails | `password=secret123` |
+| `secrets-pii` | `password=`, `api_key=`, `secret=`, `token=`, emails | `password=<value>` |
 | `injection` | "ignore previous instructions", "you are now the system" | prompt override |
 | `jailbreak` | "DAN", "do anything now", "no restrictions" | override phrases |
 | `cross-root-write` | write/copy/move escaping `authorized_roots` (evaluated only when roots are supplied) | `echo x > /etc/evil` |
