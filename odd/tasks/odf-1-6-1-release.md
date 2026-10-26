@@ -49,7 +49,7 @@ validation matrix pass.
 | T2 | S2 | inline | done | Version metadata + fixtures + CHANGELOG `1.6.1` |
 | T3 | S3, S4 | inline | done | `docs/index.html` rebuilt around the 1.6.1 flows |
 | T4 | S5 | inline | done | `docs/search-index.json` regenerated |
-| T5 | S6 | inline | done | PR + `v1.6.1` release |
+| T5 | S6 | inline | done | PR #184 merged as `2de6901`; release `v1.6.1` targets that commit |
 
 ## Log
 
@@ -70,3 +70,18 @@ counts frozen at `1182`, and a website still pinned to `v1.3.0` with 19 tools.
 The user asked to "sacar un nuevo release 1.6.1", which authorizes the version
 bump, the release PR, and the GitHub tag/release publication. npm publication
 remains out of scope, as in 1.6.0.
+
+### L4 — release evidence (2026-10-26)
+
+- PR #184 (`chore(release): prepare v1.6.1 metadata and docs`) passed CI on Node
+  22 (typecheck, unit, YAML, registry, skill validation, diff check) and
+  auto-merged to `main` as `2de6901`.
+- Release `v1.6.1` is published, non-draft, non-prerelease, and targets
+  `2de690128714855be37f5f49dec2787c0dc2a66b`; remote `VERSION` and `package.json`
+  report `1.6.1`.
+- GitHub Pages rebuilt from `main` and serves `v1.6.1`; the deployed
+  `search-index.json` has 23 entries including the route, context, and decision
+  evaluation pages.
+- Local release matrix: 1370 Vitest tests (50 files), 331 YAML scenarios, 18
+  harness checks, typecheck, registry validation, skill validation (87 skills, 0
+  errors, 121 migration warnings), `bash -n install.sh`, `git diff --check`.
