@@ -764,7 +764,7 @@
         "inject",
         "standards"
       ],
-      "compact_rules": "- Resolve skills once per session and cache the index: name, trigger, path.\n- Read odf-registry.json first; fall back to Engram, then the filesystem.\n- Inject at most 5 matching skills per delegation; prefer project-specific over global.\n- Pass skills by identifier or workspace-relative path, never absolute paths.\n- If no registry exists, warn and proceed without project standards.",
+      "compact_rules": "- Resolve skills once per session and cache the index: name, trigger, path.\n- Read odf-registry.json first; fall back to Engram, then the filesystem.\n- Inject at most 5 matching skills per delegation; prefer project-specific over global.\n- Pass skills by identifier or workspace-relative path, never absolute paths.\n- If no registry exists, warn and proceed without project standards.\n- The canonical stage skill also contributes its full SKILL.md body; bundled references are listed, not inlined.",
       "path": "skills/_shared/skill-resolver.md",
       "odoo_versions": [
         16,

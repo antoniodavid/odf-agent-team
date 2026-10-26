@@ -231,6 +231,99 @@ export function formatCompactRules(skills: ODFSkill[]): string {
   return sections.join("\n")
 }
 
+const SKILL_BODY_LIMIT = 20_000
+
+function stripFrontmatter(text: string): string {
+  const clean = text.replace(/^\uFEFF/, "")
+  if (!clean.startsWith("---")) return clean
+  const end = clean.indexOf("\n---", 3)
+  if (end === -1) return clean
+  return clean.slice(end + 4).replace(/^\r?\n/, "")
+}
+
+async function listBundledResources(skillPath: string): Promise<string[]> {
+  if (path.basename(skillPath).toLowerCase() !== "skill.md") return []
+  const root = path.dirname(skillPath)
+  const bundled: string[] = []
+  for (const dir of ["references", "scripts", "assets"]) {
+    try {
+      const entries = await fs.readdir(path.join(root, dir))
+      for (const entry of entries.sort().slice(0, 40)) bundled.push(`${dir}/${entry}`)
+    } catch {
+      // No bundled directory for this skill.
+    }
+  }
+  return bundled
+}
+
+export interface SkillInstructions {
+  body: string
+  truncated: boolean
+  bundled: string[]
+}
+
+/** Read the full SKILL.md body for progressive disclosure, never the live prompt text. */
+export async function readSkillInstructions(skill: Pick<ODFSkill, "path">): Promise<SkillInstructions | null> {
+  try {
+    const text = await fs.readFile(skill.path, "utf8")
+    const body = stripFrontmatter(text).trim()
+    if (!body) return null
+    const bundled = await listBundledResources(skill.path)
+    const truncated = body.length > SKILL_BODY_LIMIT
+    return {
+      body: truncated
+        ? `${body.slice(0, SKILL_BODY_LIMIT)}\n\n[truncated at ${SKILL_BODY_LIMIT} characters; read the skill file for the rest]`
+        : body,
+      truncated,
+      bundled,
+    }
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Build the standards block injected into a delegation.
+ *
+ * Compact rules cover every matched skill. The canonical stage skill (the one
+ * selected for the requested phase) also contributes its full SKILL.md body, so
+ * the executor follows the real procedure instead of a summary. Bundled
+ * `references/` files are listed but not inlined: the executor reads them on
+ * demand.
+ */
+export async function formatDelegationSkills(skills: ODFSkill[]): Promise<string> {
+  const sections: string[] = ["## Project Standards (auto-resolved)\n"]
+
+  sections.push("### Precision Guardrails")
+  sections.push(KARPATHY_COMPACT_RULES)
+  sections.push("")
+
+  for (const skill of skills) {
+    const canonical = Boolean((skill as ODFSkill & { _canonical?: boolean })._canonical)
+    sections.push(`### ${skill.title}`)
+
+    if (canonical) {
+      const instructions = await readSkillInstructions(skill)
+      if (instructions) {
+        sections.push("Full stage instructions loaded from the skill file. Follow them as the procedure for this delegation.")
+        if (instructions.bundled.length > 0) {
+          sections.push(`Bundled resources (read on demand): ${instructions.bundled.join(", ")}.`)
+        }
+        sections.push("")
+        sections.push(instructions.body)
+        sections.push("")
+        continue
+      }
+      sections.push("_Full stage instructions unavailable; using compact rules._")
+    }
+
+    sections.push(skill.compact_rules)
+    sections.push("")
+  }
+
+  return sections.join("\n")
+}
+
 // ==========================================
 // SKILL TOOLS
 // ==========================================

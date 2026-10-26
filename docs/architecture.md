@@ -94,7 +94,7 @@ removed by inline QA.
                         │
                         ▼
                ┌─────────────────┐
-               │  skills/*.md    │  ← injected compact rules
+               │  skills/*.md    │  ← compact rules + stage body
                └─────────────────┘
 ```
 
@@ -180,7 +180,8 @@ working unchanged.
    test runner and `odf-toolkit`; `matchSkills` stays per-consumer because the
    plugin uses a role-aware canonical variant).
 3. Matches up to 5 relevant skills.
-4. Injects compact rules and the active SDD profile into the prompt.
+4. Injects compact rules for matched skills, the canonical stage skill's full
+   `SKILL.md` body, and the active SDD profile into the prompt.
 5. Enforces the authoritative TDD Policy Gate for BUILD/VERIFY, the
    stop-validation evidence seal, `design_closed` coercion, and claimed
    `artifact_ref` existence.

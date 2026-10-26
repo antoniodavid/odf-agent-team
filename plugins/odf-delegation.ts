@@ -60,10 +60,12 @@ import {
   createODFSkillResolve,
   detectOdooVersion,
   formatCompactRules,
+  formatDelegationSkills,
   formatProfileBlock,
   getProfileByPhase,
   matchSkills,
   profileExists,
+  readSkillInstructions,
 } from "../odf-plugin/odf-skills.js"
 import {
   createODFCommunityToolDetect,
@@ -2504,7 +2506,7 @@ Use this instead of generic task() for ODF workflow delegation.`,
       }
 
       // Inject compact rules, profile, and the Policy Gate decision
-      const rules = formatCompactRules(skills)
+      const rules = await formatDelegationSkills(skills)
       const enrichedPrompt = buildEnrichedPrompt({ prompt: args.prompt, rules, profileBlock })
       const sourceAuthorityPrompt = sourceAuthorityRequired && sourceAuthorityRoots
         ? buildSourceAuthorityPrompt(sourceAuthorityRoots)
@@ -4183,7 +4185,7 @@ function createODFDelegationPrepare(canonicalDirectory?: string): ReturnType<typ
         ? { name: profile.name, model: profile.model, temperature: profile.temperature, reasoning: profile.reasoning, advisory: true }
         : null
 
-      const rules = formatCompactRules(skills)
+      const rules = await formatDelegationSkills(skills)
       const enrichedPrompt = buildEnrichedPrompt({ prompt: args.prompt, rules, profileBlock })
       const sourceAuthorityPrompt = sourceAuthorityRequired && sourceAuthorityRoots
         ? buildSourceAuthorityPrompt(sourceAuthorityRoots)
@@ -5289,7 +5291,7 @@ function createODFParallelPrepare(canonicalDirectory?: string): ReturnType<typeo
         if (!agentName) {
           return failAcquired("agent-routing-unavailable", `No registered, installed, phase-eligible agent is available for branch "${branch.branch_id}".`)
         }
-        const rules = formatCompactRules(skills)
+        const rules = await formatDelegationSkills(skills)
         const enrichedPrompt = buildEnrichedPrompt({ prompt: branch.prompt, rules, profileBlock })
         const sourceAuthorityPrompt = sourceAuthorityRequired && sourceAuthorityRoots
           ? buildSourceAuthorityPrompt(sourceAuthorityRoots)
@@ -11381,6 +11383,8 @@ export {
   matchSkills,
   resolveAgent,
   formatCompactRules,
+  formatDelegationSkills,
+  readSkillInstructions,
   invokeTask,
   findTaskApi,
   createODFDelegate,

@@ -23,7 +23,7 @@ Before EVERY sub-agent launch that involves **reading, writing, or reviewing Odo
 
 ### Step 1: Obtain the ODF Registry (once per session)
 
-The registry contains a **Compact Rules** section with pre-digested rules per skill (5-15 lines each). This is what you inject — NOT full SKILL.md paths.
+The registry contains a **Compact Rules** section with pre-digested rules per skill (5-15 lines each) plus the resolved path to each skill file. Inject compact rules for every matched skill, and the full `SKILL.md` body for the canonical stage skill.
 
 Resolution order:
 1. Already cached from earlier in this session? → use cache
@@ -64,17 +64,29 @@ Use the `triggers` field in the registry to match. Skills whose triggers mention
 
 ### Step 3: Inject into Sub-Agent Prompt
 
-From the registry's **Compact Rules**, copy the matching skill blocks directly into the sub-agent's prompt:
+Copy the matching skill blocks into the sub-agent's prompt. For the canonical skill of the requested stage, also read its `SKILL.md`, strip the frontmatter, and paste the body:
 
 ```
 ## Project Standards (auto-resolved)
 
-{paste compact rules blocks for each matching skill}
+### Precision Guardrails
+...
+
+### {matched skill}
+{compact rules}
+
+### {canonical stage skill}
+Full stage instructions loaded from the skill file. Follow them as the procedure.
+Bundled resources (read on demand): references/..., scripts/..., assets/...
+{SKILL.md body, frontmatter stripped}
 ```
 
 This goes BEFORE the sub-agent's task-specific instructions, so standards are loaded before work begins.
 
-**Key rule**: inject the COMPACT RULES text, not paths. The sub-agent should NOT read any SKILL.md files — the rules arrive pre-digested in its prompt.
+**Key rules**:
+- Compact rules for every matched standard; full `SKILL.md` body for the canonical stage skill only.
+- List bundled `references/`, `scripts/`, and `assets/` paths; do not inline them. The executor reads a listed file when the task needs it.
+- If the canonical body is unavailable or exceeds the 20,000-character cap, fall back to its compact rules and say so.
 
 ### Step 4: Include Project Conventions
 

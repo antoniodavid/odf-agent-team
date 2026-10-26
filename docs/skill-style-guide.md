@@ -59,7 +59,7 @@ Example:
 
 ### Compact-rule contract
 
-`compact_rules` is the only part of a skill most delegations ever see, so it is
+`compact_rules` is what every matched skill contributes to a delegation, so it is
 validated as a product surface:
 
 - 150–600 characters, ending on a complete sentence.
@@ -68,6 +68,20 @@ validated as a product surface:
 - No two skills may share the same `compact_rules` string.
 - Regenerate them from the skill's own rules and best practices; never copy the
   banner or the first paragraph.
+
+## Injection
+
+A delegation injects:
+
+- The precision guardrails and the `compact_rules` of every matched skill (up to 5).
+- The **full `SKILL.md` body** of the canonical stage skill, with frontmatter
+  stripped and capped at 20,000 characters. This is the procedure the executor
+  must follow.
+- A list of bundled `references/`, `scripts/`, and `assets/` paths. They are not
+  inlined; the executor reads one when the task needs it.
+
+If the canonical body is unavailable, the delegation falls back to its compact
+rules and says so.
 
 ## Validation
 
