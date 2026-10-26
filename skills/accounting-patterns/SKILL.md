@@ -1,6 +1,6 @@
 ---
 name: accounting-patterns
-description: "Accounting Patterns. Trigger: accounting, account move, journal entry, chart of accounts, tax, fiscal position."
+description: "Use when implementing Odoo accounting flows: journal entries, invoices, payments, taxes, fiscal positions, reconciliation, and financial reports. Covers account.move, account.payment, multi-currency, and entry balancing."
 license: MIT
 metadata:
   author: antoniodavid

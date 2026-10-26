@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Changelog — ODF Agent Team · ODF Docs</title>
-  <meta name="description" content="Skills now use the Agent Skills layout: all 87 registered skills live at `skills/&lt;name&gt;/SKILL.md`, 73 flat files were migrated, 50 version variants moved to `references/versions/`, and 23 long skills were split into `SKI">
+  <meta name="description" content="Skill descriptions now lead with `Use when` and describe user intent instead of `Entity. Trigger: ...`; all 87 were rewritten.">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -54,6 +54,10 @@
       <h2 id="unreleased" tabindex="-1"><a class="anchor" href="#unreleased" aria-label="Link to this section">#</a>Unreleased</h2>
 <h3 id="changed" tabindex="-1"><a class="anchor" href="#changed" aria-label="Link to this section">#</a>Changed</h3>
 <ul>
+<li>Skill descriptions now lead with <code>Use when</code> and describe user intent instead of <code>Entity. Trigger: ...</code>; all 87 were rewritten.</li>
+<li>Delegations also inject the body of the highest-scoring non-canonical skill (capped at 8,000 characters), so domain standards are usable without flooding the prompt.</li>
+<li>Added a trigger-eval dataset (<code>scripts/odf-skill-evals/trigger-queries.json</code>, 57 realistic prompts) and a test that requires the expected skill in the top 3.</li>
+<li>Odoo version filters were normalized to 16-19, and the five skills that referenced the nonexistent <code>grep_app_searchGitHub</code> now use local <code>rg</code> commands.</li>
 <li>Skills now use the Agent Skills layout: all 87 registered skills live at <code>skills/&lt;name&gt;/SKILL.md</code>, 73 flat files were migrated, 50 version variants moved to <code>references/versions/</code>, and 23 long skills were split into <code>SKILL.md</code> plus <code>references/examples.md</code>.</li>
 <li>Absolute install and personal paths in skill references were replaced with relative links; the OCA index and dispatcher paths now point at the flat layout.</li>
 <li>Delegations inject the canonical stage skill's full <code>SKILL.md</code> body (frontmatter stripped, capped at 20,000 characters) alongside compact rules for matched skills, and list bundled <code>references/</code>, <code>scripts/</code>, and <code>assets/</code> for on-demand reads. The parallel branch prompt bound is now 32 KB.</li>

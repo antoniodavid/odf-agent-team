@@ -1,6 +1,6 @@
 ---
 name: error-handling-patterns
-description: "Error Handling Patterns. Trigger: ValidationError, UserError, exception handling, raise."
+description: "Use when handling Odoo errors: UserError vs ValidationError, try/except, savepoints, user feedback, and anti-patterns. Covers logging technical detail and safe messages."
 license: MIT
 metadata:
   author: antoniodavid

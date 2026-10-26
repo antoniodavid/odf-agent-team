@@ -1,6 +1,6 @@
 ---
 name: odf-fix
-description: "Lightweight 3-step bugfix flow: DIAGNOSE → FIX → VERIFY. Trigger: /odf-fix, bugfix request, error report, 'this is broken'."
+description: "Use when fixing a bug through the lightweight ODF flow: diagnose the root cause, add a regression test, fix, and verify."
 license: MIT
 metadata:
   author: antoniodavid

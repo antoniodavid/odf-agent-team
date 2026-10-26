@@ -1,6 +1,6 @@
 ---
 name: config-settings-patterns
-description: "Config Settings Patterns. Trigger: ir.config_parameter, settings model, res.config.settings."
+description: "Use when adding Odoo settings: res.config.settings, ir.config_parameter, company-specific options, feature toggles, and defaults. Covers the settings view and reading values in code."
 license: MIT
 metadata:
   author: antoniodavid

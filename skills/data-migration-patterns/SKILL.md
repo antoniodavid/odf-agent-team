@@ -1,6 +1,6 @@
 ---
 name: data-migration-patterns
-description: "Data Migration Patterns. Trigger: migration script, openupgrade, data migration, pre-migrate."
+description: "Use when writing Odoo migration scripts: migrations pre and post, OpenUpgrade analysis, batching, testing, and idempotency. Covers renamed or removed fields and irreversible steps."
 license: MIT
 metadata:
   author: antoniodavid

@@ -1,6 +1,6 @@
 ---
 name: odf-propose
-description: "Create an ODF change proposal with business context, scope, and approach. Trigger: Phase 0 (PROPOSE) of /odf-new."
+description: "Use when starting an ODF change: frame intent, scope, capabilities, risks, success criteria, and rollback before ASSESS."
 license: MIT
 metadata:
   author: antoniodavid

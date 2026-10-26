@@ -1,6 +1,6 @@
 ---
 name: controller-api-patterns
-description: "Controller Api Patterns. Trigger: http controller, http.route, REST endpoint, website route."
+description: "Use when exposing Odoo HTTP endpoints: @http.route, auth modes, JSON-RPC, REST patterns, webhooks, and file upload or download. Covers CSRF, validation, and error responses."
 license: MIT
 metadata:
   author: antoniodavid

@@ -22,7 +22,7 @@ The directory name must equal the frontmatter `name`. ODF skills follow the LLM-
 ```yaml
 ---
 name: my-skill
-description: "Short, searchable description. Trigger: user says X, Y, or Z."
+description: "Use when <task or goal> — <keywords the user would say>. Covers <what the skill provides>."
 license: MIT
 metadata:
   author: your-name
@@ -30,7 +30,7 @@ metadata:
 ---
 ```
 
-Keep the description short and include trigger keywords so the skill resolver can match it.
+Lead with `Use when`, describe the user's goal, and include the trigger keywords the resolver matches. Do not write `Entity. Trigger: ...` or describe implementation mechanics.
 
 ### Required Sections
 
@@ -160,6 +160,16 @@ Use semantic-ish versioning for skills:
 - `2.1` — additive change or clarification.
 
 Always add a `changelog` entry with date and short description.
+
+## Trigger Evals
+
+`scripts/odf-skill-evals/trigger-queries.json` holds realistic prompts with the skill each one should select. `scripts/odf-skill-evals.test.ts` runs them through `matchSkills` and requires the expected skill in the top 3:
+
+```bash
+npx vitest run scripts/odf-skill-evals.test.ts
+```
+
+Add at least one query per new or changed skill. A failing query means the triggers or the description do not reflect how users ask for the skill.
 
 ## Testing
 

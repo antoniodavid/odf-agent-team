@@ -1,6 +1,6 @@
 ---
 name: oca-migration-assist
-description: "Oca Migration Assist. Trigger: migration assist, migration guidance, port module."
+description: "Use when porting an OCA module: OpenUpgrade analysis first, then changelogs and migration PRs, with idempotent scripts."
 license: MIT
 metadata:
   author: antoniodavid
@@ -19,15 +19,15 @@ Guide version migrations using OpenUpgrade + Odoo official.
 
 ## Search Commands
 
-```python
-# OpenUpgrade analysis
-grep_app_searchGitHub(repo="OCA/OpenUpgrade", query="upgrade_analysis.txt sale 18.0")
+```bash
+# OpenUpgrade analysis, cloned locally
+rg -n "sale" <openupgrade-root>/upgrade_analysis.txt
 
 # Odoo changes
-grep_app_searchGitHub(repo="odoo/odoo", query="CHANGELOG 18.0")
+git -C <odoo-source-root>/odoo log --oneline --grep "18.0" | head -20
 
-# Community examples
-grep_app_searchGitHub(repo="OCA/", query="migration 18.0")
+# Community examples, when cloned locally
+rg -n "migration 18.0" <oca-repos-root> --glob "*.md" | head -20
 ```
 
 ## Output Format

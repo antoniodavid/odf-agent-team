@@ -1,6 +1,6 @@
 ---
 name: product-variant-patterns
-description: "Product Variant Patterns. Trigger: product variant, attribute, product.template, product.product."
+description: "Use when modeling Odoo products: product.template vs product.product, attributes, variants, SKUs, and pricing. Covers variant limits, images, and stock at variant level."
 license: MIT
 metadata:
   author: antoniodavid

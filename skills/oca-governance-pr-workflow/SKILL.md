@@ -1,6 +1,6 @@
 ---
 name: oca-governance-pr-workflow
-description: "OCA PR Workflow. Trigger: OCA PR, pull request template, PR checklist, oca-pr-workflow."
+description: "Use when opening an OCA pull request: issue approval, branch naming, commits, PR template, reviews, and maturity requirements. Covers force-push and squash rules."
 license: MIT
 metadata:
   author: antoniodavid

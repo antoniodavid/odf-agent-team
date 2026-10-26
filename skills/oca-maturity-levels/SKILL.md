@@ -1,6 +1,6 @@
 ---
 name: oca-maturity-levels
-description: "Oca Maturity Levels. Trigger: maturity levels, Alpha Beta Stable Mature, module maturity."
+description: "Use when classifying an OCA module: Alpha, Beta, Stable, and Mature requirements, reviews, tests, and promotion. Covers development_status."
 license: MIT
 metadata:
   author: antoniodavid

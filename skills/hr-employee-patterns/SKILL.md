@@ -1,6 +1,6 @@
 ---
 name: hr-employee-patterns
-description: "Hr Employee Patterns. Trigger: employee, hr.employee, payslip, department."
+description: "Use when extending Odoo HR: hr.employee, departments, job positions, attendance, leaves, and onboarding. Covers sensitive fields, self-service views, and multi-company filters."
 license: MIT
 metadata:
   author: antoniodavid

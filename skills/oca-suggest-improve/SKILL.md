@@ -1,6 +1,6 @@
 ---
 name: oca-suggest-improve
-description: "Oca Suggest Improve. Trigger: suggest improvement, improvement proposal, refactor suggestion."
+description: "Use when proposing Odoo improvements: rank findings by security, performance, quality, and conventions, with a concrete fix each."
 license: MIT
 metadata:
   author: antoniodavid

@@ -1,6 +1,6 @@
 ---
 name: assets-bundling-patterns
-description: "Assets Bundling Patterns. Trigger: assets bundle, ir.assets, js/css assets, web.assets."
+description: "Use when wiring Odoo frontend assets: bundle declaration, JS/CSS organization, lazy loading, and version-specific syntax. Covers manifest assets, web.assets bundles, and static/src changes."
 license: MIT
 metadata:
   author: antoniodavid

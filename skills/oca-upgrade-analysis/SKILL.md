@@ -1,6 +1,6 @@
 ---
 name: oca-upgrade-analysis
-description: "Oca Upgrade Analysis. Trigger: openupgrade analysis, upgrade analysis, module upgrade risk."
+description: "Use when analyzing an OpenUpgrade report: read upgrade_analysis.txt, then changelogs and OCA PRs, ranked by migration risk."
 license: MIT
 metadata:
   author: antoniodavid
@@ -19,12 +19,8 @@ OCA/OpenUpgrade/openupgrade_scripts/scripts/<module>/<version>/upgrade_analysis.
 
 ## Search Command
 
-```python
-grep_app_searchGitHub(
-    repo="OCA/OpenUpgrade",
-    query="upgrade_analysis.txt <module> <version>",
-    language=["Text"]
-)
+```bash
+rg -n "<module>" <openupgrade-root>/upgrade_analysis.txt
 ```
 
 ## What upgrade_analysis.txt Contains

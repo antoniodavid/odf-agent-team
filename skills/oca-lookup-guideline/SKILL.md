@@ -1,6 +1,6 @@
 ---
 name: oca-lookup-guideline
-description: "Oca Lookup Guideline. Trigger: oca guideline lookup, quick reference, policy lookup."
+description: "Use when you need an OCA rule quickly: commit tags, format, and links to the bundled governance skills."
 license: MIT
 metadata:
   author: antoniodavid

@@ -1,6 +1,6 @@
 ---
 name: action-patterns
-description: "Action Patterns. Trigger: ir.actions, server action, automated action, act_window."
+description: "Use when defining Odoo actions: window actions, server actions, client actions, URL actions, bindings, and close actions. Covers XML vs Python and wizard targets."
 license: MIT
 metadata:
   author: antoniodavid

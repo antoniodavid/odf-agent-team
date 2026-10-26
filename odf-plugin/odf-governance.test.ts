@@ -161,7 +161,7 @@ describe("OCA governance check", () => {
     expect(createODFGovernanceCheck().description).toContain("Read-only")
     expect(skill).toMatchObject({
       path: "skills/odf-oca-governance/SKILL.md",
-      odoo_versions: [14, 15, 16, 17, 18, 19],
+      odoo_versions: [16, 17, 18, 19],
       sdd_phase: null,
     })
     expect(rules).toMatchObject({ id: "oca-governance-v1", target: "oca", human_ack_required: true })

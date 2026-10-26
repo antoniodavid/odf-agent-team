@@ -1,6 +1,6 @@
 ---
 name: oca-xml-style
-description: "OCA XML Style. Trigger: .xml, views/, data/, security/."
+description: "Use when writing OCA-compliant XML: formatting, XML ID naming, view inheritance, data records, and security files. Covers attribute order and noupdate rules."
 license: MIT
 metadata:
   author: antoniodavid

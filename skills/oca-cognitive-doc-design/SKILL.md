@@ -1,6 +1,6 @@
 ---
 name: oca-cognitive-doc-design
-description: "Design ODF artifacts (specs, designs, reports) that reduce cognitive load for reviewers. Trigger: writing spec, design, report, PR description, or any document for human review."
+description: "Use when writing a design doc, spec, report, or PR description: answer first, progressive disclosure, chunking, and reviewer empathy."
 license: Apache-2.0
 metadata:
   author: antoniodavid

@@ -1,6 +1,6 @@
 ---
 name: field-type-reference
-description: "Field Type Reference. Trigger: field types, Char Integer Monetary, Selection field, field reference."
+description: "Use when choosing Odoo field types: Char, Text, Html, numeric, date, selection, binary, and relational fields. Covers attributes, comodel_name, currency_field, and version notes."
 license: MIT
 metadata:
   author: antoniodavid

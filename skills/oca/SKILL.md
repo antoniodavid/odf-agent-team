@@ -1,6 +1,6 @@
 ---
 name: oca
-description: "OCA Skills Index. Trigger: oca skills index, find oca skill, skill catalog."
+description: "Use when you need to find an OCA skill: catalog of governance, style, patterns, testing, version, and tool skills."
 license: MIT
 metadata:
   author: antoniodavid

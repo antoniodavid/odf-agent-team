@@ -1,8 +1,6 @@
 ---
 name: karpathy-precision
-description: >-
-  Use when implementing or delegating code that must stay minimal: state
-  assumptions, avoid scope creep, make surgical changes, and verify each step.
+description: "Use when implementing or delegating code that must stay minimal: state assumptions, avoid scope creep, make surgical changes, verify each step."
 license: MIT
 metadata:
   title: Precision Guardrails (Karpathy-Inspired)

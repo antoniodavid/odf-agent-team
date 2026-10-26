@@ -1,6 +1,6 @@
 ---
 name: security-guide
-description: "Odoo Security Guide. Trigger: security, access, rule, group, ir.model.access, ir.rule."
+description: "Use when implementing Odoo security: ir.model.access, record rules, groups, field-level access, and company rules. Covers version-specific behavior and sudo usage."
 license: MIT
 metadata:
   author: antoniodavid

@@ -1,6 +1,6 @@
 ---
 name: oca-work-unit-commits
-description: "Plan commits as reviewable work units using OCA format. Trigger: implementation, commit splitting, keeping tests/docs with code, OCA commit compliance."
+description: "Use when splitting implementation into commits: one deliverable behavior per commit, tests and docs with the code, OCA format."
 license: Apache-2.0
 metadata:
   author: antoniodavid

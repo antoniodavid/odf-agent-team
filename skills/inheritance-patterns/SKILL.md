@@ -1,6 +1,6 @@
 ---
 name: inheritance-patterns
-description: "Model Inheritance Patterns. Trigger: inherit, extend, override, _inherit, _inherits."
+description: "Use when extending Odoo models and views: _inherit, _name + _inherit, _inherits delegation, abstract mixins, and view or controller inheritance. Covers super() and safe overrides."
 license: MIT
 metadata:
   author: antoniodavid

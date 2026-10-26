@@ -1,6 +1,6 @@
 ---
 name: odoo-performance-guide
-description: "Odoo Performance Guide. Trigger: performance, slow query, optimize, n+1, read_group."
+description: "Use when an Odoo flow is slow: query optimization, indexes, prefetching, computed fields, SQL, and cron performance. Covers measuring before optimizing."
 license: MIT
 metadata:
   author: antoniodavid

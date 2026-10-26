@@ -50,7 +50,7 @@
     </nav>
     <article class="prose">
       <h1>ODF Skill Style Guide</h1>
-      <p class="doc-meta">4 min read</p>
+      <p class="doc-meta">5 min read</p>
       <p>This guide defines how to write and maintain ODF skills.</p>
 <h2 id="skill-structure" tabindex="-1"><a class="anchor" href="#skill-structure" aria-label="Link to this section">#</a>Skill Structure</h2>
 <p>A skill is a directory under <code>skills/</code> named after the skill, containing a <code>SKILL.md</code>:</p>
@@ -65,14 +65,14 @@
 <h3 id="frontmatter" tabindex="-1"><a class="anchor" href="#frontmatter" aria-label="Link to this section">#</a>Frontmatter</h3>
 <pre><code class="language-yaml">---
 name: my-skill
-description: &quot;Short, searchable description. Trigger: user says X, Y, or Z.&quot;
+description: &quot;Use when &lt;task or goal&gt; — &lt;keywords the user would say&gt;. Covers &lt;what the skill provides&gt;.&quot;
 license: MIT
 metadata:
   author: your-name
   version: &quot;1.0&quot;
 ---
 </code></pre>
-<p>Keep the description short and include trigger keywords so the skill resolver can match it.</p>
+<p>Lead with <code>Use when</code>, describe the user's goal, and include the trigger keywords the resolver matches. Do not write <code>Entity. Trigger: ...</code> or describe implementation mechanics.</p>
 <h3 id="required-sections" tabindex="-1"><a class="anchor" href="#required-sections" aria-label="Link to this section">#</a>Required Sections</h3>
 <div class="table-wrap"><table>
 <thead>
@@ -208,6 +208,11 @@ and conforming compact rules.</p>
 <li><code>2.1</code> — additive change or clarification.</li>
 </ul>
 <p>Always add a <code>changelog</code> entry with date and short description.</p>
+<h2 id="trigger-evals" tabindex="-1"><a class="anchor" href="#trigger-evals" aria-label="Link to this section">#</a>Trigger Evals</h2>
+<p><code>scripts/odf-skill-evals/trigger-queries.json</code> holds realistic prompts with the skill each one should select. <code>scripts/odf-skill-evals.test.ts</code> runs them through <code>matchSkills</code> and requires the expected skill in the top 3:</p>
+<pre><code class="language-bash">npx vitest run scripts/odf-skill-evals.test.ts
+</code></pre>
+<p>Add at least one query per new or changed skill. A failing query means the triggers or the description do not reflect how users ask for the skill.</p>
 <h2 id="testing" tabindex="-1"><a class="anchor" href="#testing" aria-label="Link to this section">#</a>Testing</h2>
 <p>If a skill includes deterministic logic, add or extend a YAML scenario in <code>scripts/odf-agent-tests/</code>:</p>
 <ul>
@@ -258,7 +263,7 @@ already exposes (package scripts, configs).</li>
     </article>
     <nav class="pager" aria-label="Documentation pagination"><a class="pager-link prev" href="plugin.html"><span>Previous</span><b>Plugin reference</b></a><a class="pager-link next" href="readme.html"><span>Next</span><b>README</b></a></nav>
   </main>
-  <aside class="toc" aria-label="On this page"><p class="toc-title">On this page</p><nav><a class="toc-l2" href="#skill-structure">Skill Structure</a><a class="toc-l3" href="#frontmatter">Frontmatter</a><a class="toc-l3" href="#required-sections">Required Sections</a><a class="toc-l2" href="#language">Language</a><a class="toc-l2" href="#compact-rules">Compact Rules</a><a class="toc-l3" href="#compact-rule-contract">Compact-rule contract</a><a class="toc-l2" href="#injection">Injection</a><a class="toc-l2" href="#validation">Validation</a><a class="toc-l2" href="#naming-conventions">Naming Conventions</a><a class="toc-l2" href="#registry-registration">Registry Registration</a><a class="toc-l2" href="#triggers">Triggers</a><a class="toc-l2" href="#versioning">Versioning</a><a class="toc-l2" href="#testing">Testing</a><a class="toc-l2" href="#writing-for-agents">Writing for Agents</a><a class="toc-l2" href="#review-checklist">Review Checklist</a></nav></aside>
+  <aside class="toc" aria-label="On this page"><p class="toc-title">On this page</p><nav><a class="toc-l2" href="#skill-structure">Skill Structure</a><a class="toc-l3" href="#frontmatter">Frontmatter</a><a class="toc-l3" href="#required-sections">Required Sections</a><a class="toc-l2" href="#language">Language</a><a class="toc-l2" href="#compact-rules">Compact Rules</a><a class="toc-l3" href="#compact-rule-contract">Compact-rule contract</a><a class="toc-l2" href="#injection">Injection</a><a class="toc-l2" href="#validation">Validation</a><a class="toc-l2" href="#naming-conventions">Naming Conventions</a><a class="toc-l2" href="#registry-registration">Registry Registration</a><a class="toc-l2" href="#triggers">Triggers</a><a class="toc-l2" href="#versioning">Versioning</a><a class="toc-l2" href="#trigger-evals">Trigger Evals</a><a class="toc-l2" href="#testing">Testing</a><a class="toc-l2" href="#writing-for-agents">Writing for Agents</a><a class="toc-l2" href="#review-checklist">Review Checklist</a></nav></aside>
 </div>
 <div class="overlay" id="overlay" role="dialog" aria-modal="true" aria-label="Search documentation">
   <div class="palette">

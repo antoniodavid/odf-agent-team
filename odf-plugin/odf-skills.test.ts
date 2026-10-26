@@ -98,14 +98,31 @@ describe("formatDelegationSkills", () => {
     expect(output).toContain("Fallback rule.")
   })
 
-  it("does not inline the body of non-canonical skills", async () => {
+  it("inlines the body of the highest-scoring non-canonical standard", async () => {
+    const first = path.join(dir, "first", "SKILL.md")
+    const second = path.join(dir, "second", "SKILL.md")
+    await fs.mkdir(path.dirname(first), { recursive: true })
+    await fs.mkdir(path.dirname(second), { recursive: true })
+    await fs.writeFile(first, "---\nname: first\n---\n\n## First standard body\n", "utf8")
+    await fs.writeFile(second, "---\nname: second\n---\n\n## Second standard body\n", "utf8")
+
+    const output = await formatDelegationSkills([
+      makeSkill({ name: "first", title: "First Standard", path: first, compact_rules: "- First rule." }),
+      makeSkill({ name: "second", title: "Second Standard", path: second, compact_rules: "- Second rule." }),
+    ])
+    expect(output).toContain("First standard body")
+    expect(output).not.toContain("Second standard body")
+    expect(output).toContain("Second rule.")
+  })
+
+  it("caps the non-canonical standard body at 8,000 characters", async () => {
     const file = path.join(dir, "extra", "SKILL.md")
     await fs.mkdir(path.dirname(file), { recursive: true })
-    await fs.writeFile(file, "---\nname: extra\n---\n\n## Secret body\n", "utf8")
+    await fs.writeFile(file, `---\nname: extra\n---\n\n${"y".repeat(9_000)}\n`, "utf8")
     const output = await formatDelegationSkills([
       makeSkill({ name: "extra", title: "Extra Standard", path: file, compact_rules: "- Extra rule." }),
     ])
-    expect(output).not.toContain("Secret body")
-    expect(output).toContain("Extra rule.")
+    expect(output).toContain("truncated at 8000 characters")
+    expect(output.length).toBeLessThan(10_000)
   })
 })

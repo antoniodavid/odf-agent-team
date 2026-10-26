@@ -1,6 +1,6 @@
 ---
 name: odf-tdd
-description: "Strict TDD mode for ODF: tests before code. Two-source kill switch (global + local), any off wins, fail-closed. Trigger: /odf-tdd on, effective TDD mode active, or when strict TDD enforcement is needed."
+description: "Use when strict TDD is active: resolve the kill switch, write a failing test first, and require matching tests in VERIFY."
 license: MIT
 metadata:
   author: antoniodavid

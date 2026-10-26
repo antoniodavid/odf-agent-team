@@ -1,6 +1,6 @@
 ---
 name: menu-navigation-patterns
-description: "Menu Navigation Patterns. Trigger: menu item, ir.ui.menu, action window, menuitem."
+description: "Use when defining Odoo menus and navigation: ir.ui.menu, window actions, security groups, sequencing, and app icons. Covers extending existing menus and keeping depth shallow."
 license: MIT
 metadata:
   author: antoniodavid

@@ -1,6 +1,6 @@
 ---
 name: oca-code-review
-description: "Oca Code Review. Trigger: code review, review checklist, OCA review."
+description: "Use when reviewing OCA code: run compliance, pattern, and improvement checks, then report severity-ranked findings with a verdict."
 license: MIT
 metadata:
   author: antoniodavid

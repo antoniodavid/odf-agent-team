@@ -1,6 +1,6 @@
 ---
 name: onchange-dynamic-patterns
-description: "Onchange Dynamic Patterns. Trigger: onchange, @api.onchange, dynamic field, compute onchange."
+description: "Use when implementing Odoo onchange and dynamic forms: @api.onchange, computed alternatives, domains, visibility, and warnings. Covers UI-only limits and integrity constraints."
 license: MIT
 metadata:
   author: antoniodavid

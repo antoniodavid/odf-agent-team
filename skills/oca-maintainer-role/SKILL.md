@@ -1,6 +1,6 @@
 ---
 name: oca-maintainer-role
-description: "Oca Maintainer Role. Trigger: maintainer role, PSC, OCA maintainer."
+description: "Use when acting as an OCA maintainer: triage, reviews, labels, PSC coordination, and nomination or removal. Covers response expectations."
 license: MIT
 metadata:
   author: antoniodavid

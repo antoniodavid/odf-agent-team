@@ -1,6 +1,6 @@
 ---
 name: oca-python-style
-description: "OCA Python Style. Trigger: .py, python, models/, controller/, wizard/."
+description: "Use when writing OCA-compliant Python: imports, model body order, method naming, SQL safety, and ORM usage. Covers recordset iteration and translation."
 license: MIT
 metadata:
   author: antoniodavid

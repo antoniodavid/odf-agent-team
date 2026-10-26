@@ -1,6 +1,6 @@
 ---
 name: logging-debugging-patterns
-description: "Logging Debugging Patterns. Trigger: logging, _logger, debug, traceback."
+description: "Use when adding Odoo logging or debugging: _logger usage, levels, exception traces, request logs, and sensitive-data masking. Covers lazy formatting and production-safe logging."
 license: MIT
 metadata:
   author: antoniodavid

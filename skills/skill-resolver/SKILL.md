@@ -1,6 +1,6 @@
 ---
 name: skill-resolver
-description: "Skill Resolver Protocol. Trigger: delegate, sub-agent, inject, standards."
+description: "Use when delegating to sub-agents: resolve the registry, match up to five skills, inject compact rules and the canonical stage body."
 license: MIT
 metadata:
   author: antoniodavid

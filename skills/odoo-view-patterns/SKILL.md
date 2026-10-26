@@ -1,6 +1,6 @@
 ---
 name: odoo-view-patterns
-description: "Odoo View Patterns. Trigger: view, form, tree, kanban, search, xml."
+description: "Use when writing Odoo views: form, list/tree, kanban, search, calendar, pivot, graph, and activity views. Covers inheritance with xpath, actions, priorities, and version notes."
 license: MIT
 metadata:
   author: antoniodavid

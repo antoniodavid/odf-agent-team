@@ -1,6 +1,6 @@
 ---
 name: oca-api-lookup
-description: "Oca Api Lookup. Trigger: odoo api docs, api lookup, method signature."
+description: "Use when looking up an Odoo API: decorators, signatures, real examples, and version differences. Returns file:line evidence."
 license: MIT
 metadata:
   author: antoniodavid
@@ -13,12 +13,8 @@ Search Odoo official API from `odoo/odoo` repository.
 
 ## Search Command
 
-```python
-grep_app_searchGitHub(
-    repo="odoo/odoo",
-    query="@api.depends",  # or other API
-    language=["Python"]
-)
+```bash
+rg -n "@api.depends" <odoo-source-root>/odoo --glob "*.py" | head -20
 ```
 
 ## Common APIs

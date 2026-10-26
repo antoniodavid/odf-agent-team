@@ -2,7 +2,7 @@
 
 > **Spec-driven Odoo delivery on OpenCode** — a stage pipeline, 11 specialized agents, 87 skills, and deterministic CLIs so your AI team *finds* the codebase instead of inventing it.
 
-[![Tests](https://img.shields.io/badge/tests-1405%20unit%20%2B%20331%20YAML%20%2B%2018%20harness-brightgreen)](#development)
+[![Tests](https://img.shields.io/badge/tests-1469%20unit%20%2B%20331%20YAML%20%2B%2018%20harness-brightgreen)](#development)
 [![Registry](https://img.shields.io/badge/registry-87%20skills%20%C2%B7%2011%20agents-blue)](odf-registry.json)
 [![Odoo](https://img.shields.io/badge/Odoo-16%20%E2%80%93%2019-EE7048)](docs/intended-usage.md)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
@@ -94,7 +94,7 @@ The user sees one route selected by `work_type`; `micro/standard/full` is entry 
 
 ## Honest status
 
-- **Mature and tested locally**: 1405 unit tests + 331 YAML scenarios + 18 harness checks. Representative Odoo validation and end-to-end telemetry remain ODF 2.0 gates.
+- **Mature and tested locally**: 1469 unit tests + 331 YAML scenarios + 18 harness checks. Representative Odoo validation and end-to-end telemetry remain ODF 2.0 gates.
 - **Portable**: Linux/macOS/Windows (Git Bash/WSL), `XDG_CONFIG_HOME` resolution, author-path rewriting at install time.
 - **Known limitations**:
   - `plugins/odf-delegation.ts` (~6k lines) is still a monolith for the delegation/workflow core; cohesive sections already live in `odf-plugin/`.
@@ -117,7 +117,7 @@ Full matrix: `node <pack>/scripts/odf-toolkit.js deps`
 
 ```bash
 npm test              # full suite: unit + YAML + plugin
-npm run test:unit     # 1405 Vitest
+npm run test:unit     # 1469 Vitest
 npm run test:yaml     # 331 YAML scenarios
 npm run test:harness  # 18 harness checks
 npm run typecheck     # tsc --noEmit

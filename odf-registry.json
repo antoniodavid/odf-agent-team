@@ -27,13 +27,13 @@
         "OCA PR",
         "pull request template",
         "PR checklist",
-        "oca-pr-workflow"
+        "oca-pr-workflow",
+        "pull request",
+        "oca repo"
       ],
       "compact_rules": "- An issue must exist and be approved before branching.\n- Branch: {fix|imp|add|ref|rem|mig}/{module}-{desc}, lowercase, no spaces.\n- Commit in OCA format: [TAG] module_name: short description.\n- PR body: Description, Related Issue (Closes #N), OCA Compliance Checklist.\n- Alpha/Beta need 1 review; Stable 2 reviews + 5 days + tests; Mature adds docs and contributors.\n- Never force-push after review starts; do not squash without asking.",
       "path": "skills/oca-governance-pr-workflow/SKILL.md",
       "odoo_versions": [
-        14,
-        15,
         16,
         17,
         18,
@@ -63,8 +63,6 @@
       "compact_rules": "- Format: [TAG] module_name: short description, max 50 chars.\n- Tags: FIX, ADD, IMP, REF, REM, MIG, MOV, DOC, TEST, SEC, PERF.\n- Imperative mood: Fix, not Fixed; Add, not Added.\n- Body explains WHY, wrapped at 80 chars; one logical change per commit.\n- Multi-module: [IMP] mod1, mod2: description.\n- No period in the subject, no past tense, no 'fix pep8' commits.",
       "path": "skills/oca-governance-commit-messages/SKILL.md",
       "odoo_versions": [
-        14,
-        15,
         16,
         17,
         18,
@@ -101,8 +99,6 @@
       "compact_rules": "- Module names are singular; base_ prefix for base modules; l10n_CC_ for localizations.\n- Manifest: license, images, OCA author, website https://github.com/OCA/<repo>.\n- Import order: stdlib, third-party, odoo, local; no wildcard imports.\n- Never interpolate SQL; use %s parameters or the ORM.\n- Add tests for new behavior; version as <odoo>.<major>.<minor>.<patch>.\n- Respect API stability: additions are allowed, breaking changes need a major bump.",
       "path": "skills/oca-contributing-guidelines/SKILL.md",
       "odoo_versions": [
-        14,
-        15,
         16,
         17,
         18,
@@ -133,8 +129,6 @@
       "compact_rules": "- Import order: stdlib, third-party, odoo, odoo addons, relative local.\n- Model body order: attributes, fields, SQL constraints, defaults, computes, constraints, CRUD, actions.\n- Never concatenate SQL; use %s parameters, tuples for IN, and cr.savepoint() instead of cr.commit().\n- Prefer the ORM; use sudo() narrowly and _() for user-facing strings.\n- Methods take a recordset and iterate over self.\n- Max line length 88; never use bare except clauses; name Many2one fields _id and x2many fields _ids.",
       "path": "skills/oca-python-style/SKILL.md",
       "odoo_versions": [
-        14,
-        15,
         16,
         17,
         18,
@@ -164,8 +158,6 @@
       "compact_rules": "- Indent using 4 spaces.\n- Place id attribute before model.\n- For field declarations, name attribute first, then value, then other attributes ordered by importance.\n- Group records by model.\n- Use <data> only for not-updatable data with noupdate=1.\n- Use <odoo> for noupdate=0 or demo data.\n- Use <odoo noupdate='1'> for noupdate data.\n- Do not prefix the xmlid by the current module's name.\n- Inherit views with xpath (expr + position); name views <model>_view_<type>.",
       "path": "skills/oca-xml-style/SKILL.md",
       "odoo_versions": [
-        14,
-        15,
         16,
         17,
         18,
@@ -194,8 +186,6 @@
       "compact_rules": "- Required keys: name, version, category, author, website, license, depends, data, installable.\n- Version format: {odoo_version}.{major}.{minor}.{patch}, for example 18.0.1.0.0.\n- license and images are mandatory; avoid empty keys.\n- Author must include ', Odoo Community Association (OCA)'; website must point to the OCA repository.\n- development_status must match the real maturity level.",
       "path": "skills/oca-manifest-format/SKILL.md",
       "odoo_versions": [
-        14,
-        15,
         16,
         17,
         18,
@@ -226,8 +216,6 @@
       "compact_rules": "- Always iterate over self: Even for single records.\n- List all dependencies: Include all fields that affect the result.\n- Use store=True wisely: Only when needed for search/sort.\n- Optimize batch operations: Use read_group, mapped()\n- Handle empty values: Check for False/None.\n- Avoid circular dependencies: Field A depends on B, B depends on A.\n- Use related for simple cases: Cleaner than custom compute.\n- Add search for non-stored: If users need to filter.\n- Use compute_sudo=True only when elevated privileges are required; add inverse for writable computes.",
       "path": "skills/computed-field-patterns/SKILL.md",
       "odoo_versions": [
-        14,
-        15,
         16,
         17,
         18,
@@ -258,8 +246,6 @@
       "compact_rules": "- Extension: _inherit only; add fields and methods to an existing model.\n- Classical: _name + _inherit creates a new model copying the parent's fields.\n- Delegation: _inherits maps a Many2one and proxies fields; use sparingly.\n- Abstract mixins: models.AbstractModel for shared behavior.\n- Inherit views with xpath and controllers by overriding routes; never copy core code.\n- Always call super() in overridden methods; use _sql_constraints for database-level rules.",
       "path": "skills/inheritance-patterns/SKILL.md",
       "odoo_versions": [
-        14,
-        15,
         16,
         17,
         18,
@@ -289,8 +275,6 @@
       "compact_rules": "- Prefer SQL for simple checks: More efficient, database-level.\n- Use Python for complex logic: More flexibility.\n- Clear error messages: Tell user what's wrong and how to fix.\n- Validate early: Catch errors before processing.\n- Consider context: Skip validation during imports if appropriate.\n- Test constraints: Write tests for validation logic.\n- Don't over-constrain: Balance integrity vs usability.\n- Document constraints: Explain business rules.\n- Use @api.constrains for Python checks and _sql_constraints for database checks; raise ValidationError with a user-friendly message.",
       "path": "skills/constraint-patterns/SKILL.md",
       "odoo_versions": [
-        14,
-        15,
         16,
         17,
         18,
@@ -322,8 +306,6 @@
       "compact_rules": "- Security is version-sensitive: load the target version's security guide before writing rules.\n- Every model needs ir.model.access.csv entries per group; record rules filter rows.\n- Check groups= on fields, menus, and actions; never expose sensitive fields to base users.\n- Verify company rules (_check_company_auto, check_company=True) on multi-company models.\n- Do not rely on this dispatcher; read the version-specific file.\n- Use sudo() only with justification and check access rights before operations.",
       "path": "skills/security-guide/SKILL.md",
       "odoo_versions": [
-        14,
-        15,
         16,
         17,
         18,
@@ -355,8 +337,6 @@
       "compact_rules": "- Pick the view type: form, list/tree, kanban, search, calendar, pivot, or graph.\n- Inherit views with xpath instead of replacing them; keep the original priority.\n- Declare only the fields the view needs; use groups= for sensitive fields.\n- invisible/readonly/required use Python expressions (attrs removed in v17+).\n- Keep action, view, and menu XML IDs consistent and listed in the manifest.\n- Inline views for One2many; smart buttons with type=object or action; chatter via mail.thread.",
       "path": "skills/odoo-view-patterns/SKILL.md",
       "odoo_versions": [
-        14,
-        15,
         16,
         17,
         18,
@@ -388,7 +368,6 @@
       "compact_rules": "- OWL API changes by version: load the version-specific guide before writing components.\n- Use ES modules and direct imports; odoo.define/require is legacy.\n- Define template and props as static class members in current versions.\n- Register components in the asset bundle declared in the manifest.\n- Test in the target version; do not assume hooks or props APIs match.",
       "path": "skills/owl-components/SKILL.md",
       "odoo_versions": [
-        15,
         16,
         17,
         18,
@@ -429,8 +408,6 @@
       "compact_rules": "- One test class per model; TransactionCase for ORM, SavepointCase for savepoints, HttpCase for tours.\n- Cover CRUD, computes, constraints, state transitions, access rights, record rules, onchange, and actions.\n- Use setUpClass and cls.env for shared data; tag at_install/post_install when needed.\n- Assert observable behavior, not private methods or implementation details.\n- Run the module suite with the project's test command; a skipped test is not a pass.",
       "path": "skills/odoo-test-patterns/SKILL.md",
       "odoo_versions": [
-        14,
-        15,
         16,
         17,
         18,
@@ -460,8 +437,6 @@
       "compact_rules": "- Manifest: name, version, license, OCA author, website, depends, data, installable.\n- Python: syntax, imports, no SQL interpolation, no cr.commit(), translations present.\n- XML: well-formed, no duplicate IDs, security files loaded before views.\n- Security: ir.model.access.csv per model/group, record rules, no broad base.group_user grants.\n- Run tests and pylint-odoo; a check without recorded evidence is not a pass.",
       "path": "skills/oca-compliance-check/SKILL.md",
       "odoo_versions": [
-        14,
-        15,
         16,
         17,
         18,
@@ -493,8 +468,6 @@
       "compact_rules": "- Determine the target Odoo version first: manifest, requirements, or existing patterns. Never assume.\n- Versions 16-19 are supported; 15 is migration source only; 14 material is removed.\n- Load the version-specific knowledge file before generating code.\n- Detect version by decorators, Command class, attrs, check_company_auto, type hints, and SQL() builder.\n- Verify patterns against the target version's GitHub branch.",
       "path": "skills/odoo-version-knowledge/SKILL.md",
       "odoo_versions": [
-        14,
-        15,
         16,
         17,
         18,
@@ -524,8 +497,6 @@
       "compact_rules": "- Standard Odoo first: check settings, automated actions, and Studio before custom code.\n- Produce only specifications or configuration guides, never code.\n- Confirm the target Odoo version before analysis.\n- Formal mode numbers requirements REQ-01; lean mode returns a bounded decision with no REQ catalog.\n- Every requirement needs an acceptance criterion and a testable scenario.",
       "path": "skills/odf-assess/SKILL.md",
       "odoo_versions": [
-        14,
-        15,
         16,
         17,
         18,
@@ -559,8 +530,6 @@
       "compact_rules": "- Read the real Odoo source being extended before designing.\n- Read the expectations artifact and resolve every EXP-XX; a missing row means the design is not closed.\n- No Python or XML in the design; use the contract tables for fields, views, and tasks.\n- design_closed must be true before IMPLEMENT.\n- Flag contradictions with source or expectations instead of deciding silently.",
       "path": "skills/odf-design/SKILL.md",
       "odoo_versions": [
-        14,
-        15,
         16,
         17,
         18,
@@ -616,8 +585,6 @@
       "compact_rules": "- Require the persisted route inputs: work_type, plan mode, approved Expectations, exact scope.\n- plan: required needs approved ASSESS and DESIGN with design_closed true; plan: inline needs its approved tasks and QA.\n- Follow approved decisions; report deviations and stop for disposition, never expand scope silently.\n- Tests land in the same commit as the behavior; mark [x] only after verified behavior.\n- Run pre-commit and pylint-odoo per batch; write validation evidence last.",
       "path": "skills/odf-implement/SKILL.md",
       "odoo_versions": [
-        14,
-        15,
         16,
         17,
         18,
@@ -716,8 +683,6 @@
       "compact_rules": "- Classify the risk tier from the frozen diff before any verification work.\n- Run the real module test suite; static analysis and manual checks are not substitutes.\n- Every EXP-XX and REQ-XX needs a passing test; an untested item is CRITICAL.\n- HIGH runs 4 lenses, MEDIUM 1, LOW structural readback only.\n- Never fix issues; report them with evidence and a verdict: PASS, PASS WITH WARNINGS, FAIL, or BLOCKED.",
       "path": "skills/odf-verify/SKILL.md",
       "odoo_versions": [
-        14,
-        15,
         16,
         17,
         18,
@@ -842,8 +807,6 @@
       "compact_rules": "- No stage-approval pauses, but policy gates, evidence, and VERIFY still apply.\n- Identify the root cause before modifying any code.\n- Add a test that fails without the fix and passes with it.\n- Keep the change minimal and inside the reported bug.\n- Escalate to /odf-new when the fix changes scope or needs design.",
       "path": "skills/odf-fix/SKILL.md",
       "odoo_versions": [
-        14,
-        15,
         16,
         17,
         18,
@@ -883,8 +846,6 @@
       "compact_rules": "- Search the local Odoo source for the target version before concluding.\n- Read the actual models, views, and tests; never guess behavior.\n- Check whether standard Odoo already covers the need.\n- Cite file:line for every claim; recollection is not evidence.\n- Stay read-only: report findings, do not modify code.",
       "path": "skills/odf-explore/SKILL.md",
       "odoo_versions": [
-        14,
-        15,
         16,
         17,
         18,
@@ -924,8 +885,6 @@
       "compact_rules": "- Detect before asking; try every detection method first.\n- Never guess: set unknown fields to null instead of inventing values.\n- Persist partial detection; partial is better than none.\n- Re-running /odf-init upserts the existing config.\n- glossary and principles contain only detected or user-confirmed entries.",
       "path": "skills/odf-init/SKILL.md",
       "odoo_versions": [
-        14,
-        15,
         16,
         17,
         18,
@@ -980,8 +939,6 @@
       "compact_rules": "- Map every approved EXP-XX to a focused check before writing tests.\n- Choose the narrowest valid class: TransactionCase, SavepointCase, HttpCase, or JS test.\n- Run real coverage tools; never estimate percentages.\n- Formal QA-PLAN only when the route or risk escalation requires it.\n- Untested critical paths block the acceptance verdict.",
       "path": "skills/odf-qa/SKILL.md",
       "odoo_versions": [
-        14,
-        15,
         16,
         17,
         18,
@@ -1016,8 +973,6 @@
       "compact_rules": "- OCA format: [TAG] module_name: short description, max 50 chars.\n- Tags: FIX, ADD, IMP, REF, REM, MIG, MOV, DOC, TEST, SEC, PERF.\n- Imperative mood; body explains why, wrapped at 80 chars.\n- One deliverable behavior per commit; tests and docs go with it.\n- Do not split a behavior into code, test, and docs commits.",
       "path": "skills/oca-work-unit-commits/SKILL.md",
       "odoo_versions": [
-        14,
-        15,
         16,
         17,
         18,
@@ -1053,8 +1008,6 @@
       "compact_rules": "- Lead with the answer \u2014 Put the decision, action, or outcome first. Context comes after.\n- Progressive disclosure \u2014 Happy path first, then details, edge cases, references.\n- Chunking \u2014 Group related info into small sections. Keep lists short.\n- Signposting \u2014 Use headings, labels, callouts, and summaries so readers know where they are.\n- Recognition over recall \u2014 Tables, checklists, examples > prose that must be remembered.\n- Review empathy \u2014 Design so reviewers verify intent without reconstructing the whole story.",
       "path": "skills/oca-cognitive-doc-design/SKILL.md",
       "odoo_versions": [
-        14,
-        15,
         16,
         17,
         18,
@@ -1084,8 +1037,6 @@
       "compact_rules": "- Be useful fast \u2014 Start with the actionable point. Do not recap the whole PR before feedback.\n- Be warm and direct \u2014 Sound like a thoughtful teammate, not a corporate bot.\n- Keep it short \u2014 1-3 short paragraphs or a tight bullet list.\n- Explain why \u2014 Give the technical reason when asking for a change.\n- Avoid pile-ons \u2014 Comment on the highest-value issue, not every tiny preference.",
       "path": "skills/oca-comment-writer/SKILL.md",
       "odoo_versions": [
-        14,
-        15,
         16,
         17,
         18,
@@ -1150,8 +1101,6 @@
       "compact_rules": "- Resolve the effective mode before each IMPLEMENT or VERIFY: global AND local, any off wins, unreadable local means OFF.\n- Write the failing test first and persist a real non-zero red run.\n- Pair every REQ-XX with a test task.\n- Keep tests with the code in the same commit.\n- VERIFY rejects code without matching tests when the mode is ON.",
       "path": "skills/odf-tdd/SKILL.md",
       "odoo_versions": [
-        14,
-        15,
         16,
         17,
         18,
@@ -1182,8 +1131,6 @@
       "compact_rules": "- Split PRs over 400 lines \u2014 Unless a maintainer accepts size:exception.\n- Budget is not code-golf \u2014 Never shrink a diff by deleting comments, blank lines, docs, or tests, or by compressing code, to fit the review budget. Slice by work unit or report the overage.\n- One slicing pass \u2014 If no cohesive split fits after one honest pass, stop; keep the best split and recommend size:exception.\n- \u226460 min review per PR \u2014 Each PR must be reviewable in about 60 minutes.\n- Tests+docs stay with unit \u2014 Tests and docs belong with the work unit they verify.",
       "path": "skills/oca-chained-pr/SKILL.md",
       "odoo_versions": [
-        14,
-        15,
         16,
         17,
         18,
@@ -1214,8 +1161,6 @@
       "compact_rules": "- Load policies/oca-ai-policy.md and policies/oca/rules.yaml before acting.\n- Record AI provenance with the governance provenance tool when AI assisted.\n- Run odf_governance_check before commit, review publication, or PR.\n- Keep Assisted-by: separate from Co-authored-by: and disclose AI use.\n- Never auto-commit or auto-publish; this gate does not replace VERIFY.",
       "path": "skills/odf-oca-governance/SKILL.md",
       "odoo_versions": [
-        14,
-        15,
         16,
         17,
         18,
@@ -1460,7 +1405,9 @@
         "assets bundle",
         "ir.assets",
         "js/css assets",
-        "web.assets"
+        "web.assets",
+        "asset",
+        "bundle"
       ],
       "compact_rules": "- Use namespaced classes: Prefix with .o_my_module.\n- Follow directory structure: Consistent file organization.\n- Use SCSS variables: Leverage Bootstrap/Odoo variables.\n- Minimize bundle size: Only include what's needed.\n- Lazy load heavy libs: Don't slow initial load.\n- Support dark mode: Use CSS variables.\n- Test with debug=assets: Catch compilation errors.\n- Version compatibility: Check asset syntax for version.",
       "path": "skills/assets-bundling-patterns/SKILL.md",
@@ -1515,7 +1462,9 @@
       "triggers": [
         "ir.config_parameter",
         "settings model",
-        "res.config.settings"
+        "res.config.settings",
+        "setting",
+        "settings"
       ],
       "compact_rules": "- Use config_parameter: For global settings stored in ir.config_parameter.\n- Use related company fields: For company-specific settings.\n- Use implied_group: For feature toggles that grant permissions.\n- Use module_ prefix: For settings that install modules.\n- Validate settings: Check values before saving.\n- Provide defaults: Set sensible default values.\n- Group logically: Use blocks to organize related settings.\n- Show/hide conditionally: Use invisible attribute.",
       "path": "skills/config-settings-patterns/SKILL.md",
@@ -1570,7 +1519,8 @@
       "triggers": [
         "ir.cron",
         "scheduled action",
-        "automation job"
+        "automation job",
+        "cron"
       ],
       "compact_rules": "- Use ir.cron with a model method; set interval_number and interval_type explicitly.\n- Wrap each unit of work in a savepoint; never commit inside the loop.\n- Log start, success, and failures with _logger.exception; re-raise to surface errors.\n- Make the job idempotent and safe to re-run; guard against concurrent execution.\n- Use queue_job for heavy work instead of long crons; bind the right user and company.",
       "path": "skills/cron-automation-patterns/SKILL.md",
@@ -1627,7 +1577,9 @@
         "jsonrpc",
         "external API",
         "api client",
-        "odoo client"
+        "odoo client",
+        "rest api",
+        "rest"
       ],
       "compact_rules": "- Never hardcode credentials: Use ir.config_parameter or dedicated config model.\n- Use HTTPS: Always use secure connections.\n- Implement retry logic: Handle transient failures.\n- Log all API calls: For debugging and audit.\n- Handle rate limits: Implement backoff strategies.\n- Validate responses: Don't trust external data.\n- Use timeouts: Prevent hanging requests.\n- Queue heavy operations: Don't block user actions.",
       "path": "skills/external-api-patterns/SKILL.md",
@@ -2076,7 +2028,8 @@
         "field types",
         "Char Integer Monetary",
         "Selection field",
-        "field reference"
+        "field reference",
+        "field type"
       ],
       "compact_rules": "- Strings: Char, Text, Html; numbers: Integer, Float, Monetary; Boolean, Date, Datetime.\n- Relational: Many2one, One2many (comodel + inverse), Many2many; set comodel_name explicitly.\n- Binary with attachment=True for large files; pair it with a filename Char.\n- Selection needs selection=[...]; derive values with compute and store when searchable.\n- Monetary requires currency_field; Float uses digits for precision.",
       "path": "skills/field-type-reference/SKILL.md",
@@ -2132,7 +2085,8 @@
         "ir.actions",
         "server action",
         "automated action",
-        "act_window"
+        "act_window",
+        "window action"
       ],
       "compact_rules": "- Use XML for static actions: Easier to maintain and override.\n- Use Python for dynamic actions: When domains/context depend on data.\n- Always set res_model: Required for window actions.\n- Use context wisely: Pass defaults and search filters.\n- binding_view_types: Specify where action appears.\n- target=new for wizards: Opens as dialog.\n- Return dict, not action record: More flexible.\n- Handle empty recordsets: Check before processing.",
       "path": "skills/action-patterns/SKILL.md",
@@ -2160,7 +2114,9 @@
         "dialog service",
         "wizard",
         "form dialog",
-        "owl dialog"
+        "owl dialog",
+        "dialog",
+        "confirmation dialog"
       ],
       "compact_rules": "- Always handle cancel/discard: User might close dialog without action.\n- Use appropriate sizes: Don't use full size for simple confirmations.\n- Set clear titles: User should know what they're confirming.\n- Use notifications for non-blocking: For success after background action.\n- Form dialogs for CRUD: Quick create/edit without leaving current view.\n- Custom dialogs for complex UI: Multi-step wizards, custom inputs.",
       "path": "skills/odoo-dialog-service/SKILL.md",
@@ -2214,7 +2170,8 @@
       "triggers": [
         "code review",
         "review checklist",
-        "OCA review"
+        "OCA review",
+        "review"
       ],
       "compact_rules": "- Review order: compliance check, pattern match, improvement suggestions, compiled report.\n- Report critical and high issues separately with file, line, issue, and fix.\n- Classify findings by severity; never merge standards and spec findings.\n- State a verdict: ready, needs work, or cannot merge, with evidence.\n- Never fix during review; return findings to the orchestrator.",
       "path": "skills/oca-code-review/SKILL.md",
@@ -2298,7 +2255,8 @@
         "tour test",
         "qUnit tour",
         "HttpCase UI",
-        "chrome tour"
+        "chrome tour",
+        "tour"
       ],
       "compact_rules": "- Tours run as JS or Python HttpCase tests against a real browser.\n- Steps use CSS selectors, text content, or menu xmlids; give every action a trigger.\n- Keep tours deterministic: wait for elements, avoid timing-based sleeps.\n- Run with the module installed and the correct assets bundle.\n- Debug with the tour recorder; a passing tour does not replace unit tests.",
       "path": "skills/odoo-tour-testing/SKILL.md",
@@ -2326,7 +2284,9 @@
         "troubleshooting",
         "debug error",
         "module not loading",
-        "common issues"
+        "common issues",
+        "external id",
+        "fails to install"
       ],
       "compact_rules": "- 'api' has no attribute 'multi' \u2014 Using @api.multi \u2014 v15+ \u2014 Remove decorator.\n- attrs attribute is no longer supported \u2014 Using attrs= \u2014 v17+ \u2014 Use invisible=.\n- create() takes 2 positional arguments \u2014 Single create() \u2014 v17+ \u2014 Use @api.model_create_multi.\n- check_company failed \u2014 Cross-company relation \u2014 v18+ \u2014 Add check_company=True.\n- SQL string query deprecated \u2014 String SQL \u2014 v19 \u2014 Use SQL() builder.\n- External ID not found \u2014 Missing XML reference \u2014 All \u2014 Check file order in manifest.",
       "path": "skills/odoo-troubleshooting-guide/SKILL.md",
@@ -2407,7 +2367,9 @@
       "triggers": [
         "odoo api docs",
         "api lookup",
-        "method signature"
+        "method signature",
+        "signature",
+        "api.depends"
       ],
       "compact_rules": "- Search the local Odoo source or codegraph before answering; do not rely on memory.\n- Prefer ORM decorators: @api.depends for computed, @api.constrains for validation, @api.onchange for UI.\n- Use @api.model_create_multi for batch create; @api.model when no recordset is needed.\n- Show a real example from the target version with file:line.\n- Flag version differences; APIs change between 16 and 19.",
       "path": "skills/oca-api-lookup/SKILL.md",
@@ -2542,7 +2504,9 @@
       "triggers": [
         "search odoo source",
         "local odoo search",
-        "find implementation"
+        "find implementation",
+        "local odoo",
+        "odoo source"
       ],
       "compact_rules": "- Search the local Odoo source first; use rg for text and find for paths.\n- Read the actual model, view, and test files; never guess framework behavior.\n- Cite file:line for every claim.\n- Restrict searches to the target version's source tree.\n- If the source is absent, say so instead of inventing behavior.",
       "path": "skills/oca-odoo-local-search/SKILL.md",

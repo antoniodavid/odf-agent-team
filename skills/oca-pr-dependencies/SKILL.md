@@ -1,6 +1,6 @@
 ---
 name: oca-pr-dependencies
-description: "Use when a pull request depends on others: parse Depends on and And indirectly on links, verify each dependency state, and checkout in order."
+description: "Use when a pull request depends on others: parse Depends on links, verify states, and checkout in order."
 license: MIT
 metadata:
   author: antoniodavid

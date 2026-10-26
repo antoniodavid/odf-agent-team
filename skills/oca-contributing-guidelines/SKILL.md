@@ -1,6 +1,6 @@
 ---
 name: oca-contributing-guidelines
-description: "OCA Contributing Guidelines. Trigger: contribute, guidelines, best practices, naming, conventions, module structure."
+description: "Use when contributing to an OCA repository: naming, manifest, Python, SQL, tests, and versioning rules. Covers API stability and module structure."
 license: MIT
 metadata:
   author: antoniodavid

@@ -1,6 +1,6 @@
 ---
 name: oca-compliance-check
-description: "OCA Compliance Check. Trigger: compliance, pylint, pre-commit, pre-PR checklist."
+description: "Use when checking OCA compliance before a PR: manifest, Python, XML, security, tests, and pre-commit. Returns the exact checks and expected results."
 license: MIT
 metadata:
   author: antoniodavid

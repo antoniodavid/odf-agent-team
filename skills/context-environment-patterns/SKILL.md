@@ -1,6 +1,6 @@
 ---
 name: context-environment-patterns
-description: "Context Environment Patterns. Trigger: with_context, with_user, sudo, env context."
+description: "Use when working with Odoo env and context: with_context, with_user, sudo, active_test, company switching, and cache behavior. Covers safe context changes and cron environments."
 license: MIT
 metadata:
   author: antoniodavid
