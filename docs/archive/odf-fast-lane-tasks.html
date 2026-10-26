@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="auto" data-base="../">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ODF Fast Lane Tasks · ODF Docs</title>
+  <meta name="description" content="This is the executable fast-lane task breakdown. Local policy integration is implemented where marked; representative Odoo validation and canary evidence remain pending.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <script>(function(){var d=document.documentElement,s=localStorage.getItem("odf-theme"),m=matchMedia("(prefers-color-scheme: dark)").matches;d.dataset.theme=s||(m?"dark":"light");})();</script>
+  <link rel="stylesheet" href="../assets/docs.css">
+</head>
+<body>
+<a class="skip" href="#content">Skip to content</a>
+<header class="bar">
+  <div class="bar-in">
+    <a class="brand" href="../index.html">
+      <svg class="brand-glyph" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <rect x="2" y="9" width="6" height="6" rx="1.5" fill="currentColor" opacity=".95"/>
+        <rect x="9" y="9" width="6" height="6" rx="1.5" fill="currentColor" opacity=".65"/>
+        <rect x="16" y="9" width="6" height="6" rx="1.5" fill="currentColor" opacity=".35"/>
+        <path d="M8 12h1M15 12h1" stroke="currentColor" stroke-width="1.5"/>
+      </svg>
+      ODF <small>docs</small>
+    </a>
+    <div class="bar-spacer"></div>
+    <nav class="bar-nav" aria-label="Sections">
+      <a href="../index.html#whatsnew">What's new</a>
+      <a href="../index.html#flows">Flows</a>
+      <a href="../index.html#skills">Skills</a>
+      <a href="../docs.html">Docs</a>
+    </nav>
+    <button class="searchbtn" id="openSearch" aria-label="Search documentation">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+      <span class="lbl">Search docs…</span>
+      <kbd>/</kbd>
+    </button>
+    <button class="icon-btn" id="themeToggle" aria-label="Toggle dark mode" title="Toggle theme">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M4.9 4.9l1.4 1.4m11.4 11.4 1.4 1.4M2 12h2m16 0h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
+    </button>
+    <a class="gh" href="https://github.com/antoniodavid/odf-agent-team" target="_blank" rel="noopener">GitHub ↗</a>
+  </div>
+</header>
+<div class="shell">
+  <details class="side" open><summary>Documentation menu</summary><div class="side-inner"><a class="side-home" href="../docs.html">Documentation index</a><p class="side-group">Overview</p><a href="../docs.html">Docs index</a><a href="../intended-usage.html">Intended usage</a><a href="../architecture.html">Architecture</a><a href="../opencode-v2-migration.html">OpenCode V2 migration</a><p class="side-group">Contracts</p><a href="../route-contract.html">Route &amp; stage</a><a href="../design-contract.html">Design</a><a href="../expectations-contract.html">Expectations</a><a href="../context-contract.html">Context Manifest</a><a href="../safety-contract.html">Safety</a><a href="../judge-shadow-contract.html">Judge shadow</a><a href="../learning-loop-contract.html">Learning loop</a><p class="side-group">Operations</p><a href="../metrics-and-engram-maintenance.html">Metrics &amp; Engram</a><a href="../decision-evaluation.html">Decision evaluation</a><p class="side-group">Reference</p><a href="../plugin.html">Plugin reference</a><a href="../skill-style-guide.html">Skill style guide</a><p class="side-group">Project</p><a href="../readme.html">README</a><a href="../changelog.html">Changelog</a><a href="../agents.html">Contributing</a><p class="side-group">History</p><a href="index.html">Archive index</a><a href="harness-roadmap.html">Harness roadmap</a><a href="odf-fast-lane-plan.html">Fast-lane plan</a><a href="odf-fast-lane-tasks.html" class="active" aria-current="page">Fast-lane tasks</a><a href="odf-fast-lane-baseline-2026-09-13.html">Baseline 2026-09-13</a><a href="odf-fast-lane-baseline-2026-09-16.html">Baseline 2026-09-16</a><a href="../odf-linear-cycles-baseline-2026-10-01.html">Linear-cycles baseline</a></div></details>
+  <main id="content" class="doc">
+    <nav class="crumb" aria-label="Breadcrumb">
+      <a href="../index.html">ODF</a><span>/</span><a href="../docs.html">Docs</a><span>/</span><span>History</span>
+    </nav>
+    <article class="prose">
+      <h1>ODF Fast Lane Tasks</h1>
+      <p class="doc-meta">11 min read</p>
+      <p>This is the executable fast-lane task breakdown. Local policy integration is implemented where marked; representative Odoo validation and canary evidence remain pending.</p>
+<h2 id="work-unit-rules" tabindex="-1"><a class="anchor" href="#work-unit-rules" aria-label="Link to this section">#</a>Work-unit rules</h2>
+<ul>
+<li>Keep each unit reviewable and independently verifiable.</li>
+<li>Do not add a new canonical workflow or <code>WorkType</code>; use the existing <code>small-change</code> route for eligible features and preserve <code>bugfix</code> for fixes.</li>
+<li>Fail closed on missing facts, risk signals, policy/evidence failures, or scope changes.</li>
+<li>Do not run destructive database commands. All future Odoo commands must name the exact authorized <code>-d &lt;test_db&gt;</code>.</li>
+</ul>
+<h2 id="1-baseline-instrumentation-and-measurement" tabindex="-1"><a class="anchor" href="#1-baseline-instrumentation-and-measurement" aria-label="Link to this section">#</a>1. Baseline instrumentation and measurement</h2>
+<h3 id="fl-01-establish-the-latency-baseline" tabindex="-1"><a class="anchor" href="#fl-01-establish-the-latency-baseline" aria-label="Link to this section">#</a>FL-01 — Establish the latency baseline</h3>
+<ul>
+<li><strong>Depends on:</strong> none.</li>
+<li><strong>Status:</strong> Partial / in progress. The task-call baseline exists, but the end-to-end entry-to-final-gate baseline is unavailable.</li>
+<li><strong>Likely files:</strong> <code>odf-plugin/odf-delegation-metrics.ts</code>, <code>plugins/odf-delegation.ts</code> (only if current events cannot reconstruct entry-to-final-gate timing).</li>
+<li><strong>Intent:</strong> Use existing run/span JSONL telemetry to measure <code>/odf-new</code> and <code>/odf-fix</code> p50/p95, task-call count, phase duration, outcome, work type, model availability, validation, receipts, and escalation. Add only bounded allowlisted dimensions for entry level, micro-policy result, validation mode, and redundancy-scan disposition when required.</li>
+<li><strong>Verification commands/evidence:</strong> <code>node &quot;$PACK/scripts/odf-toolkit.js&quot; metrics --days 14 --json</code>; <a href="odf-fast-lane-baseline-2026-09-16.html">2026-09-16 baseline report</a> records the available task-call evidence and the end-to-end measurement gap. Confirm no raw prompt, path, secret, database value, or PII is emitted.</li>
+<li><strong>Out of scope:</strong> New telemetry storage, generic tracing framework, speculative cache, or behavior changes.</li>
+</ul>
+<h3 id="fl-02-define-the-comparison-cohort-and-rollback-signal" tabindex="-1"><a class="anchor" href="#fl-02-define-the-comparison-cohort-and-rollback-signal" aria-label="Link to this section">#</a>FL-02 — Define the comparison cohort and rollback signal</h3>
+<ul>
+<li><strong>Depends on:</strong> FL-01.</li>
+<li><strong>Status:</strong> Proposed / in progress. The cohort and rollback definition is documented, but it has not been executed or approved for canary use.</li>
+<li><strong>Likely files:</strong> <code>docs/odf-fast-lane-plan.md</code>, rollout configuration file identified by the implementation owner (no new framework).</li>
+<li><strong>Intent:</strong> Freeze the baseline window and define comparable cohorts from complete <code>entry_started</code> → <code>verified_completed</code> flows with matching <code>work_type</code>, Odoo version, workspace, and source-authority dimensions when available. Exclude lifecycle markers, spans, and joins from the denominator.</li>
+<li><strong>Proposed hold/rollback signals:</strong> &gt;10% matched-cohort p95 regression; any protected/architectural risk incorrectly downgraded; any candidate/evidence/receipt binding failure; missing final-gate evidence; telemetry coverage below 95%; or an unexplained increase in errors, timeouts, or receipts. These thresholds are proposed and require explicit maintainer approval before canary.</li>
+<li><strong>Verification commands/evidence:</strong> Reviewable <a href="odf-fast-lane-baseline-2026-09-16.html">baseline table and cohort/rollback definition</a> plus a dry-run dashboard/query definition; no code execution required for the documentation artifact.</li>
+<li><strong>Out of scope:</strong> Claiming an improvement before a canary or changing default rollout state.</li>
+</ul>
+<h2 id="2-entry-triage-optimization" tabindex="-1"><a class="anchor" href="#2-entry-triage-optimization" aria-label="Link to this section">#</a>2. Entry-triage optimization</h2>
+<h3 id="fl-03-reuse-known-project-facts-before-triage" tabindex="-1"><a class="anchor" href="#fl-03-reuse-known-project-facts-before-triage" aria-label="Link to this section">#</a>FL-03 — Reuse known project facts before triage</h3>
+<ul>
+<li><strong>Depends on:</strong> FL-01.</li>
+<li><strong>Likely files:</strong> <code>command/odf-new.md</code>, <code>agent/odoo_orchestrator.md</code>, <code>odf-plugin/entry-triage.ts</code>, <code>plugins/odf-delegation.ts</code>.</li>
+<li><strong>Intent:</strong> Pass the existing project module list, Odoo version, domain/module facts, test command, source roots, and approved Expectations into one deterministic triage call. Avoid repeating stable discovery during the same entry/continuation. Preserve the one grouped question for missing or unclear ICE facts.</li>
+<li><strong>Verification commands/evidence:</strong> Triage fixture matrix showing stable inputs produce the same result; evidence that unknown modules remain warnings and missing facts remain a question/standard result rather than an unsafe micro result.</li>
+<li><strong>Out of scope:</strong> Persistent general-purpose cache, changing the risk vocabulary, or letting the LLM choose <code>work_type</code>.</li>
+</ul>
+<h3 id="fl-04-move-triage-ahead-of-expensive-redundancy-work" tabindex="-1"><a class="anchor" href="#fl-04-move-triage-ahead-of-expensive-redundancy-work" aria-label="Link to this section">#</a>FL-04 — Move triage ahead of expensive redundancy work</h3>
+<ul>
+<li><strong>Depends on:</strong> FL-03.</li>
+<li><strong>Likely files:</strong> <code>command/odf-new.md</code>, <code>agent/odoo_orchestrator.md</code>.</li>
+<li><strong>Intent:</strong> Make the order explicit: health → known facts → triage → conditional redundancy scan. Defer or reduce redundancy scanning only for a clear, single-module, low-risk micro result; retain it for warnings, unknown modules, contradictory prior learning, ambiguity, and all elevated signals.</li>
+<li><strong>Verification commands/evidence:</strong> Orchestrator trace or structured event proving order; cases for clear micro, unclear, unknown module, contradictory learning, and protected-risk entries; no scan suppression for any protected signal.</li>
+<li><strong>Out of scope:</strong> Deleting the redundancy tool, globally disabling prior-learning checks, or deciding scope from a scan result without user disposition.</li>
+</ul>
+<h3 id="fl-05-tighten-deterministic-micro-eligibility" tabindex="-1"><a class="anchor" href="#fl-05-tighten-deterministic-micro-eligibility" aria-label="Link to this section">#</a>FL-05 — Tighten deterministic micro eligibility</h3>
+<ul>
+<li><strong>Depends on:</strong> FL-03.</li>
+<li><strong>Likely files:</strong> <code>odf-plugin/entry-triage.ts</code>, <code>odf-plugin/odf-workflow.ts</code> only if transition metadata needs a non-routing policy field, <code>odf-plugin/entry-triage.test.ts</code>.</li>
+<li><strong>Intent:</strong> Encode the bounded policy as data/validation, not a second route: exactly one known Odoo module, one functional domain, initial file forecast <code>&lt;=3</code>, approved clear Expectations, no security/migration/payment/public-api/data-loss/PII or architectural signal. Keep protected signals monotonic and preserve existing canonical work types.</li>
+<li><strong>Verification commands/evidence:</strong> Pure classifier cases for each positive and negative condition, boundary at 3/4 files, missing facts, unknown module, explicit work type conflict, and every protected signal.</li>
+<li><strong>Out of scope:</strong> Broad semantic inference, automatic file-count promises, or adding <code>micro-change</code> to <code>WORK_TYPES</code>.</li>
+</ul>
+<h2 id="3-micro-policy-and-route-integration" tabindex="-1"><a class="anchor" href="#3-micro-policy-and-route-integration" aria-label="Link to this section">#</a>3. Micro policy and route integration</h2>
+<h3 id="fl-06-define-the-inline-build-contract" tabindex="-1"><a class="anchor" href="#fl-06-define-the-inline-build-contract" aria-label="Link to this section">#</a>FL-06 — Define the inline BUILD contract</h3>
+<ul>
+<li><strong>Depends on:</strong> FL-05.</li>
+<li><strong>Status:</strong> Implemented locally / live Odoo evidence pending. Contract locations: <a href="https://github.com/antoniodavid/odf-agent-team/blob/main/command/odf-new.md"><code>command/odf-new.md</code></a>, <a href="https://github.com/antoniodavid/odf-agent-team/blob/main/command/odf-fix.md"><code>command/odf-fix.md</code></a>, and <a href="https://github.com/antoniodavid/odf-agent-team/blob/main/agent/odoo_orchestrator.md#opt-in-inline-build-contract-fl-06"><code>agent/odoo_orchestrator.md</code></a>. No canary or rollout is enabled.</li>
+<li><strong>Likely files:</strong> <code>command/odf-new.md</code>, <code>command/odf-fix.md</code>, <code>agent/odoo_orchestrator.md</code>, <code>plugins/odf-delegation.ts</code>.</li>
+<li><strong>Intent:</strong> For eligible <code>small-change</code>, create one bounded BUILD prompt containing approved intent/Expectations, module/domain, file budget, targeted context, exact Odoo source roots, test command, source-authority requirements, evidence path, and executor/database guard. For <code>/odf-fix</code>, retain FIX/root-cause/regression evidence before applying the bounded BUILD policy.</li>
+<li><strong>Verification commands/evidence:</strong> Documentation evidence is the linked contract above; no runtime evidence, canary, rollout, or performance claim exists in this slice. Future captured-prompt verification must cover all required fields and must block or promote on missing source roots, database authorization, Expectations, test command, scope, authority, task, or validation evidence.</li>
+<li><strong>Out of scope:</strong> Direct generic <code>task()</code> calls, bypassing <code>odf_delegate</code>, or allowing implementation to choose its own policy.</li>
+</ul>
+<h3 id="fl-07-integrate-the-policy-without-a-parallel-workflow" tabindex="-1"><a class="anchor" href="#fl-07-integrate-the-policy-without-a-parallel-workflow" aria-label="Link to this section">#</a>FL-07 — Integrate the policy without a parallel workflow</h3>
+<ul>
+<li><strong>Depends on:</strong> FL-06.</li>
+<li><strong>Status:</strong> Implemented locally / live Odoo evidence pending. The existing <code>small-change</code> route selects the bounded executor only through a validated persisted policy; all other routes retain their canonical agents.</li>
+<li><strong>Likely files:</strong> <code>odf-plugin/odf-workflow.ts</code>, <code>plugins/odf-delegation.ts</code>, <code>command/odf-new.md</code>, <code>agent/odoo_orchestrator.md</code>.</li>
+<li><strong>Intent:</strong> Keep <code>small-change</code> as <code>DECIDE -&gt; BUILD -&gt; VERIFY</code> and <code>bugfix</code> as <code>FIX -&gt; BUILD -&gt; VERIFY</code>. Make the micro policy select an executor inside those routes; do not globally merge dependent phases. A micro host verifier still performs the canonical VERIFY transition and cannot skip BUILD/VERIFY ordering.</li>
+<li><strong>Verification commands/evidence:</strong> Route snapshots remain unchanged for all existing work types; <code>odf_workflow_advance</code> rejects missing/invalid validation; standard/ambiguous/elevated cases still launch full agent VERIFY; micro failures promote rather than silently pass.</li>
+<li><strong>Out of scope:</strong> New stages, new route matrices, cross-domain parallelization changes, or a global FIX→BUILD/BUILD→VERIFY coalescence.</li>
+</ul>
+<h3 id="fl-08-preserve-state-ledger-gate-receipt-and-authority-seals" tabindex="-1"><a class="anchor" href="#fl-08-preserve-state-ledger-gate-receipt-and-authority-seals" aria-label="Link to this section">#</a>FL-08 — Preserve state, ledger, gate, receipt, and authority seals</h3>
+<ul>
+<li><strong>Depends on:</strong> FL-07.</li>
+<li><strong>Status:</strong> Implemented locally / live Odoo evidence pending. Fast-lane delegation uses the existing policy, attempt, evidence, workflow, and receipt chokepoints.</li>
+<li><strong>Likely files:</strong> <code>plugins/odf-delegation.ts</code>, <code>odf-plugin/odf-delegation-metrics.ts</code>, <code>command/odf-new.md</code>, <code>command/odf-fix.md</code>.</li>
+<li><strong>Intent:</strong> Route every micro execution through the same selected artifact store, Policy Gate, fresh attempt ID, validation evidence, candidate binding, source authority, telemetry, and receipt code paths. Add no fast-path write that can create unbound state or settle a phase without evidence.</li>
+<li><strong>Verification commands/evidence:</strong> Unit/integration fixtures for duplicate attempt ID, running/completed phase, stale/mismatched evidence, pending receipt, source-authority failure, task timeout, empty result, and policy block; inspect persisted artifact refs and receipt refs.</li>
+<li><strong>Out of scope:</strong> Weakening policy/evidence schemas or replacing host validation with agent prose.</li>
+</ul>
+<h2 id="4-targeted-odoo-validation" tabindex="-1"><a class="anchor" href="#4-targeted-odoo-validation" aria-label="Link to this section">#</a>4. Targeted Odoo validation</h2>
+<h3 id="fl-09-add-a-targeted-test-command-contract" tabindex="-1"><a class="anchor" href="#fl-09-add-a-targeted-test-command-contract" aria-label="Link to this section">#</a>FL-09 — Add a targeted-test command contract</h3>
+<ul>
+<li><strong>Depends on:</strong> FL-06.</li>
+<li><strong>Status:</strong> Implemented locally / representative Odoo command evidence pending. Targeted evidence is phase- and kind-bound and cannot be reused as final full-gate evidence.</li>
+<li><strong>Likely files:</strong> <code>agent/odoo_orchestrator.md</code>, <code>command/odf-new.md</code>, <code>command/odf-fix.md</code>, <code>plugins/odf-delegation.ts</code>.</li>
+<li><strong>Intent:</strong> Use Odoo 19 <code>--test-tags</code> for module/class/method selection and <code>--test-file</code> for a specific Python file in the inner loop. Require exact <code>-d &lt;test_db&gt;</code>, authorized database context, exit code, output evidence, and the existing minimum command count by risk tier.</li>
+<li><strong>Verification commands/evidence:</strong> Future evidence records such as <code>odoo-test</code> with <code>odoo-bin -d &lt;test_db&gt; --test-tags /&lt;module&gt; --stop-after-init</code> or <code>odoo-test</code> with <code>odoo-bin -d &lt;test_db&gt; --test-file &lt;path&gt; --stop-after-init</code>; verify the host rejects missing <code>-d</code>, missing output, non-zero exit, stale evidence, or wrong candidate.</li>
+<li><strong>Out of scope:</strong> Destructive database setup, guessed databases, replacing the final module/CI suite, or changing Odoo test semantics.</li>
+</ul>
+<h3 id="fl-10-keep-the-full-final-gate" tabindex="-1"><a class="anchor" href="#fl-10-keep-the-full-final-gate" aria-label="Link to this section">#</a>FL-10 — Keep the full final gate</h3>
+<ul>
+<li><strong>Depends on:</strong> FL-09.</li>
+<li><strong>Status:</strong> Implemented locally / representative Odoo command evidence pending. Fast-lane VERIFY remains the full QA route and validates a distinct <code>full</code> evidence artifact.</li>
+<li><strong>Likely files:</strong> <code>agent/odoo_orchestrator.md</code>, <code>plugins/odf-delegation.ts</code>.</li>
+<li><strong>Intent:</strong> Require the configured full module/CI test command at the final gate after targeted inner-loop tests. Preserve the existing archive rule that cannot accept deferred, missing, or unrecorded module evidence.</li>
+<li><strong>Verification commands/evidence:</strong> A micro fixture proves targeted BUILD evidence is followed by the full configured command before successful archive; a missing final record blocks archive.</li>
+<li><strong>Out of scope:</strong> Treating targeted tests as sufficient final coverage or removing full agent VERIFY for standard/elevated work.</li>
+</ul>
+<h2 id="5-model-and-opencode-steps-policy" tabindex="-1"><a class="anchor" href="#5-model-and-opencode-steps-policy" aria-label="Link to this section">#</a>5. Model and OpenCode steps policy</h2>
+<h3 id="fl-11-bound-cheap-classification-and-verification-policy" tabindex="-1"><a class="anchor" href="#fl-11-bound-cheap-classification-and-verification-policy" aria-label="Link to this section">#</a>FL-11 — Bound cheap classification and verification policy</h3>
+<ul>
+<li><strong>Depends on:</strong> FL-05, FL-09.</li>
+<li><strong>Likely files:</strong> <code>odf-registry.json</code>, <code>odf-plugin/odf-skills.ts</code>, <code>plugins/odf-delegation.ts</code>, <code>agent/odoo_orchestrator.md</code>.</li>
+<li><strong>Intent:</strong> Consider a faster model and bounded OpenCode <code>steps</code> only for deterministic classification/host-verification prompts. Keep capable implementation routing for Odoo code, view authority, integrations, and any uncertain task. Make the policy explicit, opt-in/canary-controlled, and fail closed; do not silently override user-owned model/profile selection.</li>
+<li><strong>Verification commands/evidence:</strong> Profile-resolution output identifies model and step bound; fixtures prove no faster-model policy is selected for implementation when capability/risk requires the specialist; timeout/empty-result paths create receipts and escalate.</li>
+<li><strong>Out of scope:</strong> Global model replacement, unrestricted agent autonomy, silent step reduction for all phases, or model benchmarking without outcome metrics.</li>
+</ul>
+<h3 id="fl-12-limit-the-micro-prompt-and-context-surface" tabindex="-1"><a class="anchor" href="#fl-12-limit-the-micro-prompt-and-context-surface" aria-label="Link to this section">#</a>FL-12 — Limit the micro prompt and context surface</h3>
+<ul>
+<li><strong>Depends on:</strong> FL-06, FL-11.</li>
+<li><strong>Likely files:</strong> <code>plugins/odf-delegation.ts</code>, <code>agent/odoo_orchestrator.md</code>.</li>
+<li><strong>Intent:</strong> Keep inline prompts compact and stable: shared rules first, dynamic task facts late, only relevant module/source/test context, and a complete structured result contract. Do not spend the optimization budget on broad input trimming before reducing calls and generated output.</li>
+<li><strong>Verification commands/evidence:</strong> Compare prompt token estimate and task duration in metrics; verify required safety/source/evidence instructions remain present and task labels stay sanitized.</li>
+<li><strong>Out of scope:</strong> Prompt caching infrastructure, generic context-index rewrites, or removal of required source/evidence instructions.</li>
+</ul>
+<h2 id="6-tests-and-evidence" tabindex="-1"><a class="anchor" href="#6-tests-and-evidence" aria-label="Link to this section">#</a>6. Tests and evidence</h2>
+<h3 id="fl-13-expand-triage-and-route-regression-coverage" tabindex="-1"><a class="anchor" href="#fl-13-expand-triage-and-route-regression-coverage" aria-label="Link to this section">#</a>FL-13 — Expand triage and route regression coverage</h3>
+<ul>
+<li><strong>Depends on:</strong> FL-05, FL-07.</li>
+<li><strong>Status:</strong> Partial. Delegation safety and fast-lane route coverage are present; the broader triage/workflow/harness matrix remains to be completed.</li>
+<li><strong>Likely files:</strong> <code>odf-plugin/entry-triage.test.ts</code>, <code>odf-plugin/odf-workflow.test.ts</code>, <code>scripts/odf-harness.test.ts</code>.</li>
+<li><strong>Intent:</strong> Cover deterministic eligibility, protected-risk precedence, existing route snapshots, canonical stage ordering, and escalation behavior.</li>
+<li><strong>Verification commands/evidence:</strong> <code>npx vitest run odf-plugin/entry-triage.test.ts odf-plugin/odf-workflow.test.ts scripts/odf-harness.test.ts</code>; attach the test output and case matrix.</li>
+<li><strong>Out of scope:</strong> Removing existing route tests or testing only the happy path.</li>
+</ul>
+<h3 id="fl-14-expand-delegation-safety-and-telemetry-coverage" tabindex="-1"><a class="anchor" href="#fl-14-expand-delegation-safety-and-telemetry-coverage" aria-label="Link to this section">#</a>FL-14 — Expand delegation safety and telemetry coverage</h3>
+<ul>
+<li><strong>Depends on:</strong> FL-08, FL-09, FL-11.</li>
+<li><strong>Status:</strong> Partial. Fast-lane policy, candidate binding, evidence ordering, and delegation coverage are present; telemetry cohort validation remains pending.</li>
+<li><strong>Likely files:</strong> <code>odf-plugin/odf-delegation.test.ts</code>, <code>odf-plugin/odf-delegation-metrics.test.ts</code> if present/required, <code>scripts/odf-harness.test.ts</code>, <code>plugins/odf-delegation.ts</code> only for the implementation.</li>
+<li><strong>Intent:</strong> Prove policy/attempt/evidence/receipt/source-authority invariants remain active for micro, standard, and elevated routes. Verify p50/p95 inputs are bounded and sanitized.</li>
+<li><strong>Verification commands/evidence:</strong> <code>npx vitest run odf-plugin/odf-delegation.test.ts scripts/odf-harness.test.ts</code>; use fixture evidence with wrong candidate digest, wrong database, stale timestamp, missing output, non-zero exit, reused attempt, and pending receipt.</li>
+<li><strong>Out of scope:</strong> Live Odoo execution in the ODF harness unit suite or destructive database operations.</li>
+</ul>
+<h3 id="fl-14h-close-local-fast-lane-hardening-gaps" tabindex="-1"><a class="anchor" href="#fl-14h-close-local-fast-lane-hardening-gaps" aria-label="Link to this section">#</a>FL-14H — Close local fast-lane hardening gaps</h3>
+<ul>
+<li><strong>Status:</strong> Implemented locally; all listed local checks pass. Representative Odoo validation remains pending.</li>
+<li><strong>Likely files:</strong> <code>plugins/odf-delegation.ts</code>, <code>odf-plugin/odf-delegation.test.ts</code>, <code>docs/odf-fast-lane-plan.md</code>.</li>
+<li><strong>Intent:</strong> Require lowercase candidate-bound digests for every targeted evidence acceptance, and provide one explicit <code>disable-fast-lane</code> override that records its approver/reason in a fail-closed rollback marker without rewriting workflow state or artifacts.</li>
+<li><strong>Verification commands/evidence:</strong> Focused validation/override regressions, <code>npm run typecheck</code>, <code>npm run test:unit</code>, <code>npm run test:yaml</code>, registry validation, and <code>git diff --check</code>.</li>
+<li><strong>Out of scope:</strong> Odoo/PostgreSQL execution, canary activation, default-route changes, and <code>odd/</code> bookkeeping.</li>
+</ul>
+<h3 id="fl-15-validate-against-representative-odoo-modules" tabindex="-1"><a class="anchor" href="#fl-15-validate-against-representative-odoo-modules" aria-label="Link to this section">#</a>FL-15 — Validate against representative Odoo modules</h3>
+<ul>
+<li><strong>Depends on:</strong> FL-10, FL-13, FL-14.</li>
+<li><strong>Likely files:</strong> No repository source change required unless a test fixture needs one; future evidence belongs in the review/CI system, not committed generated databases.</li>
+<li><strong>Intent:</strong> Exercise one clear model/view/test micro feature, one localized bugfix, one ambiguous request, and each protected-risk category. Include source-authority work and a case exceeding the file bound.</li>
+<li><strong>Verification commands/evidence:</strong> Authorized Odoo 19 targeted commands with <code>-d &lt;test_db&gt;</code>, followed by the configured full module/CI command; preserve <code>.odf/validation-evidence-&lt;change&gt;.json</code> and final verification report refs.</li>
+<li><strong>Out of scope:</strong> Production databases, destructive setup, broad performance claims from a single sample, or changing module behavior for the test.</li>
+</ul>
+<h2 id="7-documentation-and-rollout" tabindex="-1"><a class="anchor" href="#7-documentation-and-rollout" aria-label="Link to this section">#</a>7. Documentation and rollout</h2>
+<h3 id="fl-16-update-operational-documentation-after-behavior-is-implemented" tabindex="-1"><a class="anchor" href="#fl-16-update-operational-documentation-after-behavior-is-implemented" aria-label="Link to this section">#</a>FL-16 — Update operational documentation after behavior is implemented</h3>
+<ul>
+<li><strong>Depends on:</strong> FL-07, FL-09, FL-11, FL-14.</li>
+<li><strong>Status:</strong> Partial. Command and orchestrator contracts now match the local implementation; final rollout/metrics documentation review remains pending.</li>
+<li><strong>Likely files:</strong> <code>command/odf-new.md</code>, <code>command/odf-fix.md</code>, <code>agent/odoo_orchestrator.md</code>, <code>docs/odf-fast-lane-plan.md</code>.</li>
+<li><strong>Intent:</strong> Document the final policy name, exact eligibility, triage-before-redundancy order, targeted test templates, host-validation semantics, escalation triggers, kill switch, metrics query, and final-gate requirement. Keep all generated artifacts in English.</li>
+<li><strong>Verification commands/evidence:</strong> Markdown link check or repository documentation review; compare docs to actual route, plugin seals, and test evidence schema. No code path may rely on undocumented fast-lane behavior.</li>
+<li><strong>Out of scope:</strong> Claiming implementation in this planning change or duplicating the entire orchestrator contract.</li>
+</ul>
+<h3 id="fl-17-run-staged-rollout-and-review-metrics" tabindex="-1"><a class="anchor" href="#fl-17-run-staged-rollout-and-review-metrics" aria-label="Link to this section">#</a>FL-17 — Run staged rollout and review metrics</h3>
+<ul>
+<li><strong>Depends on:</strong> FL-01, FL-02, FL-15, FL-16.</li>
+<li><strong>Likely files:</strong> Existing rollout/configuration file only; no new framework or data store.</li>
+<li><strong>Intent:</strong> Execute measure-only → shadow → opt-in canary → controlled expansion. Review p50/p95, task count, targeted/full validation, receipt rate, timeout rate, escalation correctness, and artifact completeness at every stage.</li>
+<li><strong>Verification commands/evidence:</strong> <code>node &quot;$PACK/scripts/odf-toolkit.js&quot; metrics --days 14 --json</code>; attach before/after cohort report and explicit go/hold/rollback decision. Disable the policy when any acceptance threshold fails.</li>
+<li><strong>Out of scope:</strong> Automatic expansion, automatic retry around receipts, or silently changing the default route.</li>
+</ul>
+<h2 id="final-acceptance-checklist" tabindex="-1"><a class="anchor" href="#final-acceptance-checklist" aria-label="Link to this section">#</a>Final acceptance checklist</h2>
+<ul>
+<li>[ ] ENTRY/TRIAGE was measured and optimized before generic plugin micro-optimization.</li>
+<li>[ ] The existing <code>small-change</code> route remains canonical; no parallel full workflow or <code>micro-change</code> type was added.</li>
+<li>[ ] Micro eligibility requires one known module, one domain, bounded files, clear approved Expectations, and no protected/architectural signal.</li>
+<li>[ ] <code>/odf-fix</code> still requires diagnosis, root cause, and minimal regression before BUILD.</li>
+<li>[ ] Health, preflight, Expectations, Policy Gate, attempt ledger, artifact persistence, source authority, validation evidence, receipts, and archive gates remain mandatory.</li>
+<li>[ ] Triage runs before expensive redundancy scanning; clear low-risk micro entries alone may defer/reduce that scan.</li>
+<li>[ ] Micro BUILD uses a bounded inline prompt and capable implementation routing where needed.</li>
+<li>[ ] Inner-loop Odoo tests use <code>--test-tags</code> and/or <code>--test-file</code> with explicit <code>-d &lt;test_db&gt;</code>.</li>
+<li>[ ] Full module/CI tests remain the final gate.</li>
+<li>[ ] Standard, ambiguous, and elevated-risk work keeps full agent VERIFY.</li>
+<li>[ ] FIX→BUILD and BUILD→VERIFY were not globally merged.</li>
+<li>[ ] p50/p95 baseline and post-canary reports use comparable cohorts and include safety/error metrics.</li>
+<li>[ ] Telemetry is bounded, sanitized, session-hashed, and free of secrets/PII.</li>
+<li>[x] Rollback disables the micro policy through the audited <code>disable-fast-lane</code> operation without rewriting state, artifacts, evidence, or receipts.</li>
+<li>[ ] <code>npm run typecheck</code>, focused Vitest tests, full repository tests, registry validation, and the representative Odoo evidence all pass in the implementation PR.</li>
+</ul>
+<h2 id="recommended-commitpr-order" tabindex="-1"><a class="anchor" href="#recommended-commitpr-order" aria-label="Link to this section">#</a>Recommended commit/PR order</h2>
+<ol>
+<li><code>perf(metrics): baseline fast-lane latency</code></li>
+<li><code>perf(triage): reuse facts before redundancy scan</code></li>
+<li><code>feat(policy): bound micro build and host validation</code></li>
+<li><code>test(odf): cover fast-lane safety invariants</code></li>
+<li><code>docs(odf): document fast-lane rollout</code></li>
+</ol>
+<p>Each commit should remain independently reviewable. Do not commit generated databases, secrets, raw telemetry, or implementation claims with the documentation-only planning change.</p>
+
+    </article>
+    <nav class="pager" aria-label="Documentation pagination"><a class="pager-link prev" href="odf-fast-lane-plan.html"><span>Previous</span><b>Fast-lane plan</b></a><a class="pager-link next" href="odf-fast-lane-baseline-2026-09-13.html"><span>Next</span><b>Baseline 2026-09-13</b></a></nav>
+  </main>
+  <aside class="toc" aria-label="On this page"><p class="toc-title">On this page</p><nav><a class="toc-l2" href="#work-unit-rules">Work-unit rules</a><a class="toc-l2" href="#1-baseline-instrumentation-and-measurement">1. Baseline instrumentation and measurement</a><a class="toc-l3" href="#fl-01-establish-the-latency-baseline">FL-01 — Establish the latency baseline</a><a class="toc-l3" href="#fl-02-define-the-comparison-cohort-and-rollback-signal">FL-02 — Define the comparison cohort and rollback signal</a><a class="toc-l2" href="#2-entry-triage-optimization">2. Entry-triage optimization</a><a class="toc-l3" href="#fl-03-reuse-known-project-facts-before-triage">FL-03 — Reuse known project facts before triage</a><a class="toc-l3" href="#fl-04-move-triage-ahead-of-expensive-redundancy-work">FL-04 — Move triage ahead of expensive redundancy work</a><a class="toc-l3" href="#fl-05-tighten-deterministic-micro-eligibility">FL-05 — Tighten deterministic micro eligibility</a><a class="toc-l2" href="#3-micro-policy-and-route-integration">3. Micro policy and route integration</a><a class="toc-l3" href="#fl-06-define-the-inline-build-contract">FL-06 — Define the inline BUILD contract</a><a class="toc-l3" href="#fl-07-integrate-the-policy-without-a-parallel-workflow">FL-07 — Integrate the policy without a parallel workflow</a><a class="toc-l3" href="#fl-08-preserve-state-ledger-gate-receipt-and-authority-seals">FL-08 — Preserve state, ledger, gate, receipt, and authority seals</a><a class="toc-l2" href="#4-targeted-odoo-validation">4. Targeted Odoo validation</a><a class="toc-l3" href="#fl-09-add-a-targeted-test-command-contract">FL-09 — Add a targeted-test command contract</a><a class="toc-l3" href="#fl-10-keep-the-full-final-gate">FL-10 — Keep the full final gate</a><a class="toc-l2" href="#5-model-and-opencode-steps-policy">5. Model and OpenCode steps policy</a><a class="toc-l3" href="#fl-11-bound-cheap-classification-and-verification-policy">FL-11 — Bound cheap classification and verification policy</a><a class="toc-l3" href="#fl-12-limit-the-micro-prompt-and-context-surface">FL-12 — Limit the micro prompt and context surface</a><a class="toc-l2" href="#6-tests-and-evidence">6. Tests and evidence</a><a class="toc-l3" href="#fl-13-expand-triage-and-route-regression-coverage">FL-13 — Expand triage and route regression coverage</a><a class="toc-l3" href="#fl-14-expand-delegation-safety-and-telemetry-coverage">FL-14 — Expand delegation safety and telemetry coverage</a><a class="toc-l3" href="#fl-14h-close-local-fast-lane-hardening-gaps">FL-14H — Close local fast-lane hardening gaps</a><a class="toc-l3" href="#fl-15-validate-against-representative-odoo-modules">FL-15 — Validate against representative Odoo modules</a><a class="toc-l2" href="#7-documentation-and-rollout">7. Documentation and rollout</a><a class="toc-l3" href="#fl-16-update-operational-documentation-after-behavior-is-implemented">FL-16 — Update operational documentation after behavior is implemented</a><a class="toc-l3" href="#fl-17-run-staged-rollout-and-review-metrics">FL-17 — Run staged rollout and review metrics</a><a class="toc-l2" href="#final-acceptance-checklist">Final acceptance checklist</a><a class="toc-l2" href="#recommended-commitpr-order">Recommended commit/PR order</a></nav></aside>
+</div>
+<div class="overlay" id="overlay" role="dialog" aria-modal="true" aria-label="Search documentation">
+  <div class="palette">
+    <div class="palette-input">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true" style="color:var(--ink-faint)"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+      <input id="q" type="search" placeholder="Search docs, diagrams, contracts…" autocomplete="off" spellcheck="false">
+      <kbd>esc</kbd>
+    </div>
+    <div class="results" id="results"></div>
+    <div class="palette-foot"><span>↑↓ navigate</span><span>↵ open</span><span>esc close</span></div>
+  </div>
+</div>
+<div class="toast" id="toast" role="status"></div>
+<script src="../assets/docs.js"></script>
+</body>
+</html>

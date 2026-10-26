@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="auto" data-base="">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ODF Skill Style Guide · ODF Docs</title>
+  <meta name="description" content="This guide defines how to write and maintain ODF skills.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <script>(function(){var d=document.documentElement,s=localStorage.getItem("odf-theme"),m=matchMedia("(prefers-color-scheme: dark)").matches;d.dataset.theme=s||(m?"dark":"light");})();</script>
+  <link rel="stylesheet" href="assets/docs.css">
+</head>
+<body>
+<a class="skip" href="#content">Skip to content</a>
+<header class="bar">
+  <div class="bar-in">
+    <a class="brand" href="index.html">
+      <svg class="brand-glyph" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <rect x="2" y="9" width="6" height="6" rx="1.5" fill="currentColor" opacity=".95"/>
+        <rect x="9" y="9" width="6" height="6" rx="1.5" fill="currentColor" opacity=".65"/>
+        <rect x="16" y="9" width="6" height="6" rx="1.5" fill="currentColor" opacity=".35"/>
+        <path d="M8 12h1M15 12h1" stroke="currentColor" stroke-width="1.5"/>
+      </svg>
+      ODF <small>docs</small>
+    </a>
+    <div class="bar-spacer"></div>
+    <nav class="bar-nav" aria-label="Sections">
+      <a href="index.html#whatsnew">What's new</a>
+      <a href="index.html#flows">Flows</a>
+      <a href="index.html#skills">Skills</a>
+      <a href="docs.html">Docs</a>
+    </nav>
+    <button class="searchbtn" id="openSearch" aria-label="Search documentation">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+      <span class="lbl">Search docs…</span>
+      <kbd>/</kbd>
+    </button>
+    <button class="icon-btn" id="themeToggle" aria-label="Toggle dark mode" title="Toggle theme">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M4.9 4.9l1.4 1.4m11.4 11.4 1.4 1.4M2 12h2m16 0h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
+    </button>
+    <a class="gh" href="https://github.com/antoniodavid/odf-agent-team" target="_blank" rel="noopener">GitHub ↗</a>
+  </div>
+</header>
+<div class="shell">
+  <details class="side" open><summary>Documentation menu</summary><div class="side-inner"><a class="side-home" href="docs.html">Documentation index</a><p class="side-group">Overview</p><a href="docs.html">Docs index</a><a href="intended-usage.html">Intended usage</a><a href="architecture.html">Architecture</a><a href="opencode-v2-migration.html">OpenCode V2 migration</a><p class="side-group">Contracts</p><a href="route-contract.html">Route &amp; stage</a><a href="design-contract.html">Design</a><a href="expectations-contract.html">Expectations</a><a href="context-contract.html">Context Manifest</a><a href="safety-contract.html">Safety</a><a href="judge-shadow-contract.html">Judge shadow</a><a href="learning-loop-contract.html">Learning loop</a><p class="side-group">Operations</p><a href="metrics-and-engram-maintenance.html">Metrics &amp; Engram</a><a href="decision-evaluation.html">Decision evaluation</a><p class="side-group">Reference</p><a href="plugin.html">Plugin reference</a><a href="skill-style-guide.html" class="active" aria-current="page">Skill style guide</a><p class="side-group">Project</p><a href="readme.html">README</a><a href="changelog.html">Changelog</a><a href="agents.html">Contributing</a><p class="side-group">History</p><a href="archive/index.html">Archive index</a><a href="archive/harness-roadmap.html">Harness roadmap</a><a href="archive/odf-fast-lane-plan.html">Fast-lane plan</a><a href="archive/odf-fast-lane-tasks.html">Fast-lane tasks</a><a href="archive/odf-fast-lane-baseline-2026-09-13.html">Baseline 2026-09-13</a><a href="archive/odf-fast-lane-baseline-2026-09-16.html">Baseline 2026-09-16</a><a href="odf-linear-cycles-baseline-2026-10-01.html">Linear-cycles baseline</a></div></details>
+  <main id="content" class="doc">
+    <nav class="crumb" aria-label="Breadcrumb">
+      <a href="index.html">ODF</a><span>/</span><a href="docs.html">Docs</a><span>/</span><span>Reference</span>
+    </nav>
+    <article class="prose">
+      <h1>ODF Skill Style Guide</h1>
+      <p class="doc-meta">4 min read</p>
+      <p>This guide defines how to write and maintain ODF skills.</p>
+<h2 id="skill-structure" tabindex="-1"><a class="anchor" href="#skill-structure" aria-label="Link to this section">#</a>Skill Structure</h2>
+<p>ODF skills follow the LLM-first gentle-ai structure. A skill file is a Markdown document with YAML frontmatter followed by structured sections.</p>
+<h3 id="frontmatter" tabindex="-1"><a class="anchor" href="#frontmatter" aria-label="Link to this section">#</a>Frontmatter</h3>
+<pre><code class="language-yaml">---
+name: my-skill
+description: &quot;Short, searchable description. Trigger: user says X, Y, or Z.&quot;
+license: MIT
+metadata:
+  author: your-name
+  version: &quot;1.0&quot;
+---
+</code></pre>
+<p>Keep the description short and include trigger keywords so the skill resolver can match it.</p>
+<h3 id="required-sections" tabindex="-1"><a class="anchor" href="#required-sections" aria-label="Link to this section">#</a>Required Sections</h3>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Section</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Activation Contract</td>
+<td>When the skill should be loaded. Use trigger phrases.</td>
+</tr>
+<tr>
+<td>Hard Rules</td>
+<td>Non-negotiable rules the agent must follow.</td>
+</tr>
+<tr>
+<td>Decision Gates</td>
+<td>Conditions that change the recommended path.</td>
+</tr>
+<tr>
+<td>Execution Steps</td>
+<td>Numbered or ordered list of what to do.</td>
+</tr>
+<tr>
+<td>Output Contract</td>
+<td>Expected return format, envelope fields, or artifacts.</td>
+</tr>
+<tr>
+<td>References</td>
+<td>Links to related skills, files, or external docs.</td>
+</tr>
+</tbody>
+</table></div>
+<p>Use second-level headings (<code>##</code>) for each section.</p>
+<h2 id="language" tabindex="-1"><a class="anchor" href="#language" aria-label="Link to this section">#</a>Language</h2>
+<ul>
+<li>Generated technical artifacts default to <strong>English</strong>.</li>
+<li>Command definitions in <code>command/*.md</code> are in <strong>English</strong> (migrated from Spanish); runtime conversation with the user still follows the user's language.</li>
+<li>Skills may be in English or Spanish depending on their audience; prefer English for technical rules.</li>
+</ul>
+<h2 id="compact-rules" tabindex="-1"><a class="anchor" href="#compact-rules" aria-label="Link to this section">#</a>Compact Rules</h2>
+<p>The registry stores a <code>compact_rules</code> string for each skill. Write compact rules as:</p>
+<ul>
+<li>Short imperative statements.</li>
+<li>One idea per line or bullet.</li>
+<li>Concrete examples over abstract guidance.</li>
+<li>Avoid redundant prose that duplicates the skill body.</li>
+</ul>
+<p>Example:</p>
+<pre><code class="language-text">- Use @api.depends with explicit field paths
+- Set store=True if field is searched/grouped
+- Handle empty recordsets (for record in self:)
+</code></pre>
+<h3 id="compact-rule-contract" tabindex="-1"><a class="anchor" href="#compact-rule-contract" aria-label="Link to this section">#</a>Compact-rule contract</h3>
+<p><code>compact_rules</code> is the only part of a skill most delegations ever see, so it is
+validated as a product surface:</p>
+<ul>
+<li>150–600 characters, ending on a complete sentence.</li>
+<li>No ASCII banners (the box-drawing glyphs old skills carried) and no truncated
+tails.</li>
+<li>No two skills may share the same <code>compact_rules</code> string.</li>
+<li>Regenerate them from the skill's own rules and best practices; never copy the
+banner or the first paragraph.</li>
+</ul>
+<h2 id="validation" tabindex="-1"><a class="anchor" href="#validation" aria-label="Link to this section">#</a>Validation</h2>
+<p>Every skill registered in <code>odf-registry.json</code> is checked by the Agent Skills
+validator:</p>
+<pre><code class="language-bash">npm run validate:skills          # errors fail; warnings report migration debt
+node scripts/odf-skill-validate.js --strict --json
+</code></pre>
+<p>Errors:</p>
+<ul>
+<li><code>SKILL.md</code> starts with YAML frontmatter and parses.</li>
+<li><code>name</code> is required, ≤64 characters, lowercase alphanumeric with single hyphens,
+and equals its parent directory for a <code>SKILL.md</code>.</li>
+<li><code>description</code> is required and ≤1024 characters.</li>
+<li><code>path</code> exists, is a file, and stays inside the registry or config root.</li>
+<li><code>compact_rules</code> satisfies the contract above.</li>
+</ul>
+<p>Warnings (migration debt; failures under <code>--strict</code>):</p>
+<ul>
+<li>Missing <code>license</code>, non-spec frontmatter keys, or a file that is not a
+<code>SKILL.md</code>.</li>
+<li>Body over 500 lines or ~20k characters, or absolute/personal paths.</li>
+<li>Frontmatter name that differs from the registry entry.</li>
+</ul>
+<p>CI runs the validator, so a new skill reaches <code>main</code> only with valid frontmatter
+and conforming compact rules.</p>
+<h2 id="naming-conventions" tabindex="-1"><a class="anchor" href="#naming-conventions" aria-label="Link to this section">#</a>Naming Conventions</h2>
+<ul>
+<li>Skill names use kebab-case: <code>odf-verify</code>, <code>oca-commit-messages</code>.</li>
+<li>Prefix ODF skills with <code>odf-</code>.</li>
+<li>Prefix OCA governance/style skills with <code>oca-</code>.</li>
+<li>Agent names use snake_case: <code>odoo_backend_engineer</code>.</li>
+</ul>
+<h2 id="registry-registration" tabindex="-1"><a class="anchor" href="#registry-registration" aria-label="Link to this section">#</a>Registry Registration</h2>
+<p>When you add or modify a skill, update <code>odf-registry.json</code>:</p>
+<ul>
+<li>Add or update the skill entry under <code>skills</code>.</li>
+<li>Ensure <code>path</code> is relative to the registry directory when <code>flags.use_relative_paths</code> is <code>true</code>.</li>
+<li>List supported Odoo versions in <code>odoo_versions</code>.</li>
+<li>Assign an <code>sdd_phase</code> when the skill is tied to a specific workflow phase.</li>
+<li>Bump the skill <code>version</code> and add a changelog entry when behavior changes.</li>
+</ul>
+<h2 id="triggers" tabindex="-1"><a class="anchor" href="#triggers" aria-label="Link to this section">#</a>Triggers</h2>
+<p>Triggers are the keywords used by the skill resolver. Include:</p>
+<ul>
+<li>File extensions (<code>.py</code>, <code>.xml</code>, <code>__manifest__.py</code>).</li>
+<li>Directory names (<code>models/</code>, <code>views/</code>, <code>tests/</code>).</li>
+<li>Action verbs (<code>test</code>, <code>commit</code>, <code>review</code>, <code>migrate</code>).</li>
+<li>Domain terms relevant to the skill.</li>
+</ul>
+<p>Keep triggers specific enough to avoid false positives.</p>
+<h2 id="versioning" tabindex="-1"><a class="anchor" href="#versioning" aria-label="Link to this section">#</a>Versioning</h2>
+<p>Use semantic-ish versioning for skills:</p>
+<ul>
+<li><code>1.0</code> — initial version.</li>
+<li><code>2.0</code> — major restructure or breaking behavior change.</li>
+<li><code>2.1</code> — additive change or clarification.</li>
+</ul>
+<p>Always add a <code>changelog</code> entry with date and short description.</p>
+<h2 id="testing" tabindex="-1"><a class="anchor" href="#testing" aria-label="Link to this section">#</a>Testing</h2>
+<p>If a skill includes deterministic logic, add or extend a YAML scenario in <code>scripts/odf-agent-tests/</code>:</p>
+<ul>
+<li>Name the test clearly.</li>
+<li>Provide <code>input.task</code> and <code>input.context</code>.</li>
+<li>Specify <code>expected.skill_resolution</code>, <code>expected.expected_skills</code>, and <code>expected.status_in</code>.</li>
+</ul>
+<p>Run the scenario with:</p>
+<pre><code class="language-bash">node scripts/odf-test-runner.js
+</code></pre>
+<h2 id="writing-for-agents" tabindex="-1"><a class="anchor" href="#writing-for-agents" aria-label="Link to this section">#</a>Writing for Agents</h2>
+<p>Skills are read by an agent, not a human skimming docs; the document's job is a
+predictable process every run. Composition rules:</p>
+<ul>
+<li><strong>Context pointers</strong>: a description line is a pointer; its wording decides when
+the agent reaches the material. Front-load the leading word, one trigger per
+branch, and cut identity the body already carries.</li>
+<li><strong>Two loads</strong>: always-loaded text spends context load every turn; material
+reached through a pointer spends only the pointer. Push reference behind
+pointers (progressive disclosure); keep every-branch material inline.</li>
+<li><strong>Leading words</strong>: anchor behaviour on compact pretrained concepts (seam,
+tracer bullet, red) instead of explaining them in sentences; repeat the token,
+not the definition.</li>
+<li><strong>Completion criteria</strong>: every step ends on a checkable boundary; vague bounds
+invite premature completion. Demand (&quot;every EXP-XX accounted for&quot;) drives legwork.</li>
+<li><strong>Positive framing</strong>: state the target behaviour; a prohibition drags the banned
+behaviour into context. Keep a prohibition only as a hard guardrail, paired
+with its positive target.</li>
+<li><strong>Single source of truth</strong>: one meaning lives in one place; duplication costs
+maintenance and inflates prominence. Never restate what the environment
+already exposes (package scripts, configs).</li>
+</ul>
+<h2 id="review-checklist" tabindex="-1"><a class="anchor" href="#review-checklist" aria-label="Link to this section">#</a>Review Checklist</h2>
+<p>Before submitting a skill change:</p>
+<ul>
+<li>[ ] Frontmatter is complete and valid YAML.</li>
+<li>[ ] Sections follow the required structure.</li>
+<li>[ ] Compact rules are concise, actionable, and satisfy the compact-rule contract.</li>
+<li>[ ] <code>npm run validate:skills</code> passes with zero errors.</li>
+<li>[ ] <code>odf-registry.json</code> is updated.</li>
+<li>[ ] Path is relative when <code>use_relative_paths</code> is <code>true</code>.</li>
+<li>[ ] Version and changelog are updated if behavior changed.</li>
+<li>[ ] YAML scenario test passes.</li>
+<li>[ ] Pointers and steps follow the writing-for-agents rules (leading words, positive framing, no duplication).</li>
+<li>[ ] Change stays within the 400-line PR budget or is split into a chained PR.</li>
+</ul>
+
+    </article>
+    <nav class="pager" aria-label="Documentation pagination"><a class="pager-link prev" href="plugin.html"><span>Previous</span><b>Plugin reference</b></a><a class="pager-link next" href="readme.html"><span>Next</span><b>README</b></a></nav>
+  </main>
+  <aside class="toc" aria-label="On this page"><p class="toc-title">On this page</p><nav><a class="toc-l2" href="#skill-structure">Skill Structure</a><a class="toc-l3" href="#frontmatter">Frontmatter</a><a class="toc-l3" href="#required-sections">Required Sections</a><a class="toc-l2" href="#language">Language</a><a class="toc-l2" href="#compact-rules">Compact Rules</a><a class="toc-l3" href="#compact-rule-contract">Compact-rule contract</a><a class="toc-l2" href="#validation">Validation</a><a class="toc-l2" href="#naming-conventions">Naming Conventions</a><a class="toc-l2" href="#registry-registration">Registry Registration</a><a class="toc-l2" href="#triggers">Triggers</a><a class="toc-l2" href="#versioning">Versioning</a><a class="toc-l2" href="#testing">Testing</a><a class="toc-l2" href="#writing-for-agents">Writing for Agents</a><a class="toc-l2" href="#review-checklist">Review Checklist</a></nav></aside>
+</div>
+<div class="overlay" id="overlay" role="dialog" aria-modal="true" aria-label="Search documentation">
+  <div class="palette">
+    <div class="palette-input">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true" style="color:var(--ink-faint)"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+      <input id="q" type="search" placeholder="Search docs, diagrams, contracts…" autocomplete="off" spellcheck="false">
+      <kbd>esc</kbd>
+    </div>
+    <div class="results" id="results"></div>
+    <div class="palette-foot"><span>↑↓ navigate</span><span>↵ open</span><span>esc close</span></div>
+  </div>
+</div>
+<div class="toast" id="toast" role="status"></div>
+<script src="assets/docs.js"></script>
+</body>
+</html>

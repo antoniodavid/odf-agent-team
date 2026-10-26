@@ -1,0 +1,347 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="auto" data-base="">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Route and stage contract · ODF Docs</title>
+  <meta name="description" content="This document is the human-readable matrix of the workflow contract. The source of truth is code:">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <script>(function(){var d=document.documentElement,s=localStorage.getItem("odf-theme"),m=matchMedia("(prefers-color-scheme: dark)").matches;d.dataset.theme=s||(m?"dark":"light");})();</script>
+  <link rel="stylesheet" href="assets/docs.css">
+</head>
+<body>
+<a class="skip" href="#content">Skip to content</a>
+<header class="bar">
+  <div class="bar-in">
+    <a class="brand" href="index.html">
+      <svg class="brand-glyph" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <rect x="2" y="9" width="6" height="6" rx="1.5" fill="currentColor" opacity=".95"/>
+        <rect x="9" y="9" width="6" height="6" rx="1.5" fill="currentColor" opacity=".65"/>
+        <rect x="16" y="9" width="6" height="6" rx="1.5" fill="currentColor" opacity=".35"/>
+        <path d="M8 12h1M15 12h1" stroke="currentColor" stroke-width="1.5"/>
+      </svg>
+      ODF <small>docs</small>
+    </a>
+    <div class="bar-spacer"></div>
+    <nav class="bar-nav" aria-label="Sections">
+      <a href="index.html#whatsnew">What's new</a>
+      <a href="index.html#flows">Flows</a>
+      <a href="index.html#skills">Skills</a>
+      <a href="docs.html">Docs</a>
+    </nav>
+    <button class="searchbtn" id="openSearch" aria-label="Search documentation">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+      <span class="lbl">Search docs…</span>
+      <kbd>/</kbd>
+    </button>
+    <button class="icon-btn" id="themeToggle" aria-label="Toggle dark mode" title="Toggle theme">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M4.9 4.9l1.4 1.4m11.4 11.4 1.4 1.4M2 12h2m16 0h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
+    </button>
+    <a class="gh" href="https://github.com/antoniodavid/odf-agent-team" target="_blank" rel="noopener">GitHub ↗</a>
+  </div>
+</header>
+<div class="shell">
+  <details class="side" open><summary>Documentation menu</summary><div class="side-inner"><a class="side-home" href="docs.html">Documentation index</a><p class="side-group">Overview</p><a href="docs.html">Docs index</a><a href="intended-usage.html">Intended usage</a><a href="architecture.html">Architecture</a><a href="opencode-v2-migration.html">OpenCode V2 migration</a><p class="side-group">Contracts</p><a href="route-contract.html" class="active" aria-current="page">Route &amp; stage</a><a href="design-contract.html">Design</a><a href="expectations-contract.html">Expectations</a><a href="context-contract.html">Context Manifest</a><a href="safety-contract.html">Safety</a><a href="judge-shadow-contract.html">Judge shadow</a><a href="learning-loop-contract.html">Learning loop</a><p class="side-group">Operations</p><a href="metrics-and-engram-maintenance.html">Metrics &amp; Engram</a><a href="decision-evaluation.html">Decision evaluation</a><p class="side-group">Reference</p><a href="plugin.html">Plugin reference</a><a href="skill-style-guide.html">Skill style guide</a><p class="side-group">Project</p><a href="readme.html">README</a><a href="changelog.html">Changelog</a><a href="agents.html">Contributing</a><p class="side-group">History</p><a href="archive/index.html">Archive index</a><a href="archive/harness-roadmap.html">Harness roadmap</a><a href="archive/odf-fast-lane-plan.html">Fast-lane plan</a><a href="archive/odf-fast-lane-tasks.html">Fast-lane tasks</a><a href="archive/odf-fast-lane-baseline-2026-09-13.html">Baseline 2026-09-13</a><a href="archive/odf-fast-lane-baseline-2026-09-16.html">Baseline 2026-09-16</a><a href="odf-linear-cycles-baseline-2026-10-01.html">Linear-cycles baseline</a></div></details>
+  <main id="content" class="doc">
+    <nav class="crumb" aria-label="Breadcrumb">
+      <a href="index.html">ODF</a><span>/</span><a href="docs.html">Docs</a><span>/</span><span>Contracts</span>
+    </nav>
+    <article class="prose">
+      <h1>Route and stage contract</h1>
+      <p class="doc-meta">4 min read</p>
+      <p>This document is the human-readable matrix of the workflow contract. The source
+of truth is code:</p>
+<ul>
+<li>Routes: <code>odf-plugin/odf-workflow.ts</code> (<code>ROUTES</code>, <code>advanceWorkflow</code>).</li>
+<li>Stage artifacts and handoff gates: <code>odf-plugin/odf-artifact-contract.ts</code>
+(<code>ARTIFACT_GROUPS</code>, <code>CANONICAL_ARTIFACT_TYPES</code>, <code>STAGE_ARTIFACT_REQUIREMENTS</code>,
+<code>HANDOFF_GATES_BY_STAGE</code>).</li>
+<li>Delegation stages and roles: <code>odf-plugin/odf-delegation-contract.ts</code>.</li>
+<li>Status and handoff derivation: <code>odf-plugin/odf-workflow-status.ts</code>.</li>
+</ul>
+<p>The permanent regression test is <code>odf-plugin/odf-route-contract.test.ts</code>. It
+walks every route, every transition, every stage/role, and every artifact/gate
+requirement.</p>
+<h2 id="route-matrix" tabindex="-1"><a class="anchor" href="#route-matrix" aria-label="Link to this section">#</a>Route matrix</h2>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Work type</th>
+<th>Entry</th>
+<th>Stages</th>
+<th>Terminal</th>
+<th>Plan</th>
+<th>Verification</th>
+<th>Closure</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>question</code></td>
+<td><code>EXPLORE</code></td>
+<td><code>EXPLORE</code></td>
+<td><code>EXPLORE</code></td>
+<td>none</td>
+<td>none</td>
+<td>Ephemeral report via <code>/odf-explore</code>; not bound.</td>
+</tr>
+<tr>
+<td><code>investigation</code></td>
+<td><code>EXPLORE</code></td>
+<td><code>EXPLORE</code></td>
+<td><code>EXPLORE</code></td>
+<td>none</td>
+<td>none</td>
+<td>Ephemeral report via <code>/odf-explore</code>; not bound.</td>
+</tr>
+<tr>
+<td><code>standard-config</code></td>
+<td><code>DECIDE</code></td>
+<td><code>DECIDE</code></td>
+<td><code>DECIDE</code></td>
+<td>none</td>
+<td>none</td>
+<td>Complete at <code>DECIDE</code>; no archive.</td>
+</tr>
+<tr>
+<td><code>small-change</code></td>
+<td><code>DECIDE</code></td>
+<td><code>DECIDE → BUILD → VERIFY</code></td>
+<td><code>VERIFY</code></td>
+<td>inline</td>
+<td>required</td>
+<td>Archive after terminal VERIFY.</td>
+</tr>
+<tr>
+<td><code>feature-inline</code></td>
+<td><code>DECIDE</code></td>
+<td><code>DECIDE → BUILD → VERIFY</code></td>
+<td><code>VERIFY</code></td>
+<td>inline</td>
+<td>required</td>
+<td>Archive after terminal VERIFY.</td>
+</tr>
+<tr>
+<td><code>feature</code></td>
+<td><code>DECIDE</code></td>
+<td><code>DECIDE → PLAN → BUILD → VERIFY</code></td>
+<td><code>VERIFY</code></td>
+<td>required</td>
+<td>required</td>
+<td>Archive after terminal VERIFY.</td>
+</tr>
+<tr>
+<td><code>cross-domain</code></td>
+<td><code>DECIDE</code></td>
+<td><code>DECIDE → PLAN → BUILD → VERIFY</code></td>
+<td><code>VERIFY</code></td>
+<td>required</td>
+<td>required</td>
+<td>Archive after parallel BUILD and terminal VERIFY.</td>
+</tr>
+<tr>
+<td><code>bugfix</code></td>
+<td><code>FIX</code></td>
+<td><code>FIX → BUILD → VERIFY</code></td>
+<td><code>VERIFY</code></td>
+<td>inline</td>
+<td>required</td>
+<td>Archive after terminal VERIFY.</td>
+</tr>
+<tr>
+<td><code>migration</code></td>
+<td><code>DECIDE</code></td>
+<td><code>DECIDE → PLAN → BUILD → VERIFY</code></td>
+<td><code>VERIFY</code></td>
+<td>required</td>
+<td>required</td>
+<td>Archive after terminal VERIFY.</td>
+</tr>
+<tr>
+<td><code>security</code></td>
+<td><code>DECIDE</code></td>
+<td><code>DECIDE → PLAN → BUILD → VERIFY</code></td>
+<td><code>VERIFY</code></td>
+<td>required</td>
+<td>required</td>
+<td>Archive after terminal VERIFY.</td>
+</tr>
+<tr>
+<td><code>verify-only</code></td>
+<td><code>VERIFY</code></td>
+<td><code>VERIFY</code></td>
+<td><code>VERIFY</code></td>
+<td>none</td>
+<td>required</td>
+<td>Archive after terminal VERIFY.</td>
+</tr>
+</tbody>
+</table></div>
+<p><code>/odf-explore</code> is the supported path for <code>question</code> and <code>investigation</code>: it
+does not bind workflow state or persist a formal change. Do not start those two
+work types through <code>/odf-new</code>. <code>standard-config</code> is a real formal route, but its
+lifecycle ends at <code>DECIDE</code>; <code>/odf-archive</code> is reserved for routes that reach
+<code>VERIFY</code>.</p>
+<p><code>feature-inline</code> is the default standard-feature route. It keeps the human
+Intent + Expectations contract and drops the formal PLAN. Its <code>DECIDE</code> stage has
+three modes, selected deterministically at entry:</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Mode</th>
+<th>Entry signal</th>
+<th>DECIDE behavior</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>skip</code></td>
+<td>Clear intent, known module, no risk, no assess trigger</td>
+<td>Terminal bind writes <code>decision</code> before BUILD.</td>
+</tr>
+<tr>
+<td><code>assess</code></td>
+<td>Redundancy hit, existing <code>models/</code>/<code>security/</code>/<code>data/</code>/<code>migrations/</code>/<code>wizard/</code>/<code>report/</code>/<code>controllers/</code> surface, &gt;10 expected files, unknown module, unclear intent, or explicit <code>--assess</code></td>
+<td>One bounded ASSESS delegation writes the canonical <code>decision</code> before BUILD.</td>
+</tr>
+<tr>
+<td><code>escalate</code></td>
+<td><code>feature</code>/<code>cross-domain</code>/<code>migration</code>/<code>security</code>, OCA target, or a protected risk signal</td>
+<td>The formal <code>feature</code> route keeps DECIDE + PLAN.</td>
+</tr>
+</tbody>
+</table></div>
+<p>ASSESS in <code>assess</code> mode is a decision assessment, not a functional spec: it
+returns strategy (standard-coverage / custom / extend-existing), scope, affected
+areas, risks, unknowns, and a bounded reason. It does not create <code>proposal</code>,
+<code>assess</code>, <code>design</code>, <code>qa-plan</code>, or <code>tasks</code> artifacts.</p>
+<p>The entry builds one bounded, reference-only Context Manifest after the gate and
+approved Expectations, and forwards it unchanged to ASSESS and BUILD. See
+<a href="context-contract.html">Context contract</a>. Redundancy is a gate signal here, not a
+blocking user question.</p>
+<h2 id="stage-matrix" tabindex="-1"><a class="anchor" href="#stage-matrix" aria-label="Link to this section">#</a>Stage matrix</h2>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Stage</th>
+<th>Roles</th>
+<th>Canonical artifact</th>
+<th>Completion</th>
+<th>Gates</th>
+<th>Stage commit</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>DECIDE</code></td>
+<td><code>PROPOSE</code>, <code>ASSESS</code></td>
+<td><code>decision</code></td>
+<td><code>decision</code> or <code>propose</code> + <code>assess</code></td>
+<td>safety, receipt-clear</td>
+<td><code>ASSESS</code> commits <code>DECIDE</code>.</td>
+</tr>
+<tr>
+<td><code>PLAN</code></td>
+<td><code>QA-PLAN</code>, <code>DESIGN</code></td>
+<td><code>plan</code></td>
+<td><code>plan</code> or <code>design</code></td>
+<td>safety, receipt-clear</td>
+<td><code>DESIGN</code> commits <code>PLAN</code>.</td>
+</tr>
+<tr>
+<td><code>BUILD</code></td>
+<td>—</td>
+<td><code>implement-progress</code></td>
+<td>progress checklist terminal, or a terminal accepted build artifact</td>
+<td>safety, receipt-clear, policy-gate, validation-evidence</td>
+<td>Validation verified and progress terminal; batches stay <code>batch-verified</code> until then.</td>
+</tr>
+<tr>
+<td><code>VERIFY</code></td>
+<td>—</td>
+<td><code>verify-report</code></td>
+<td>terminal verify report</td>
+<td>safety, receipt-clear, policy-gate, validation-evidence</td>
+<td>Verify evidence verdict and policy gate bind.</td>
+</tr>
+<tr>
+<td><code>FIX</code></td>
+<td>—</td>
+<td><code>fix</code></td>
+<td><code>fix</code> or <code>fix-progress</code></td>
+<td>safety, receipt-clear</td>
+<td>Bind terminal FIX writes <code>fix.yaml</code>; no delegation commit.</td>
+</tr>
+<tr>
+<td><code>EXPLORE</code></td>
+<td>—</td>
+<td><code>explore</code></td>
+<td><code>explore</code> or <code>explore-progress</code></td>
+<td>safety, receipt-clear</td>
+<td>None; exploratory and ephemeral.</td>
+</tr>
+</tbody>
+</table></div>
+<p>Role rules:</p>
+<ul>
+<li><code>DECIDE</code> requires <code>PROPOSE</code> or <code>ASSESS</code>.</li>
+<li><code>PLAN</code> requires <code>QA-PLAN</code> or <code>DESIGN</code>.</li>
+<li><code>BUILD</code>, <code>VERIFY</code>, <code>EXPLORE</code>, and <code>FIX</code> reject a role.</li>
+<li><code>agent</code> is an optional override and must be eligible for the resolved role.</li>
+</ul>
+<h2 id="handoff-and-gate-rules" tabindex="-1"><a class="anchor" href="#handoff-and-gate-rules" aria-label="Link to this section">#</a>Handoff and gate rules</h2>
+<p>A stage hands off only when its completion artifact set is satisfied:</p>
+<ul>
+<li><code>DECIDE</code> accepts a canonical <code>decision</code> artifact, or both <code>propose</code> and
+<code>assess</code>.</li>
+<li><code>PLAN</code> accepts a canonical <code>plan</code> artifact, or a <code>design</code> artifact.</li>
+<li><code>BUILD</code> requires terminal implementation progress (or an accepted legacy
+build artifact) plus the policy gate and validation evidence.</li>
+<li><code>VERIFY</code> requires a terminal <code>verify-report</code> plus the policy gate and
+validation evidence.</li>
+<li><code>ARCHIVE</code> requires terminal VERIFY evidence for routes that include VERIFY,
+and blocks pending receipts, running attempts, and running joins.</li>
+</ul>
+<p><code>odf_workflow_status.next_handoff</code> names the previous stage artifacts and the
+gates required by the next stage. It is advisory: <code>BUILD</code> and <code>VERIFY</code> starts
+trust the persisted completed stages as the workflow commit record. An audited
+<code>odf_workflow_override</code> can skip <code>DECIDE</code> or <code>PLAN</code>; <code>BUILD</code> and <code>VERIFY</code> can
+never be skipped.</p>
+<p>The validation-evidence proof still uses the role labels <code>phase: &quot;IMPLEMENT&quot;</code> or
+<code>phase: &quot;VERIFY&quot;</code> inside <code>.odf/validation-evidence-{change}.json</code>. That is a
+proof label, not a delegation input; all producers and consumers agree on it.</p>
+<h2 id="verification" tabindex="-1"><a class="anchor" href="#verification" aria-label="Link to this section">#</a>Verification</h2>
+<pre><code class="language-bash">npx vitest run odf-plugin/odf-route-contract.test.ts
+</code></pre>
+<p>The test fails if a route stage loses its artifact/gate definition, a role stops
+mapping to its stage, a handoff cannot be built, a route cannot advance to
+complete, or a terminal stage changes without updating this matrix.</p>
+<p>Decision-quality reports (route agreement, risk/plan distribution, first-pass
+yield, rework, receipts, overrides, stage activity), period comparison, review
+cadence, and human-approved proposals live in <code>docs/decision-evaluation.md</code> and
+run with:</p>
+<pre><code class="language-bash">node scripts/odf-evaluation.js decisions [days] [--root &lt;dir&gt;] [--md]
+</code></pre>
+
+    </article>
+    <nav class="pager" aria-label="Documentation pagination"><a class="pager-link prev" href="opencode-v2-migration.html"><span>Previous</span><b>OpenCode V2 migration</b></a><a class="pager-link next" href="design-contract.html"><span>Next</span><b>Design</b></a></nav>
+  </main>
+  <aside class="toc" aria-label="On this page"><p class="toc-title">On this page</p><nav><a class="toc-l2" href="#route-matrix">Route matrix</a><a class="toc-l2" href="#stage-matrix">Stage matrix</a><a class="toc-l2" href="#handoff-and-gate-rules">Handoff and gate rules</a><a class="toc-l2" href="#verification">Verification</a></nav></aside>
+</div>
+<div class="overlay" id="overlay" role="dialog" aria-modal="true" aria-label="Search documentation">
+  <div class="palette">
+    <div class="palette-input">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true" style="color:var(--ink-faint)"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+      <input id="q" type="search" placeholder="Search docs, diagrams, contracts…" autocomplete="off" spellcheck="false">
+      <kbd>esc</kbd>
+    </div>
+    <div class="results" id="results"></div>
+    <div class="palette-foot"><span>↑↓ navigate</span><span>↵ open</span><span>esc close</span></div>
+  </div>
+</div>
+<div class="toast" id="toast" role="status"></div>
+<script src="assets/docs.js"></script>
+</body>
+</html>

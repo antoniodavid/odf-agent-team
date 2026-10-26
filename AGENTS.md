@@ -311,6 +311,8 @@ npm run test:yaml     # YAML scenario runner only
 npm run test:unit     # Vitest only
 npm run typecheck     # tsc --noEmit
 npm run validate:skills                # Agent Skills + compact-rule validation
+npm run docs:build                     # regenerate docs/*.html + search index
+npm run docs:check                     # fail if generated docs are stale
 node scripts/odf-registry-validate.js   # validates all registered paths exist
 ```
 
@@ -327,4 +329,5 @@ node scripts/odf-registry-validate.js   # validates all registered paths exist
 - `openspec/config.yaml` has `testing.strict_tdd: false` — correct; this repo uses YAML scenarios + Vitest, not a traditional coverage suite
 - `scripts/odf-cli.js` is a minimal parser that emits orchestrator routing envelopes, NOT the orchestrator itself
 - Plugin tools are injected at runtime into the model's tool list — they are NOT MCP tools
+- `docs/*.html` (except the diagrams and `index.html`) are generated from Markdown by `npm run docs:build`; edit the `.md` source, never the generated page, and commit both
 - After modifying an agent or skill file, run `/odf-registry-refresh` from inside an Odoo project to pick up changes

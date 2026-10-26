@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="auto" data-base="">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Metrics And Engram Maintenance · ODF Docs</title>
+  <meta name="description" content="ODF metrics are local JSONL records under `${ODF_CONFIG_DIR}/metrics` (or `~/.config/opencode/metrics`). Session identifiers are hashed, error text is bounded and sanitized, and the in-memory writer flushes synchronously">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <script>(function(){var d=document.documentElement,s=localStorage.getItem("odf-theme"),m=matchMedia("(prefers-color-scheme: dark)").matches;d.dataset.theme=s||(m?"dark":"light");})();</script>
+  <link rel="stylesheet" href="assets/docs.css">
+</head>
+<body>
+<a class="skip" href="#content">Skip to content</a>
+<header class="bar">
+  <div class="bar-in">
+    <a class="brand" href="index.html">
+      <svg class="brand-glyph" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <rect x="2" y="9" width="6" height="6" rx="1.5" fill="currentColor" opacity=".95"/>
+        <rect x="9" y="9" width="6" height="6" rx="1.5" fill="currentColor" opacity=".65"/>
+        <rect x="16" y="9" width="6" height="6" rx="1.5" fill="currentColor" opacity=".35"/>
+        <path d="M8 12h1M15 12h1" stroke="currentColor" stroke-width="1.5"/>
+      </svg>
+      ODF <small>docs</small>
+    </a>
+    <div class="bar-spacer"></div>
+    <nav class="bar-nav" aria-label="Sections">
+      <a href="index.html#whatsnew">What's new</a>
+      <a href="index.html#flows">Flows</a>
+      <a href="index.html#skills">Skills</a>
+      <a href="docs.html">Docs</a>
+    </nav>
+    <button class="searchbtn" id="openSearch" aria-label="Search documentation">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+      <span class="lbl">Search docs…</span>
+      <kbd>/</kbd>
+    </button>
+    <button class="icon-btn" id="themeToggle" aria-label="Toggle dark mode" title="Toggle theme">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M4.9 4.9l1.4 1.4m11.4 11.4 1.4 1.4M2 12h2m16 0h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
+    </button>
+    <a class="gh" href="https://github.com/antoniodavid/odf-agent-team" target="_blank" rel="noopener">GitHub ↗</a>
+  </div>
+</header>
+<div class="shell">
+  <details class="side" open><summary>Documentation menu</summary><div class="side-inner"><a class="side-home" href="docs.html">Documentation index</a><p class="side-group">Overview</p><a href="docs.html">Docs index</a><a href="intended-usage.html">Intended usage</a><a href="architecture.html">Architecture</a><a href="opencode-v2-migration.html">OpenCode V2 migration</a><p class="side-group">Contracts</p><a href="route-contract.html">Route &amp; stage</a><a href="design-contract.html">Design</a><a href="expectations-contract.html">Expectations</a><a href="context-contract.html">Context Manifest</a><a href="safety-contract.html">Safety</a><a href="judge-shadow-contract.html">Judge shadow</a><a href="learning-loop-contract.html">Learning loop</a><p class="side-group">Operations</p><a href="metrics-and-engram-maintenance.html" class="active" aria-current="page">Metrics &amp; Engram</a><a href="decision-evaluation.html">Decision evaluation</a><p class="side-group">Reference</p><a href="plugin.html">Plugin reference</a><a href="skill-style-guide.html">Skill style guide</a><p class="side-group">Project</p><a href="readme.html">README</a><a href="changelog.html">Changelog</a><a href="agents.html">Contributing</a><p class="side-group">History</p><a href="archive/index.html">Archive index</a><a href="archive/harness-roadmap.html">Harness roadmap</a><a href="archive/odf-fast-lane-plan.html">Fast-lane plan</a><a href="archive/odf-fast-lane-tasks.html">Fast-lane tasks</a><a href="archive/odf-fast-lane-baseline-2026-09-13.html">Baseline 2026-09-13</a><a href="archive/odf-fast-lane-baseline-2026-09-16.html">Baseline 2026-09-16</a><a href="odf-linear-cycles-baseline-2026-10-01.html">Linear-cycles baseline</a></div></details>
+  <main id="content" class="doc">
+    <nav class="crumb" aria-label="Breadcrumb">
+      <a href="index.html">ODF</a><span>/</span><a href="docs.html">Docs</a><span>/</span><span>Operations</span>
+    </nav>
+    <article class="prose">
+      <h1>Metrics And Engram Maintenance</h1>
+      <p class="doc-meta">2 min read</p>
+      <p>ODF metrics are local JSONL records under <code>${ODF_CONFIG_DIR}/metrics</code> (or
+<code>~/.config/opencode/metrics</code>). Session identifiers are hashed, error text is
+bounded and sanitized, and the in-memory writer flushes synchronously at its
+configured cap (<code>ODF_METRICS_BUFFER_CAP</code>). Daily files are naturally bounded
+by <code>collectDelegations(metricsDir, days)</code>; consumers should choose a retention
+window rather than treating the directory as an unbounded query source.
+Recovery attempts emit bounded local spans (<code>task</code> values such as
+<code>recovery:settle-attempt</code> and <code>recovery:late-seal-prepare</code>) with elapsed time and
+outcome. Actual input/output tokens and <code>cost_usd</code> are recorded only when the
+host supplies them; ODF never estimates cost, and token-length estimates remain
+separately labelled as estimates. The local metrics summary reports recovery
+counts/outcomes and host-reported USD cost with an explicit coverage count; no
+network request is made by the metrics summary.</p>
+<h2 id="optional-online-feedback" tabindex="-1"><a class="anchor" href="#optional-online-feedback" aria-label="Link to this section">#</a>Optional online feedback</h2>
+<p>Online feedback is disabled unless the operator configures an HTTPS endpoint.
+The user must run <code>/odf-feedback &lt;change&gt;</code>, review a local preview, and confirm
+that one submission should be sent. The command accepts only an explicit
+integer quality rating from 1 to 5; it has no free-text field and never submits
+automatically after a workflow.</p>
+<pre><code class="language-bash">ODF_FEEDBACK_ENDPOINT=&quot;https://feedback.example.invalid/odf&quot; \
+ODF_FEEDBACK_RETENTION_DAYS=&quot;30&quot; \
+ODF_FEEDBACK_BEARER_TOKEN=&quot;&lt;optional-secret&gt;&quot; \
+opencode
+</code></pre>
+<p>The endpoint must use HTTPS and may not embed credentials, query parameters, or
+fragments. The bearer token is optional and sent only in the Authorization
+header. The endpoint owner must enforce the configured retention value (1–30
+days) for submitted records and relevant server logs. ODF includes that value
+in the payload but cannot verify or enforce remote deletion; do not configure
+an endpoint without an explicit retention policy.</p>
+<p>The versioned payload contains only the rating and aggregates for finished
+runs in the current local session/change: run count, latest phase status, total
+duration, and host-supplied input/output tokens and USD cost with coverage
+counts. Missing host usage is <code>null</code>; token estimates are excluded. The payload
+never contains prompts, responses, free text, session/change/run IDs, model or
+provider names, workspace names, paths, or credentials. The receiver still sees
+normal network metadata such as the sender's IP address.</p>
+<p>Preview writes nothing to disk and returns a five-minute, one-time in-memory
+confirmation token bound to the exact payload, session, change, rating,
+endpoint, and retention. A confirmed submission makes one bounded request with
+a five-second timeout, rejects redirects, stores no durable feedback copy or
+queue, and is never retried. An interrupted request may have an unknown remote
+outcome. The rating is user feedback, not benchmark evidence; do not claim
+efficacy improvements without a separate reproducible benchmark.</p>
+<p>Evaluation is provider-agnostic:</p>
+<p>From a source checkout:</p>
+<pre><code class="language-bash">node scripts/odf-evaluation.js offline fixtures/evaluation.json
+ODF_CONFIG_DIR=&quot;${ODF_CONFIG_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/opencode}&quot; node scripts/odf-evaluation.js online
+</code></pre>
+<p>Offline fixtures contain <code>{ &quot;record&quot;: {}, &quot;expect&quot;: {} }</code> pairs and are
+reproducible. Online evaluation reads observed delegation metric records and
+reports the error rate; it does not call a model.</p>
+<p>Engram maintenance uses argument arrays, never a shell command string:</p>
+<p>From a source checkout:</p>
+<pre><code class="language-bash">npm run engram:maintenance -- status
+npm run engram:maintenance -- sync --confirm
+npm run engram:maintenance -- consolidate --all --confirm
+npm run engram:maintenance -- prune --confirm
+npm run engram:maintenance -- prune --confirm --dry-run
+</code></pre>
+<p>From an installed runtime, <code>package.json</code> is not copied, so invoke the
+installed script directly:</p>
+<pre><code class="language-bash">ODF_CONFIG_DIR=&quot;${ODF_CONFIG_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/opencode}&quot;
+node &quot;$ODF_CONFIG_DIR/scripts/odf-engram-maintenance.js&quot; status
+node &quot;$ODF_CONFIG_DIR/scripts/odf-engram-maintenance.js&quot; sync --confirm
+node &quot;$ODF_CONFIG_DIR/scripts/odf-engram-maintenance.js&quot; consolidate --all --confirm
+node &quot;$ODF_CONFIG_DIR/scripts/odf-engram-maintenance.js&quot; prune --confirm --dry-run
+</code></pre>
+<p><code>status</code> and <code>--dry-run</code> do not mutate. <code>sync</code>, <code>consolidate</code>, and <code>prune</code>
+require explicit confirmation and fail clearly if <code>engram</code> is unavailable.
+Engram 1.20.1 does not expose project selectors for these commands, so the
+adapter refuses project arguments; consolidation requires <code>--all</code>, and prune
+operates on the CLI's global zero-observation set. The adapter uses the actual
+command shapes without embedding unsupported project flags.</p>
+
+    </article>
+    <nav class="pager" aria-label="Documentation pagination"><a class="pager-link prev" href="learning-loop-contract.html"><span>Previous</span><b>Learning loop</b></a><a class="pager-link next" href="decision-evaluation.html"><span>Next</span><b>Decision evaluation</b></a></nav>
+  </main>
+  <aside class="toc" aria-label="On this page"></aside>
+</div>
+<div class="overlay" id="overlay" role="dialog" aria-modal="true" aria-label="Search documentation">
+  <div class="palette">
+    <div class="palette-input">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true" style="color:var(--ink-faint)"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+      <input id="q" type="search" placeholder="Search docs, diagrams, contracts…" autocomplete="off" spellcheck="false">
+      <kbd>esc</kbd>
+    </div>
+    <div class="results" id="results"></div>
+    <div class="palette-foot"><span>↑↓ navigate</span><span>↵ open</span><span>esc close</span></div>
+  </div>
+</div>
+<div class="toast" id="toast" role="status"></div>
+<script src="assets/docs.js"></script>
+</body>
+</html>

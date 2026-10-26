@@ -63,6 +63,9 @@ jobs:
         env:
           ODF_CONFIG_DIR: ${{ github.workspace }}
 
+      - name: Docs site check
+        run: npm run docs:check
+
       - name: Diff check
         run: |
           if [ "${{ github.event_name }}" = "pull_request" ]; then

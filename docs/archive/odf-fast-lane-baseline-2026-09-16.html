@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="auto" data-base="../">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ODF Fast-Lane Baseline — 2026-09-16 · ODF Docs</title>
+  <meta name="description" content="**Observed command:** `node scripts/odf-toolkit.js metrics --days 14 --json` on 2026-09-16 UTC.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <script>(function(){var d=document.documentElement,s=localStorage.getItem("odf-theme"),m=matchMedia("(prefers-color-scheme: dark)").matches;d.dataset.theme=s||(m?"dark":"light");})();</script>
+  <link rel="stylesheet" href="../assets/docs.css">
+</head>
+<body>
+<a class="skip" href="#content">Skip to content</a>
+<header class="bar">
+  <div class="bar-in">
+    <a class="brand" href="../index.html">
+      <svg class="brand-glyph" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <rect x="2" y="9" width="6" height="6" rx="1.5" fill="currentColor" opacity=".95"/>
+        <rect x="9" y="9" width="6" height="6" rx="1.5" fill="currentColor" opacity=".65"/>
+        <rect x="16" y="9" width="6" height="6" rx="1.5" fill="currentColor" opacity=".35"/>
+        <path d="M8 12h1M15 12h1" stroke="currentColor" stroke-width="1.5"/>
+      </svg>
+      ODF <small>docs</small>
+    </a>
+    <div class="bar-spacer"></div>
+    <nav class="bar-nav" aria-label="Sections">
+      <a href="../index.html#whatsnew">What's new</a>
+      <a href="../index.html#flows">Flows</a>
+      <a href="../index.html#skills">Skills</a>
+      <a href="../docs.html">Docs</a>
+    </nav>
+    <button class="searchbtn" id="openSearch" aria-label="Search documentation">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+      <span class="lbl">Search docs…</span>
+      <kbd>/</kbd>
+    </button>
+    <button class="icon-btn" id="themeToggle" aria-label="Toggle dark mode" title="Toggle theme">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M4.9 4.9l1.4 1.4m11.4 11.4 1.4 1.4M2 12h2m16 0h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
+    </button>
+    <a class="gh" href="https://github.com/antoniodavid/odf-agent-team" target="_blank" rel="noopener">GitHub ↗</a>
+  </div>
+</header>
+<div class="shell">
+  <details class="side" open><summary>Documentation menu</summary><div class="side-inner"><a class="side-home" href="../docs.html">Documentation index</a><p class="side-group">Overview</p><a href="../docs.html">Docs index</a><a href="../intended-usage.html">Intended usage</a><a href="../architecture.html">Architecture</a><a href="../opencode-v2-migration.html">OpenCode V2 migration</a><p class="side-group">Contracts</p><a href="../route-contract.html">Route &amp; stage</a><a href="../design-contract.html">Design</a><a href="../expectations-contract.html">Expectations</a><a href="../context-contract.html">Context Manifest</a><a href="../safety-contract.html">Safety</a><a href="../judge-shadow-contract.html">Judge shadow</a><a href="../learning-loop-contract.html">Learning loop</a><p class="side-group">Operations</p><a href="../metrics-and-engram-maintenance.html">Metrics &amp; Engram</a><a href="../decision-evaluation.html">Decision evaluation</a><p class="side-group">Reference</p><a href="../plugin.html">Plugin reference</a><a href="../skill-style-guide.html">Skill style guide</a><p class="side-group">Project</p><a href="../readme.html">README</a><a href="../changelog.html">Changelog</a><a href="../agents.html">Contributing</a><p class="side-group">History</p><a href="index.html">Archive index</a><a href="harness-roadmap.html">Harness roadmap</a><a href="odf-fast-lane-plan.html">Fast-lane plan</a><a href="odf-fast-lane-tasks.html">Fast-lane tasks</a><a href="odf-fast-lane-baseline-2026-09-13.html">Baseline 2026-09-13</a><a href="odf-fast-lane-baseline-2026-09-16.html" class="active" aria-current="page">Baseline 2026-09-16</a><a href="../odf-linear-cycles-baseline-2026-10-01.html">Linear-cycles baseline</a></div></details>
+  <main id="content" class="doc">
+    <nav class="crumb" aria-label="Breadcrumb">
+      <a href="../index.html">ODF</a><span>/</span><a href="../docs.html">Docs</a><span>/</span><span>History</span>
+    </nav>
+    <article class="prose">
+      <h1>ODF Fast-Lane Baseline — 2026-09-16</h1>
+      <p class="doc-meta">2 min read</p>
+      <h2 id="evidence-status" tabindex="-1"><a class="anchor" href="#evidence-status" aria-label="Link to this section">#</a>Evidence status</h2>
+<ul>
+<li><strong>Observed command:</strong> <code>node scripts/odf-toolkit.js metrics --days 14 --json</code> on 2026-09-16 UTC.</li>
+<li><strong>Purpose:</strong> FL-01 task-call evidence and the FL-02 cohort/rollback definition for ODF2 readiness.</li>
+<li><strong>Claim boundary:</strong> This report measures phase/task <code>duration_ms</code>. It does not measure <code>/odf-new</code> or <code>/odf-fix</code> entry-to-final-gate latency and makes no performance claim.</li>
+<li><strong>Odoo runtime:</strong> Odoo version, project, and a real Odoo runtime are not present in the sanitized telemetry.</li>
+</ul>
+<h2 id="cohort-and-window" tabindex="-1"><a class="anchor" href="#cohort-and-window" aria-label="Link to this section">#</a>Cohort and window</h2>
+<ul>
+<li><strong>Window:</strong> 14-day window selected by the command.</li>
+<li><strong>Raw telemetry records:</strong> 418. This is the raw-record count, not the baseline denominator.</li>
+<li><strong>Baseline completed task-call samples:</strong> 133. Lifecycle markers, spans, and joins are excluded from this denominator.</li>
+</ul>
+<h2 id="overall-task-call-baseline" tabindex="-1"><a class="anchor" href="#overall-task-call-baseline" aria-label="Link to this section">#</a>Overall task-call baseline</h2>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th style="text-align:right">Sample</th>
+<th style="text-align:right">p50</th>
+<th style="text-align:right">p95</th>
+<th style="text-align:right">Average</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align:right">133</td>
+<td style="text-align:right">123,671 ms</td>
+<td style="text-align:right">600,847.6 ms</td>
+<td style="text-align:right">250,187.5263 ms</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="outcomes" tabindex="-1"><a class="anchor" href="#outcomes" aria-label="Link to this section">#</a>Outcomes</h3>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Outcome</th>
+<th style="text-align:right">Count</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>ok</td>
+<td style="text-align:right">29</td>
+</tr>
+<tr>
+<td>blocked</td>
+<td style="text-align:right">67</td>
+</tr>
+<tr>
+<td>error</td>
+<td style="text-align:right">12</td>
+</tr>
+<tr>
+<td>timeout</td>
+<td style="text-align:right">25</td>
+</tr>
+</tbody>
+</table></div>
+<h2 id="phasetask-duration" tabindex="-1"><a class="anchor" href="#phasetask-duration" aria-label="Link to this section">#</a>Phase/task duration</h2>
+<p>These are phase/task durations, not <code>/odf-new</code> or <code>/odf-fix</code> entry-to-final-gate durations.</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Phase</th>
+<th style="text-align:right">p50</th>
+<th style="text-align:right">p95</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>ASSESS</td>
+<td style="text-align:right">361,301 ms</td>
+<td style="text-align:right">750,361 ms</td>
+</tr>
+<tr>
+<td>DESIGN</td>
+<td style="text-align:right">455,890 ms</td>
+<td style="text-align:right">634,302.6 ms</td>
+</tr>
+<tr>
+<td>EXPLORE</td>
+<td style="text-align:right">13,819 ms</td>
+<td style="text-align:right">13,819 ms</td>
+</tr>
+<tr>
+<td>FIX</td>
+<td style="text-align:right">13,063 ms</td>
+<td style="text-align:right">1,446,798.95 ms</td>
+</tr>
+<tr>
+<td>IMPLEMENT</td>
+<td style="text-align:right">54,034 ms</td>
+<td style="text-align:right">600,533.8 ms</td>
+</tr>
+<tr>
+<td>PROPOSE</td>
+<td style="text-align:right">101,114.5 ms</td>
+<td style="text-align:right">178,640.2 ms</td>
+</tr>
+<tr>
+<td>QA-PLAN</td>
+<td style="text-align:right">241,476 ms</td>
+<td style="text-align:right">600,373.1 ms</td>
+</tr>
+</tbody>
+</table></div>
+<p><code>FIX</code> is a phase label, not proof of an end-to-end <code>/odf-fix</code> run.</p>
+<h2 id="dimension-coverage" tabindex="-1"><a class="anchor" href="#dimension-coverage" aria-label="Link to this section">#</a>Dimension coverage</h2>
+<ul>
+<li><strong>Work type:</strong> 70/133 (52.63%) reported: <code>small-change</code> 12, <code>feature</code> 52, and <code>bugfix</code> 6. The remaining 63 samples are unknown.</li>
+<li><strong>Model field:</strong> 133/133 present, but <code>model_available</code> is 0/133. Provider/model identity is unavailable.</li>
+<li><strong>Validation evidence:</strong> 0/133.</li>
+<li><strong>Receipts:</strong> 0/133.</li>
+<li><strong>Escalation:</strong> 0/133.</li>
+</ul>
+<p>Coverage gaps are: <code>work_type</code>, <code>model_identity</code>, <code>validation_evidence</code>, <code>receipt</code>, <code>escalation</code>, and <code>entry_to_final_gate</code>.</p>
+<h2 id="end-to-end-measurement-gap" tabindex="-1"><a class="anchor" href="#end-to-end-measurement-gap" aria-label="Link to this section">#</a>End-to-end measurement gap</h2>
+<p><code>entry_to_final_gate</code> is unavailable: <code>sample_count</code> is 0 and p50/p95 are N/A. The telemetry therefore cannot establish complete <code>/odf-new</code> or <code>/odf-fix</code> entry-to-final-verified-gate cohorts. This report makes no end-to-end or performance claim.</p>
+<h2 id="fl-02-proposed-cohort-and-rollback-definition" tabindex="-1"><a class="anchor" href="#fl-02-proposed-cohort-and-rollback-definition" aria-label="Link to this section">#</a>FL-02 proposed cohort and rollback definition</h2>
+<p>Comparable cohorts must contain complete <code>entry_started</code> → <code>verified_completed</code> flows with matching <code>work_type</code>, Odoo version, workspace, and source-authority dimensions when available. Lifecycle markers, spans, and joins are excluded from the denominator. No comparable cohort exists in this evidence window.</p>
+<p>The following hold/rollback signals are <strong>proposed</strong> and require explicit maintainer approval before any canary:</p>
+<ul>
+<li>
+<blockquote>
+<p>10% matched-cohort p95 regression.</p>
+</blockquote>
+</li>
+<li>Any protected or architectural risk incorrectly downgraded.</li>
+<li>Any candidate, evidence, or receipt binding failure.</li>
+<li>Missing final-gate evidence.</li>
+<li>Telemetry coverage below 95%.</li>
+<li>Any unexplained increase in errors, timeouts, or receipts.</li>
+</ul>
+<p>No canary, rollout, or ODF2 execution claim is made.</p>
+
+    </article>
+    <nav class="pager" aria-label="Documentation pagination"><a class="pager-link prev" href="odf-fast-lane-baseline-2026-09-13.html"><span>Previous</span><b>Baseline 2026-09-13</b></a><a class="pager-link next" href="../odf-linear-cycles-baseline-2026-10-01.html"><span>Next</span><b>Linear-cycles baseline</b></a></nav>
+  </main>
+  <aside class="toc" aria-label="On this page"><p class="toc-title">On this page</p><nav><a class="toc-l2" href="#evidence-status">Evidence status</a><a class="toc-l2" href="#cohort-and-window">Cohort and window</a><a class="toc-l2" href="#overall-task-call-baseline">Overall task-call baseline</a><a class="toc-l3" href="#outcomes">Outcomes</a><a class="toc-l2" href="#phasetask-duration">Phase/task duration</a><a class="toc-l2" href="#dimension-coverage">Dimension coverage</a><a class="toc-l2" href="#end-to-end-measurement-gap">End-to-end measurement gap</a><a class="toc-l2" href="#fl-02-proposed-cohort-and-rollback-definition">FL-02 proposed cohort and rollback definition</a></nav></aside>
+</div>
+<div class="overlay" id="overlay" role="dialog" aria-modal="true" aria-label="Search documentation">
+  <div class="palette">
+    <div class="palette-input">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true" style="color:var(--ink-faint)"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+      <input id="q" type="search" placeholder="Search docs, diagrams, contracts…" autocomplete="off" spellcheck="false">
+      <kbd>esc</kbd>
+    </div>
+    <div class="results" id="results"></div>
+    <div class="palette-foot"><span>↑↓ navigate</span><span>↵ open</span><span>esc close</span></div>
+  </div>
+</div>
+<div class="toast" id="toast" role="status"></div>
+<script src="../assets/docs.js"></script>
+</body>
+</html>

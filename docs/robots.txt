@@ -1,0 +1,3 @@
+User-agent: *
+Allow: /
+Sitemap: https://antoniodavid.github.io/odf-agent-team/sitemap.xml

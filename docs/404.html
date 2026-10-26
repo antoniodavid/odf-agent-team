@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="auto">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Page not found · ODF Docs</title>
+  <meta name="robots" content="noindex">
+  <!-- Served for any missing path, so relative links resolve against the project base. -->
+  <base href="/odf-agent-team/">
+  <style>
+    :root {
+      --paper: #FCFBFD; --raise: #FFFFFF; --ink: #1C1724; --ink-soft: #4B4358;
+      --ink-faint: #7A7389; --plum: #6D4A78; --iris: #7C5CBF; --line: #E8E4EE; --tag-bg: #F3EFF8;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --paper: #15111B; --raise: #1E1826; --ink: #F0ECF6; --ink-soft: #B9B2C7;
+        --ink-faint: #857E96; --plum: #A78BFA; --iris: #A78BFA; --line: #2C2438; --tag-bg: #2A2140;
+      }
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; min-height: 100vh;
+      display: grid; place-items: center;
+      padding: 2rem 1.25rem;
+      background: var(--paper); color: var(--ink);
+      font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+      line-height: 1.55;
+    }
+    main { width: min(34rem, 100%); }
+    .brand {
+      display: flex; align-items: center; gap: .55rem;
+      font-weight: 700; font-size: 1rem; letter-spacing: -.02em;
+      text-decoration: none; color: inherit; margin-bottom: 2rem;
+    }
+    .brand svg { width: 1.4rem; height: 1.4rem; }
+    .brand small {
+      font: 500 .65rem/1 ui-monospace, monospace; letter-spacing: .06em;
+      text-transform: uppercase; color: var(--ink-faint);
+      border: 1px solid var(--line); border-radius: 4px; padding: .12rem .35rem;
+    }
+    .code {
+      font: 700 clamp(3.5rem, 14vw, 5.5rem)/1 ui-monospace, monospace;
+      color: var(--plum); letter-spacing: -.04em; margin: 0;
+    }
+    h1 { font-size: clamp(1.35rem, 4vw, 1.75rem); letter-spacing: -.02em; margin: .6rem 0 .5rem; }
+    p { color: var(--ink-soft); margin: 0 0 1.6rem; }
+    .links { display: flex; flex-wrap: wrap; gap: .6rem; }
+    .links a {
+      display: inline-flex; align-items: center; gap: .4rem;
+      text-decoration: none; color: var(--ink);
+      background: var(--raise); border: 1px solid var(--line);
+      border-radius: 9px; padding: .55rem .8rem; font-size: .88rem;
+    }
+    .links a:hover { border-color: var(--plum); color: var(--plum); }
+    .links a.primary { background: var(--tag-bg); border-color: var(--plum); color: var(--plum); font-weight: 600; }
+    .hint { margin-top: 1.6rem; font-size: .82rem; color: var(--ink-faint); }
+    kbd {
+      font: 500 .72rem/1 ui-monospace, monospace;
+      border: 1px solid var(--line); border-radius: 4px; padding: .15rem .35rem;
+      background: var(--raise);
+    }
+  </style>
+</head>
+<body>
+<main>
+  <a class="brand" href="./">
+    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <rect x="2" y="9" width="6" height="6" rx="1.5" fill="currentColor" opacity=".95"/>
+      <rect x="9" y="9" width="6" height="6" rx="1.5" fill="currentColor" opacity=".65"/>
+      <rect x="16" y="9" width="6" height="6" rx="1.5" fill="currentColor" opacity=".35"/>
+      <path d="M8 12h1M15 12h1" stroke="currentColor" stroke-width="1.5"/>
+    </svg>
+    ODF <small>docs</small>
+  </a>
+  <p class="code">404</p>
+  <h1>This page is not in the pack.</h1>
+  <p>The link may point at an older release, or the page moved. Start from the docs index and use the search palette to find the contract, flow, or command you need.</p>
+  <div class="links">
+    <a class="primary" href="./docs.html">Documentation index</a>
+    <a href="./">Home</a>
+    <a href="./route-contract.html">Routes &amp; gates</a>
+    <a href="./architecture.html">Architecture</a>
+  </div>
+  <p class="hint">Tip: press <kbd>/</kbd> on any docs page to search the whole site.</p>
+</main>
+</body>
+</html>

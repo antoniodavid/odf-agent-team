@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="auto" data-base="">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Learning Loop Contract (T12) · ODF Docs</title>
+  <meta name="description" content="Converts verified runs into reviewable memory and skill candidates, gated by golden regression and mandatory human approval. The pipeline is pure — it does not write to Engram or create skills; the caller owns the real w">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <script>(function(){var d=document.documentElement,s=localStorage.getItem("odf-theme"),m=matchMedia("(prefers-color-scheme: dark)").matches;d.dataset.theme=s||(m?"dark":"light");})();</script>
+  <link rel="stylesheet" href="assets/docs.css">
+</head>
+<body>
+<a class="skip" href="#content">Skip to content</a>
+<header class="bar">
+  <div class="bar-in">
+    <a class="brand" href="index.html">
+      <svg class="brand-glyph" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <rect x="2" y="9" width="6" height="6" rx="1.5" fill="currentColor" opacity=".95"/>
+        <rect x="9" y="9" width="6" height="6" rx="1.5" fill="currentColor" opacity=".65"/>
+        <rect x="16" y="9" width="6" height="6" rx="1.5" fill="currentColor" opacity=".35"/>
+        <path d="M8 12h1M15 12h1" stroke="currentColor" stroke-width="1.5"/>
+      </svg>
+      ODF <small>docs</small>
+    </a>
+    <div class="bar-spacer"></div>
+    <nav class="bar-nav" aria-label="Sections">
+      <a href="index.html#whatsnew">What's new</a>
+      <a href="index.html#flows">Flows</a>
+      <a href="index.html#skills">Skills</a>
+      <a href="docs.html">Docs</a>
+    </nav>
+    <button class="searchbtn" id="openSearch" aria-label="Search documentation">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+      <span class="lbl">Search docs…</span>
+      <kbd>/</kbd>
+    </button>
+    <button class="icon-btn" id="themeToggle" aria-label="Toggle dark mode" title="Toggle theme">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M4.9 4.9l1.4 1.4m11.4 11.4 1.4 1.4M2 12h2m16 0h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
+    </button>
+    <a class="gh" href="https://github.com/antoniodavid/odf-agent-team" target="_blank" rel="noopener">GitHub ↗</a>
+  </div>
+</header>
+<div class="shell">
+  <details class="side" open><summary>Documentation menu</summary><div class="side-inner"><a class="side-home" href="docs.html">Documentation index</a><p class="side-group">Overview</p><a href="docs.html">Docs index</a><a href="intended-usage.html">Intended usage</a><a href="architecture.html">Architecture</a><a href="opencode-v2-migration.html">OpenCode V2 migration</a><p class="side-group">Contracts</p><a href="route-contract.html">Route &amp; stage</a><a href="design-contract.html">Design</a><a href="expectations-contract.html">Expectations</a><a href="context-contract.html">Context Manifest</a><a href="safety-contract.html">Safety</a><a href="judge-shadow-contract.html">Judge shadow</a><a href="learning-loop-contract.html" class="active" aria-current="page">Learning loop</a><p class="side-group">Operations</p><a href="metrics-and-engram-maintenance.html">Metrics &amp; Engram</a><a href="decision-evaluation.html">Decision evaluation</a><p class="side-group">Reference</p><a href="plugin.html">Plugin reference</a><a href="skill-style-guide.html">Skill style guide</a><p class="side-group">Project</p><a href="readme.html">README</a><a href="changelog.html">Changelog</a><a href="agents.html">Contributing</a><p class="side-group">History</p><a href="archive/index.html">Archive index</a><a href="archive/harness-roadmap.html">Harness roadmap</a><a href="archive/odf-fast-lane-plan.html">Fast-lane plan</a><a href="archive/odf-fast-lane-tasks.html">Fast-lane tasks</a><a href="archive/odf-fast-lane-baseline-2026-09-13.html">Baseline 2026-09-13</a><a href="archive/odf-fast-lane-baseline-2026-09-16.html">Baseline 2026-09-16</a><a href="odf-linear-cycles-baseline-2026-10-01.html">Linear-cycles baseline</a></div></details>
+  <main id="content" class="doc">
+    <nav class="crumb" aria-label="Breadcrumb">
+      <a href="index.html">ODF</a><span>/</span><a href="docs.html">Docs</a><span>/</span><span>Contracts</span>
+    </nav>
+    <article class="prose">
+      <h1>Learning Loop Contract (T12)</h1>
+      <p class="doc-meta">2 min read</p>
+      <p>Converts verified runs into reviewable memory and skill candidates, gated by
+golden regression and mandatory human approval. The pipeline is pure — it does
+not write to Engram or create skills; the caller owns the real writer
+(adapter split, same as <code>odf-judge</code>).</p>
+<h2 id="admission-verified-runs-only" tabindex="-1"><a class="anchor" href="#admission-verified-runs-only" aria-label="Link to this section">#</a>Admission — verified runs only</h2>
+<p>A run is admitted ONLY when it has every credential:</p>
+<ul>
+<li><code>candidate_digest</code> — 64-hex string</li>
+<li>valid <code>receipt_ref</code>/<code>receipt</code> — successful status with a digest coherent with
+the run</li>
+<li><code>expectations</code> approved — non-empty, every expectation <code>approved: true</code></li>
+<li><code>outcome</code> known — <code>pass</code> | <code>fail</code> | <code>verified</code></li>
+</ul>
+<p>Any missing credential → the run is rejected (<code>isVerifiedRun</code> returns <code>false</code>,
+fail-closed, never a partial admit). Empty or fully-unverified input yields
+<code>data_status: &quot;no_data&quot;</code> with <code>N/A</code> (T8 consistency).</p>
+<h2 id="difficulty-signal" tabindex="-1"><a class="anchor" href="#difficulty-signal" aria-label="Link to this section">#</a>Difficulty signal</h2>
+<p><code>tool_call_count &gt;= threshold</code> (default 5) is a <strong>signal, not proof</strong>. A
+difficult run proposes a skill only if it is ALSO verified AND its outcome is a
+verified success (<code>pass</code>/<code>verified</code>). A difficult-but-unverified run, or an
+easy verified run, proposes nothing.</p>
+<h2 id="golden-regression-before-presentation" tabindex="-1"><a class="anchor" href="#golden-regression-before-presentation" aria-label="Link to this section">#</a>Golden regression before presentation</h2>
+<p>Every candidate runs against the golden corpus (<code>golden-trajectories.json</code>)
+before it is presented. A candidate that <strong>contradicts a golden</strong> — it
+explicitly references a guarded-defect golden (outcome <code>fail</code>) while claiming
+success — is marked <code>failed</code> and is NOT presented. Golden regression is the
+second gate after verification; difficulty alone never promotes a candidate.</p>
+<h2 id="human-approval-mandatory" tabindex="-1"><a class="anchor" href="#human-approval-mandatory" aria-label="Link to this section">#</a>Human approval — mandatory</h2>
+<p><code>approveCandidates</code> activates ONLY the ids in <code>approved_ids</code> (marked
+<code>approved: true, approved_by: &quot;human&quot;</code>). Everything else stays <code>proposed</code> and
+never activates. There is NO auto-activation.</p>
+<h2 id="rollback-preserves-evidence" tabindex="-1"><a class="anchor" href="#rollback-preserves-evidence" aria-label="Link to this section">#</a>Rollback preserves evidence</h2>
+<p><code>rollbackCandidate</code> only adds <code>rolled_back: true</code> + <code>rolled_back_at</code> and
+references the original <code>source_runs</code>/<code>evidence_refs</code>. It never rewrites the
+source evidence.</p>
+<h2 id="metrics-kpi" tabindex="-1"><a class="anchor" href="#metrics-kpi" aria-label="Link to this section">#</a>Metrics (KPI)</h2>
+<p>The pipeline reports <code>{ accepted, regressions_avoided, rolled_back, pending }</code>:</p>
+<ul>
+<li><code>accepted</code> — candidates human-approved and activated</li>
+<li><code>regressions_avoided</code> — candidates blocked by golden regression</li>
+<li><code>rolled_back</code> — candidates rolled back without rewriting evidence</li>
+<li><code>pending</code> — proposed but not yet approved/rolled back</li>
+</ul>
+<h2 id="out-of-scope-parking-lot" tabindex="-1"><a class="anchor" href="#out-of-scope-parking-lot" aria-label="Link to this section">#</a>Out of scope (parking lot)</h2>
+<p>Auto-skill activation is intentionally OUT of scope: it requires a calibrated
+judge, proven goldens, and proven rollback before it can be considered. This
+contract documents proposal only, never automatic activation.</p>
+<h2 id="module" tabindex="-1"><a class="anchor" href="#module" aria-label="Link to this section">#</a>Module</h2>
+<ul>
+<li><code>scripts/odf-learning.js</code> — pure pipeline (no Engram, no skill writes)</li>
+<li><code>scripts/odf-learning.d.ts</code> — types</li>
+<li><code>scripts/odf-learning.test.ts</code> — 9 Vitest cases</li>
+<li>CLI: <code>node scripts/odf-learning.js &lt;runs.json&gt;</code> (honors <code>ODF_GOLDENS</code>)</li>
+</ul>
+
+    </article>
+    <nav class="pager" aria-label="Documentation pagination"><a class="pager-link prev" href="judge-shadow-contract.html"><span>Previous</span><b>Judge shadow</b></a><a class="pager-link next" href="metrics-and-engram-maintenance.html"><span>Next</span><b>Metrics &amp; Engram</b></a></nav>
+  </main>
+  <aside class="toc" aria-label="On this page"><p class="toc-title">On this page</p><nav><a class="toc-l2" href="#admission-verified-runs-only">Admission — verified runs only</a><a class="toc-l2" href="#difficulty-signal">Difficulty signal</a><a class="toc-l2" href="#golden-regression-before-presentation">Golden regression before presentation</a><a class="toc-l2" href="#human-approval-mandatory">Human approval — mandatory</a><a class="toc-l2" href="#rollback-preserves-evidence">Rollback preserves evidence</a><a class="toc-l2" href="#metrics-kpi">Metrics (KPI)</a><a class="toc-l2" href="#out-of-scope-parking-lot">Out of scope (parking lot)</a><a class="toc-l2" href="#module">Module</a></nav></aside>
+</div>
+<div class="overlay" id="overlay" role="dialog" aria-modal="true" aria-label="Search documentation">
+  <div class="palette">
+    <div class="palette-input">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true" style="color:var(--ink-faint)"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+      <input id="q" type="search" placeholder="Search docs, diagrams, contracts…" autocomplete="off" spellcheck="false">
+      <kbd>esc</kbd>
+    </div>
+    <div class="results" id="results"></div>
+    <div class="palette-foot"><span>↑↓ navigate</span><span>↵ open</span><span>esc close</span></div>
+  </div>
+</div>
+<div class="toast" id="toast" role="status"></div>
+<script src="assets/docs.js"></script>
+</body>
+</html>

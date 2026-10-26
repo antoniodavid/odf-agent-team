@@ -1,0 +1,452 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="auto" data-base="">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ODF Architecture · ODF Docs</title>
+  <meta name="description" content="This document maps the components of ODF and explains how they interact.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <script>(function(){var d=document.documentElement,s=localStorage.getItem("odf-theme"),m=matchMedia("(prefers-color-scheme: dark)").matches;d.dataset.theme=s||(m?"dark":"light");})();</script>
+  <link rel="stylesheet" href="assets/docs.css">
+</head>
+<body>
+<a class="skip" href="#content">Skip to content</a>
+<header class="bar">
+  <div class="bar-in">
+    <a class="brand" href="index.html">
+      <svg class="brand-glyph" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <rect x="2" y="9" width="6" height="6" rx="1.5" fill="currentColor" opacity=".95"/>
+        <rect x="9" y="9" width="6" height="6" rx="1.5" fill="currentColor" opacity=".65"/>
+        <rect x="16" y="9" width="6" height="6" rx="1.5" fill="currentColor" opacity=".35"/>
+        <path d="M8 12h1M15 12h1" stroke="currentColor" stroke-width="1.5"/>
+      </svg>
+      ODF <small>docs</small>
+    </a>
+    <div class="bar-spacer"></div>
+    <nav class="bar-nav" aria-label="Sections">
+      <a href="index.html#whatsnew">What's new</a>
+      <a href="index.html#flows">Flows</a>
+      <a href="index.html#skills">Skills</a>
+      <a href="docs.html">Docs</a>
+    </nav>
+    <button class="searchbtn" id="openSearch" aria-label="Search documentation">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+      <span class="lbl">Search docs…</span>
+      <kbd>/</kbd>
+    </button>
+    <button class="icon-btn" id="themeToggle" aria-label="Toggle dark mode" title="Toggle theme">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M4.9 4.9l1.4 1.4m11.4 11.4 1.4 1.4M2 12h2m16 0h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
+    </button>
+    <a class="gh" href="https://github.com/antoniodavid/odf-agent-team" target="_blank" rel="noopener">GitHub ↗</a>
+  </div>
+</header>
+<div class="shell">
+  <details class="side" open><summary>Documentation menu</summary><div class="side-inner"><a class="side-home" href="docs.html">Documentation index</a><p class="side-group">Overview</p><a href="docs.html">Docs index</a><a href="intended-usage.html">Intended usage</a><a href="architecture.html" class="active" aria-current="page">Architecture</a><a href="opencode-v2-migration.html">OpenCode V2 migration</a><p class="side-group">Contracts</p><a href="route-contract.html">Route &amp; stage</a><a href="design-contract.html">Design</a><a href="expectations-contract.html">Expectations</a><a href="context-contract.html">Context Manifest</a><a href="safety-contract.html">Safety</a><a href="judge-shadow-contract.html">Judge shadow</a><a href="learning-loop-contract.html">Learning loop</a><p class="side-group">Operations</p><a href="metrics-and-engram-maintenance.html">Metrics &amp; Engram</a><a href="decision-evaluation.html">Decision evaluation</a><p class="side-group">Reference</p><a href="plugin.html">Plugin reference</a><a href="skill-style-guide.html">Skill style guide</a><p class="side-group">Project</p><a href="readme.html">README</a><a href="changelog.html">Changelog</a><a href="agents.html">Contributing</a><p class="side-group">History</p><a href="archive/index.html">Archive index</a><a href="archive/harness-roadmap.html">Harness roadmap</a><a href="archive/odf-fast-lane-plan.html">Fast-lane plan</a><a href="archive/odf-fast-lane-tasks.html">Fast-lane tasks</a><a href="archive/odf-fast-lane-baseline-2026-09-13.html">Baseline 2026-09-13</a><a href="archive/odf-fast-lane-baseline-2026-09-16.html">Baseline 2026-09-16</a><a href="odf-linear-cycles-baseline-2026-10-01.html">Linear-cycles baseline</a></div></details>
+  <main id="content" class="doc">
+    <nav class="crumb" aria-label="Breadcrumb">
+      <a href="index.html">ODF</a><span>/</span><a href="docs.html">Docs</a><span>/</span><span>Overview</span>
+    </nav>
+    <article class="prose">
+      <h1>ODF Architecture</h1>
+      <p class="doc-meta">8 min read</p>
+      <p>This document maps the components of ODF and explains how they interact.</p>
+<blockquote>
+<p>Visual version: <a href="https://github.com/antoniodavid/odf-agent-team/blob/main/docs/odf-agent-phase-flow.html">phase flow</a> · <a href="https://github.com/antoniodavid/odf-agent-team/blob/main/docs/harness-architecture.html">harness architecture</a> · <a href="https://github.com/antoniodavid/odf-agent-team/blob/main/docs/delegation-flow.html">delegation efficiency</a> (interactive HTML).</p>
+</blockquote>
+<h2 id="workflow-model" tabindex="-1"><a class="anchor" href="#workflow-model" aria-label="Link to this section">#</a>Workflow Model</h2>
+<p>ODF runs the thin-spine workflow:</p>
+<pre><code>health/preflight → one resolved route → only its required stages → archive when applicable
+</code></pre>
+<p>The delegation API accepts the canonical stage plus a role only for the two
+composite stages. This is the single vocabulary table:</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Canonical stage</th>
+<th>Roles</th>
+<th>Applies when</th>
+<th>Role artifacts</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>DECIDE</code></td>
+<td><code>PROPOSE</code> + <code>ASSESS</code></td>
+<td>routes that include DECIDE; terminal for standard config</td>
+<td>canonical <code>decision</code>, or <code>propose</code> + <code>assess</code>; <code>expectations</code> when delegated</td>
+</tr>
+<tr>
+<td><code>PLAN</code></td>
+<td><code>QA-PLAN</code> + <code>DESIGN</code></td>
+<td>only when the resolved route or risk requires formal planning</td>
+<td>canonical <code>plan</code>, or <code>design</code>; <code>qa-plan</code> when routed</td>
+</tr>
+<tr>
+<td><code>BUILD</code></td>
+<td>—</td>
+<td>the route's required plan is closed</td>
+<td>canonical <code>build</code>/<code>implement-progress</code></td>
+</tr>
+<tr>
+<td><code>VERIFY</code></td>
+<td>—</td>
+<td>verification is required</td>
+<td><code>verify-report</code></td>
+</tr>
+<tr>
+<td><code>FIX</code></td>
+<td>—</td>
+<td>bugfix route (terminal FIX, then BUILD/VERIFY)</td>
+<td><code>fix</code></td>
+</tr>
+<tr>
+<td><code>EXPLORE</code></td>
+<td>—</td>
+<td>investigation</td>
+<td><code>explore</code></td>
+</tr>
+</tbody>
+</table></div>
+<p>Rules: <code>state.yaml</code> (or <code>odf/{change}/state</code>) persists the canonical stage. A
+composite stage requires one of its roles; single-role stages reject a role.
+Role identifiers still name the artifact and the agent capability inside the
+registry, but they are not a separate workflow stage and are never accepted as
+a top-level delegation stage.</p>
+<p>The executable artifact names, aliases, route completion alternatives, and
+OpenSpec discovery stems are centralized in <code>odf-plugin/odf-artifact-contract.ts</code>;
+the store values and their supported subsets live in <code>odf-plugin/odf-artifact-stores.js</code>.
+<code>odf_workflow_status</code> exposes a typed
+<code>next_handoff</code> built from that route, selected store, and persisted artifact
+references; the orchestrator forwards it unchanged instead of reconstructing
+the next stage role's inputs from result prose. The route/stage/artifact/gate
+matrix lives in <code>docs/route-contract.md</code>.</p>
+<p>The user sees one route selected by <code>work_type</code>; triage level (<code>micro</code>,
+<code>standard</code>, <code>full</code>), canonical stages, and stage roles are internal mappings,
+not extra user-facing stages. The optional shadow prediction is advisory and
+does not change execution.</p>
+<p>Every code-changing route carries focused QA tied to approved Expectations.
+Small changes, inline features, and bugfixes keep a compact test/check plan
+inline and do not require a separate <code>qa-plan</code> artifact. Routes requiring PLAN,
+or an explicit risk/complexity escalation, use formal QA-PLAN.
+QA-REVIEW/QA-AGGREGATE/QA-REPORT run only when routed. The concrete route is
+resolved per work type (standard config can stop after DECIDE; small change and
+<code>feature-inline</code> are DECIDE → BUILD → VERIFY; a bugfix is FIX → BUILD → VERIFY;
+feature/cross-domain/migration/security use DECIDE → PLAN → BUILD → VERIFY;
+investigation uses EXPLORE). <code>feature-inline</code> runs its bounded ASSESS only when
+the deterministic entry gate selects <code>assess</code>; a clear entry binds a terminal
+DECIDE with no ASSESS delegation. Required VERIFY and evidence gates are never
+removed by inline QA.</p>
+<h2 id="component-overview" tabindex="-1"><a class="anchor" href="#component-overview" aria-label="Link to this section">#</a>Component Overview</h2>
+<pre><code>┌─────────────────────────────────────────────────────────────────────┐
+│                        User / OpenCode Chat                         │
+└──────────────┬──────────────────────────────────────────────────────┘
+               │ /odf-new, /odf-continue, /odf-status, /odf-explore
+               ▼
+┌──────────────────────────────┐
+│   command/*.md definitions   │  ← parse args, route to orchestrator
+└──────────────┬───────────────┘
+               │
+               ▼
+┌──────────────────────────────┐
+│  agent/odoo_orchestrator.md  │  ← preflight gate, thin-spine state,
+│                              │    policy gate, receipts
+└──────────────┬───────────────┘
+               │ odf_delegate(stage, role, prompt, context_files)
+               ▼
+┌──────────────────────────────┐
+│  plugins/odf-delegation.ts   │  ← resolve agent/skills, select transport,
+│                              │    route + status adapters, gates
+└───────┬──────────────┬───────┘
+        │              │
+        ▼              ▼
+┌──────────────┐ ┌──────────────┐
+│ odf-registry │ │  Transport   │
+│    .json     │ │ adapter/SDK  │
+└──────────────┘ └──────┬───────┘
+                        │
+                        ▼
+               ┌─────────────────┐
+               │ stage role agents │  ← odoo_backend_engineer, etc.
+               └────────┬────────┘
+                        │
+                        ▼
+               ┌─────────────────┐
+               │  skills/*.md    │  ← injected compact rules
+               └─────────────────┘
+</code></pre>
+<h2 id="persistence-roles" tabindex="-1"><a class="anchor" href="#persistence-roles" aria-label="Link to this section">#</a>Persistence Roles</h2>
+<p>The workflow selects one authoritative artifact store:</p>
+<ul>
+<li><strong>OpenSpec</strong> (<code>openspec/changes/{change}/</code>): versioned workflow state
+(<code>state.yaml</code>) and artifacts. It is authoritative when selected, and is the
+canonical authority for Hybrid.</li>
+<li><strong>Engram</strong>: artifacts at deterministic <code>odf/{change}/{artifact-type}</code> refs.
+It is authoritative for Engram-only changes and a recovery mirror for
+Hybrid.</li>
+<li><strong>Hybrid</strong>: OpenSpec is authoritative; matching Engram state/artifacts are
+mirrored on commits. A commit must not report success if either write fails.</li>
+<li><strong><code>.odf/*.json</code></strong>: runtime seals — Policy Gate (<code>policy-gate-{change}.json</code>),
+validation evidence (<code>validation-evidence-{change}.json</code>), and failure
+receipts (<code>receipt-{change}.json</code>).</li>
+</ul>
+<p>The status adapter (<code>odf_workflow_status</code>) reads the bound authority and runtime
+sidecars read-only. Hybrid reads prefer OpenSpec and may recover missing state
+from its Engram mirror; a change without a canonical state is reported as
+<code>state_kind: none</code> and is not resumable. Old changes are never rewritten
+automatically, and status never changes the bound store.</p>
+<h2 id="component-responsibilities" tabindex="-1"><a class="anchor" href="#component-responsibilities" aria-label="Link to this section">#</a>Component Responsibilities</h2>
+<h3 id="odf-registryjson" tabindex="-1"><a class="anchor" href="#odf-registryjson" aria-label="Link to this section">#</a><code>odf-registry.json</code></h3>
+<p>Source of truth for:</p>
+<ul>
+<li>Skills with triggers, compact rules, paths, and Odoo version support.</li>
+<li>Agents with stage-role eligibility, descriptions, and paths.</li>
+<li>Profiles with per-role model/temperature settings.</li>
+<li>Commands registered for native orchestrator routing.</li>
+<li>Package metadata (name, version, repository, dependencies).</li>
+<li>Flags such as <code>use_relative_paths</code> and <code>pr_size_budget</code>.</li>
+</ul>
+<p>Relative paths are resolved against the directory containing <code>odf-registry.json</code>. Absolute legacy paths keep working.</p>
+<h3 id="pluginsodf-delegationts" tabindex="-1"><a class="anchor" href="#pluginsodf-delegationts" aria-label="Link to this section">#</a><code>plugins/odf-delegation.ts</code></h3>
+<p>The ODF delegation engine and plugin entrypoint. Exposes tools such as
+<code>odf_delegate</code>, <code>odf_delegation_prepare</code>, <code>odf_delegation_launch</code>, <code>odf_delegation_seal</code>,
+<code>odf_workflow_route</code>, <code>odf_workflow_status</code>,
+<code>odf_workflow_override</code>, <code>odf_workflow_bind</code>, <code>odf_entry_triage</code>,
+<code>odf_skill_inject</code>, <code>odf_skill_resolve</code>, <code>odf_registry_read</code>,
+<code>odf_profile_select</code>, <code>odf_policy_gate</code>,
+and <code>odf_receipt</code>.</p>
+<p><code>odf_delegation_prepare</code>/<code>odf_delegation_launch</code>/<code>odf_delegation_seal</code> implement
+the native prepare/launch/seal route (roadmap #55): prepare resolves the agent,
+skills, profile and source-authority contract and returns the enriched prompt
+plus a bounded <code>odf-tok-…</code> token under <code>.odf/</code>; launch verifies the prompt
+digest and submits it through the V2 session API; seal independently verifies
+the child transcript, reads its ODF Result, runs composite gates and returns the
+standard delegation envelope. Fast-lane BUILD/VERIFY still use <code>odf_delegate</code>.
+Seal binds the child to its running attempt once the exact prepared prompt and
+idle state are proven, even when no assistant result exists: an aborted child
+reports <code>delegation-child-aborted</code> and an idle child without text reports
+<code>delegation-child-no-result</code>, so <code>settle-attempt</code> can recover the attempt
+instead of leaving it running with no supported settlement path.</p>
+<p>The entrypoint stays a monolith for the delegation/workflow core but its
+self-contained sections live in cohesive modules under <code>odf-plugin/</code>:</p>
+<ul>
+<li><code>odf-delegation-shared.ts</code> — safe paths, registry path resolution, the
+registry type model, <code>ODF_REGISTERED_TOOLS</code>.</li>
+<li><code>odf-delegation-metrics.ts</code> — telemetry records, flush loop, token
+estimation.</li>
+<li><code>odf-delegation-health.ts</code> — read-only health inspection, the native task
+adapter (when exposed), SDK session fallback, and result normalization
+helpers.</li>
+</ul>
+<p>The entrypoint re-exports their public names, so imports and tests keep
+working unchanged.</p>
+<p><code>odf_delegate</code> does the following:</p>
+<ol>
+<li>Loads the registry.</li>
+<li>Resolves the target agent from the stage role and task keywords (shared logic in
+<code>scripts/lib/agent-resolve.js</code> — single source of truth also used by the
+test runner and <code>odf-toolkit</code>; <code>matchSkills</code> stays per-consumer because the
+plugin uses a role-aware canonical variant).</li>
+<li>Matches up to 5 relevant skills.</li>
+<li>Injects compact rules and the active SDD profile into the prompt.</li>
+<li>Enforces the authoritative TDD Policy Gate for BUILD/VERIFY, the
+stop-validation evidence seal, <code>design_closed</code> coercion, and claimed
+<code>artifact_ref</code> existence.</li>
+<li>Uses the explicit native task adapter when the host exposes <code>toolCtx.task</code>;
+otherwise creates an isolated child with <code>client.session.create</code> and sends
+<code>client.session.prompt</code> with the agent, known model, and relative context
+references. SDK metadata binding is best-effort.</li>
+<li>Returns a result envelope with <code>status</code> (<code>delegated</code>, <code>blocked</code>, <code>error</code>,
+<code>timeout</code>), <code>agent</code>, <code>skills</code>, and <code>result</code>; unavailable task APIs block
+without an executable fallback prompt, and task failures auto-seal a
+receipt.</li>
+</ol>
+<p>The SDK session fallback is the supported current-runtime transport because the
+official <code>ToolContext</code> does not expose <code>task</code>. It preserves ODF's gates,
+receipts, metrics, timeout, cancellation, and result validation, but it cannot
+reproduce native task permission derivation; native host permissions remain the
+authority when the adapter is available.</p>
+<p><code>odf_workflow_route</code> resolves the canonical thin-spine route for a work type;
+<code>odf_workflow_status</code> derives canonical status (read-only) from
+OpenSpec/Engram/<code>.odf</code> with OpenSpec as authority, including nested OpenSpec
+artifact discovery, the <code>binding_pending</code> marker, and <code>recovery_work_type_required</code>
+for canonical states without a work type. <code>odf_workflow_override</code> is the
+audited escape hatch (skip DECIDE/PLAN, re-enter, re-plan with Expectations
+revisions); BUILD/VERIFY can never be skipped.</p>
+<h3 id="scriptslib" tabindex="-1"><a class="anchor" href="#scriptslib" aria-label="Link to this section">#</a><code>scripts/lib/</code></h3>
+<p>Shared deterministic libraries consumed by the plugin, the CLIs, and the test
+runner:</p>
+<ul>
+<li><code>preflight.js</code> — preflight validation/defaults (including <code>validation_mode</code>).</li>
+<li><code>agent-resolve.js</code> — STOP_WORDS, filterStopWords, and score-based
+<code>resolveAgent</code> (single source of truth; the scoring fix lives in exactly
+one place).</li>
+<li><code>orchestrator.js</code> — legacy state-machine helpers for the YAML scenario
+runner.</li>
+</ul>
+<h3 id="deterministic-clis-scripts" tabindex="-1"><a class="anchor" href="#deterministic-clis-scripts" aria-label="Link to this section">#</a>Deterministic CLIs (<code>scripts/</code>)</h3>
+<ul>
+<li><code>odf-project-scan.js</code> — full Doodba environment scan (addons.yaml sources,
+compose, linting, git, CodeGraph, dependency matrix), verified persistence,
+checksum cache, <code>--diff</code>, <code>--deep</code>, exit codes.</li>
+<li><code>odf-toolkit.js</code> — read-side subcommands: <code>context</code> (CodeGraph explore),
+<code>state</code>, <code>result</code>, <code>resolve</code>, <code>evidence</code>, <code>metrics</code>, <code>manual-evidence</code>,
+<code>redundancy</code>.</li>
+<li><code>odf-env-detect.js</code> — Doodba addons.yaml parser + dependency matrix (lib
+used by the scan).</li>
+<li><code>odf-safety.js</code> — pre-tool safety inspection.</li>
+<li><code>odf-metrics.js</code>, <code>odf-estimator.js</code>, <code>odf-design-library.js</code>,
+<code>odf-learning-bridge.js</code>, <code>odf-engram-maintenance.js</code> — observability and
+learning helpers.</li>
+<li><code>odf-evaluation.js</code> — offline/online/golden evaluation plus the decision-quality
+report (<code>decisions</code>), local review, agreement, period comparison, cadence, and
+human-approved proposals; see <code>docs/decision-evaluation.md</code>.</li>
+<li><code>odf-harness.test.ts</code> (<code>npm run test:harness</code>) — integral smoke test: real
+registry, triage/workflow/status/expectations/resolve, every CLI subcommand
+end-to-end, safety inspection, and registry path integrity.</li>
+</ul>
+<h3 id="agentodooorchestratormd" tabindex="-1"><a class="anchor" href="#agentodooorchestratormd" aria-label="Link to this section">#</a><code>agent/odoo_orchestrator.md</code></h3>
+<p>Conversational state machine. It:</p>
+<ul>
+<li>Runs the preflight gate before delegating any stage role.</li>
+<li>Loads and persists change state to OpenSpec/Engram.</li>
+<li>Resolves the thin-spine route (<code>DECIDE</code> → optional <code>PLAN</code> → <code>BUILD</code> → <code>VERIFY</code>) via the workflow route tool.</li>
+<li>Shows approval gates after each stage role.</li>
+<li>Consults <code>odf_workflow_status</code> for canonical stage/resumable state.</li>
+<li>Decides the next stage and calls <code>odf_delegate</code>.</li>
+<li>Handles <code>/odf-continue</code> and <code>/odf-status</code> logic.</li>
+</ul>
+<h3 id="commandmd" tabindex="-1"><a class="anchor" href="#commandmd" aria-label="Link to this section">#</a><code>command/*.md</code></h3>
+<p>Slash command definitions. They parse arguments and route to the orchestrator. They contain no business logic. The native orchestrator commands are:</p>
+<ul>
+<li><code>/odf-new</code></li>
+<li><code>/odf-continue</code></li>
+<li><code>/odf-status</code></li>
+<li><code>/odf-explore</code></li>
+</ul>
+<h3 id="installsh-packagejson" tabindex="-1"><a class="anchor" href="#installsh-packagejson" aria-label="Link to this section">#</a><code>install.sh</code> + <code>package.json</code></h3>
+<p><code>install.sh</code> deploys the ODF pack idempotently. It:</p>
+<ul>
+<li>Validates prerequisites (python3, curl/wget, Node.js 18+).</li>
+<li>Creates a timestamped backup.</li>
+<li>Merges files into <code>ODF_DIR</code>.</li>
+<li>Runs <code>npm install</code> if <code>package.json</code> exists.</li>
+<li>Runs the ODF self-test.</li>
+</ul>
+<p><code>package.json</code> declares Node dependencies, test scripts, and peer dependencies for the OpenCode plugin SDK.</p>
+<h3 id="scriptsodf-test-runnerjs" tabindex="-1"><a class="anchor" href="#scriptsodf-test-runnerjs" aria-label="Link to this section">#</a><code>scripts/odf-test-runner.js</code></h3>
+<p>Regression runner. It:</p>
+<ul>
+<li>Runs Vitest unit tests when <code>--plugin-tests</code> is passed.</li>
+<li>Discovers and runs YAML scenario suites from <code>scripts/odf-agent-tests/</code>.</li>
+<li>Supports suite types: agent, preflight, orchestrator, cli, installer, registry.</li>
+</ul>
+<h2 id="data-flow" tabindex="-1"><a class="anchor" href="#data-flow" aria-label="Link to this section">#</a>Data Flow</h2>
+<h3 id="odf-new" tabindex="-1"><a class="anchor" href="#odf-new" aria-label="Link to this section">#</a><code>/odf-new</code></h3>
+<ol>
+<li><code>command/odf-new.md</code> parses change name, optional description, and <code>--fast</code>.</li>
+<li>Orchestrator loads existing change state if any.</li>
+<li>If preflight is missing/invalid, the orchestrator asks preflight questions.</li>
+<li>Preflight record is written to <code>openspec/changes/{change}/state.yaml</code>.</li>
+<li>Orchestrator resolves the thin-spine route for the work type.</li>
+<li>It builds one bounded Context Manifest (<code>odf_context_manifest</code>) after the
+entry gate and approved Expectations, and forwards it unchanged to ASSESS and
+BUILD.</li>
+<li>It runs DECIDE through its PROPOSE and ASSESS roles via <code>odf_delegate</code>. For
+<code>feature-inline</code>, the deterministic entry gate selects <code>skip</code> (terminal
+<code>decision</code>), <code>assess</code> (one bounded ASSESS), or <code>escalate</code> (formal <code>feature</code>
+route).</li>
+<li>Plugin resolves agent/skills, enforces gates, selects the native adapter or
+SDK child-session transport, and returns the result.</li>
+<li>Orchestrator updates state and shows an approval gate.</li>
+<li>Optional PLAN, then BUILD, then VERIFY repeat the delegate-update-gate cycle according to the resolved route.</li>
+</ol>
+<p>Every blocked or failed envelope carries a <code>stop_disposition</code>, so the
+orchestrator reports the named continuation instead of guessing a recovery.</p>
+<h3 id="odf-continue" tabindex="-1"><a class="anchor" href="#odf-continue" aria-label="Link to this section">#</a><code>/odf-continue</code></h3>
+<ol>
+<li><code>command/odf-continue.md</code> parses optional change name.</li>
+<li>Orchestrator consults <code>odf_workflow_status</code> for the canonical stage, pending stage, resumable flag, and receipt.</li>
+<li>If no name is given, continues only when discovery is complete and exactly
+one active change exists; otherwise it asks the user to choose or reports
+the discovery blocker. It never selects by recency.</li>
+<li>If the receipt is pending, it re-presents the failure disposition with evidence and stops.</li>
+<li>Determines the next pending canonical stage from status.</li>
+<li>Calls <code>odf_delegate</code> for that stage role.</li>
+<li>Updates state and shows the gate.</li>
+</ol>
+<h3 id="odf-status" tabindex="-1"><a class="anchor" href="#odf-status" aria-label="Link to this section">#</a><code>/odf-status</code></h3>
+<ol>
+<li><code>command/odf-status.md</code> parses optional change name.</li>
+<li>Orchestrator calls <code>odf_workflow_status</code> (read-only); OpenSpec state is authority, Engram completes missing groups with warnings.</li>
+<li>Renders a table or single-change detail including <code>canonical_stage</code>, <code>pending_stage</code>, <code>resumable</code>, <code>receipt</code>, <code>progress</code>, and <code>source</code>.</li>
+</ol>
+<h3 id="odf-explore" tabindex="-1"><a class="anchor" href="#odf-explore" aria-label="Link to this section">#</a><code>/odf-explore</code></h3>
+<ol>
+<li><code>command/odf-explore.md</code> parses topic, <code>--version</code>, and <code>--module</code>.</li>
+<li>Orchestrator delegates a short research task via <code>odf_delegate(stage=&quot;EXPLORE&quot;)</code>.</li>
+<li>Returns an exploration report and suggests <code>/odf-new</code> if needed.</li>
+</ol>
+<h2 id="state-shape" tabindex="-1"><a class="anchor" href="#state-shape" aria-label="Link to this section">#</a>State Shape</h2>
+<p>Runtime state and role artifacts live in the selected authoritative store:
+<code>openspec/changes/{change}/state.yaml</code> for OpenSpec, deterministic
+<code>odf/{change}/{artifact-type}</code> refs for Engram, or synchronized representations
+for Hybrid. Hybrid reads prefer OpenSpec and may recover missing state from the
+Engram mirror, but do not merge conflicting artifact content. Runtime seals
+remain in <code>.odf/*.json</code>.</p>
+<p>When <code>completed_canonical_stages</code> is present, it is the completion record used
+by workflow status. A stage omitted from the list stays pending even if a fresh
+artifact exists: a child can write artifact bytes before its parent seal
+commits the stage. Those bytes remain visible, but do not advance the workflow.
+States without this list fall back to explicit completion flags and artifact
+evidence.</p>
+<pre><code class="language-yaml">change: my-feature
+canonical_stage: PLAN            # DECIDE | PLAN | BUILD | VERIFY | ARCHIVED
+completed_canonical_stages: [DECIDE] # stages committed by workflow transitions
+preflight:
+  change: my-feature
+  execution_mode: auto
+  artifact_store: hybrid
+  delivery_strategy: ask-on-risk
+  review_budget_lines: 400
+  odoo_version: 18
+  tdd_mode: false
+  solution_strategy: custom
+  chain_strategy: feature-branch
+  persisted_at: &quot;2026-06-18T00:00:00Z&quot;
+project:
+  name: my-project
+  odoo_version: 18
+  test_command: npm test
+  lint_command: npx tsc --noEmit
+artifacts:
+  decision: true
+  plan: false
+  build: false
+  verify: false
+tasks_progress:
+  completed: [&quot;1.1&quot;, &quot;1.2&quot;]
+  pending: [&quot;1.3&quot;]
+</code></pre>
+
+    </article>
+    <nav class="pager" aria-label="Documentation pagination"><a class="pager-link prev" href="intended-usage.html"><span>Previous</span><b>Intended usage</b></a><a class="pager-link next" href="opencode-v2-migration.html"><span>Next</span><b>OpenCode V2 migration</b></a></nav>
+  </main>
+  <aside class="toc" aria-label="On this page"><p class="toc-title">On this page</p><nav><a class="toc-l2" href="#workflow-model">Workflow Model</a><a class="toc-l2" href="#component-overview">Component Overview</a><a class="toc-l2" href="#persistence-roles">Persistence Roles</a><a class="toc-l2" href="#component-responsibilities">Component Responsibilities</a><a class="toc-l3" href="#odf-registryjson">odf-registry.json</a><a class="toc-l3" href="#pluginsodf-delegationts">plugins/odf-delegation.ts</a><a class="toc-l3" href="#scriptslib">scripts/lib/</a><a class="toc-l3" href="#deterministic-clis-scripts">Deterministic CLIs (scripts/)</a><a class="toc-l3" href="#agentodooorchestratormd">agent/odoo_orchestrator.md</a><a class="toc-l3" href="#commandmd">command/*.md</a><a class="toc-l3" href="#installsh-packagejson">install.sh + package.json</a><a class="toc-l3" href="#scriptsodf-test-runnerjs">scripts/odf-test-runner.js</a><a class="toc-l2" href="#data-flow">Data Flow</a><a class="toc-l3" href="#odf-new">/odf-new</a><a class="toc-l3" href="#odf-continue">/odf-continue</a><a class="toc-l3" href="#odf-status">/odf-status</a><a class="toc-l3" href="#odf-explore">/odf-explore</a><a class="toc-l2" href="#state-shape">State Shape</a></nav></aside>
+</div>
+<div class="overlay" id="overlay" role="dialog" aria-modal="true" aria-label="Search documentation">
+  <div class="palette">
+    <div class="palette-input">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true" style="color:var(--ink-faint)"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+      <input id="q" type="search" placeholder="Search docs, diagrams, contracts…" autocomplete="off" spellcheck="false">
+      <kbd>esc</kbd>
+    </div>
+    <div class="results" id="results"></div>
+    <div class="palette-foot"><span>↑↓ navigate</span><span>↵ open</span><span>esc close</span></div>
+  </div>
+</div>
+<div class="toast" id="toast" role="status"></div>
+<script src="assets/docs.js"></script>
+</body>
+</html>
