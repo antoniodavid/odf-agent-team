@@ -53,7 +53,15 @@
       <p class="doc-meta">4 min read</p>
       <p>This guide defines how to write and maintain ODF skills.</p>
 <h2 id="skill-structure" tabindex="-1"><a class="anchor" href="#skill-structure" aria-label="Link to this section">#</a>Skill Structure</h2>
-<p>ODF skills follow the LLM-first gentle-ai structure. A skill file is a Markdown document with YAML frontmatter followed by structured sections.</p>
+<p>A skill is a directory under <code>skills/</code> named after the skill, containing a <code>SKILL.md</code>:</p>
+<pre><code class="language-text">skills/
+  my-skill/
+    SKILL.md
+    references/   (optional)
+    scripts/      (optional)
+    assets/       (optional)
+</code></pre>
+<p>The directory name must equal the frontmatter <code>name</code>. ODF skills follow the LLM-first gentle-ai structure: a Markdown document with YAML frontmatter followed by structured sections.</p>
 <h3 id="frontmatter" tabindex="-1"><a class="anchor" href="#frontmatter" aria-label="Link to this section">#</a>Frontmatter</h3>
 <pre><code class="language-yaml">---
 name: my-skill

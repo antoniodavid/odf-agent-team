@@ -3,6 +3,8 @@
 ## Unreleased
 
 ### Changed
+- Skills now use the Agent Skills layout: all 87 registered skills live at `skills/<name>/SKILL.md`, 73 flat files were migrated, 50 version variants moved to `references/versions/`, and 23 long skills were split into `SKILL.md` plus `references/examples.md`.
+- Absolute install and personal paths in skill references were replaced with relative links; the OCA index and dispatcher paths now point at the flat layout.
 - Delegations inject the canonical stage skill's full `SKILL.md` body (frontmatter stripped, capped at 20,000 characters) alongside compact rules for matched skills, and list bundled `references/`, `scripts/`, and `assets/` for on-demand reads. The parallel branch prompt bound is now 32 KB.
 
 ## 1.6.2 (2026-10-26)

@@ -50,7 +50,7 @@ Return the complete shared `## ODF Result` envelope with all required common fie
 
 ## References
 
-- `~/.config/opencode/skills/_shared/odoo-sources.md` — local Odoo source authority
-- `~/.config/opencode/skills/_shared/result-contract.md` — shared result envelope
-- `~/.config/opencode/skills/_shared/persistence-contract.md` — selected artifact store
-- `~/.config/opencode/skills/odf-implement/SKILL.md` — base IMPLEMENT rules
+- `../_shared/odoo-sources.md` — local Odoo source authority
+- `../_shared/result-contract.md` — shared result envelope
+- `../_shared/persistence-contract.md` — selected artifact store
+- `../odf-implement/SKILL.md` — base IMPLEMENT rules

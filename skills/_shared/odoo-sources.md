@@ -30,22 +30,16 @@ and tests.
 
 ## Local Codebase
 
-| Version | Path | Contents |
-|---------|------|----------|
-| Odoo 19 | `~/Workspace/Doodba_ENV/O19/odoo/custom/src/odoo/` | odoo + enterprise |
-| Odoo 18 | `~/Workspace/Doodba_ENV/O18/odoo/custom/src/odoo/` | odoo + enterprise |
-| Odoo 17 | `~/Workspace/Doodba_ENV/O17/odoo/custom/src/odoo/` | odoo |
-| Odoo 16 | `~/Workspace/Doodba_ENV/O16/odoo/custom/src/odoo/` | odoo |
+The source root is resolved per project by `odf-init` and exposed as
+`<odoo-source-root>`. Typical layout:
 
-### Key Paths Within Each Version
-
-| What | Relative Path |
-|------|--------------|
-| Core addons | `addons/` |
-| Enterprise addons | `enterprise/` (if available) |
-| ORM base | `odoo/models.py`, `odoo/fields.py`, `odoo/api.py` |
-| Web client (OWL) | `addons/web/static/src/` |
-| Base module | `odoo/addons/base/` |
+| What | Relative path |
+|------|---------------|
+| Core addons | `<odoo-source-root>/odoo/addons/` |
+| Enterprise addons | `<odoo-source-root>/enterprise/` |
+| ORM base | `<odoo-source-root>/odoo/odoo/models.py`, `fields.py`, `api.py` |
+| Web client (OWL) | `<odoo-source-root>/odoo/addons/web/static/src/` |
+| Base module | `<odoo-source-root>/odoo/odoo/addons/base/` |
 
 ### Native Investigation Workflow
 
@@ -59,34 +53,35 @@ and tests.
 
 ## Local Documentation
 
-| Topic | Path |
-|-------|------|
-| OCA Guidelines | `~/Documents/obsidian-vault/02-Areas/OCA/` |
-| OCA Contributing Guide | `~/Documents/obsidian-vault/02-Areas/OCA/OCA-Contributing-Guidelines.md` |
-| OWL Documentation | `~/Documents/obsidian-vault/02-Areas/OWL/` |
-| Odoo Patterns | `~/Documents/obsidian-vault/03-Resources/Odoo-Patterns/` |
+Use the bundled skills as the curated reference:
+
+| Topic | Skill |
+|-------|-------|
+| OCA governance and PR rules | `../oca-governance-pr-workflow/SKILL.md` |
+| OCA style | `../oca-python-style/SKILL.md`, `../oca-xml-style/SKILL.md` |
+| OWL components | `../owl-components/SKILL.md` |
+| Odoo patterns | `../computed-field-patterns/SKILL.md` and sibling pattern skills |
 
 ## OCA Skills
 
-When specialized OCA analysis is needed, load the matching skill from
-`skills/oca/`:
+When specialized OCA analysis is needed, load the matching skill:
 
 | Need | Skill File |
 |------|------------|
-| Code compliance check | `skills/oca/oca-compliance-check.md` |
-| Pattern search in Odoo/OCA source | `skills/oca/oca-pattern-match.md` |
-| API/model documentation | `skills/oca/oca-api-lookup.md` |
-| Code review | `skills/oca/oca-code-review.md` |
-| Migration assistance | `skills/oca/oca-migration-assist.md` |
-| OpenUpgrade analysis | `skills/oca/oca-upgrade-analysis.md` |
-| OCA guideline lookup | `skills/oca/oca-lookup-guideline.md` |
+| Code compliance check | `../oca-compliance-check/SKILL.md` |
+| Pattern search in Odoo/OCA source | `../oca-pattern-match/SKILL.md` |
+| API/model documentation | `../oca-api-lookup/SKILL.md` |
+| Code review | `../oca-code-review/SKILL.md` |
+| Migration assistance | `../oca-migration-assist/SKILL.md` |
+| OpenUpgrade analysis | `../oca-upgrade-analysis/SKILL.md` |
+| OCA guideline lookup | `../oca-lookup-guideline/SKILL.md` |
 
 ## Odoo UI Core
 
 For OWL components and frontend patterns, inspect the actual target version:
 
 ```text
-~/Workspace/Doodba_ENV/O{VER}/odoo/custom/src/odoo/addons/web/static/src/
+<odoo-source-root>/odoo/addons/web/static/src/
   core/           registries, services, utils
   views/          view controllers, renderers, models
   search/         search bar, facets, filters

@@ -42,7 +42,7 @@ Active when the EFFECTIVE TDD mode is ON. Effective mode = two-source kill switc
 
 ## Execution Steps
 
-1. **RESOLVE effective mode BEFORE each IMPLEMENT/VERIFY phase**: read global `flags.strict_tdd` from `~/.config/opencode/odf-registry.json` AND check for `<worktree>/.odf/tdd.off` (worktree root via `git rev-parse --show-toplevel`). Any off (or unreadable local) → effective OFF. This effective mode is what applies — the preflight `tdd_mode` is only the declared default.
+1. **RESOLVE effective mode BEFORE each IMPLEMENT/VERIFY phase**: read global `flags.strict_tdd` from the ODF registry (`odf-registry.json`) AND check for `<worktree>/.odf/tdd.off` (worktree root via `git rev-parse --show-toplevel`). Any off (or unreadable local) → effective OFF. This effective mode is what applies — the preflight `tdd_mode` is only the declared default.
 2. **ASSESS**: Include "testable" as requirement criterion. Each REQ-XX must have a testable scenario.
 3. **DESIGN**: Every implementation task must have a paired test task. Task IDs: `T-N` for test, `I-N` for implementation.
 4. **IMPLEMENT**: For each pair: write test (T-N) → run the focused test and persist non-zero red evidence for the intended behavior → implement (I-N) → confirm the same test passes. A claimed red state without command, exit code, and output is not evidence; block if red cannot be demonstrated.
@@ -63,4 +63,4 @@ When passing: include `tdd: compliant` in the result.
 
 ## References
 
-- `~/.config/opencode/skills/_shared/result-contract.md` — ODF Result envelope
+- `../_shared/result-contract.md` — ODF Result envelope

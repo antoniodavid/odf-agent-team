@@ -9,24 +9,22 @@ metadata:
 
 # OCA Skills - Complete Index
 
-Skills for OCA compliance and Odoo development. **~140 specialized skills** organized into 5 categories + core tools. Odoo 15 guides are retained as **migration source only** (preflight supports 16-19); Odoo 14 material was removed.
+Skills for OCA compliance and Odoo development. Each entry below is a standalone Agent Skill. The registry (`odf-registry.json`) is authoritative; Odoo 15 guides are retained as **migration source only** (preflight supports 16-19).
 
 ## Quick Navigation
 
-| Category | Location | Count | Purpose |
-|----------|----------|-------|---------|
-| **Governance** | `01-oca-governance/` | 5 | OCA policies, PR workflow, commit messages |
-| **Development Style** | `02-development-style/` | 17 | Python, XML, manifest, naming, generators |
-| **Patterns** | `03-patterns/` | 40 | Implementation patterns by area |
-| **Testing** | `04-testing/` | 8 | Test patterns, compliance, review |
-| **Version** | `05-version/` | 36 | Version-specific guides (16-19 active; 15 migration source) |
-| **Core Tools** | `(root)` | 13 | OCA search, migration, PR tools |
+| Category | Count | Purpose |
+|----------|-------|---------|
+| **Governance** | 5 | OCA policies, PR workflow, commit messages |
+| **Development Style** | 17 | Python, XML, manifest, naming, generators |
+| **Patterns** | 40 | Implementation patterns by area |
+| **Testing** | 8 | Test patterns, compliance, review |
+| **Version** | 36 | Version-specific guides (16-19 active; 15 migration source) |
+| **Core Tools** | 13 | OCA search, migration, PR tools |
 
 ---
 
 ## Category 1: OCA Governance (5 skills)
-
-**Location**: `01-oca-governance/`
 
 OCA policies, contribution workflow, and community governance.
 
@@ -41,8 +39,6 @@ OCA policies, contribution workflow, and community governance.
 ---
 
 ## Category 2: Development Style (18 skills)
-
-**Location**: `02-development-style/`
 
 Code style standards for Python, XML, manifest, and naming.
 
@@ -74,13 +70,9 @@ Code style standards for Python, XML, manifest, and naming.
 
 ## Category 3: Patterns (42 skills)
 
-**Location**: `03-patterns/`
-
 Implementation patterns organized by functional area.
 
 ### Models (9 skills)
-**Location**: `03-patterns/models/`
-
 | Skill | Purpose |
 |-------|---------|
 | `inheritance-patterns` | Model/view inheritance, delegation |
@@ -94,8 +86,6 @@ Implementation patterns organized by functional area.
 | `error-handling-patterns` | Exception handling, logging |
 
 ### Views (3 skills)
-**Location**: `03-patterns/views/`
-
 | Skill | Purpose |
 |-------|---------|
 | `odoo-view-patterns` | Form, List, Kanban, Calendar, Pivot |
@@ -103,8 +93,6 @@ Implementation patterns organized by functional area.
 | `action-patterns` | Server actions, automated actions |
 
 ### Business (19 skills)
-**Location**: `03-patterns/business/`
-
 | Skill | Purpose |
 |-------|---------|
 | `external-api-patterns` | XML-RPC, JSON-RPC, API clients |
@@ -128,8 +116,6 @@ Implementation patterns organized by functional area.
 | `logging-debugging-patterns` | _logger, debug patterns |
 
 ### Frontend (11 skills)
-**Location**: `03-patterns/frontend/`
-
 | Skill | Purpose |
 |-------|---------|
 | `odoo-owl-components` | Generic OWL patterns |
@@ -148,8 +134,6 @@ Implementation patterns organized by functional area.
 
 ## Category 4: Testing (8 skills)
 
-**Location**: `04-testing/`
-
 | Skill | Purpose |
 |-------|---------|
 | `odoo-test-patterns` | TransactionCase, HttpCase, fixtures |
@@ -164,8 +148,6 @@ Implementation patterns organized by functional area.
 ---
 
 ## Category 5: Version-Specific (39 skills)
-
-**Location**: `05-version/`
 
 ### Model Patterns (11 skills)
 
@@ -215,8 +197,6 @@ Implementation patterns organized by functional area.
 
 ## Core OCA Tools (13 skills)
 
-**Location**: `(root - not categorized)`
-
 OCA-specific tools for search, migration, and PR operations.
 
 | Skill | Purpose |
@@ -261,12 +241,12 @@ OCA-specific tools for search, migration, and PR operations.
 
 Load a skill by reading the file:
 ```
-Read: skills/oca/{category}/{skill-name}.md
+Read: `../<skill-name>/SKILL.md` (skills are flat under `skills/`)
 ```
 
 Example:
 ```
-Read: ~/.config/opencode/skills/oca/02-development-style/oca-python-style.md
+Read: ../oca-python-style/SKILL.md
 ```
 
 ---
@@ -288,7 +268,7 @@ Some skills have been reorganized. The original files are kept as aliases:
 
 | Old Location | New Location |
 |--------------|--------------|
-| `oca-contributing-guide.md` | `02-development-style/oca-python-style.md` + others |
+| `oca-contributing-guide` | Split into `oca-contributing-guidelines`, `oca-python-style`, `oca-xml-style`, `oca-manifest-format`, and `oca-naming-conv`; the deprecated file is at `oca-contributing-guidelines/references/deprecated-guide.md`. |
 
 ---
 

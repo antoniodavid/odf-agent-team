@@ -266,10 +266,8 @@ agent/              — 11 agent instructions (orchestrator + 10 sub-agents)
 command/            — 23 slash command definitions (Markdown)
 plugins/            — odf-delegation.ts (OpenCode plugin)
 scripts/            — test runner (1405 Vitest tests + 331 YAML scenarios), CLI wrapper, registry and skill validators
-skills/              — 87 skills (OCA governance, ODF stage roles, patterns)
-  _shared/          — conventions (engram persistence, skill-resolver, Odoo sources)
-  oca/              — OCA governance, style, patterns
-  odf-{stage-role}/ — stage-role skills (assess, design, implement, etc.)
+skills/              — 87 skills, one directory per skill (`skills/<name>/SKILL.md`)
+  _shared/          — shared conventions (result contract, persistence, Odoo sources)
 openspec/           — SDD change artifacts (when artifact_store=openspec)
 docs/               — intended-usage, architecture, skill-style-guide
 install.sh          — idempotent installer (backup, --dry-run, --force)

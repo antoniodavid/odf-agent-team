@@ -30,7 +30,7 @@
         "oca-pr-workflow"
       ],
       "compact_rules": "- An issue must exist and be approved before branching.\n- Branch: {fix|imp|add|ref|rem|mig}/{module}-{desc}, lowercase, no spaces.\n- Commit in OCA format: [TAG] module_name: short description.\n- PR body: Description, Related Issue (Closes #N), OCA Compliance Checklist.\n- Alpha/Beta need 1 review; Stable 2 reviews + 5 days + tests; Mature adds docs and contributors.\n- Never force-push after review starts; do not squash without asking.",
-      "path": "skills/oca/01-oca-governance/oca-pr-workflow.md",
+      "path": "skills/oca-governance-pr-workflow/SKILL.md",
       "odoo_versions": [
         14,
         15,
@@ -61,7 +61,7 @@
         "history"
       ],
       "compact_rules": "- Format: [TAG] module_name: short description, max 50 chars.\n- Tags: FIX, ADD, IMP, REF, REM, MIG, MOV, DOC, TEST, SEC, PERF.\n- Imperative mood: Fix, not Fixed; Add, not Added.\n- Body explains WHY, wrapped at 80 chars; one logical change per commit.\n- Multi-module: [IMP] mod1, mod2: description.\n- No period in the subject, no past tense, no 'fix pep8' commits.",
-      "path": "skills/oca/01-oca-governance/oca-commit-messages.md",
+      "path": "skills/oca-governance-commit-messages/SKILL.md",
       "odoo_versions": [
         14,
         15,
@@ -99,7 +99,7 @@
         "module structure"
       ],
       "compact_rules": "- Module names are singular; base_ prefix for base modules; l10n_CC_ for localizations.\n- Manifest: license, images, OCA author, website https://github.com/OCA/<repo>.\n- Import order: stdlib, third-party, odoo, local; no wildcard imports.\n- Never interpolate SQL; use %s parameters or the ORM.\n- Add tests for new behavior; version as <odoo>.<major>.<minor>.<patch>.\n- Respect API stability: additions are allowed, breaking changes need a major bump.",
-      "path": "skills/oca/02-development-style/oca-contributing-guidelines.md",
+      "path": "skills/oca-contributing-guidelines/SKILL.md",
       "odoo_versions": [
         14,
         15,
@@ -131,7 +131,7 @@
         "wizard/"
       ],
       "compact_rules": "- Import order: stdlib, third-party, odoo, odoo addons, relative local.\n- Model body order: attributes, fields, SQL constraints, defaults, computes, constraints, CRUD, actions.\n- Never concatenate SQL; use %s parameters, tuples for IN, and cr.savepoint() instead of cr.commit().\n- Prefer the ORM; use sudo() narrowly and _() for user-facing strings.\n- Methods take a recordset and iterate over self.\n- Max line length 88; never use bare except clauses; name Many2one fields _id and x2many fields _ids.",
-      "path": "skills/oca/02-development-style/oca-python-style.md",
+      "path": "skills/oca-python-style/SKILL.md",
       "odoo_versions": [
         14,
         15,
@@ -162,7 +162,7 @@
         "security/"
       ],
       "compact_rules": "- Indent using 4 spaces.\n- Place id attribute before model.\n- For field declarations, name attribute first, then value, then other attributes ordered by importance.\n- Group records by model.\n- Use <data> only for not-updatable data with noupdate=1.\n- Use <odoo> for noupdate=0 or demo data.\n- Use <odoo noupdate='1'> for noupdate data.\n- Do not prefix the xmlid by the current module's name.\n- Inherit views with xpath (expr + position); name views <model>_view_<type>.",
-      "path": "skills/oca/02-development-style/oca-xml-style.md",
+      "path": "skills/oca-xml-style/SKILL.md",
       "odoo_versions": [
         14,
         15,
@@ -192,7 +192,7 @@
         "module dependencies"
       ],
       "compact_rules": "- Required keys: name, version, category, author, website, license, depends, data, installable.\n- Version format: {odoo_version}.{major}.{minor}.{patch}, for example 18.0.1.0.0.\n- license and images are mandatory; avoid empty keys.\n- Author must include ', Odoo Community Association (OCA)'; website must point to the OCA repository.\n- development_status must match the real maturity level.",
-      "path": "skills/oca/02-development-style/oca-manifest-format.md",
+      "path": "skills/oca-manifest-format/SKILL.md",
       "odoo_versions": [
         14,
         15,
@@ -224,7 +224,7 @@
         "compute"
       ],
       "compact_rules": "- Always iterate over self: Even for single records.\n- List all dependencies: Include all fields that affect the result.\n- Use store=True wisely: Only when needed for search/sort.\n- Optimize batch operations: Use read_group, mapped()\n- Handle empty values: Check for False/None.\n- Avoid circular dependencies: Field A depends on B, B depends on A.\n- Use related for simple cases: Cleaner than custom compute.\n- Add search for non-stored: If users need to filter.\n- Use compute_sudo=True only when elevated privileges are required; add inverse for writable computes.",
-      "path": "skills/oca/03-patterns/models/computed-field-patterns.md",
+      "path": "skills/computed-field-patterns/SKILL.md",
       "odoo_versions": [
         14,
         15,
@@ -256,7 +256,7 @@
         "_inherits"
       ],
       "compact_rules": "- Extension: _inherit only; add fields and methods to an existing model.\n- Classical: _name + _inherit creates a new model copying the parent's fields.\n- Delegation: _inherits maps a Many2one and proxies fields; use sparingly.\n- Abstract mixins: models.AbstractModel for shared behavior.\n- Inherit views with xpath and controllers by overriding routes; never copy core code.\n- Always call super() in overridden methods; use _sql_constraints for database-level rules.",
-      "path": "skills/oca/03-patterns/models/inheritance-patterns.md",
+      "path": "skills/inheritance-patterns/SKILL.md",
       "odoo_versions": [
         14,
         15,
@@ -287,7 +287,7 @@
         "_sql_constraints"
       ],
       "compact_rules": "- Prefer SQL for simple checks: More efficient, database-level.\n- Use Python for complex logic: More flexibility.\n- Clear error messages: Tell user what's wrong and how to fix.\n- Validate early: Catch errors before processing.\n- Consider context: Skip validation during imports if appropriate.\n- Test constraints: Write tests for validation logic.\n- Don't over-constrain: Balance integrity vs usability.\n- Document constraints: Explain business rules.\n- Use @api.constrains for Python checks and _sql_constraints for database checks; raise ValidationError with a user-friendly message.",
-      "path": "skills/oca/03-patterns/models/constraint-patterns.md",
+      "path": "skills/constraint-patterns/SKILL.md",
       "odoo_versions": [
         14,
         15,
@@ -320,7 +320,7 @@
         "ir.rule"
       ],
       "compact_rules": "- Security is version-sensitive: load the target version's security guide before writing rules.\n- Every model needs ir.model.access.csv entries per group; record rules filter rows.\n- Check groups= on fields, menus, and actions; never expose sensitive fields to base users.\n- Verify company rules (_check_company_auto, check_company=True) on multi-company models.\n- Do not rely on this dispatcher; read the version-specific file.\n- Use sudo() only with justification and check access rights before operations.",
-      "path": "skills/oca/05-version/odoo-security-guide.md",
+      "path": "skills/security-guide/SKILL.md",
       "odoo_versions": [
         14,
         15,
@@ -353,7 +353,7 @@
         "xml"
       ],
       "compact_rules": "- Pick the view type: form, list/tree, kanban, search, calendar, pivot, or graph.\n- Inherit views with xpath instead of replacing them; keep the original priority.\n- Declare only the fields the view needs; use groups= for sensitive fields.\n- invisible/readonly/required use Python expressions (attrs removed in v17+).\n- Keep action, view, and menu XML IDs consistent and listed in the manifest.\n- Inline views for One2many; smart buttons with type=object or action; chatter via mail.thread.",
-      "path": "skills/oca/03-patterns/views/odoo-view-patterns.md",
+      "path": "skills/odoo-view-patterns/SKILL.md",
       "odoo_versions": [
         14,
         15,
@@ -386,7 +386,7 @@
         "static/src"
       ],
       "compact_rules": "- OWL API changes by version: load the version-specific guide before writing components.\n- Use ES modules and direct imports; odoo.define/require is legacy.\n- Define template and props as static class members in current versions.\n- Register components in the asset bundle declared in the manifest.\n- Test in the target version; do not assume hooks or props APIs match.",
-      "path": "skills/oca/03-patterns/frontend/odoo-owl-components.md",
+      "path": "skills/owl-components/SKILL.md",
       "odoo_versions": [
         15,
         16,
@@ -427,7 +427,7 @@
         "tests/"
       ],
       "compact_rules": "- One test class per model; TransactionCase for ORM, SavepointCase for savepoints, HttpCase for tours.\n- Cover CRUD, computes, constraints, state transitions, access rights, record rules, onchange, and actions.\n- Use setUpClass and cls.env for shared data; tag at_install/post_install when needed.\n- Assert observable behavior, not private methods or implementation details.\n- Run the module suite with the project's test command; a skipped test is not a pass.",
-      "path": "skills/oca/04-testing/odoo-test-patterns.md",
+      "path": "skills/odoo-test-patterns/SKILL.md",
       "odoo_versions": [
         14,
         15,
@@ -458,7 +458,7 @@
         "pre-PR checklist"
       ],
       "compact_rules": "- Manifest: name, version, license, OCA author, website, depends, data, installable.\n- Python: syntax, imports, no SQL interpolation, no cr.commit(), translations present.\n- XML: well-formed, no duplicate IDs, security files loaded before views.\n- Security: ir.model.access.csv per model/group, record rules, no broad base.group_user grants.\n- Run tests and pylint-odoo; a check without recorded evidence is not a pass.",
-      "path": "skills/oca/04-testing/oca-compliance-check.md",
+      "path": "skills/oca-compliance-check/SKILL.md",
       "odoo_versions": [
         14,
         15,
@@ -491,7 +491,7 @@
         "Odoo 18"
       ],
       "compact_rules": "- Determine the target Odoo version first: manifest, requirements, or existing patterns. Never assume.\n- Versions 16-19 are supported; 15 is migration source only; 14 material is removed.\n- Load the version-specific knowledge file before generating code.\n- Detect version by decorators, Command class, attrs, check_company_auto, type hints, and SQL() builder.\n- Verify patterns against the target version's GitHub branch.",
-      "path": "skills/oca/05-version/odoo-version-knowledge.md",
+      "path": "skills/odoo-version-knowledge/SKILL.md",
       "odoo_versions": [
         14,
         15,
@@ -765,7 +765,7 @@
         "standards"
       ],
       "compact_rules": "- Resolve skills once per session and cache the index: name, trigger, path.\n- Read odf-registry.json first; fall back to Engram, then the filesystem.\n- Inject at most 5 matching skills per delegation; prefer project-specific over global.\n- Pass skills by identifier or workspace-relative path, never absolute paths.\n- If no registry exists, warn and proceed without project standards.\n- The canonical stage skill also contributes its full SKILL.md body; bundled references are listed, not inlined.",
-      "path": "skills/_shared/skill-resolver.md",
+      "path": "skills/skill-resolver/SKILL.md",
       "odoo_versions": [
         16,
         17,
@@ -1014,7 +1014,7 @@
         "oca-work-unit-commits"
       ],
       "compact_rules": "- OCA format: [TAG] module_name: short description, max 50 chars.\n- Tags: FIX, ADD, IMP, REF, REM, MIG, MOV, DOC, TEST, SEC, PERF.\n- Imperative mood; body explains why, wrapped at 80 chars.\n- One deliverable behavior per commit; tests and docs go with it.\n- Do not split a behavior into code, test, and docs commits.",
-      "path": "skills/oca/01-oca-governance/oca-work-unit-commits.md",
+      "path": "skills/oca-work-unit-commits/SKILL.md",
       "odoo_versions": [
         14,
         15,
@@ -1051,7 +1051,7 @@
         "documentation"
       ],
       "compact_rules": "- Lead with the answer \u2014 Put the decision, action, or outcome first. Context comes after.\n- Progressive disclosure \u2014 Happy path first, then details, edge cases, references.\n- Chunking \u2014 Group related info into small sections. Keep lists short.\n- Signposting \u2014 Use headings, labels, callouts, and summaries so readers know where they are.\n- Recognition over recall \u2014 Tables, checklists, examples > prose that must be remembered.\n- Review empathy \u2014 Design so reviewers verify intent without reconstructing the whole story.",
-      "path": "skills/oca/02-development-style/oca-cognitive-doc-design.md",
+      "path": "skills/oca-cognitive-doc-design/SKILL.md",
       "odoo_versions": [
         14,
         15,
@@ -1082,7 +1082,7 @@
         "issue reply"
       ],
       "compact_rules": "- Be useful fast \u2014 Start with the actionable point. Do not recap the whole PR before feedback.\n- Be warm and direct \u2014 Sound like a thoughtful teammate, not a corporate bot.\n- Keep it short \u2014 1-3 short paragraphs or a tight bullet list.\n- Explain why \u2014 Give the technical reason when asking for a change.\n- Avoid pile-ons \u2014 Comment on the highest-value issue, not every tiny preference.",
-      "path": "skills/oca/02-development-style/oca-comment-writer.md",
+      "path": "skills/oca-comment-writer/SKILL.md",
       "odoo_versions": [
         14,
         15,
@@ -1180,7 +1180,7 @@
         "size exception"
       ],
       "compact_rules": "- Split PRs over 400 lines \u2014 Unless a maintainer accepts size:exception.\n- Budget is not code-golf \u2014 Never shrink a diff by deleting comments, blank lines, docs, or tests, or by compressing code, to fit the review budget. Slice by work unit or report the overage.\n- One slicing pass \u2014 If no cohesive split fits after one honest pass, stop; keep the best split and recommend size:exception.\n- \u226460 min review per PR \u2014 Each PR must be reviewable in about 60 minutes.\n- Tests+docs stay with unit \u2014 Tests and docs belong with the work unit they verify.",
-      "path": "skills/oca/01-oca-governance/oca-chained-pr.md",
+      "path": "skills/oca-chained-pr/SKILL.md",
       "odoo_versions": [
         14,
         15,
@@ -1242,7 +1242,7 @@
         "mimic author writing style"
       ],
       "compact_rules": "- State assumptions explicitly before implementing. If uncertain, ask.\n- If multiple interpretations exist, present all \u2014 do NOT pick silently.\n- No features beyond what was asked. No abstractions for single-use code.\n- No \"flexibility\" or \"configurability\" that wasn't requested.\n- Don't \"improve\" adjacent code, comments, or formatting.\n- Don't refactor things that aren't broken. Match existing style.\n- Every changed line must trace directly to the task requirement.\n- Transform imperative tasks into verifiable goals with verification per step.\n- If 200 lines could be 50, rewrite it smaller.",
-      "path": "skills/_shared/karpathy-precision.md",
+      "path": "skills/karpathy-precision/SKILL.md",
       "odoo_versions": [
         16,
         17,
@@ -1269,7 +1269,7 @@
         "OCA maintainer"
       ],
       "compact_rules": "- Maintainers triage issues, review PRs, and keep modules compatible with supported versions.\n- Respond to new issues within a week; acknowledge PRs even when review is delayed.\n- Use labels to categorize and keep the PR queue moving.\n- The PSC coordinates cross-repo policy and can remove inactive maintainers.\n- Becoming a maintainer requires sustained contributions and nomination; declare it in the README.",
-      "path": "skills/oca/01-oca-governance/oca-maintainer-role.md",
+      "path": "skills/oca-maintainer-role/SKILL.md",
       "odoo_versions": [
         16,
         17,
@@ -1296,7 +1296,7 @@
         "module maturity"
       ],
       "compact_rules": "- Alpha: CI green, 1 review, formatted, installs; tests optional; development only.\n- Beta: same as Alpha; pre-production, not for production use.\n- Stable: 2 reviews + 5-day period, tests required, depends only on Stable/Mature.\n- Mature: exists in the previous version, good coverage, no lint beta warnings, USAGE.rst, 2+ contributors, 1+ maintainer, OpenUpgrade scripts.\n- Declare the real level in development_status.",
-      "path": "skills/oca/01-oca-governance/oca-maturity-levels.md",
+      "path": "skills/oca-maturity-levels/SKILL.md",
       "odoo_versions": [
         16,
         17,
@@ -1323,7 +1323,7 @@
         "stability policy"
       ],
       "compact_rules": "- Modules must pass CI: flake8/ESLint, compilation, tests, documentation.\n- API stability: additions are allowed; renames, signature changes, removals, and default changes are breaking.\n- Breaking changes require a major version bump, a migration script, and documentation.\n- Keep repositories focused on one business domain; do not add unrelated modules.\n- Branch per Odoo version; dependencies must be Stable or Mature.",
-      "path": "skills/oca/01-oca-governance/oca-repository-policy.md",
+      "path": "skills/oca-repository-policy/SKILL.md",
       "odoo_versions": [
         16,
         17,
@@ -1350,7 +1350,7 @@
         "scaffold"
       ],
       "compact_rules": "- Pick the template by target app: sale, stock, hr, crm, account, website, or project.\n- Templates target v18; adapt the manifest version and APIs to the real target version.\n- Keep the OCA layout: models/, views/, security/, data/.\n- Copy only the sections the change needs; do not ship unused template files.\n- Run pre-commit and module tests after adapting a template.",
-      "path": "skills/oca/02-development-style/common-module-templates.md",
+      "path": "skills/common-module-templates/SKILL.md",
       "odoo_versions": [
         16,
         17,
@@ -1377,7 +1377,7 @@
         "file naming"
       ],
       "compact_rules": "- Module names are singular: sale_order, not sale_orders; base_ prefix for base modules; l10n_CC_ for localizations.\n- Extending an Odoo module: prefix with that module, for example mail_forward or sale_stock_custom.\n- Files: models/<model>.py, views/<model>_views.xml, security/ir.model.access.csv.\n- XML IDs: <model>_view_<type>, <model>_action, menu_<model>.\n- Never prefix xmlids with the current module name.",
-      "path": "skills/oca/02-development-style/oca-naming-conv.md",
+      "path": "skills/oca-naming-conv/SKILL.md",
       "odoo_versions": [
         16,
         17,
@@ -1404,7 +1404,7 @@
         "new module scaffolding"
       ],
       "compact_rules": "- Determine the target version before generating and load its version-specific file.\n- Emit the full skeleton: manifest, __init__, models/, views/, security/, data/.\n- Manifest: name, version <odoo>.1.0.0, license AGPL-3, OCA author, depends, data, installable.\n- Verify external XML IDs and models against the local source; never invent them.\n- Return structured output: files, dependencies, warnings, version.",
-      "path": "skills/oca/02-development-style/odoo-module-generator.md",
+      "path": "skills/odoo-module-generator/SKILL.md",
       "odoo_versions": [
         16,
         17,
@@ -1435,7 +1435,7 @@
         "account/"
       ],
       "compact_rules": "- Always balance entries: Debits must equal credits.\n- Use correct account types: Receivable, payable, income, expense.\n- Post entries: Draft entries don't affect financials.\n- Handle multi-currency: Use currency conversion methods.\n- Respect fiscal year: Check date restrictions.\n- Use proper journals: Sales, purchase, bank, cash, general.\n- Reconcile regularly: Match payments to invoices.\n- Multi-company aware: Always filter by company.",
-      "path": "skills/oca/03-patterns/business/accounting-patterns.md",
+      "path": "skills/accounting-patterns/SKILL.md",
       "odoo_versions": [
         16,
         17,
@@ -1463,7 +1463,7 @@
         "web.assets"
       ],
       "compact_rules": "- Use namespaced classes: Prefix with .o_my_module.\n- Follow directory structure: Consistent file organization.\n- Use SCSS variables: Leverage Bootstrap/Odoo variables.\n- Minimize bundle size: Only include what's needed.\n- Lazy load heavy libs: Don't slow initial load.\n- Support dark mode: Use CSS variables.\n- Test with debug=assets: Catch compilation errors.\n- Version compatibility: Check asset syntax for version.",
-      "path": "skills/oca/03-patterns/business/assets-bundling-patterns.md",
+      "path": "skills/assets-bundling-patterns/SKILL.md",
       "odoo_versions": [
         16,
         17,
@@ -1491,7 +1491,7 @@
         "upload"
       ],
       "compact_rules": "- Use Image field for images: Auto-resize and optimization.\n- Store as attachment: attachment=True for large files.\n- Keep filename field: Pair Binary with Char for filename.\n- Validate file types: Security against malicious uploads.\n- Set size limits: Prevent memory issues.\n- Generate thumbnails: Multiple sizes for performance.\n- Use ir.attachment: For multiple files per record.\n- Clean up orphans: Remove unused attachments.",
-      "path": "skills/oca/03-patterns/business/attachment-binary-patterns.md",
+      "path": "skills/attachment-binary-patterns/SKILL.md",
       "odoo_versions": [
         16,
         17,
@@ -1518,7 +1518,7 @@
         "res.config.settings"
       ],
       "compact_rules": "- Use config_parameter: For global settings stored in ir.config_parameter.\n- Use related company fields: For company-specific settings.\n- Use implied_group: For feature toggles that grant permissions.\n- Use module_ prefix: For settings that install modules.\n- Validate settings: Check values before saving.\n- Provide defaults: Set sensible default values.\n- Group logically: Use blocks to organize related settings.\n- Show/hide conditionally: Use invisible attribute.",
-      "path": "skills/oca/03-patterns/business/config-settings-patterns.md",
+      "path": "skills/config-settings-patterns/SKILL.md",
       "odoo_versions": [
         16,
         17,
@@ -1546,7 +1546,7 @@
         "website route"
       ],
       "compact_rules": "- Use appropriate auth: public for public APIs, user for authenticated.\n- Handle errors gracefully: Return proper HTTP status codes.\n- Validate input: Check required fields and types.\n- Use sudo carefully: Only when necessary for public endpoints.\n- CSRF protection: Disable only for legitimate API endpoints.\n- Rate limiting: Implement for public APIs.\n- Logging: Log API requests for debugging.\n- Documentation: Document endpoints for consumers.",
-      "path": "skills/oca/03-patterns/business/controller-api-patterns.md",
+      "path": "skills/controller-api-patterns/SKILL.md",
       "odoo_versions": [
         16,
         17,
@@ -1573,7 +1573,7 @@
         "automation job"
       ],
       "compact_rules": "- Use ir.cron with a model method; set interval_number and interval_type explicitly.\n- Wrap each unit of work in a savepoint; never commit inside the loop.\n- Log start, success, and failures with _logger.exception; re-raise to surface errors.\n- Make the job idempotent and safe to re-run; guard against concurrent execution.\n- Use queue_job for heavy work instead of long crons; bind the right user and company.",
-      "path": "skills/oca/03-patterns/business/cron-automation-patterns.md",
+      "path": "skills/cron-automation-patterns/SKILL.md",
       "odoo_versions": [
         16,
         17,
@@ -1601,7 +1601,7 @@
         "metrics"
       ],
       "compact_rules": "- Use database views: _auto=False for aggregated models.\n- Index key columns: Add indexes to frequently filtered fields.\n- Pre-aggregate: Calculate totals in SQL, not Python.\n- Cache expensive: Use Redis/Memcached for heavy queries.\n- Limit date ranges: Default to current month/quarter.\n- Add search filters: Make it easy to drill down.\n- Use measures wisely: Choose meaningful KPIs.\n- Refresh async: Use background jobs for heavy data.",
-      "path": "skills/oca/03-patterns/business/dashboard-kpi-patterns.md",
+      "path": "skills/dashboard-kpi-patterns/SKILL.md",
       "odoo_versions": [
         16,
         17,
@@ -1630,7 +1630,7 @@
         "odoo client"
       ],
       "compact_rules": "- Never hardcode credentials: Use ir.config_parameter or dedicated config model.\n- Use HTTPS: Always use secure connections.\n- Implement retry logic: Handle transient failures.\n- Log all API calls: For debugging and audit.\n- Handle rate limits: Implement backoff strategies.\n- Validate responses: Don't trust external data.\n- Use timeouts: Prevent hanging requests.\n- Queue heavy operations: Don't block user actions.",
-      "path": "skills/oca/03-patterns/business/external-api-patterns.md",
+      "path": "skills/external-api-patterns/SKILL.md",
       "odoo_versions": [
         16,
         17,
@@ -1658,7 +1658,7 @@
         "department"
       ],
       "compact_rules": "- Privacy: Use groups=\"hr.group_hr_user\" for sensitive fields.\n- Employee self-service: Separate views for employees vs HR.\n- Multi-company: Filter employees by company.\n- Manager hierarchy: Use parent_id for reporting structure.\n- Document management: Attach contracts, certificates.\n- Activity scheduling: Use activities for HR tasks.\n- Audit trail: Track changes to sensitive data.\n- Integration: Connect with payroll, expense, timesheet.",
-      "path": "skills/oca/03-patterns/business/hr-employee-patterns.md",
+      "path": "skills/hr-employee-patterns/SKILL.md",
       "odoo_versions": [
         16,
         17,
@@ -1687,7 +1687,7 @@
         "odoo csv"
       ],
       "compact_rules": "- Validate first: Check all rows before creating any.\n- Use transactions: Rollback on errors.\n- Batch processing: Commit in chunks for large imports.\n- External IDs: Use for data that may be re-imported.\n- Error reporting: Show row numbers and specific errors.\n- Preview mode: Let users review before committing.\n- Template download: Provide import template.\n- Encoding: Handle UTF-8 properly.",
-      "path": "skills/oca/03-patterns/business/import-export-patterns.md",
+      "path": "skills/import-export-patterns/SKILL.md",
       "odoo_versions": [
         16,
         17,
@@ -1715,7 +1715,7 @@
         "traceback"
       ],
       "compact_rules": "- Use a module logger: _logger = logging.getLogger(__name__).\n- Lazy formatting: _logger.info(\"x=%s\", x), never f-strings.\n- Include context: record IDs, user, and operation name.\n- Use levels: DEBUG for development, INFO for operations, exception() for tracebacks.\n- Never log passwords, tokens, or PII; guard expensive formatting with isEnabledFor().",
-      "path": "skills/oca/03-patterns/business/logging-debugging-patterns.md",
+      "path": "skills/logging-debugging-patterns/SKILL.md",
       "odoo_versions": [
         16,
         17,
@@ -1743,7 +1743,7 @@
         "tracking"
       ],
       "compact_rules": "- Choose tracking wisely: Serial for unique items, lot for batches.\n- Use expiration dates: For perishables and regulated products.\n- Validate formats: Consistent naming conventions.\n- FEFO for perishables: First expiry, first out.\n- Track QC status: Before releasing to inventory.\n- Maintain traceability: For recalls and compliance.\n- Supplier lot mapping: Link to vendor's batch numbers.\n- Automate numbering: Use sequences for consistency.",
-      "path": "skills/oca/03-patterns/business/lot-serial-patterns.md",
+      "path": "skills/lot-serial-patterns/SKILL.md",
       "odoo_versions": [
         16,
         17,
@@ -1771,7 +1771,7 @@
         "email template"
       ],
       "compact_rules": "- Use templates: Define email templates in XML for maintainability.\n- Handle missing emails: Always check partner_id.email before sending.\n- Use queues: Set force_send=False for batch operations.\n- Track important fields: Add tracking=True to key fields.\n- Custom subtypes: Create subtypes for different notification types.\n- Activity scheduling: Use activities for task management.\n- Follower management: Auto-subscribe relevant parties.\n- Test email rendering: Verify templates render correctly.",
-      "path": "skills/oca/03-patterns/business/mail-notification-patterns.md",
+      "path": "skills/mail-notification-patterns/SKILL.md",
       "odoo_versions": [
         16,
         17,
@@ -1799,7 +1799,7 @@
         "menuitem"
       ],
       "compact_rules": "- Consistent naming: Use clear, action-oriented names.\n- Logical grouping: Group related menus together.\n- Sequence numbers: Leave gaps (10, 20, 30) for future insertions.\n- Security groups: Restrict sensitive menus.\n- Configuration last: Always sequence 90+.\n- App icon: Always provide for root menu.\n- Extend, don't duplicate: Add to existing apps when appropriate.\n- Keep it shallow: Max 3 levels of nesting.",
-      "path": "skills/oca/03-patterns/business/menu-navigation-patterns.md",
+      "path": "skills/menu-navigation-patterns/SKILL.md",
       "odoo_versions": [
         16,
         17,
@@ -1827,7 +1827,7 @@
         "portal"
       ],
       "compact_rules": "- Always validate tokens: Check existence and expiration.\n- Use HTTPS: Tokens in URLs require encrypted transport.\n- Regenerate on sharing: New token for each share request.\n- Limit token scope: One token per document.\n- Set expiration: Time-limit tokens when possible.\n- Log access: Track who accessed what and when.\n- Clean up expired: Regular cron to remove old tokens.\n- Check permissions: Even with token, verify allowed actions.",
-      "path": "skills/oca/03-patterns/business/portal-access-patterns.md",
+      "path": "skills/portal-access-patterns/SKILL.md",
       "odoo_versions": [
         16,
         17,
@@ -1855,7 +1855,7 @@
         "price computation"
       ],
       "compact_rules": "- Use rule priority: Specific rules before global (sequence matters)\n- Date ranges: Use for promotions, not permanent pricing.\n- Test thoroughly: Verify all quantity breaks work.\n- Currency consistency: Match pricelist and partner currency.\n- Audit trail: Log price changes.\n- Performance: Cache frequent price lookups.\n- Multi-company: Separate pricelists per company.\n- Clear naming: Descriptive pricelist names.",
-      "path": "skills/oca/03-patterns/business/pricelist-pricing-patterns.md",
+      "path": "skills/pricelist-pricing-patterns/SKILL.md",
       "odoo_versions": [
         16,
         17,
@@ -1883,7 +1883,7 @@
         "product.product"
       ],
       "compact_rules": "- Use templates: Define shared data on template, unique on variant.\n- Choose variant mode: always for few combos, dynamic for many.\n- Price extras: Use for simple attribute-based pricing.\n- Separate SKUs: Each variant should have unique identifier.\n- Image strategy: Template image as fallback, variant when different.\n- Stock tracking: Always at variant level.\n- Limit combinations: Too many variants = performance issues.\n- Archive unused: Don't delete, archive discontinued variants.",
-      "path": "skills/oca/03-patterns/business/product-variant-patterns.md",
+      "path": "skills/product-variant-patterns/SKILL.md",
       "odoo_versions": [
         16,
         17,
@@ -1911,7 +1911,7 @@
         "timesheet"
       ],
       "compact_rules": "- Use stages for workflow, not custom fields.\n- Track dependencies for complex projects.\n- Time tracking: integrate with hr_timesheet.\n- Progress calculation: automate based on subtasks/checklists.\n- Notifications: notify on stage changes and deadlines.\n- Budget tracking: link costs to timesheets.\n- Hierarchy: use parent tasks for organization.\n- Templates: create project templates for recurring types.",
-      "path": "skills/oca/03-patterns/business/project-task-patterns.md",
+      "path": "skills/project-task-patterns/SKILL.md",
       "odoo_versions": [
         16,
         17,
@@ -1939,7 +1939,7 @@
         "vendor"
       ],
       "compact_rules": "- Vendor management: Track ratings, certifications, lead times.\n- Approval workflows: Amount-based approval for cost control.\n- Budget integration: Link POs to budgets/cost centers.\n- Multi-company: Handle inter-company purchases.\n- Receipt tracking: Monitor delivery performance.\n- Price history: Track vendor price changes.\n- Lead time accuracy: Compare promised vs actual.\n- Blanket orders: Use purchase agreements for contracts.",
-      "path": "skills/oca/03-patterns/business/purchase-procurement-patterns.md",
+      "path": "skills/purchase-procurement-patterns/SKILL.md",
       "odoo_versions": [
         16,
         17,
@@ -1967,7 +1967,7 @@
         "env context"
       ],
       "compact_rules": "- Use with_context() for temporary context; never mutate self.env.context in place.\n- Common keys: lang, tz, company_id, allowed_company_ids, active_test, default_<field>.\n- Use with_context(active_test=False) only when archived records are intended.\n- Use sudo() narrowly and document why; it bypasses record rules.\n- In crons, bind the intended company and user explicitly; caches may be stale after writes.",
-      "path": "skills/oca/03-patterns/models/context-environment-patterns.md",
+      "path": "skills/context-environment-patterns/SKILL.md",
       "odoo_versions": [
         16,
         17,
@@ -1995,7 +1995,7 @@
         "pre-migrate"
       ],
       "compact_rules": "- Scripts live in migrations/<version>/pre|post-*.py and must be idempotent.\n- Use the OpenUpgrade analysis as the canonical source for renamed or removed fields.\n- Batch large updates and use savepoints; never call cr.commit().\n- Test on a copy of real data and verify counts and constraints before and after.\n- Rename fields through the ORM where possible; document irreversible steps.",
-      "path": "skills/oca/03-patterns/models/data-migration-patterns.md",
+      "path": "skills/data-migration-patterns/SKILL.md",
       "odoo_versions": [
         16,
         17,
@@ -2023,7 +2023,7 @@
         "expression domain"
       ],
       "compact_rules": "- Use in operator for multiple values instead of multiple OR.\n- Index filtered fields for better performance.\n- Limit results when full result set not needed.\n- Use expression module for combining domains.\n- Test complex domains with actual data.\n- Document complex domains with comments.\n- Use child_of/parent_of for hierarchical data.\n- Prefer ilike over like for user searches.",
-      "path": "skills/oca/03-patterns/models/domain-filter-patterns.md",
+      "path": "skills/domain-filter-patterns/SKILL.md",
       "odoo_versions": [
         16,
         17,
@@ -2051,7 +2051,7 @@
         "raise"
       ],
       "compact_rules": "- Use appropriate exception types: UserError for business logic, ValidationError for constraints.\n- Provide clear messages: Include context and what to do.\n- Log before raising: Log technical details, show user-friendly message.\n- Don't catch too broadly: Be specific about what you catch.\n- Always re-raise UserError: Let it show to user.\n- Use savepoints for batches: Isolate failures.\n- Validate early: Check before doing work.\n- Return feedback: Use notifications for batch operations.",
-      "path": "skills/oca/03-patterns/models/error-handling-patterns.md",
+      "path": "skills/error-handling-patterns/SKILL.md",
       "odoo_versions": [
         16,
         17,
@@ -2079,7 +2079,7 @@
         "field reference"
       ],
       "compact_rules": "- Strings: Char, Text, Html; numbers: Integer, Float, Monetary; Boolean, Date, Datetime.\n- Relational: Many2one, One2many (comodel + inverse), Many2many; set comodel_name explicitly.\n- Binary with attachment=True for large files; pair it with a filename Char.\n- Selection needs selection=[...]; derive values with compute and store when searchable.\n- Monetary requires currency_field; Float uses digits for precision.",
-      "path": "skills/oca/03-patterns/models/field-type-reference.md",
+      "path": "skills/field-type-reference/SKILL.md",
       "odoo_versions": [
         16,
         17,
@@ -2107,7 +2107,7 @@
         "compute onchange"
       ],
       "compact_rules": "- onchange is UI-only and does not run on create, write, or import; use compute for persisted values.\n- Return {'domain': {...}, 'warning': {...}} from onchange; never write other records.\n- Computed fields with store=True need @api.depends and may need inverse or search.\n- For dynamic view domains use the domain attribute with Python expressions.\n- Never rely on onchange for integrity; enforce constraints.",
-      "path": "skills/oca/03-patterns/models/onchange-dynamic-patterns.md",
+      "path": "skills/onchange-dynamic-patterns/SKILL.md",
       "odoo_versions": [
         16,
         17,
@@ -2135,7 +2135,7 @@
         "act_window"
       ],
       "compact_rules": "- Use XML for static actions: Easier to maintain and override.\n- Use Python for dynamic actions: When domains/context depend on data.\n- Always set res_model: Required for window actions.\n- Use context wisely: Pass defaults and search filters.\n- binding_view_types: Specify where action appears.\n- target=new for wizards: Opens as dialog.\n- Return dict, not action record: More flexible.\n- Handle empty recordsets: Check before processing.",
-      "path": "skills/oca/03-patterns/views/action-patterns.md",
+      "path": "skills/action-patterns/SKILL.md",
       "odoo_versions": [
         16,
         17,
@@ -2163,7 +2163,7 @@
         "owl dialog"
       ],
       "compact_rules": "- Always handle cancel/discard: User might close dialog without action.\n- Use appropriate sizes: Don't use full size for simple confirmations.\n- Set clear titles: User should know what they're confirming.\n- Use notifications for non-blocking: For success after background action.\n- Form dialogs for CRUD: Quick create/edit without leaving current view.\n- Custom dialogs for complex UI: Multi-step wizards, custom inputs.",
-      "path": "skills/oca/03-patterns/views/odoo-dialog-service.md",
+      "path": "skills/odoo-dialog-service/SKILL.md",
       "odoo_versions": [
         16,
         17,
@@ -2190,7 +2190,7 @@
         "full module walkthrough"
       ],
       "compact_rules": "- Use the worked examples as templates: equipment tracking (v18), minimal module (v17), upgrade (v16 to v18).\n- Each example shows manifest, model, views, security, and tests; copy the structure, not the domain.\n- Adapt version-specific APIs before reuse; v17+ removes attrs and requires model_create_multi.\n- Keep the security file and tests in every generated module.\n- Verify XML IDs and model names against the local source.",
-      "path": "skills/oca/04-testing/end-to-end-examples.md",
+      "path": "skills/end-to-end-examples/SKILL.md",
       "odoo_versions": [
         16,
         17,
@@ -2217,7 +2217,7 @@
         "OCA review"
       ],
       "compact_rules": "- Review order: compliance check, pattern match, improvement suggestions, compiled report.\n- Report critical and high issues separately with file, line, issue, and fix.\n- Classify findings by severity; never merge standards and spec findings.\n- State a verdict: ready, needs work, or cannot merge, with evidence.\n- Never fix during review; return findings to the orchestrator.",
-      "path": "skills/oca/04-testing/oca-code-review.md",
+      "path": "skills/oca-code-review/SKILL.md",
       "odoo_versions": [
         16,
         17,
@@ -2244,7 +2244,7 @@
         "enterprise features"
       ],
       "compact_rules": "- Community is LGPL-3 and open source; Enterprise is OPL-1 and proprietary.\n- Enterprise modules live in odoo/enterprise; never depend on them from a Community module.\n- Detect Enterprise at runtime with a feature check, not a hard import.\n- Views with edition-specific elements must degrade gracefully.\n- Declare the correct license: LGPL-3 for Community, OPL-1 for Enterprise.",
-      "path": "skills/oca/04-testing/odoo-editions.md",
+      "path": "skills/odoo-editions/SKILL.md",
       "odoo_versions": [
         16,
         17,
@@ -2273,7 +2273,7 @@
         "read_group"
       ],
       "compact_rules": "- Index fields used in domains, record rules, and date ranges; use trigram for ILIKE.\n- Prefetch with mapped() and filtered(); avoid N+1 loops over recordsets.\n- Use read_group or SQL for aggregates instead of Python loops.\n- store=True only when search or sort needs it; recompute is expensive.\n- Measure before optimizing; verify with query counts or profiling.",
-      "path": "skills/oca/04-testing/odoo-performance-guide.md",
+      "path": "skills/odoo-performance-guide/SKILL.md",
       "odoo_versions": [
         16,
         17,
@@ -2301,7 +2301,7 @@
         "chrome tour"
       ],
       "compact_rules": "- Tours run as JS or Python HttpCase tests against a real browser.\n- Steps use CSS selectors, text content, or menu xmlids; give every action a trigger.\n- Keep tours deterministic: wait for elements, avoid timing-based sleeps.\n- Run with the module installed and the correct assets bundle.\n- Debug with the tour recorder; a passing tour does not replace unit tests.",
-      "path": "skills/oca/04-testing/odoo-tour-testing.md",
+      "path": "skills/odoo-tour-testing/SKILL.md",
       "odoo_versions": [
         16,
         17,
@@ -2329,7 +2329,7 @@
         "common issues"
       ],
       "compact_rules": "- 'api' has no attribute 'multi' \u2014 Using @api.multi \u2014 v15+ \u2014 Remove decorator.\n- attrs attribute is no longer supported \u2014 Using attrs= \u2014 v17+ \u2014 Use invisible=.\n- create() takes 2 positional arguments \u2014 Single create() \u2014 v17+ \u2014 Use @api.model_create_multi.\n- check_company failed \u2014 Cross-company relation \u2014 v18+ \u2014 Add check_company=True.\n- SQL string query deprecated \u2014 String SQL \u2014 v19 \u2014 Use SQL() builder.\n- External ID not found \u2014 Missing XML reference \u2014 All \u2014 Check file order in manifest.",
-      "path": "skills/oca/04-testing/odoo-troubleshooting-guide.md",
+      "path": "skills/odoo-troubleshooting-guide/SKILL.md",
       "odoo_versions": [
         16,
         17,
@@ -2356,7 +2356,7 @@
         "version model guide"
       ],
       "compact_rules": "- Determine the target version first; never mix patterns across versions.\n- Load the version-specific model patterns file before writing model code.\n- v16+: Command class for x2many; v17+: model_create_multi mandatory, attrs removed.\n- v18+: _check_company_auto and check_company=True; v19: type hints and SQL() mandatory.\n- Detect version by decorators, Command, attrs, check_company_auto, and type hints.",
-      "path": "skills/oca/05-version/odoo-model-patterns.md",
+      "path": "skills/odoo-model-patterns/SKILL.md",
       "odoo_versions": [
         16,
         17,
@@ -2410,7 +2410,7 @@
         "method signature"
       ],
       "compact_rules": "- Search the local Odoo source or codegraph before answering; do not rely on memory.\n- Prefer ORM decorators: @api.depends for computed, @api.constrains for validation, @api.onchange for UI.\n- Use @api.model_create_multi for batch create; @api.model when no recordset is needed.\n- Show a real example from the target version with file:line.\n- Flag version differences; APIs change between 16 and 19.",
-      "path": "skills/oca/oca-api-lookup.md",
+      "path": "skills/oca-api-lookup/SKILL.md",
       "odoo_versions": [
         16,
         17,
@@ -2437,7 +2437,7 @@
         "readme gen"
       ],
       "compact_rules": "- Generate README.md, DESCRIPTION.rst, USAGE.rst, CONTRIBUTORS.rst, and HISTORY.rst.\n- README: overview, features, installation, configuration, usage, credits, license.\n- Keep USAGE.rst task-oriented; HISTORY.rst follows the OCA changelog format.\n- Do not invent screenshots or badges; reference real files.\n- Match the manifest license and author.",
-      "path": "skills/oca/oca-documentation-gen.md",
+      "path": "skills/oca-documentation-gen/SKILL.md",
       "odoo_versions": [
         16,
         17,
@@ -2464,7 +2464,7 @@
         "policy lookup"
       ],
       "compact_rules": "- Use the OCA rules already captured in this pack; do not depend on an external vault path.\n- Commit tags: FIX, ADD, IMP, REF, REM, MIG, MOV, DOC, TEST, SEC, PERF.\n- Format: [TAG] module_name: short description, imperative mood, max 50 chars.\n- PRs need a related issue and the OCA checklist.\n- If a rule is missing, check the governance skill before inventing one.",
-      "path": "skills/oca/oca-lookup-guideline.md",
+      "path": "skills/oca-lookup-guideline/SKILL.md",
       "odoo_versions": [
         16,
         17,
@@ -2491,7 +2491,7 @@
         "port module"
       ],
       "compact_rules": "- Priority: OpenUpgrade upgrade_analysis.txt, then Odoo changelogs, then OCA migration PRs.\n- Read the analysis for the module before writing migration scripts.\n- Scripts go in migrations/<version>/pre|post-*.py; make them idempotent and batched.\n- Document renamed or removed fields and irreversible steps.\n- Test on real data; verify counts and constraints after migration.",
-      "path": "skills/oca/oca-migration-assist.md",
+      "path": "skills/oca-migration-assist/SKILL.md",
       "odoo_versions": [
         16,
         17,
@@ -2518,7 +2518,7 @@
         "which versions migrated"
       ],
       "compact_rules": "- Classify each module: MIGRATED (exists in target branch), IN_PR (open [MIG] PR), MISSING (no PR).\n- List modules from the source branch, then compare with the target branch.\n- Search PRs by [MIG] title and module name.\n- Report counts and percentages; include PR links for IN_PR.\n- Re-check before reporting; PR state changes.",
-      "path": "skills/oca/oca-migration-status.md",
+      "path": "skills/oca-migration-status/SKILL.md",
       "odoo_versions": [
         16,
         17,
@@ -2545,7 +2545,7 @@
         "find implementation"
       ],
       "compact_rules": "- Search the local Odoo source first; use rg for text and find for paths.\n- Read the actual model, view, and test files; never guess framework behavior.\n- Cite file:line for every claim.\n- Restrict searches to the target version's source tree.\n- If the source is absent, say so instead of inventing behavior.",
-      "path": "skills/oca/oca-odoo-local-search.md",
+      "path": "skills/oca-odoo-local-search/SKILL.md",
       "odoo_versions": [
         16,
         17,
@@ -2572,7 +2572,7 @@
         "odoo/odoo pattern"
       ],
       "compact_rules": "- Search odoo/odoo for official patterns and OCA/* for community conventions.\n- Prefer local source or codegraph over remote search when available.\n- Match the target version; do not copy patterns from another version.\n- Report file:line and the purpose of each pattern.\n- Flag patterns that conflict with OCA style.",
-      "path": "skills/oca/oca-pattern-match.md",
+      "path": "skills/oca-pattern-match/SKILL.md",
       "odoo_versions": [
         16,
         17,
@@ -2599,7 +2599,7 @@
         "pr diff apply"
       ],
       "compact_rules": "- Get PR metadata first: head branch, author, state, mergeable, files.\n- In an existing clone: gh pr checkout <number>.\n- Manual: git fetch origin pull/<number>/head:pr-<number> and git checkout pr-<number>.\n- Checkout dependency PRs first, in order, then the main PR.\n- Warn that PR code is not approved for production.\n- Never push to a PR branch unless the author asks.",
-      "path": "skills/oca/oca-pr-checkout.md",
+      "path": "skills/oca-pr-checkout/SKILL.md",
       "odoo_versions": [
         16,
         17,
@@ -2626,7 +2626,7 @@
         "related PRs"
       ],
       "compact_rules": "- Read the PR body for 'Depends on:' and 'And indirectly on:' links.\n- Parse OCA/{repo}#{number} and github.com/OCA/{repo}/pull/{number}.\n- Verify each dependency state before checkout.\n- Build the tree in order; checkout dependencies first.\n- Report missing or closed dependencies as blockers.",
-      "path": "skills/oca/oca-pr-dependencies.md",
+      "path": "skills/oca-pr-dependencies/SKILL.md",
       "odoo_versions": [
         16,
         17,
@@ -2653,7 +2653,7 @@
         "find migration"
       ],
       "compact_rules": "- Search PRs by [MIG] plus the module name in the target OCA repo.\n- Parse titles: [MIG] module: ..., [X.0][MIG] module, and escaped variants.\n- Use gh pr list with state filters; include closed PRs to detect abandoned work.\n- Report PR number, state, author, and module.\n- Handle no-results explicitly; never conclude 'missing' from one query.",
-      "path": "skills/oca/oca-search-migration-prs.md",
+      "path": "skills/oca-search-migration-prs/SKILL.md",
       "odoo_versions": [
         16,
         17,
@@ -2680,7 +2680,7 @@
         "refactor suggestion"
       ],
       "compact_rules": "- Check security first: SQL injection, XSS, permissions, sudo misuse.\n- Then performance: N+1 queries, missing indexes, Python loops over recordsets.\n- Then code quality: duplication, long methods, naming, dead code.\n- Then Odoo conventions: ORM over SQL, translations, manifest, tests.\n- Rank by severity and give a concrete fix per finding.",
-      "path": "skills/oca/oca-suggest-improve.md",
+      "path": "skills/oca-suggest-improve/SKILL.md",
       "odoo_versions": [
         16,
         17,
@@ -2707,7 +2707,7 @@
         "module upgrade risk"
       ],
       "compact_rules": "- Read OpenUpgrade upgrade_analysis.txt for the module and target version first.\n- Then Odoo changelogs, then OCA migration PRs.\n- Report renamed, removed, and changed fields and methods.\n- Rank findings by migration risk.\n- Never invent an analysis entry; cite the file.",
-      "path": "skills/oca/oca-upgrade-analysis.md",
+      "path": "skills/oca-upgrade-analysis/SKILL.md",
       "odoo_versions": [
         16,
         17,

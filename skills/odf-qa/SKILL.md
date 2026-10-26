@@ -68,5 +68,5 @@ what remains for BUILD/VERIFY without implying a pass.
 
 ## References
 
-- `~/.config/opencode/skills/_shared/result-contract.md` — ODF Result envelope
-- `~/.config/opencode/skills/_shared/odoo-sources.md` — Local source paths
+- `../_shared/result-contract.md` — ODF Result envelope
+- `../_shared/odoo-sources.md` — Local source paths

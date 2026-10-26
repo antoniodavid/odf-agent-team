@@ -94,7 +94,7 @@ removed by inline QA.
                         │
                         ▼
                ┌─────────────────┐
-               │  skills/*.md    │  ← compact rules + stage body
+               │ skills/<name>/  │  ← compact rules + stage body
                └─────────────────┘
 ```
 
