@@ -22,6 +22,7 @@ requirement.
 | `investigation` | `EXPLORE` | `EXPLORE` | `EXPLORE` | none | none | Ephemeral report via `/odf-explore`; not bound. |
 | `standard-config` | `DECIDE` | `DECIDE` | `DECIDE` | none | none | Complete at `DECIDE`; no archive. |
 | `small-change` | `DECIDE` | `DECIDE → BUILD → VERIFY` | `VERIFY` | inline | required | Archive after terminal VERIFY. |
+| `feature-inline` | `DECIDE` | `DECIDE → BUILD → VERIFY` | `VERIFY` | inline | required | Archive after terminal VERIFY. |
 | `feature` | `DECIDE` | `DECIDE → PLAN → BUILD → VERIFY` | `VERIFY` | required | required | Archive after terminal VERIFY. |
 | `cross-domain` | `DECIDE` | `DECIDE → PLAN → BUILD → VERIFY` | `VERIFY` | required | required | Archive after parallel BUILD and terminal VERIFY. |
 | `bugfix` | `FIX` | `FIX → BUILD → VERIFY` | `VERIFY` | inline | required | Archive after terminal VERIFY. |
@@ -34,6 +35,21 @@ does not bind workflow state or persist a formal change. Do not start those two
 work types through `/odf-new`. `standard-config` is a real formal route, but its
 lifecycle ends at `DECIDE`; `/odf-archive` is reserved for routes that reach
 `VERIFY`.
+
+`feature-inline` is the default standard-feature route. It keeps the human
+Intent + Expectations contract and drops the formal PLAN. Its `DECIDE` stage has
+three modes, selected deterministically at entry:
+
+| Mode | Entry signal | DECIDE behavior |
+|---|---|---|
+| `skip` | Clear intent, known module, no risk, no assess trigger | Terminal bind writes `decision` before BUILD. |
+| `assess` | Redundancy hit, existing `models/`/`security/`/`data/`/`migrations/`/`wizard/`/`report/`/`controllers/` surface, >10 expected files, unknown module, unclear intent, or explicit `--assess` | One bounded ASSESS delegation writes the canonical `decision` before BUILD. |
+| `escalate` | `feature`/`cross-domain`/`migration`/`security`, OCA target, or a protected risk signal | The formal `feature` route keeps DECIDE + PLAN. |
+
+ASSESS in `assess` mode is a decision assessment, not a functional spec: it
+returns strategy (standard-coverage / custom / extend-existing), scope, affected
+areas, risks, unknowns, and a bounded reason. It does not create `proposal`,
+`assess`, `design`, `qa-plan`, or `tasks` artifacts.
 
 ## Stage matrix
 

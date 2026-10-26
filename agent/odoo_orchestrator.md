@@ -112,12 +112,12 @@ approvals. The mandatory gates listed above still apply in `auto` — preflight,
 human Expectations approval, the Policy Gate, validation evidence, VERIFY, and
 failure disposition are never skipped.
 
-### Supervised Auto (FIX and small-change)
+### Supervised Auto (FIX, small-change, and feature-inline)
 
-FIX runs without human stage approvals by design; micro and `small-change`
-routes default their voluntary gates to auto when no explicit mode was chosen.
-The human approves once at entry only when intent/Expectations are missing, then
-supervises.
+FIX runs without human stage approvals by design; micro, `small-change`,
+`bugfix` FIX, and `feature-inline` routes default their voluntary gates to auto
+when no explicit mode was chosen. The human approves once at entry only when
+intent/Expectations are missing, then supervises.
 
 - Stops are limited to genuine decisions: product/scope, destructive-operation
   consent, architectural escalation that changes the route, or an unrecoverable
@@ -236,7 +236,7 @@ execution. The orchestrator supplies neither implementation nor domain advice.
 
 | Canonical stage | Legacy skill adapter | Required output |
 |---|---|---|
-| DECIDE | `odf-propose` + `odf-assess` | Business scope and standard/custom decision |
+| DECIDE | `odf-propose` + `odf-assess` (lean `feature-inline` runs only `odf-assess` when its gate requires it) | Business scope and standard/custom decision |
 | PLAN | `odf-qa` + `odf-design` | QA lens, technical design, and task breakdown |
 | BUILD | `odf-implement` | Code/tests plus merged implementation progress |
 | VERIFY | `odf-verify` | Evidence-based verdict and compliance report |
@@ -534,9 +534,28 @@ resume from the last completed stage.
 The following role headings are stage checkpoints. Canonical routing comes
 from `odf_workflow_route`; roles must not create extra business stages.
 
+### feature-inline DECIDE (conditional ASSESS)
+
+`feature-inline` has no PROPOSE and no PLAN. The persisted `assessment_gate`
+selects one of three modes and is authoritative:
+
+- `skip`: bind already materialized terminal DECIDE with `decision` (Intent +
+  approved Expectations + assessment metadata). Go to BUILD.
+- `assess`: bind left DECIDE pending. Run exactly one bounded `ASSESS` that
+  saves the canonical `decision` artifact before BUILD. Lean ASSESS returns
+  strategy (`standard-coverage`, `custom`, `extend-existing`), scope, affected
+  areas, risks, unknowns, and a bounded reason; it writes no `proposal`,
+  `assess`, `design`, `qa-plan`, or `tasks` artifact. If it returns `standard`,
+  stop at DECIDE with the configuration guidance. If it returns `complex`, stop
+  and escalate to `feature` through the audited re-plan path before editing.
+- `escalate`: the resolved route is formal (`feature`, `cross-domain`,
+  `migration`, `security`); run the normal gates below.
+
+Only the `assess` mode pays one ASSESS delegation. `skip` pays none.
+
 ### PROPOSE
 
-- **Interactive grilling (frontier rounds)**: in `interactive`, resolve the design tree with the user before delegation. Map the open decisions, then ask one round of the **frontier** — the questions whose prerequisites are already settled. Number each question and attach your recommended answer. Facts are the agent's job: look up files, standard Odoo source, and existing configuration; never ask what you can discover yourself. Wait for the answers before recomputing the frontier and asking the next round. Done when the frontier is empty — no branch silently assumed. In `batch` and `auto`, skip this voluntary round.
+- **Interactive grilling (frontier rounds)**: in `interactive`, resolve the design tree with the user before delegation. Map the open decisions, then ask one round of the **frontier** — the questions whose prerequisites are already settled. Number each question and attach your recommended answer. Facts are the agent's job: look up files, standard Odoo source, and existing configuration; never ask what you can discover yourself. Wait for the answers before recomputing the frontier and asking the next round. Done when the frontier is empty — no branch silently assumed. In `batch` and `auto`, skip this voluntary round. This section applies to the formal `feature` route only; `feature-inline` never runs it.
 - Carry the resolved decisions into the proposal delegation; a scope-, risk-, or rollback-changing decision that is still open blocks the delegation.
 - **Capture human Expectations**: before delegating, first inspect any existing Expectations artifact. If it is valid, approved, and byte-equivalent in protected content to the intended contract, reuse it without another question, renumbering, or write. Protected content includes `change`, `intent`, `expectations`, and any present top-level `constraints`, `success_scenarios`, `failure_scenarios`, or `connections`. If it differs or is invalid/tampered, stop closed. Otherwise distill the USER's intent and expectations from the command description plus ONE clarification round (via `question`), reformulate them as testable `EXP-XX`, and request explicit confirmation. Pass the complete approved document to `odf_workflow_bind`; never persist it directly. Every `EXP` has `owned_by: "human"`.
 - Delegate the proposal; it contains intent, scope, capabilities, approach, affected areas, risks, rollback, and success criteria.

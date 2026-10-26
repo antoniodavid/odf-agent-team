@@ -187,7 +187,7 @@ it does not re-investigate or re-decide settled scope. Use the orchestrator-supp
   `design_closed: true`, `design_path`, `design_meta`, and exact approved seams. If
   any decision or seam is absent, stale, or unresolved, return `blocked` and ask
   the orchestrator to reopen PLAN with the exact missing decision.
-- For `plan: inline` (`small-change` or `bugfix`), use the completed DECIDE/FIX entry
+- For `plan: inline` (`small-change`, `feature-inline`, or `bugfix`), use the completed DECIDE/FIX entry
   evidence, approved human Expectations, and bounded inline task/QA plan. Formal
   ASSESS/DESIGN artifacts and `design_closed` are not prerequisites. Trace each
   task to its approved expectation and focused check; do not improvise or broaden

@@ -78,7 +78,7 @@ export function evaluateOnline(records, days = 1) {
 }
 
 export const WORK_TYPES = [
-  "question", "investigation", "standard-config", "small-change", "feature",
+  "question", "investigation", "standard-config", "small-change", "feature-inline", "feature",
   "cross-domain", "bugfix", "migration", "security", "verify-only",
 ]
 export const ROUTE_RISKS = ["low", "standard", "high"]
@@ -90,6 +90,7 @@ export const ROUTE_STAGES = {
   investigation: ["EXPLORE"],
   "standard-config": ["DECIDE"],
   "small-change": ["DECIDE", "BUILD", "VERIFY"],
+  "feature-inline": ["DECIDE", "BUILD", "VERIFY"],
   feature: ["DECIDE", "PLAN", "BUILD", "VERIFY"],
   "cross-domain": ["DECIDE", "PLAN", "BUILD", "VERIFY"],
   bugfix: ["FIX", "BUILD", "VERIFY"],

@@ -21,6 +21,9 @@ const SMALL_CHANGE_MAX_FILES = 5
 const FILE_BOUND_CHECK = `expected files <=${SMALL_CHANGE_MAX_FILES}`
 const FILE_BOUND_REASON = `blast radius exceeds the <=${SMALL_CHANGE_MAX_FILES} file boundary`
 const LEGACY_FILE_BOUND_CHECK = "expected files <=3"
+export const ASSESS_FILE_THRESHOLD = 10
+const ASSESS_CONTEXT_PATTERN = /(^|\/)(models|security|data|migrations?|wizard|report|controllers)\//i
+const ASSESS_ESCALATION_SIGNALS = new Set(["security", "migration", "payment", "public-api", "data-loss", "pii"])
 
 export const ICE_CONTEXT_SOURCES = [
   "project",
@@ -75,6 +78,12 @@ export interface EntryTriageInput {
   risk_signals?: string[]
   /** Project module names from odf-init/{project}; used to flag unknown modules. */
   known_modules?: string[]
+  /** Repository-relative context files already selected for the change. */
+  context_files?: string[]
+  /** Bounded redundancy probe result; counts only, never file contents. */
+  redundancy?: { hits: number; contradictions: number }
+  /** Caller explicitly requested a bounded ASSESS before BUILD. */
+  explicit_assess?: boolean
   /** Optional reference-only context assembled from existing project facts. */
   ice_context?: ICEContextEnvelope
   /** Optional explicit facts used only by the advisory shadow prediction. */
@@ -118,6 +127,15 @@ export interface EntryRouteBinding extends EntryRouteShadow {
   shadow_digest: string
 }
 
+export type AssessmentGateMode = "skip" | "assess" | "escalate"
+
+/** Deterministic pre-build assessment decision for the resolved route. */
+export interface AssessmentGate {
+  mode: AssessmentGateMode
+  reason: string
+  signals: string[]
+}
+
 export interface EntryTriageResult {
   level: EntryLevel
   work_type: WorkType
@@ -129,10 +147,13 @@ export interface EntryTriageResult {
   /** Intent clarity of the description. */
   clarity: EntryClarity
   warnings?: string[]
+  /** Whether a bounded ASSESS delegation is required before BUILD. */
+  assessment_gate: AssessmentGate
   shadow: EntryRouteShadow
 }
 
 type EntryTriageClassification = Omit<EntryTriageResult, "shadow">
+type EntryTriageCore = Omit<EntryTriageResult, "shadow" | "assessment_gate">
 type EntryTriageToolInput = Omit<EntryTriageInput, "change" | "ice_context"> & {
   change?: string
   ice_context?: Omit<ICEContextEnvelope, "version"> & { version?: number }
@@ -589,6 +610,7 @@ function explicitLevel(workType: WorkType): EntryLevel {
     case "standard-config":
       return "micro"
     case "feature":
+    case "feature-inline":
       return "standard"
     case "cross-domain":
     case "migration":
@@ -634,16 +656,81 @@ function iceQuestion(input: EntryTriageInput, missing: string[], unclear: boolea
     : "To classify this change, describe the expected outcome, the affected current behavior, and how it will be verified."
 }
 
-function classifyEntryTriageBase(input: EntryTriageInput): EntryTriageClassification {
+export function resolveAssessmentGate(input: EntryTriageInput, result: EntryTriageCore): AssessmentGate {
+  if (result.work_type === "feature" || result.work_type === "cross-domain" ||
+    result.work_type === "migration" || result.work_type === "security") {
+    return {
+      mode: "escalate",
+      reason: `Route ${result.work_type} keeps the formal DECIDE/PLAN path.`,
+      signals: [result.work_type],
+    }
+  }
+  if (result.work_type !== "feature-inline") {
+    return {
+      mode: "skip",
+      reason: `Route ${result.work_type} does not use the assessment gate.`,
+      signals: [],
+    }
+  }
+
+  const escalation = result.signals.filter((signal) => ASSESS_ESCALATION_SIGNALS.has(signal))
+  if (escalation.length > 0) {
+    return {
+      mode: "escalate",
+      reason: `Risk signal(s) require the formal route: ${escalation.join(", ")}.`,
+      signals: escalation,
+    }
+  }
+
+  const signals: string[] = []
+  if (result.needs_question) signals.push("needs-question")
+  if (result.clarity === "unclear") signals.push("unclear-intent")
+  if ((result.warnings || []).some((warning) => warning.includes("is not present in the project sources"))) {
+    signals.push("unknown-module")
+  }
+  if (typeof input.expected_files === "number" && input.expected_files > ASSESS_FILE_THRESHOLD) {
+    signals.push("expected-files-above-threshold")
+  }
+  if (Array.isArray(input.context_files) &&
+    input.context_files.some((file) => typeof file === "string" && ASSESS_CONTEXT_PATTERN.test(file))) {
+    signals.push("existing-code-surface")
+  }
+  if (input.redundancy && (input.redundancy.hits > 0 || input.redundancy.contradictions > 0)) {
+    signals.push("redundancy-signal")
+  }
+  if (input.explicit_assess === true) signals.push("explicit-assess")
+
+  if (signals.length > 0) {
+    return {
+      mode: "assess",
+      reason: "One bounded functional assessment is required before BUILD.",
+      signals,
+    }
+  }
+
+  return {
+    mode: "skip",
+    reason: "Entry facts are clear and no assessment trigger fired.",
+    signals: [],
+  }
+}
+
+function classifyEntryTriageBase(input: EntryTriageInput): { core: EntryTriageCore; normalized: EntryTriageInput } {
   const normalized = normalizeEntryInput(input)
-  input = normalized.input
+  return {
+    core: classifyNormalizedEntry(normalized.input, normalized.warnings),
+    normalized: normalized.input,
+  }
+}
+
+function classifyNormalizedEntry(input: EntryTriageInput, contextWarnings: string[]): EntryTriageCore {
   const signals = [...new Set([
     ...normalizeRiskSignals(input.risk_signals),
     ...detectRiskSignals(input.description || ""),
     ...contextRiskSignals(input.module, input.domain),
   ])]
   const clarity = descriptionClarity(input.description || "")
-  const warnings = [...normalized.warnings, ...unknownModuleWarnings(input)]
+  const warnings = [...contextWarnings, ...unknownModuleWarnings(input)]
 
   const explicit = input.explicit_work_type
   if (explicit && WORK_TYPES.includes(explicit)) {
@@ -759,8 +846,8 @@ function classifyEntryTriageBase(input: EntryTriageInput): EntryTriageClassifica
 
   return {
     level: "standard",
-    work_type: "feature",
-    reason: "No risk signals and the change does not qualify as micro; classified as a standard feature.",
+    work_type: "feature-inline",
+    reason: "No risk signals and the change does not qualify as micro; classified as a standard feature on the inline route.",
     needs_question: false,
     signals,
     clarity,
@@ -878,7 +965,11 @@ export function predictEntryRouteShadow(input: EntryTriageInput): EntryRouteShad
 export function classifyEntryTriage(input: EntryTriageInput): EntryTriageResult
 export function classifyEntryTriage(input: EntryTriageInput, includeShadow: false): EntryTriageClassification
 export function classifyEntryTriage(input: EntryTriageInput, includeShadow = true): EntryTriageResult | EntryTriageClassification {
-  const result = classifyEntryTriageBase(input)
+  const { core, normalized } = classifyEntryTriageBase(input)
+  const result: EntryTriageClassification = {
+    ...core,
+    assessment_gate: resolveAssessmentGate(normalized, core),
+  }
   return includeShadow ? { ...result, shadow: predictEntryRouteShadow(input) } : result
 }
 
@@ -939,6 +1030,19 @@ is true, ask one grouped question for the missing facts and re-run.`,
         .max(512)
         .optional()
         .describe("Project module names from odf-init/{project}; unknown modules are flagged as warnings"),
+      context_files: tool.schema
+        .array(tool.schema.string().max(512))
+        .max(32)
+        .optional()
+        .describe("Repository-relative files already selected for the change; used only by the assessment gate"),
+      redundancy: tool.schema.object({
+        hits: tool.schema.number().int().nonnegative().max(1000),
+        contradictions: tool.schema.number().int().nonnegative().max(1000),
+      }).optional().describe("Bounded redundancy probe counts; never file contents"),
+      explicit_assess: tool.schema
+        .boolean()
+        .optional()
+        .describe("Force one bounded ASSESS before BUILD"),
       ice_context: tool.schema.object({
         version: tool.schema.number().optional().describe("ICE context envelope version; currently 1"),
         provenance: tool.schema.object({
@@ -990,6 +1094,9 @@ is true, ask one grouped question for the missing facts and re-run.`,
         expectations_clear: args.expectations_clear,
         risk_signals: args.risk_signals,
         known_modules: args.known_modules,
+        context_files: args.context_files,
+        redundancy: args.redundancy,
+        explicit_assess: args.explicit_assess,
         ice_context: args.ice_context as ICEContextEnvelope | undefined,
         shadow_context: args.shadow_context,
       })

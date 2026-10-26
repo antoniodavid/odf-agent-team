@@ -45,14 +45,17 @@ not extra user-facing stages. The optional shadow prediction is advisory and
 does not change execution.
 
 Every code-changing route carries focused QA tied to approved Expectations.
-Small changes and bugfixes keep a compact test/check plan inline and do not
-require a separate `qa-plan` artifact. Routes requiring PLAN, or an explicit
-risk/complexity escalation, use formal QA-PLAN. QA-REVIEW/QA-AGGREGATE/QA-REPORT
-run only when routed. The concrete route is resolved per work type (standard
-config can stop after DECIDE; small change is DECIDE → BUILD → VERIFY; a bugfix
-is FIX → BUILD → VERIFY; feature/cross-domain/migration/security use DECIDE →
-PLAN → BUILD → VERIFY; investigation uses EXPLORE). Required VERIFY and evidence
-gates are never removed by inline QA.
+Small changes, inline features, and bugfixes keep a compact test/check plan
+inline and do not require a separate `qa-plan` artifact. Routes requiring PLAN,
+or an explicit risk/complexity escalation, use formal QA-PLAN.
+QA-REVIEW/QA-AGGREGATE/QA-REPORT run only when routed. The concrete route is
+resolved per work type (standard config can stop after DECIDE; small change and
+`feature-inline` are DECIDE → BUILD → VERIFY; a bugfix is FIX → BUILD → VERIFY;
+feature/cross-domain/migration/security use DECIDE → PLAN → BUILD → VERIFY;
+investigation uses EXPLORE). `feature-inline` runs its bounded ASSESS only when
+the deterministic entry gate selects `assess`; a clear entry binds a terminal
+DECIDE with no ASSESS delegation. Required VERIFY and evidence gates are never
+removed by inline QA.
 
 ## Component Overview
 

@@ -45,6 +45,15 @@ const expectedRoutes: Record<WorkType, ReturnType<typeof resolveWorkflowRoute>> 
     parallel_build: false,
     risk: "standard",
   },
+  "feature-inline": {
+    work_type: "feature-inline",
+    entry: "DECIDE",
+    stages: ["DECIDE", "BUILD", "VERIFY"],
+    plan: "inline",
+    verification: "required",
+    parallel_build: false,
+    risk: "standard",
+  },
   feature: {
     work_type: "feature",
     entry: "DECIDE",

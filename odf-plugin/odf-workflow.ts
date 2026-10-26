@@ -3,6 +3,7 @@ export const WORK_TYPES = [
   "investigation",
   "standard-config",
   "small-change",
+  "feature-inline",
   "feature",
   "cross-domain",
   "bugfix",
@@ -84,6 +85,15 @@ const ROUTES: Record<WorkType, WorkflowRoute> = {
   },
   "small-change": {
     work_type: "small-change",
+    entry: "DECIDE",
+    stages: ["DECIDE", "BUILD", "VERIFY"],
+    plan: "inline",
+    verification: "required",
+    parallel_build: false,
+    risk: "standard",
+  },
+  "feature-inline": {
+    work_type: "feature-inline",
     entry: "DECIDE",
     stages: ["DECIDE", "BUILD", "VERIFY"],
     plan: "inline",

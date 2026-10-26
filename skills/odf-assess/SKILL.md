@@ -9,12 +9,35 @@ metadata:
 
 ## Activation Contract
 
-Use only for Phase 1 (ASSESS) of `/odf-new`, after PROPOSE and preflight. Match
-requirements, version, and standard-vs-custom feasibility; do not implement.
+Use only for Phase 1 (ASSESS) of `/odf-new`, after PROPOSE and preflight, or as
+the single bounded ASSESS of a `feature-inline` entry whose assessment gate is
+`assess`. Match requirements, version, and standard-vs-custom feasibility; do
+not implement.
+
+## Lean mode (`feature-inline`)
+
+When the delegation carries `work_type: feature-inline`, produce the canonical
+`decision` artifact, not a functional spec:
+
+- Cap the output at 400 words.
+- Record `status`, `intent`, `expectations_approved`, and an `assessment` object
+  with `mode: performed`, `outcome` (`standard-coverage`, `custom`,
+  `extend-existing`, `complex`, or `blocked`), `strategy`, `scope`, `risks`,
+  `unknowns`, and a bounded `reason`.
+- Check standard coverage first, then name affected modules, models, views, and
+  data; include dependency or migration risk and any unresolved ambiguity.
+- Do NOT create `proposal`, `assess`, `design`, `qa-plan`, or `tasks` artifacts.
+- `standard-coverage` ends the route at DECIDE with a configuration guide.
+  `complex` stops and escalates to `feature`; never implement.
+- Persist to the selected store (`openspec/changes/{change}/decision.yaml` or
+  `odf/{change}/decision`) and return its canonical `artifact_ref`.
 
 ## When to Use
 
-Use as Phase 1 of /odf-new, after PROPOSE. Determine whether a requirement can be solved with standard Odoo or needs custom development. NEVER write code in this phase — only specs or config guides.
+Use as Phase 1 of /odf-new, after PROPOSE, or as the bounded ASSESS selected by
+a `feature-inline` assessment gate. Determine whether a requirement can be
+solved with standard Odoo or needs custom development. NEVER write code in this
+phase — only specs, decision assessments, or config guides.
 
 ## Hard Rules
 
@@ -23,8 +46,8 @@ Use as Phase 1 of /odf-new, after PROPOSE. Determine whether a requirement can b
 | Standard Odoo first | When the strategy is unclear, investigate settings/automated actions/studio BEFORE custom code; skip exploration when the proposal strategy hint + Expectations already determine standard vs custom |
 | No code | Produce only specifications (custom) or configuration guides (standard) |
 | Version required | Confirm Odoo version before any analysis |
-| Plan requirements numbered | Use REQ-01, REQ-02 format for the technical plan |
-| RFC 2119 | Use MUST/SHALL/SHOULD/MAY in requirements |
+| Plan requirements numbered | Formal mode only: use REQ-01, REQ-02 for the technical plan. Lean mode returns a `decision` with no REQ catalog |
+| RFC 2119 | Use MUST/SHALL/SHOULD/MAY in formal requirements only |
 | Human Expectations kept separate | Do NOT replace the human `EXP-XX` from the `expectations` artifact. Reference `EXP-XX` in each REQ, never rename them as REQ |
 
 ## Decision Gates
@@ -70,6 +93,12 @@ The phase is DONE only when ALL hold (checkable, not vibes):
 - For `standard`: the configuration guide covers every REQ. For `custom`: the functional spec passes the Requirements Quality Checklist; no unresolved ambiguity remains (interactive resolves it with the user; `batch`/`auto` returns `blocked` instead of guessing).
 - Every non-core dependency of the affected module is resolved against the active sources or flagged (see odf-init dependency_matrix).
 - The artifact is persisted in the selected store with a canonical `artifact_ref` in the ODF Result.
+
+Lean mode is done only when the `decision` artifact carries `assessment.mode:
+performed`, a valid `outcome` and `strategy`, bounded scope/risks/unknowns, the
+output stays under 400 words, no SDD artifact was created, and the route outcome
+is explicit (`standard-coverage` ends at DECIDE; `complex` escalates; otherwise
+BUILD may proceed).
 
 ## Output Contract
 

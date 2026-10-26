@@ -103,7 +103,7 @@ Consume the approved plan appropriate to the orchestrator-supplied persisted rou
 do not infer plan mode from missing artifacts. For `plan: required`, require the
 approved closed design and exact seams; if the design, seams, or required source
 authority is absent, return `blocked` and ask the orchestrator to reopen PLAN.
-For `plan: inline` (`small-change` or `bugfix`), use the completed DECIDE/FIX entry
+For `plan: inline` (`small-change`, `feature-inline`, or `bugfix`), use the completed DECIDE/FIX entry
 evidence, approved human Expectations, and bounded inline tasks/QA plan. Formal
 ASSESS/DESIGN artifacts and `design_closed` are not prerequisites. Keep the UI
 seams, target-version/API choices, tests, and scope explicit in that inline plan;

@@ -30,6 +30,7 @@ const EXPECTED_TERMINALS: Record<WorkType, CanonicalStage> = {
   investigation: "EXPLORE",
   "standard-config": "DECIDE",
   "small-change": "VERIFY",
+  "feature-inline": "VERIFY",
   feature: "VERIFY",
   "cross-domain": "VERIFY",
   bugfix: "VERIFY",
