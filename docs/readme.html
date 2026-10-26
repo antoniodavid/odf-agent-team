@@ -54,11 +54,11 @@
       <blockquote>
 <p><strong>Spec-driven Odoo delivery on OpenCode</strong> — a stage pipeline, 11 specialized agents, 87 skills, and deterministic CLIs so your AI team <em>finds</em> the codebase instead of inventing it.</p>
 </blockquote>
-<p><a href="#development"><img src="https://img.shields.io/badge/tests-1370%20unit%20%2B%20331%20YAML%20%2B%2018%20harness-brightgreen" alt="Tests"></a>
+<p><a href="#development"><img src="https://img.shields.io/badge/tests-1405%20unit%20%2B%20331%20YAML%20%2B%2018%20harness-brightgreen" alt="Tests"></a>
 <a href="https://github.com/antoniodavid/odf-agent-team/blob/main/odf-registry.json"><img src="https://img.shields.io/badge/registry-87%20skills%20%C2%B7%2011%20agents-blue" alt="Registry"></a>
 <a href="intended-usage.html"><img src="https://img.shields.io/badge/Odoo-16%20%E2%80%93%2019-EE7048" alt="Odoo"></a>
 <a href="https://github.com/antoniodavid/odf-agent-team/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-green" alt="License"></a>
-<a href="changelog.html"><img src="https://img.shields.io/badge/version-1.6.1-informational" alt="Version"></a></p>
+<a href="changelog.html"><img src="https://img.shields.io/badge/version-1.6.2-informational" alt="Version"></a></p>
 <p><strong>ODF</strong> — spec-driven Odoo delivery on OpenCode. Turns a generic AI assistant into a structured Odoo delivery team. An orchestrator routes every stage through a plugin that resolves the right agent, injects at most five skill rules, enforces Policy Gates, and seals evidence — so nothing ships on a guess.</p>
 <pre><code>odf-delegation plugin ──► task() ──► specialist agent ──► Odoo worktree
         │                                                          │
@@ -66,7 +66,7 @@
 </code></pre>
 <h2 id="quickstart" tabindex="-1"><a class="anchor" href="#quickstart" aria-label="Link to this section">#</a>Quickstart</h2>
 <pre><code class="language-bash"># 1. Install into ~/.config/opencode (release-pinned)
-curl -fsSL https://raw.githubusercontent.com/antoniodavid/odf-agent-team/v1.6.1/install.sh | BRANCH=v1.6.1 bash
+curl -fsSL https://raw.githubusercontent.com/antoniodavid/odf-agent-team/v1.6.2/install.sh | BRANCH=v1.6.2 bash
 
 # 2. Inside OpenCode, from any Odoo worktree:
 /odf-init           # detect version, modules, test runner
@@ -206,7 +206,7 @@ curl -fsSL https://raw.githubusercontent.com/antoniodavid/odf-agent-team/v1.6.1/
 </ul>
 <h2 id="honest-status" tabindex="-1"><a class="anchor" href="#honest-status" aria-label="Link to this section">#</a>Honest status</h2>
 <ul>
-<li><strong>Mature and tested locally</strong>: 1370 unit tests + 331 YAML scenarios + 18 harness checks. Representative Odoo validation and end-to-end telemetry remain ODF 2.0 gates.</li>
+<li><strong>Mature and tested locally</strong>: 1405 unit tests + 331 YAML scenarios + 18 harness checks. Representative Odoo validation and end-to-end telemetry remain ODF 2.0 gates.</li>
 <li><strong>Portable</strong>: Linux/macOS/Windows (Git Bash/WSL), <code>XDG_CONFIG_HOME</code> resolution, author-path rewriting at install time.</li>
 <li><strong>Known limitations</strong>:
 <ul>
@@ -252,7 +252,7 @@ curl -fsSL https://raw.githubusercontent.com/antoniodavid/odf-agent-team/v1.6.1/
 <p>Full matrix: <code>node &lt;pack&gt;/scripts/odf-toolkit.js deps</code></p>
 <h2 id="development" tabindex="-1"><a class="anchor" href="#development" aria-label="Link to this section">#</a>Development</h2>
 <pre><code class="language-bash">npm test              # full suite: unit + YAML + plugin
-npm run test:unit     # 1370 Vitest
+npm run test:unit     # 1405 Vitest
 npm run test:yaml     # 331 YAML scenarios
 npm run test:harness  # 18 harness checks
 npm run typecheck     # tsc --noEmit

@@ -86,7 +86,7 @@
 </tr>
 </tbody>
 </table></div>
-<h2 id="what-changed-in-161" tabindex="-1"><a class="anchor" href="#what-changed-in-161" aria-label="Link to this section">#</a>What changed in 1.6.1</h2>
+<h2 id="what-changed-in-162" tabindex="-1"><a class="anchor" href="#what-changed-in-162" aria-label="Link to this section">#</a>What changed in 1.6.2</h2>
 <div class="table-wrap"><table>
 <thead>
 <tr>
@@ -96,40 +96,24 @@
 </thead>
 <tbody>
 <tr>
-<td>Routes</td>
-<td><code>feature-inline</code> is the default standard-feature route with a deterministic <code>skip</code> / <code>assess</code> / <code>escalate</code> gate.</td>
+<td>Docs site</td>
+<td>Every documentation link renders as a styled page with a grouped sidebar, in-page TOC, breadcrumbs, prev/next, reading time, search palette, 404, sitemap, and robots.</td>
 </tr>
 <tr>
-<td>Context</td>
-<td>One bounded, reference-only Context Manifest is built at entry and forwarded unchanged to ASSESS and BUILD.</td>
+<td>Generation</td>
+<td><code>npm run docs:build</code> renders 25 sources; <code>npm run docs:check</code> runs in CI and fails on stale output.</td>
 </tr>
 <tr>
-<td>Delegation</td>
-<td>Native children are bound to parent/agent/model/workspace, cancellation propagates, and expired tokens recover through <code>odf_delegation_late_seal_prepare</code>.</td>
+<td>Privacy</td>
+<td>No personal paths in shipped files: the installers rewrite any <code>/home/&lt;user&gt;/.config/opencode</code>, skill metadata uses the project handle, and the timesheet binary is rebuilt with <code>-trimpath</code>.</td>
 </tr>
 <tr>
-<td>Stops</td>
-<td>Every blocked/failed envelope names a <code>stop_disposition</code> with the only allowed recovery.</td>
-</tr>
-<tr>
-<td>Status</td>
-<td>Canonical only: the legacy projection, legacy state read path, and <code>odf_status</code> are gone; <code>odf_workflow_status</code> exposes a persisted <code>next_handoff</code>.</td>
-</tr>
-<tr>
-<td>Skills</td>
-<td>Agent Skills validation (<code>npm run validate:skills</code>) plus all 87 <code>compact_rules</code> regenerated.</td>
-</tr>
-<tr>
-<td>Evaluation</td>
-<td>Decision-quality report, local decision reviews, human/judge agreement, period comparison, cadence, and improvement proposals.</td>
-</tr>
-<tr>
-<td>Activation</td>
-<td>ODF is scoped to initialized projects (<code>.odf/project.json</code>) with an explicit reload requirement.</td>
+<td>Guardrails</td>
+<td>A privacy test fails the suite when a published file gains a home path, provider email, private key, token format, URL with credentials, or literal password.</td>
 </tr>
 </tbody>
 </table></div>
-<p>Full detail: <a href="changelog.html">CHANGELOG.md</a>.</p>
+<p>1.6.1 introduced <code>feature-inline</code> with its conditional ASSESS gate, the Context Manifest, decision-quality evaluation, <code>stop_disposition</code>, persisted <code>next_handoff</code>, and project-scoped activation. Full detail: <a href="changelog.html">CHANGELOG.md</a>.</p>
 <h2 id="diagrams" tabindex="-1"><a class="anchor" href="#diagrams" aria-label="Link to this section">#</a>Diagrams</h2>
 <p>Interactive, self-contained HTML (open locally or via <a href="https://antoniodavid.github.io/odf-agent-team/" target="_blank" rel="noopener">GitHub Pages</a>):</p>
 <div class="table-wrap"><table>
@@ -233,7 +217,7 @@
     </article>
     <nav class="pager" aria-label="Documentation pagination"><span></span><a class="pager-link next" href="intended-usage.html"><span>Next</span><b>Intended usage</b></a></nav>
   </main>
-  <aside class="toc" aria-label="On this page"><p class="toc-title">On this page</p><nav><a class="toc-l2" href="#what-changed-in-161">What changed in 1.6.1</a><a class="toc-l2" href="#diagrams">Diagrams</a><a class="toc-l2" href="#contracts">Contracts</a><a class="toc-l2" href="#operations">Operations</a><a class="toc-l2" href="#history">History</a></nav></aside>
+  <aside class="toc" aria-label="On this page"><p class="toc-title">On this page</p><nav><a class="toc-l2" href="#what-changed-in-162">What changed in 1.6.2</a><a class="toc-l2" href="#diagrams">Diagrams</a><a class="toc-l2" href="#contracts">Contracts</a><a class="toc-l2" href="#operations">Operations</a><a class="toc-l2" href="#history">History</a></nav></aside>
 </div>
 <div class="overlay" id="overlay" role="dialog" aria-modal="true" aria-label="Search documentation">
   <div class="palette">

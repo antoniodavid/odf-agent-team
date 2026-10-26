@@ -3,8 +3,8 @@
   "last_updated": "2026-10-26",
   "package": {
     "name": "odf-agent-team",
-    "version": "1.6.1",
-    "description": "ODF — spec-driven Odoo delivery on OpenCode",
+    "version": "1.6.2",
+    "description": "ODF \u2014 spec-driven Odoo delivery on OpenCode",
     "repository": "https://github.com/antoniodavid/odf-agent-team",
     "dependencies": {
       "yaml": "^2.7.0",
@@ -537,7 +537,7 @@
         {
           "version": "2.0",
           "date": "2026-05-14",
-          "change": "Restructured: 249→50 lines, Output Contract, Decision Gates for standard vs custom"
+          "change": "Restructured: 249\u219250 lines, Output Contract, Decision Gates for standard vs custom"
         },
         {
           "version": "1.0",
@@ -592,7 +592,7 @@
         {
           "version": "2.0",
           "date": "2026-05-14",
-          "change": "Restructured: 248→49 lines, architecture decisions table"
+          "change": "Restructured: 248\u219249 lines, architecture decisions table"
         },
         {
           "version": "1.0",
@@ -649,7 +649,7 @@
         {
           "version": "2.0",
           "date": "2026-05-14",
-          "change": "Restructured: 266→53 lines, smoke tests per batch"
+          "change": "Restructured: 266\u219253 lines, smoke tests per batch"
         },
         {
           "version": "1.0",
@@ -818,7 +818,7 @@
         {
           "version": "2.0",
           "date": "2026-05-14",
-          "change": "Restructured: 222→60 lines, added frontmatter + Decision Gates"
+          "change": "Restructured: 222\u219260 lines, added frontmatter + Decision Gates"
         },
         {
           "version": "1.0",
@@ -860,12 +860,12 @@
         {
           "version": "2.0",
           "date": "2026-05-14",
-          "change": "Restructured: Activation Contract → Hard Rules → Decision Gates → Execution Steps → Output Contract"
+          "change": "Restructured: Activation Contract \u2192 Hard Rules \u2192 Decision Gates \u2192 Execution Steps \u2192 Output Contract"
         },
         {
           "version": "1.0",
           "date": "2026-04-01",
-          "change": "Initial 3-step DIAGNOSE→FIX→VERIFY flow"
+          "change": "Initial 3-step DIAGNOSE\u2192FIX\u2192VERIFY flow"
         }
       ],
       "last_updated": "2026-05-14"
@@ -901,7 +901,7 @@
         {
           "version": "2.0",
           "date": "2026-05-14",
-          "change": "Restructured: 235→43 lines, Output Contract, fff/fff_grep instructions"
+          "change": "Restructured: 235\u219243 lines, Output Contract, fff/fff_grep instructions"
         },
         {
           "version": "1.0",
@@ -957,7 +957,7 @@
         {
           "version": "2.0",
           "date": "2026-05-14",
-          "change": "Restructured: 274→50 lines, decision gates for detection"
+          "change": "Restructured: 274\u219250 lines, decision gates for detection"
         },
         {
           "version": "1.0",
@@ -993,7 +993,7 @@
         {
           "version": "2.0",
           "date": "2026-05-14",
-          "change": "Restructured: 311→55 lines, 4-phase QA workflow"
+          "change": "Restructured: 311\u219255 lines, 4-phase QA workflow"
         },
         {
           "version": "1.0",
@@ -1050,7 +1050,7 @@
         "pr description",
         "documentation"
       ],
-      "compact_rules": "- Lead with the answer — Put the decision, action, or outcome first. Context comes after.\n- Progressive disclosure — Happy path first, then details, edge cases, references.\n- Chunking — Group related info into small sections. Keep lists short.\n- Signposting — Use headings, labels, callouts, and summaries so readers know where they are.\n- Recognition over recall — Tables, checklists, examples > prose that must be remembered.\n- Review empathy — Design so reviewers verify intent without reconstructing the whole story.",
+      "compact_rules": "- Lead with the answer \u2014 Put the decision, action, or outcome first. Context comes after.\n- Progressive disclosure \u2014 Happy path first, then details, edge cases, references.\n- Chunking \u2014 Group related info into small sections. Keep lists short.\n- Signposting \u2014 Use headings, labels, callouts, and summaries so readers know where they are.\n- Recognition over recall \u2014 Tables, checklists, examples > prose that must be remembered.\n- Review empathy \u2014 Design so reviewers verify intent without reconstructing the whole story.",
       "path": "skills/oca/02-development-style/oca-cognitive-doc-design.md",
       "odoo_versions": [
         14,
@@ -1081,7 +1081,7 @@
         "pr comment",
         "issue reply"
       ],
-      "compact_rules": "- Be useful fast — Start with the actionable point. Do not recap the whole PR before feedback.\n- Be warm and direct — Sound like a thoughtful teammate, not a corporate bot.\n- Keep it short — 1-3 short paragraphs or a tight bullet list.\n- Explain why — Give the technical reason when asking for a change.\n- Avoid pile-ons — Comment on the highest-value issue, not every tiny preference.",
+      "compact_rules": "- Be useful fast \u2014 Start with the actionable point. Do not recap the whole PR before feedback.\n- Be warm and direct \u2014 Sound like a thoughtful teammate, not a corporate bot.\n- Keep it short \u2014 1-3 short paragraphs or a tight bullet list.\n- Explain why \u2014 Give the technical reason when asking for a change.\n- Avoid pile-ons \u2014 Comment on the highest-value issue, not every tiny preference.",
       "path": "skills/oca/02-development-style/oca-comment-writer.md",
       "odoo_versions": [
         14,
@@ -1179,7 +1179,7 @@
         "review slice",
         "size exception"
       ],
-      "compact_rules": "- Split PRs over 400 lines — Unless a maintainer accepts size:exception.\n- Budget is not code-golf — Never shrink a diff by deleting comments, blank lines, docs, or tests, or by compressing code, to fit the review budget. Slice by work unit or report the overage.\n- One slicing pass — If no cohesive split fits after one honest pass, stop; keep the best split and recommend size:exception.\n- ≤60 min review per PR — Each PR must be reviewable in about 60 minutes.\n- Tests+docs stay with unit — Tests and docs belong with the work unit they verify.",
+      "compact_rules": "- Split PRs over 400 lines \u2014 Unless a maintainer accepts size:exception.\n- Budget is not code-golf \u2014 Never shrink a diff by deleting comments, blank lines, docs, or tests, or by compressing code, to fit the review budget. Slice by work unit or report the overage.\n- One slicing pass \u2014 If no cohesive split fits after one honest pass, stop; keep the best split and recommend size:exception.\n- \u226460 min review per PR \u2014 Each PR must be reviewable in about 60 minutes.\n- Tests+docs stay with unit \u2014 Tests and docs belong with the work unit they verify.",
       "path": "skills/oca/01-oca-governance/oca-chained-pr.md",
       "odoo_versions": [
         14,
@@ -1241,7 +1241,7 @@
         "precise writing",
         "mimic author writing style"
       ],
-      "compact_rules": "- State assumptions explicitly before implementing. If uncertain, ask.\n- If multiple interpretations exist, present all — do NOT pick silently.\n- No features beyond what was asked. No abstractions for single-use code.\n- No \"flexibility\" or \"configurability\" that wasn't requested.\n- Don't \"improve\" adjacent code, comments, or formatting.\n- Don't refactor things that aren't broken. Match existing style.\n- Every changed line must trace directly to the task requirement.\n- Transform imperative tasks into verifiable goals with verification per step.\n- If 200 lines could be 50, rewrite it smaller.",
+      "compact_rules": "- State assumptions explicitly before implementing. If uncertain, ask.\n- If multiple interpretations exist, present all \u2014 do NOT pick silently.\n- No features beyond what was asked. No abstractions for single-use code.\n- No \"flexibility\" or \"configurability\" that wasn't requested.\n- Don't \"improve\" adjacent code, comments, or formatting.\n- Don't refactor things that aren't broken. Match existing style.\n- Every changed line must trace directly to the task requirement.\n- Transform imperative tasks into verifiable goals with verification per step.\n- If 200 lines could be 50, rewrite it smaller.",
       "path": "skills/_shared/karpathy-precision.md",
       "odoo_versions": [
         16,
@@ -2328,7 +2328,7 @@
         "module not loading",
         "common issues"
       ],
-      "compact_rules": "- 'api' has no attribute 'multi' — Using @api.multi — v15+ — Remove decorator.\n- attrs attribute is no longer supported — Using attrs= — v17+ — Use invisible=.\n- create() takes 2 positional arguments — Single create() — v17+ — Use @api.model_create_multi.\n- check_company failed — Cross-company relation — v18+ — Add check_company=True.\n- SQL string query deprecated — String SQL — v19 — Use SQL() builder.\n- External ID not found — Missing XML reference — All — Check file order in manifest.",
+      "compact_rules": "- 'api' has no attribute 'multi' \u2014 Using @api.multi \u2014 v15+ \u2014 Remove decorator.\n- attrs attribute is no longer supported \u2014 Using attrs= \u2014 v17+ \u2014 Use invisible=.\n- create() takes 2 positional arguments \u2014 Single create() \u2014 v17+ \u2014 Use @api.model_create_multi.\n- check_company failed \u2014 Cross-company relation \u2014 v18+ \u2014 Add check_company=True.\n- SQL string query deprecated \u2014 String SQL \u2014 v19 \u2014 Use SQL() builder.\n- External ID not found \u2014 Missing XML reference \u2014 All \u2014 Check file order in manifest.",
       "path": "skills/oca/04-testing/odoo-troubleshooting-guide.md",
       "odoo_versions": [
         16,
@@ -2813,7 +2813,7 @@
     {
       "name": "odoo_orchestrator",
       "mode": "primary",
-      "description": "ODF Orchestrator — coordinates sub-agents, never writes code",
+      "description": "ODF Orchestrator \u2014 coordinates sub-agents, never writes code",
       "phases": [
         "ALL"
       ],
@@ -2824,7 +2824,7 @@
     {
       "name": "odoo_proposer",
       "mode": "subagent",
-      "description": "ODF PROPOSE agent — business framing, scope, capabilities, risks (300-word proposal only)",
+      "description": "ODF PROPOSE agent \u2014 business framing, scope, capabilities, risks (300-word proposal only)",
       "phases": [
         "PROPOSE"
       ],
@@ -2974,7 +2974,7 @@
     {
       "name": "orchestrator-agent",
       "type": "agent",
-      "description": "ODF Orchestrator — conversational workflow coordinator",
+      "description": "ODF Orchestrator \u2014 conversational workflow coordinator",
       "path": "agent/odoo_orchestrator.md"
     },
     {

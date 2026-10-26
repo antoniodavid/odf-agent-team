@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Changelog — ODF Agent Team · ODF Docs</title>
-  <meta name="description" content="**`feature-inline` route with a conditional ASSESS gate** (#180): the default standard-feature route runs DECIDE → BUILD → VERIFY and keeps the Intent + Expectations contract. A deterministic entry gate selects `skip` (t">
+  <meta name="description" content="**A real documentation site**: every documentation link renders as a standalone page with a grouped sidebar, in-page table of contents, breadcrumbs, reading time, prev/next navigation, and the search palette. `scripts/od">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -50,9 +50,35 @@
     </nav>
     <article class="prose">
       <h1>Changelog — ODF Agent Team</h1>
-      <p class="doc-meta">15 min read</p>
-      <h2 id="161-2026-10-26" tabindex="-1"><a class="anchor" href="#161-2026-10-26" aria-label="Link to this section">#</a>1.6.1 (2026-10-26)</h2>
+      <p class="doc-meta">16 min read</p>
+      <h2 id="162-2026-10-26" tabindex="-1"><a class="anchor" href="#162-2026-10-26" aria-label="Link to this section">#</a>1.6.2 (2026-10-26)</h2>
 <h3 id="added" tabindex="-1"><a class="anchor" href="#added" aria-label="Link to this section">#</a>Added</h3>
+<ul>
+<li><strong>A real documentation site</strong>: every documentation link renders as a standalone page with a grouped sidebar, in-page table of contents, breadcrumbs, reading time, prev/next navigation, and the search palette. <code>scripts/odf-docs-build.js</code> rewrites Markdown links (registered sources → relative pages, repository files → GitHub blob URLs, external links untouched), reproduces GitHub heading anchors, and generates <code>search-index.json</code>, <code>sitemap.xml</code>, <code>robots.txt</code>, and <code>.nojekyll</code> (#186).</li>
+<li><code>npm run docs:build</code> / <code>npm run docs:check</code>, a CI step, and unit tests for the slugger and link rewriter keep the generated pages in sync (#186).</li>
+<li>A Diagrams group in every docs sidebar, plus a styled 404 page (#186, #187).</li>
+<li>A privacy guard test that fails when a published file gains an absolute home path, Windows home path, provider email, private-key block, known token format, URL with credentials, or literal password (#188).</li>
+</ul>
+<h3 id="changed" tabindex="-1"><a class="anchor" href="#changed" aria-label="Link to this section">#</a>Changed</h3>
+<ul>
+<li><code>install.sh</code> and the TUI installer rewrite any <code>/home/&lt;user&gt;/.config/opencode</code> path instead of one hardcoded author path, so the pack is portable without embedding a username (#188).</li>
+<li>Skill frontmatter uses the public project handle; internal task logs, SDD state, and the archived verification report use generic paths (#188).</li>
+<li>The tracked timesheet binary is rebuilt with <code>go build -trimpath -ldflags=&quot;-s -w&quot;</code> (9.8 MB → 7.9 MB) and no longer embeds build-machine paths (#188).</li>
+<li>The landing page links locally, keeps search inside the site, and documents the 1.6.2 docs and privacy work.</li>
+</ul>
+<h3 id="fixed" tabindex="-1"><a class="anchor" href="#fixed" aria-label="Link to this section">#</a>Fixed</h3>
+<ul>
+<li>The safety contract shows <code>password=&lt;value&gt;</code> instead of a literal-looking password (#188).</li>
+<li>Removed stale internal notes and a <code>/tmp</code> reference from the landing page source (#188).</li>
+</ul>
+<h3 id="verification-boundary" tabindex="-1"><a class="anchor" href="#verification-boundary" aria-label="Link to this section">#</a>Verification boundary</h3>
+<ul>
+<li>Local validation covers 1405 Vitest tests (52 files), 331 YAML scenarios, 18 dedicated harness checks, <code>npm run typecheck</code>, registry validation, skill validation, <code>npm run docs:check</code>, <code>bash -n install.sh</code>, and <code>node --check</code> on the TUI installer.</li>
+<li>A full internal crawl of the generated site resolves every link and anchor; 32 published files were re-scanned for personal data and credentials and are clean.</li>
+<li>No npm package is published. Git history and the <code>v1.6.1</code> tag still contain the pre-fix installer path; this release makes the newest downloadable artifact clean without rewriting history.</li>
+</ul>
+<h2 id="161-2026-10-26" tabindex="-1"><a class="anchor" href="#161-2026-10-26" aria-label="Link to this section">#</a>1.6.1 (2026-10-26)</h2>
+<h3 id="added-1" tabindex="-1"><a class="anchor" href="#added-1" aria-label="Link to this section">#</a>Added</h3>
 <ul>
 <li><strong><code>feature-inline</code> route with a conditional ASSESS gate</strong> (#180): the default standard-feature route runs DECIDE → BUILD → VERIFY and keeps the Intent + Expectations contract. A deterministic entry gate selects <code>skip</code> (terminal DECIDE before BUILD), <code>assess</code> (one bounded ASSESS writes the canonical <code>decision</code>), or <code>escalate</code> (the formal <code>feature</code> route keeps DECIDE + PLAN). ASSESS here returns strategy, scope, affected areas, risks, and unknowns — never a functional spec.</li>
 <li><strong>Bounded Context Manifest (ICE)</strong> (#181): <code>odf_context_manifest</code> builds one read-only, reference-only manifest at entry with <code>redundancy</code>, <code>assessment_gate</code>, and <code>expectations_ref</code> included in <code>manifest_digest</code>, and forwards it unchanged to ASSESS and every BUILD batch. Redundancy is a gate signal for <code>feature-inline</code>, not a blocking user question.</li>
@@ -65,7 +91,7 @@
 <li><strong>Route/stage contract matrix</strong> (#169): <code>odf-plugin/odf-route-contract.test.ts</code> walks every route, transition, stage/role, and artifact/gate requirement; <code>docs/route-contract.md</code> mirrors it.</li>
 <li><strong>Boundary hardening</strong> (#145, #153, #155, #157): evidence and local security hardening, exact cross-root resolution, blocked absolute traversal destinations, rejected prose-redirect bypasses, and recoverable aborted launches.</li>
 </ul>
-<h3 id="changed" tabindex="-1"><a class="anchor" href="#changed" aria-label="Link to this section">#</a>Changed</h3>
+<h3 id="changed-1" tabindex="-1"><a class="anchor" href="#changed-1" aria-label="Link to this section">#</a>Changed</h3>
 <ul>
 <li><strong>Canonical status only</strong> (#164–#167): removed the legacy compatibility layer. <code>odf_workflow_status</code> no longer emits <code>phase</code>, <code>artifacts</code>, <code>applyProgress</code>, <code>lastUpdated</code>, or <code>legacy_phase</code>; the legacy state read path is gone, artifact-only changes report <code>state_kind: none</code> and stay non-resumable, and legacy launch tokens are rejected instead of upgraded. Only the <code>route.legacy_phases</code> alias survives, for bind comparison.</li>
 <li><strong>Centralized artifact vocabulary</strong> (#141): canonical artifact names, aliases, route completion alternatives, and OpenSpec discovery stems live in <code>odf-artifact-contract.ts</code>; store values and subsets live in <code>odf-artifact-stores.js</code>.</li>
@@ -82,36 +108,36 @@
 <li>The legacy dual-read compatibility layer, legacy status projection, and legacy state read path (#164, #166, #167).</li>
 <li><code>odf_notebooklm_lookup</code> and the <code>notebooklm_sources</code> registry map (#176); NotebookLM enrichment, when used, stays external to ODF.</li>
 </ul>
-<h3 id="fixed" tabindex="-1"><a class="anchor" href="#fixed" aria-label="Link to this section">#</a>Fixed</h3>
+<h3 id="fixed-1" tabindex="-1"><a class="anchor" href="#fixed-1" aria-label="Link to this section">#</a>Fixed</h3>
 <ul>
 <li>Cancellation and aborts: parent cancellation propagates to delegated children, cancelled delegations stop cleanly, and aborted children bind with a precise seal reason (#149, #159, #161).</li>
 <li>Late seal verifies the prepared prompt without an assistant result (#162), and aborted native children no longer dead-end recovery (#159).</li>
 <li>Safety: absolute traversal destinations are blocked (#155), prose-redirect bypasses are rejected (#157), false cross-root blocks no longer stop valid work (#153), and evidence/local security is hardened (#145).</li>
 <li>The registry fixture resolves from the repository root, so the suite no longer depends on the invocation directory (#177).</li>
 </ul>
-<h3 id="verification-boundary" tabindex="-1"><a class="anchor" href="#verification-boundary" aria-label="Link to this section">#</a>Verification boundary</h3>
+<h3 id="verification-boundary-1" tabindex="-1"><a class="anchor" href="#verification-boundary-1" aria-label="Link to this section">#</a>Verification boundary</h3>
 <ul>
 <li>Local validation covers 1370 Vitest tests (50 files), 331 YAML scenarios, 18 dedicated harness checks, <code>npm run typecheck</code>, registry validation, and <code>npm run validate:skills</code>.</li>
 <li>No npm package is published; the release is the tagged pack plus the GitHub release. Odoo-specific end-to-end validation and efficacy claims remain ODF 2.0 gates.</li>
 </ul>
 <h2 id="160-2026-10-09" tabindex="-1"><a class="anchor" href="#160-2026-10-09" aria-label="Link to this section">#</a>1.6.0 (2026-10-09)</h2>
-<h3 id="added-1" tabindex="-1"><a class="anchor" href="#added-1" aria-label="Link to this section">#</a>Added</h3>
+<h3 id="added-2" tabindex="-1"><a class="anchor" href="#added-2" aria-label="Link to this section">#</a>Added</h3>
 <ul>
 <li><strong>Diagnostics and safe recovery</strong>: bounded causal timelines, truthful canonical workflow status, fail-closed recovery guidance, and conversational exploration/continuation routing (#136).</li>
 <li><strong>Opt-in online feedback</strong>: <code>/odf-feedback</code> submits only an explicit 1–5 rating and aggregates with host-supplied usage after preview and confirmation; HTTPS endpoint, 1–30-day receiver-retention contract, and no prompts, free text, durable queue, or retries (#137).</li>
 <li>Repeatable offline evaluation journeys for diagnostics, recovery, and conversational workflows (#136).</li>
 </ul>
-<h3 id="changed-1" tabindex="-1"><a class="anchor" href="#changed-1" aria-label="Link to this section">#</a>Changed</h3>
+<h3 id="changed-2" tabindex="-1"><a class="anchor" href="#changed-2" aria-label="Link to this section">#</a>Changed</h3>
 <ul>
 <li>Expanded the plugin to 31 tools and the command set to 23; documented the online feedback privacy and retention boundary.</li>
 </ul>
-<h3 id="verification-boundary-1" tabindex="-1"><a class="anchor" href="#verification-boundary-1" aria-label="Link to this section">#</a>Verification boundary</h3>
+<h3 id="verification-boundary-2" tabindex="-1"><a class="anchor" href="#verification-boundary-2" aria-label="Link to this section">#</a>Verification boundary</h3>
 <ul>
 <li>CI on Node 22 passed for PR #137. Release-candidate validation passed 1,182 Vitest tests, 331 YAML scenarios, 18 harness checks, typecheck, and registry validation.</li>
 <li>Online feedback is user-rated telemetry, not benchmark evidence. This release makes no efficacy claim and does not include an ODF-hosted collection service or npm publication.</li>
 </ul>
 <h2 id="151-2026-10-03" tabindex="-1"><a class="anchor" href="#151-2026-10-03" aria-label="Link to this section">#</a>1.5.1 (2026-10-03)</h2>
-<h3 id="fixed-1" tabindex="-1"><a class="anchor" href="#fixed-1" aria-label="Link to this section">#</a>Fixed</h3>
+<h3 id="fixed-2" tabindex="-1"><a class="anchor" href="#fixed-2" aria-label="Link to this section">#</a>Fixed</h3>
 <ul>
 <li>Workflow persistence and recovery: Policy Gate writes fail closed, ARCHIVE retries repair partial OpenSpec/Engram writes, and replanning invalidates downstream artifacts (#104–#106).</li>
 <li>Native delegation safety: restore V2 delegation, guard direct tool calls, check seal context before child launch, and bind recovery to the exact idle child; handle multiline prompts, V2 result text, and transport banners safely (#86, #89, #93, #100, #101, #107, #108).</li>
@@ -119,31 +145,31 @@
 <li>VERIFY evidence is command-aware; warning is terminal only for a valid VERIFY report; a BUILD start proof does not replace persisted post-child validation evidence (#109, #110, #112).</li>
 <li>OpenCode V2 <code>/odf-new</code> normalizes sentence-final punctuation and binds workflow initialization to the active session workspace.</li>
 </ul>
-<h3 id="changed-2" tabindex="-1"><a class="anchor" href="#changed-2" aria-label="Link to this section">#</a>Changed</h3>
+<h3 id="changed-3" tabindex="-1"><a class="anchor" href="#changed-3" aria-label="Link to this section">#</a>Changed</h3>
 <ul>
 <li>Preflight defaults, strict input validation, and the runtime/specification contract are synchronized (#111).</li>
 <li>Workflow route, recovery, archive, and metrics guidance reflects the merged behavior (#85, #94, #96, #97).</li>
 <li>Lifecycle metrics correlate mixed-flow events and deduplicate mirrored stages (#98, #99).</li>
 </ul>
-<h3 id="verification-boundary-2" tabindex="-1"><a class="anchor" href="#verification-boundary-2" aria-label="Link to this section">#</a>Verification boundary</h3>
+<h3 id="verification-boundary-3" tabindex="-1"><a class="anchor" href="#verification-boundary-3" aria-label="Link to this section">#</a>Verification boundary</h3>
 <ul>
 <li>CI on Node 22 passed for the implementation PRs #104 and #106–#112, whose merged suite contained 1,050 unit tests, 330 YAML scenarios, and 18 harness checks. The 1.5.1 release candidate adds one V2 <code>/odf-new</code> regression case; its local validation passed 1,051 unit tests, 330 YAML scenarios, and 18 harness checks.</li>
 <li>Odoo-specific release validation and end-to-end telemetry remain outside this harness patch release; ODF 2.0 readiness is not claimed.</li>
 </ul>
 <h2 id="150-2026-09-29" tabindex="-1"><a class="anchor" href="#150-2026-09-29" aria-label="Link to this section">#</a>1.5.0 (2026-09-29)</h2>
-<h3 id="added-2" tabindex="-1"><a class="anchor" href="#added-2" aria-label="Link to this section">#</a>Added</h3>
+<h3 id="added-3" tabindex="-1"><a class="anchor" href="#added-3" aria-label="Link to this section">#</a>Added</h3>
 <ul>
 <li><strong>Native delegation (OpenCode V2)</strong>: <code>odf_delegation_prepare</code> + <code>odf_delegation_seal</code> run a phase as a host <code>subagent</code> child session — visible agent, description and live status — while every ODF gate stays plugin-side: bounded <code>odf-tok-…</code> tokens under <code>.odf/</code> (prompt digest, two-hour TTL, workspace containment), child-session binding checks, composite gates and a proof-backed replay of the authoritative delegate (policy gate, validation evidence, workflow commit, attempt settlement, failure receipts). The sealed envelope matches <code>odf_delegate</code> for identical inputs (delegate/seal parity matrix).</li>
 <li><strong>Native parallel BUILD</strong>: <code>odf_parallel_prepare</code> + <code>odf_parallel_seal</code> launch one <code>subagent</code> per branch (background allowed) and run the authoritative aggregate scheduler: per-branch validation evidence, the parallel-join artifact, one BUILD commit and one aggregate receipt on failure, with per-branch <code>task_session_id</code>.</li>
 <li><strong>Chokepoint guard</strong>: the V2 <code>execute.before</code> hook blocks direct <code>subagent</code>/<code>task</code> calls from the orchestrator to registered ODF specialists without the prepared delegation marker; manual agent use from other sessions is untouched.</li>
 <li>The plugin exposes 26 runtime tools.</li>
 </ul>
-<h3 id="changed-3" tabindex="-1"><a class="anchor" href="#changed-3" aria-label="Link to this section">#</a>Changed</h3>
+<h3 id="changed-4" tabindex="-1"><a class="anchor" href="#changed-4" aria-label="Link to this section">#</a>Changed</h3>
 <ul>
 <li>Orchestrator and phase commands document the native single and parallel delegation flows, their recovery reasons, and the fast-lane / cross-domain boundaries.</li>
 <li>Native seals record one aggregate <code>subagent</code> metric (the replayed delegate metrics are suppressed), including join counts for parallel BUILD.</li>
 </ul>
-<h3 id="fixed-2" tabindex="-1"><a class="anchor" href="#fixed-2" aria-label="Link to this section">#</a>Fixed</h3>
+<h3 id="fixed-3" tabindex="-1"><a class="anchor" href="#fixed-3" aria-label="Link to this section">#</a>Fixed</h3>
 <ul>
 <li>Heavy phases: VERIFY gets the same 900000 ms timeout budget as ASSESS/QA-PLAN/DESIGN, and the orchestrator documents expected duration, child-session visibility (<code>ODF &lt;phase&gt; → &lt;agent&gt; · &lt;change&gt;</code>, <code>/sessions</code> on the legacy path) and interruption semantics — interrupting aborts the child, settles the attempt as failed, applies the single transport relaunch, and <code>/odf-continue</code> resumes (#80).</li>
 <li>Parallel BUILD recovery: a persisted join left <code>running</code> after a host restart is recovered instead of dead-ending BUILD (#74, #75).</li>
@@ -151,7 +177,7 @@
 <li>Metrics: the entry-to-final-gate funnel breaks down per stage so the dominant bottleneck is localizable (#76, #77).</li>
 <li>Parallel scheduler tests use <code>waitFor</code> timeouts above the vitest 1 s default and no longer flake under load (#78, #79).</li>
 </ul>
-<h3 id="verification-boundary-3" tabindex="-1"><a class="anchor" href="#verification-boundary-3" aria-label="Link to this section">#</a>Verification boundary</h3>
+<h3 id="verification-boundary-4" tabindex="-1"><a class="anchor" href="#verification-boundary-4" aria-label="Link to this section">#</a>Verification boundary</h3>
 <ul>
 <li>Local repository checks cover 998 unit tests (37 files), 325 YAML scenarios, and 18 harness checks; CI runs the same suite on Node 22.</li>
 <li>Native delegation is covered by the prepare/seal flow tests, the delegate-vs-seal parity matrix (composite, proof-backed, inner-failed) and the parallel BUILD end-to-end tests; the real Odoo VERIFY run is recorded as release evidence.</li>
@@ -163,17 +189,17 @@ V1 <code>server</code> implementation, and <code>@opencode-ai/plugin</code> is n
 runtime graph. Packs installed from this release require an OpenCode V2 host:
 a V1 host will not register the ODF plugin.</p>
 </blockquote>
-<h3 id="added-3" tabindex="-1"><a class="anchor" href="#added-3" aria-label="Link to this section">#</a>Added</h3>
+<h3 id="added-4" tabindex="-1"><a class="anchor" href="#added-4" aria-label="Link to this section">#</a>Added</h3>
 <ul>
 <li>Native delegation visibility under OpenCode V2: child sessions carry a descriptive <code>ODF &lt;phase&gt; → &lt;agent&gt; · &lt;change&gt;</code> title, the delegated agent is surfaced through tool progress while the phase runs, and the outer delegation envelope reports <code>task_session_id</code> (#54, #56).</li>
 <li>Source-authority <code>not_applicable</code> evidence: non-view DESIGN/IMPLEMENT work can return a bounded <code>not_applicable</code> envelope when the task names no concrete view/action XML ID or <code>inherit_id</code>/<code>search_view_id</code> relation; concrete references still require the deterministic <code>odf-toolkit lookup</code> (#50, #52).</li>
 </ul>
-<h3 id="changed-4" tabindex="-1"><a class="anchor" href="#changed-4" aria-label="Link to this section">#</a>Changed</h3>
+<h3 id="changed-5" tabindex="-1"><a class="anchor" href="#changed-5" aria-label="Link to this section">#</a>Changed</h3>
 <ul>
 <li><strong>OpenCode V2 only</strong>: the entrypoint <code>plugins/odf-delegation.ts</code> now default-exports the official <code>Plugin.define({ id, setup })</code> shape. The V1 <code>server</code> export, <code>OdfDelegationPlugin</code> and <code>createODFRuntimeHooks</code> were removed along with their V1 contract fixtures.</li>
 <li>Runtime code no longer imports <code>@opencode-ai/plugin</code>. The shared <code>tool</code> helper moved to <code>odf-plugin/odf-tool.ts</code> (identity function + <code>zod</code> schema namespace), so the plugin graph carries only the host-provided <code>@opencode/plugin</code> plus the declared <code>zod</code> and <code>yaml</code> dependencies. <code>@opencode-ai/plugin</code> and <code>@opencode-ai/sdk</code> are now devDependencies, used for types and the V1/V2 schema-parity fixtures.</li>
 </ul>
-<h3 id="fixed-3" tabindex="-1"><a class="anchor" href="#fixed-3" aria-label="Link to this section">#</a>Fixed</h3>
+<h3 id="fixed-4" tabindex="-1"><a class="anchor" href="#fixed-4" aria-label="Link to this section">#</a>Fixed</h3>
 <ul>
 <li>Registry/telemetry warm-up used to live inside the retired V1 <code>server</code> entrypoint, so the V2 host silently lost it. It is now <code>startOdfRuntime()</code>, awaited by <code>setupODFV2</code>: metrics flushing, the skills/permissions cache refresh, unregistered-skill discovery and the learning loop all run under OpenCode V2.</li>
 <li>OpenCode V2 now injects the one-shot context-pressure notice through the <code>session.context</code> hook, restoring parity with the retired V1 <code>experimental.chat.system.transform</code> seam.</li>
@@ -189,13 +215,13 @@ a V1 host will not register the ODF plugin.</p>
 <li>Delegation cancellation bounds the child abort wait after a timeout (#64), and the TUI installer reports a degraded install honestly instead of claiming success (#68).</li>
 <li>The installer only exposes the plugin entrypoint once runtime dependencies resolve (#47).</li>
 </ul>
-<h3 id="verification-boundary-4" tabindex="-1"><a class="anchor" href="#verification-boundary-4" aria-label="Link to this section">#</a>Verification boundary</h3>
+<h3 id="verification-boundary-5" tabindex="-1"><a class="anchor" href="#verification-boundary-5" aria-label="Link to this section">#</a>Verification boundary</h3>
 <ul>
 <li>Local repository checks cover 970 unit tests (35 files), 325 YAML scenarios, and 18 harness checks; CI runs the same suite on Node 22.</li>
 <li>This release is OpenCode V2 only (see the breaking note above); a V1 host cannot register the plugin.</li>
 </ul>
 <h2 id="131-2026-09-24" tabindex="-1"><a class="anchor" href="#131-2026-09-24" aria-label="Link to this section">#</a>1.3.1 (2026-09-24)</h2>
-<h3 id="fixed-4" tabindex="-1"><a class="anchor" href="#fixed-4" aria-label="Link to this section">#</a>Fixed</h3>
+<h3 id="fixed-5" tabindex="-1"><a class="anchor" href="#fixed-5" aria-label="Link to this section">#</a>Fixed</h3>
 <ul>
 <li>Installer: <code>curl | bash</code> no longer dies silently — non-interactive stdin continues with an explicit notice (the TTY prompt is kept and tolerates EOF); regression tests cover the piped script and stdin at EOF (#17).</li>
 <li>OpenCode V2 entry authorization: the prompt hook detects the expanded <code>/odf-new</code> command document, and the V2 adapter shares the entry-authorization maps between the loop guard and the registered tools, so the capability minted after <code>odf_health</code> reaches <code>odf_workflow_bind</code> (#18).</li>
@@ -203,39 +229,39 @@ a V1 host will not register the ODF plugin.</p>
 <li>BUILD/VERIFY starts accept the completion-shape proof after an audited BUILD re-entry instead of rejecting it as a phase mismatch; <code>odf_workflow_advance</code> accepts an explicit <code>null</code> candidate_stage for initial transitions and documents the start convention (#28).</li>
 <li>TUI installer parity with <code>install.sh</code>: copies <code>odf-plugin/</code>, <code>policies/</code>, and <code>package.json</code> (so <code>npm install</code> runs), syncs the stale-plugin cleanup list, and covers uninstall/backup; tool, command, and skill counts in the docs match the registry and are guarded by consistency tests.</li>
 </ul>
-<h3 id="added-4" tabindex="-1"><a class="anchor" href="#added-4" aria-label="Link to this section">#</a>Added</h3>
+<h3 id="added-5" tabindex="-1"><a class="anchor" href="#added-5" aria-label="Link to this section">#</a>Added</h3>
 <ul>
 <li>GitHub Actions CI with test-gated auto-merge: typecheck, unit tests, YAML scenarios, registry validation, and diff check run on every PR; passing same-repo PRs squash-merge automatically (Node 22, actions v7).</li>
 </ul>
-<h3 id="verification-boundary-5" tabindex="-1"><a class="anchor" href="#verification-boundary-5" aria-label="Link to this section">#</a>Verification boundary</h3>
+<h3 id="verification-boundary-6" tabindex="-1"><a class="anchor" href="#verification-boundary-6" aria-label="Link to this section">#</a>Verification boundary</h3>
 <ul>
 <li>Local repository checks cover 900 unit tests, 325 YAML scenarios, and 18 harness checks; CI runs the same suite on Node 22.</li>
 <li>ODF 2.0 remains gated on representative Odoo validation, canary/cohort evidence, and end-to-end <code>/odf-new</code>/<code>/odf-fix</code> telemetry; this release does not claim ODF 2.0 production readiness.</li>
 </ul>
 <h2 id="130-2026-09-21" tabindex="-1"><a class="anchor" href="#130-2026-09-21" aria-label="Link to this section">#</a>1.3.0 (2026-09-21)</h2>
-<h3 id="added-5" tabindex="-1"><a class="anchor" href="#added-5" aria-label="Link to this section">#</a>Added</h3>
+<h3 id="added-6" tabindex="-1"><a class="anchor" href="#added-6" aria-label="Link to this section">#</a>Added</h3>
 <ul>
 <li>Fast-lane execution and V2 transport, including SDK child-session transport, shadow-route prediction, context manifests, and bounded implementation routing.</li>
 <li>Migration assessment routing, expanded agent and entry contracts, human Expectations, and stronger workflow and policy enforcement.</li>
 <li>Governance profiles and checks, provenance and disclosure updates, lifecycle and trace observability, installer/project-scope improvements, and resilience and ephemeral-subject validation.</li>
 </ul>
-<h3 id="verification-boundary-6" tabindex="-1"><a class="anchor" href="#verification-boundary-6" aria-label="Link to this section">#</a>Verification boundary</h3>
+<h3 id="verification-boundary-7" tabindex="-1"><a class="anchor" href="#verification-boundary-7" aria-label="Link to this section">#</a>Verification boundary</h3>
 <ul>
 <li>Local repository checks cover 844 unit tests, 154 YAML scenarios, and 17 harness checks.</li>
 <li>ODF 2.0 remains gated on representative Odoo validation, canary/cohort evidence, and end-to-end <code>/odf-new</code>/<code>/odf-fix</code> telemetry; this release does not claim ODF 2.0 production readiness.</li>
 </ul>
 <h2 id="121-2026-08-23" tabindex="-1"><a class="anchor" href="#121-2026-08-23" aria-label="Link to this section">#</a>1.2.1 (2026-08-23)</h2>
-<h3 id="added-6" tabindex="-1"><a class="anchor" href="#added-6" aria-label="Link to this section">#</a>Added</h3>
+<h3 id="added-7" tabindex="-1"><a class="anchor" href="#added-7" aria-label="Link to this section">#</a>Added</h3>
 <ul>
 <li>Gate de precisión: <code>odf-toolkit lookup</code> (IDs de vista/modelos/campos en el source local con file:line) y <code>verify-refs</code> (cada ref=/model= del módulo debe resolverse; exit 1 si no). Reglas &quot;nunca inventar IDs&quot; en odoo-sources, odf-design, odf-implement y backend engineer; el orquestador reenvía <code>odoo_source_root</code>.</li>
 <li>README reescrito: estado honesto, matriz de dependencias/degradación, pipeline, CLIs y gate de precisión.</li>
 </ul>
-<h3 id="fixed-5" tabindex="-1"><a class="anchor" href="#fixed-5" aria-label="Link to this section">#</a>Fixed</h3>
+<h3 id="fixed-6" tabindex="-1"><a class="anchor" href="#fixed-6" aria-label="Link to this section">#</a>Fixed</h3>
 <ul>
 <li>TUI: Enter en <code>(Y/n)</code> confirmaba en vez de cancelar; listener raw que se tragaba el Enter siguiente; guard no-TTY con hint de automatización.</li>
 </ul>
 <h2 id="120-2026-08-22" tabindex="-1"><a class="anchor" href="#120-2026-08-22" aria-label="Link to this section">#</a>1.2.0 (2026-08-22)</h2>
-<h3 id="added-7" tabindex="-1"><a class="anchor" href="#added-7" aria-label="Link to this section">#</a>Added</h3>
+<h3 id="added-8" tabindex="-1"><a class="anchor" href="#added-8" aria-label="Link to this section">#</a>Added</h3>
 <ul>
 <li><code>execution_mode: auto</code> (piloto automático): auto-continuación de fases en <code>ok</code>/<code>warning</code>, deteniéndose solo en gates obligatorios (health, preflight, Expectations, Policy Gate, evidencia, VERIFY, receipts)</li>
 <li>CLIs deterministas: <code>odf-project-scan</code> (config completa del entorno Doodba: addons.yaml sources, compose, linting, git, CodeGraph, matriz de dependencias; persist verificado con checksum/diff/exit codes; <code>--deep</code> indexa repos activos) y <code>odf-toolkit</code> (context/state/result/resolve/evidence/metrics/manual-evidence/redundancy)</li>
@@ -245,7 +271,7 @@ a V1 host will not register the ODF plugin.</p>
 <li>Completion criteria en odf-assess/design/implement/verify; smell baseline Fowler para el lens de readability; seams-first y anti-patrones de tests en implement/tdd; feedback-loop-first + redacción en odf-fix; handoff con Suggested Skills</li>
 <li>Descubrimiento de artefactos OpenSpec anidados (<code>design/design.md</code>, <code>qa-plan/plan.md</code>, ...)</li>
 </ul>
-<h3 id="fixed-6" tabindex="-1"><a class="anchor" href="#fixed-6" aria-label="Link to this section">#</a>Fixed</h3>
+<h3 id="fixed-7" tabindex="-1"><a class="anchor" href="#fixed-7" aria-label="Link to this section">#</a>Fixed</h3>
 <ul>
 <li>Agente DESIGN/PLAN bloqueado por <code>design_closed: &quot;true&quot;</code> (string): coerción <code>asBoolean</code> en el validador</li>
 <li>Resolver de agentes elegía frontend por el token genérico &quot;odoo&quot;: scoring por coincidencias + stop word</li>
@@ -257,7 +283,7 @@ a V1 host will not register the ODF plugin.</p>
 <li><code>odf-qa</code> hardcodeaba <code>mem_save</code>: ahora persiste en el store seleccionado con <code>artifact_ref</code></li>
 </ul>
 <h2 id="110-2026-06-18" tabindex="-1"><a class="anchor" href="#110-2026-06-18" aria-label="Link to this section">#</a>1.1.0 (2026-06-18)</h2>
-<h3 id="added-8" tabindex="-1"><a class="anchor" href="#added-8" aria-label="Link to this section">#</a>Added</h3>
+<h3 id="added-9" tabindex="-1"><a class="anchor" href="#added-9" aria-label="Link to this section">#</a>Added</h3>
 <ul>
 <li>Orquestador conversacional (<code>agent/odoo_orchestrator.md</code>) con preflight gate y máquina de estados</li>
 <li>Comandos nativos <code>/odf-new</code>, <code>/odf-continue</code>, <code>/odf-status</code>, <code>/odf-explore</code> registrados en <code>odf-registry.json</code></li>
@@ -272,13 +298,13 @@ a V1 host will not register the ODF plugin.</p>
 <li>Parser CLI mínimo en <code>scripts/odf-cli.js</code> para los comandos nativos</li>
 <li>Tests unitarios con Vitest (92 tests) y escenarios YAML (118 aserciones)</li>
 </ul>
-<h3 id="changed-5" tabindex="-1"><a class="anchor" href="#changed-5" aria-label="Link to this section">#</a>Changed</h3>
+<h3 id="changed-6" tabindex="-1"><a class="anchor" href="#changed-6" aria-label="Link to this section">#</a>Changed</h3>
 <ul>
 <li>README actualizado con instalación via <code>./install.sh</code>, referencia de comandos nativos y mención del orquestador/preflight</li>
 <li>Versión del proyecto a 1.1.0 (VERSION, package.json, odf-registry.json, install.sh)</li>
 </ul>
 <h2 id="100-2026-05-14" tabindex="-1"><a class="anchor" href="#100-2026-05-14" aria-label="Link to this section">#</a>1.0.0 (2026-05-14)</h2>
-<h3 id="added-9" tabindex="-1"><a class="anchor" href="#added-9" aria-label="Link to this section">#</a>Added</h3>
+<h3 id="added-10" tabindex="-1"><a class="anchor" href="#added-10" aria-label="Link to this section">#</a>Added</h3>
 <ul>
 <li>31 skills organizados por categoría (ODF, OCA Governance, OCA Style, Patterns)</li>
 <li>12 agentes especializados en desarrollo Odoo</li>
@@ -302,20 +328,20 @@ a V1 host will not register the ODF plugin.</p>
 <li>Auto-descubrimiento de skills en subagentes</li>
 <li>Perfiles de modelo: default (deepseek-r1 + kimi-k2.6), cheap (kimi-k2.6)</li>
 </ul>
-<h3 id="changed-6" tabindex="-1"><a class="anchor" href="#changed-6" aria-label="Link to this section">#</a>Changed</h3>
+<h3 id="changed-7" tabindex="-1"><a class="anchor" href="#changed-7" aria-label="Link to this section">#</a>Changed</h3>
 <ul>
 <li>Todos los skills restructurados al estándar gentle-ai (180-450 tokens)</li>
 <li>Registry convertido a formato named profiles</li>
 <li>Plugin de 766→1044 líneas con metrics + learning loop</li>
 </ul>
-<h3 id="fixed-7" tabindex="-1"><a class="anchor" href="#fixed-7" aria-label="Link to this section">#</a>Fixed</h3>
+<h3 id="fixed-8" tabindex="-1"><a class="anchor" href="#fixed-8" aria-label="Link to this section">#</a>Fixed</h3>
 <ul>
 <li>Rutas relativas de skills → absolutas (34 archivos)</li>
 <li>Permisos de agentes (12 agentes con acceso completo)</li>
 <li>mgrep → fff/fff_grep en todos los skills</li>
 </ul>
 <h2 id="010-2026-04-01" tabindex="-1"><a class="anchor" href="#010-2026-04-01" aria-label="Link to this section">#</a>0.1.0 (2026-04-01)</h2>
-<h3 id="added-10" tabindex="-1"><a class="anchor" href="#added-10" aria-label="Link to this section">#</a>Added</h3>
+<h3 id="added-11" tabindex="-1"><a class="anchor" href="#added-11" aria-label="Link to this section">#</a>Added</h3>
 <ul>
 <li>Initial ODF workflow with 5 phases</li>
 <li>Basic OCA compliance skills</li>
@@ -326,7 +352,7 @@ a V1 host will not register the ODF plugin.</p>
     </article>
     <nav class="pager" aria-label="Documentation pagination"><a class="pager-link prev" href="readme.html"><span>Previous</span><b>README</b></a><a class="pager-link next" href="agents.html"><span>Next</span><b>Contributing</b></a></nav>
   </main>
-  <aside class="toc" aria-label="On this page"><p class="toc-title">On this page</p><nav><a class="toc-l2" href="#161-2026-10-26">1.6.1 (2026-10-26)</a><a class="toc-l3" href="#added">Added</a><a class="toc-l3" href="#changed">Changed</a><a class="toc-l3" href="#removed">Removed</a><a class="toc-l3" href="#fixed">Fixed</a><a class="toc-l3" href="#verification-boundary">Verification boundary</a><a class="toc-l2" href="#160-2026-10-09">1.6.0 (2026-10-09)</a><a class="toc-l3" href="#added-1">Added</a><a class="toc-l3" href="#changed-1">Changed</a><a class="toc-l3" href="#verification-boundary-1">Verification boundary</a><a class="toc-l2" href="#151-2026-10-03">1.5.1 (2026-10-03)</a><a class="toc-l3" href="#fixed-1">Fixed</a><a class="toc-l3" href="#changed-2">Changed</a><a class="toc-l3" href="#verification-boundary-2">Verification boundary</a><a class="toc-l2" href="#150-2026-09-29">1.5.0 (2026-09-29)</a><a class="toc-l3" href="#added-2">Added</a><a class="toc-l3" href="#changed-3">Changed</a><a class="toc-l3" href="#fixed-2">Fixed</a><a class="toc-l3" href="#verification-boundary-3">Verification boundary</a><a class="toc-l2" href="#140-2026-09-28">1.4.0 (2026-09-28)</a><a class="toc-l3" href="#added-3">Added</a><a class="toc-l3" href="#changed-4">Changed</a><a class="toc-l3" href="#fixed-3">Fixed</a><a class="toc-l3" href="#verification-boundary-4">Verification boundary</a><a class="toc-l2" href="#131-2026-09-24">1.3.1 (2026-09-24)</a><a class="toc-l3" href="#fixed-4">Fixed</a><a class="toc-l3" href="#added-4">Added</a><a class="toc-l3" href="#verification-boundary-5">Verification boundary</a><a class="toc-l2" href="#130-2026-09-21">1.3.0 (2026-09-21)</a><a class="toc-l3" href="#added-5">Added</a><a class="toc-l3" href="#verification-boundary-6">Verification boundary</a><a class="toc-l2" href="#121-2026-08-23">1.2.1 (2026-08-23)</a><a class="toc-l3" href="#added-6">Added</a><a class="toc-l3" href="#fixed-5">Fixed</a><a class="toc-l2" href="#120-2026-08-22">1.2.0 (2026-08-22)</a><a class="toc-l3" href="#added-7">Added</a><a class="toc-l3" href="#fixed-6">Fixed</a><a class="toc-l2" href="#110-2026-06-18">1.1.0 (2026-06-18)</a><a class="toc-l3" href="#added-8">Added</a><a class="toc-l3" href="#changed-5">Changed</a><a class="toc-l2" href="#100-2026-05-14">1.0.0 (2026-05-14)</a><a class="toc-l3" href="#added-9">Added</a><a class="toc-l3" href="#changed-6">Changed</a><a class="toc-l3" href="#fixed-7">Fixed</a><a class="toc-l2" href="#010-2026-04-01">0.1.0 (2026-04-01)</a><a class="toc-l3" href="#added-10">Added</a></nav></aside>
+  <aside class="toc" aria-label="On this page"><p class="toc-title">On this page</p><nav><a class="toc-l2" href="#162-2026-10-26">1.6.2 (2026-10-26)</a><a class="toc-l3" href="#added">Added</a><a class="toc-l3" href="#changed">Changed</a><a class="toc-l3" href="#fixed">Fixed</a><a class="toc-l3" href="#verification-boundary">Verification boundary</a><a class="toc-l2" href="#161-2026-10-26">1.6.1 (2026-10-26)</a><a class="toc-l3" href="#added-1">Added</a><a class="toc-l3" href="#changed-1">Changed</a><a class="toc-l3" href="#removed">Removed</a><a class="toc-l3" href="#fixed-1">Fixed</a><a class="toc-l3" href="#verification-boundary-1">Verification boundary</a><a class="toc-l2" href="#160-2026-10-09">1.6.0 (2026-10-09)</a><a class="toc-l3" href="#added-2">Added</a><a class="toc-l3" href="#changed-2">Changed</a><a class="toc-l3" href="#verification-boundary-2">Verification boundary</a><a class="toc-l2" href="#151-2026-10-03">1.5.1 (2026-10-03)</a><a class="toc-l3" href="#fixed-2">Fixed</a><a class="toc-l3" href="#changed-3">Changed</a><a class="toc-l3" href="#verification-boundary-3">Verification boundary</a><a class="toc-l2" href="#150-2026-09-29">1.5.0 (2026-09-29)</a><a class="toc-l3" href="#added-3">Added</a><a class="toc-l3" href="#changed-4">Changed</a><a class="toc-l3" href="#fixed-3">Fixed</a><a class="toc-l3" href="#verification-boundary-4">Verification boundary</a><a class="toc-l2" href="#140-2026-09-28">1.4.0 (2026-09-28)</a><a class="toc-l3" href="#added-4">Added</a><a class="toc-l3" href="#changed-5">Changed</a><a class="toc-l3" href="#fixed-4">Fixed</a><a class="toc-l3" href="#verification-boundary-5">Verification boundary</a><a class="toc-l2" href="#131-2026-09-24">1.3.1 (2026-09-24)</a><a class="toc-l3" href="#fixed-5">Fixed</a><a class="toc-l3" href="#added-5">Added</a><a class="toc-l3" href="#verification-boundary-6">Verification boundary</a><a class="toc-l2" href="#130-2026-09-21">1.3.0 (2026-09-21)</a><a class="toc-l3" href="#added-6">Added</a><a class="toc-l3" href="#verification-boundary-7">Verification boundary</a><a class="toc-l2" href="#121-2026-08-23">1.2.1 (2026-08-23)</a><a class="toc-l3" href="#added-7">Added</a><a class="toc-l3" href="#fixed-6">Fixed</a><a class="toc-l2" href="#120-2026-08-22">1.2.0 (2026-08-22)</a><a class="toc-l3" href="#added-8">Added</a><a class="toc-l3" href="#fixed-7">Fixed</a><a class="toc-l2" href="#110-2026-06-18">1.1.0 (2026-06-18)</a><a class="toc-l3" href="#added-9">Added</a><a class="toc-l3" href="#changed-6">Changed</a><a class="toc-l2" href="#100-2026-05-14">1.0.0 (2026-05-14)</a><a class="toc-l3" href="#added-10">Added</a><a class="toc-l3" href="#changed-7">Changed</a><a class="toc-l3" href="#fixed-8">Fixed</a><a class="toc-l2" href="#010-2026-04-01">0.1.0 (2026-04-01)</a><a class="toc-l3" href="#added-11">Added</a></nav></aside>
 </div>
 <div class="overlay" id="overlay" role="dialog" aria-modal="true" aria-label="Search documentation">
   <div class="palette">
