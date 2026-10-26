@@ -2864,6 +2864,18 @@ describe("matchSkills", () => {
     expect(skills[0].name).toBe("odf-design")
   })
 
+  it("breaks score ties by registry order, not compact_rules length", () => {
+    const template = baseRegistry.skills[0]
+    const skills = matchSkills({
+      ...baseRegistry,
+      skills: [
+        { ...template, name: "first-skill", title: "First", triggers: ["tie"], compact_rules: "- Short rule." },
+        { ...template, name: "second-skill", title: "Second", triggers: ["tie"], compact_rules: "- Long rule. ".repeat(20) },
+      ],
+    }, null, { task: "tie", files: [] })
+    expect(skills.map((skill: ODFSkill) => skill.name)).toEqual(["first-skill", "second-skill"])
+  })
+
   it("filters by Odoo version", () => {
     const skills = matchSkills(baseRegistry, "DESIGN", {
       task: "Design a model",

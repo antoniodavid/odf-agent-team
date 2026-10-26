@@ -1,4 +1,5 @@
 name: odf-verify
+phase: VERIFY
 agent: odoo_qa_engineer
 tests:
   - name: "verify with tests"

@@ -1,6 +1,13 @@
 ---
-trigger: estado de migración|qué módulos faltan|migration status|progreso
+name: oca-migration-status
+description: "Use when reporting OCA migration progress: list modules in a branch, compare target versions, classify MIGRATED/IN_PR/MISSING, and compute progress."
+license: MIT
+metadata:
+  author: antoniodavid
+  version: "1.0"
+  triggers: "estado de migración|qué módulos faltan|migration status|progreso"
 ---
+
 
 # OCA Migration Status
 

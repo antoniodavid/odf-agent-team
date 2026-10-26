@@ -1,5 +1,5 @@
 ---
-name: oca-skills-index
+name: oca
 description: "OCA Skills Index. Trigger: oca skills index, find oca skill, skill catalog."
 license: MIT
 metadata:

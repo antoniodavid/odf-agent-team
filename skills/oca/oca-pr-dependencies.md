@@ -1,6 +1,13 @@
 ---
-trigger: dependencias del PR|qué necesita|depends on|PR dependencies
+name: oca-pr-dependencies
+description: "Use when a pull request depends on others: parse Depends on and And indirectly on links, verify each dependency state, and checkout in order."
+license: MIT
+metadata:
+  author: antoniodavid
+  version: "1.0"
+  triggers: "dependencias del PR|qué necesita|depends on|PR dependencies"
 ---
+
 
 # Analyze PR Dependencies
 

@@ -140,7 +140,7 @@ export function matchSkills(
       : null
 
   const registeredSkills = Array.isArray(registry.skills) ? registry.skills : []
-  for (const skill of registeredSkills) {
+  for (const [order, skill] of registeredSkills.entries()) {
     if (!skill || typeof skill !== "object") continue
     const triggers = Array.isArray(skill.triggers) ? skill.triggers : []
     const odooVersions = Array.isArray(skill.odoo_versions) ? skill.odoo_versions : []
@@ -181,11 +181,12 @@ export function matchSkills(
     }
 
     if (score > 0 || isCanonical || (skill.name === "odf-oca-governance" && ocaTargeted)) {
-      matches.push({ ...skill, _score: score, _canonical: isCanonical } as ODFSkill & { _score: number; _canonical: boolean })
+      matches.push({ ...skill, _score: score, _canonical: isCanonical, _order: order } as ODFSkill & { _score: number; _canonical: boolean; _order: number })
     }
   }
 
-  // Sort by score (desc) then by compact_rules length (more specific first)
+  // Sort by canonical role, then score, then registry order. Registry order is
+  // deterministic and never rewards longer prompt text.
   matches.sort((a: any, b: any) => {
     if (b._canonical !== a._canonical) {
       return Number(b._canonical) - Number(a._canonical)
@@ -193,7 +194,7 @@ export function matchSkills(
     if (b._score !== a._score) {
       return b._score - a._score
     }
-    return String(b.compact_rules || "").length - String(a.compact_rules || "").length
+    return a._order - b._order
   })
 
   return matches.slice(0, 5)

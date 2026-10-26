@@ -58,6 +58,11 @@ jobs:
         env:
           ODF_CONFIG_DIR: ${{ github.workspace }}
 
+      - name: Skill validation
+        run: node scripts/odf-skill-validate.js
+        env:
+          ODF_CONFIG_DIR: ${{ github.workspace }}
+
       - name: Diff check
         run: |
           if [ "${{ github.event_name }}" = "pull_request" ]; then
