@@ -215,6 +215,48 @@ These practices apply when changing the ODF harness repository. In customer Odoo
 - These practices do not replace ODF's route, Policy Gate, required seals, evidence, or human approvals. Never bypass a mandatory workflow gate or treat explanatory prose as machine-validated evidence.
 - For OCA governance, Odoo coding standards, issues, and PR workflows, use the relevant registered skills and repository guidance rather than copying project-specific rules into this section.
 
+### Branch, PR, and merge workflow
+
+`main` is protected. Every change reaches it through a pull request, never a direct push — including one-line fixes.
+
+```bash
+# 1. Sync and branch
+git fetch origin
+git switch main
+git merge --ff-only origin/main
+git switch -c <type>/<short-description>
+
+# 2. Implement, then verify
+npm run typecheck
+npm run test:unit
+npm run test:yaml
+npm run validate:skills
+node scripts/odf-registry-validate.js
+
+# 3. Stage explicit paths only
+git add path/one path/two
+git commit -m "type(scope): summary"
+
+# 4. Push and open the PR
+git push -u origin <type>/<short-description>
+gh pr create --base main --head <type>/<short-description> \
+  --title "type(scope): summary" --body-file <body.md>
+```
+
+- CI (`.github/workflows/ci.yml`) runs typecheck, unit tests, YAML scenarios, registry validation, skill validation, and a diff check.
+- The `auto-merge` job squash-merges same-repository, non-draft PRs once the `test` job passes. Opening the PR is enough: do not merge manually and do not force-push the branch.
+- Keep the PR body problem-first: why, what, verification (commands and observed results), and risk.
+- After merge, sync and clean up:
+
+```bash
+git switch main
+git fetch origin
+git merge --ff-only origin/main
+git branch -d <type>/<short-description>
+```
+
+- If CI fails, fix on the same branch and push again; do not open a second PR. Never push directly to `main`, never force-push, and never use `git add -A` or `git add .`.
+
 ---
 
 ## Key structure
@@ -223,7 +265,7 @@ These practices apply when changing the ODF harness repository. In customer Odoo
 agent/              — 11 agent instructions (orchestrator + 10 sub-agents)
 command/            — 23 slash command definitions (Markdown)
 plugins/            — odf-delegation.ts (OpenCode plugin)
-scripts/            — test runner (1182 Vitest tests + 331 YAML scenarios), CLI wrapper, registry validator
+scripts/            — test runner (1368 Vitest tests + 331 YAML scenarios), CLI wrapper, registry and skill validators
 skills/              — 87 skills (OCA governance, ODF stage roles, patterns)
   _shared/          — conventions (engram persistence, skill-resolver, Odoo sources)
   oca/              — OCA governance, style, patterns
@@ -264,10 +306,11 @@ ODF is a superset of the generic SDD workflow:
 ## Tests
 
 ```bash
-npm test              # 1182 Vitest tests + 331 YAML scenarios
+npm test              # 1368 Vitest tests + 331 YAML scenarios
 npm run test:yaml     # YAML scenario runner only
 npm run test:unit     # Vitest only
 npm run typecheck     # tsc --noEmit
+npm run validate:skills                # Agent Skills + compact-rule validation
 node scripts/odf-registry-validate.js   # validates all registered paths exist
 ```
 
