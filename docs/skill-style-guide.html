@@ -121,7 +121,7 @@ metadata:
 - Handle empty recordsets (for record in self:)
 </code></pre>
 <h3 id="compact-rule-contract" tabindex="-1"><a class="anchor" href="#compact-rule-contract" aria-label="Link to this section">#</a>Compact-rule contract</h3>
-<p><code>compact_rules</code> is the only part of a skill most delegations ever see, so it is
+<p><code>compact_rules</code> is what every matched skill contributes to a delegation, so it is
 validated as a product surface:</p>
 <ul>
 <li>150–600 characters, ending on a complete sentence.</li>
@@ -131,6 +131,18 @@ tails.</li>
 <li>Regenerate them from the skill's own rules and best practices; never copy the
 banner or the first paragraph.</li>
 </ul>
+<h2 id="injection" tabindex="-1"><a class="anchor" href="#injection" aria-label="Link to this section">#</a>Injection</h2>
+<p>A delegation injects:</p>
+<ul>
+<li>The precision guardrails and the <code>compact_rules</code> of every matched skill (up to 5).</li>
+<li>The <strong>full <code>SKILL.md</code> body</strong> of the canonical stage skill, with frontmatter
+stripped and capped at 20,000 characters. This is the procedure the executor
+must follow.</li>
+<li>A list of bundled <code>references/</code>, <code>scripts/</code>, and <code>assets/</code> paths. They are not
+inlined; the executor reads one when the task needs it.</li>
+</ul>
+<p>If the canonical body is unavailable, the delegation falls back to its compact
+rules and says so.</p>
 <h2 id="validation" tabindex="-1"><a class="anchor" href="#validation" aria-label="Link to this section">#</a>Validation</h2>
 <p>Every skill registered in <code>odf-registry.json</code> is checked by the Agent Skills
 validator:</p>
@@ -238,7 +250,7 @@ already exposes (package scripts, configs).</li>
     </article>
     <nav class="pager" aria-label="Documentation pagination"><a class="pager-link prev" href="plugin.html"><span>Previous</span><b>Plugin reference</b></a><a class="pager-link next" href="readme.html"><span>Next</span><b>README</b></a></nav>
   </main>
-  <aside class="toc" aria-label="On this page"><p class="toc-title">On this page</p><nav><a class="toc-l2" href="#skill-structure">Skill Structure</a><a class="toc-l3" href="#frontmatter">Frontmatter</a><a class="toc-l3" href="#required-sections">Required Sections</a><a class="toc-l2" href="#language">Language</a><a class="toc-l2" href="#compact-rules">Compact Rules</a><a class="toc-l3" href="#compact-rule-contract">Compact-rule contract</a><a class="toc-l2" href="#validation">Validation</a><a class="toc-l2" href="#naming-conventions">Naming Conventions</a><a class="toc-l2" href="#registry-registration">Registry Registration</a><a class="toc-l2" href="#triggers">Triggers</a><a class="toc-l2" href="#versioning">Versioning</a><a class="toc-l2" href="#testing">Testing</a><a class="toc-l2" href="#writing-for-agents">Writing for Agents</a><a class="toc-l2" href="#review-checklist">Review Checklist</a></nav></aside>
+  <aside class="toc" aria-label="On this page"><p class="toc-title">On this page</p><nav><a class="toc-l2" href="#skill-structure">Skill Structure</a><a class="toc-l3" href="#frontmatter">Frontmatter</a><a class="toc-l3" href="#required-sections">Required Sections</a><a class="toc-l2" href="#language">Language</a><a class="toc-l2" href="#compact-rules">Compact Rules</a><a class="toc-l3" href="#compact-rule-contract">Compact-rule contract</a><a class="toc-l2" href="#injection">Injection</a><a class="toc-l2" href="#validation">Validation</a><a class="toc-l2" href="#naming-conventions">Naming Conventions</a><a class="toc-l2" href="#registry-registration">Registry Registration</a><a class="toc-l2" href="#triggers">Triggers</a><a class="toc-l2" href="#versioning">Versioning</a><a class="toc-l2" href="#testing">Testing</a><a class="toc-l2" href="#writing-for-agents">Writing for Agents</a><a class="toc-l2" href="#review-checklist">Review Checklist</a></nav></aside>
 </div>
 <div class="overlay" id="overlay" role="dialog" aria-modal="true" aria-label="Search documentation">
   <div class="palette">

@@ -125,7 +125,7 @@ escalation.
 - **Shared conventions**: Engram persistence, result contract, skill resolver, Odoo source paths
 - **ODF onboarding**: guided walkthrough of the full pipeline on a real codebase
 
-Max 5 skills per delegation via compact rules.
+Max 5 skills per delegation via compact rules; the canonical stage skill also injects its full `SKILL.md` body.
 
 ### Model profiles
 

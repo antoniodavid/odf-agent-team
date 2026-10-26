@@ -173,7 +173,7 @@ removed by inline QA.</p>
                         │
                         ▼
                ┌─────────────────┐
-               │  skills/*.md    │  ← injected compact rules
+               │  skills/*.md    │  ← compact rules + stage body
                └─────────────────┘
 </code></pre>
 <h2 id="persistence-roles" tabindex="-1"><a class="anchor" href="#persistence-roles" aria-label="Link to this section">#</a>Persistence Roles</h2>
@@ -249,7 +249,8 @@ working unchanged.</p>
 test runner and <code>odf-toolkit</code>; <code>matchSkills</code> stays per-consumer because the
 plugin uses a role-aware canonical variant).</li>
 <li>Matches up to 5 relevant skills.</li>
-<li>Injects compact rules and the active SDD profile into the prompt.</li>
+<li>Injects compact rules for matched skills, the canonical stage skill's full
+<code>SKILL.md</code> body, and the active SDD profile into the prompt.</li>
 <li>Enforces the authoritative TDD Policy Gate for BUILD/VERIFY, the
 stop-validation evidence seal, <code>design_closed</code> coercion, and claimed
 <code>artifact_ref</code> existence.</li>

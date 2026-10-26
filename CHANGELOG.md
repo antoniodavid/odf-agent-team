@@ -1,5 +1,10 @@
 # Changelog — ODF Agent Team
 
+## Unreleased
+
+### Changed
+- Delegations inject the canonical stage skill's full `SKILL.md` body (frontmatter stripped, capped at 20,000 characters) alongside compact rules for matched skills, and list bundled `references/`, `scripts/`, and `assets/` for on-demand reads. The parallel branch prompt bound is now 32 KB.
+
 ## 1.6.2 (2026-10-26)
 
 ### Added
