@@ -399,10 +399,11 @@ install_files() {
   log_info "    Cleanup:           known stale ODF helpers/tests in ${ODF_DIR}/plugins"
   cleanup_stale_odf_plugins
 
-  # Rewrite the author's absolute config path to THIS environment's ODF_DIR so
-  # the installed pack works on any machine. The repo keeps its original paths.
+  # Rewrite any absolute user config path to THIS environment's ODF_DIR so an
+  # installed pack is portable. No username is hardcoded: a pack authored on
+  # another machine still resolves to the local config directory.
   rewrite_config_paths() {
-    local old_path="/home/adruban/\\.config/opencode"
+    local old_path='/home/[^/]*/\.config/opencode'
     local f
     local escaped_odf_dir
     escaped_odf_dir="$(escape_sed_replacement "$ODF_DIR")"

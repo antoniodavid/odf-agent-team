@@ -3,7 +3,7 @@ name: odf-agent-builder
 description: "Create custom Odoo sub-agents from natural language. Trigger: /odf-agent-new, 'create agent', 'new specialist', 'custom agent'."
 license: MIT
 metadata:
-  author: adruban
+  author: antoniodavid
   version: "2.0"
 ---
 

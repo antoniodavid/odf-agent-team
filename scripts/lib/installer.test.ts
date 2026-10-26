@@ -461,7 +461,7 @@ describe("install.sh", { timeout: 30000 }, () => {
     try {
       expect(result.status).toBe(0)
       const configDir = path.join(tempHome, ".config", "opencode")
-      const oldPath = "/home/adruban/.config/opencode"
+      const oldPath = "/home/test-user/.config/opencode"
       const backupFixture = path.join(configDir, "backups", "fixture.md")
       const dependencyFixture = path.join(configDir, "node_modules", "fixture.js")
       fs.mkdirSync(path.dirname(backupFixture), { recursive: true })
@@ -492,7 +492,7 @@ describe("install.sh", { timeout: 30000 }, () => {
   it("rewrites config paths when ODF_DIR contains sed replacement metacharacters", () => {
     const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), "odf-installer-special-path-"))
     const configDir = path.join(tempHome, "config &pipe|back\\slash")
-    const oldPath = "/home/adruban/.config/opencode"
+    const oldPath = "/home/test-user/.config/opencode"
     const fixture = path.join(configDir, "docs", "config-path.md")
     fs.mkdirSync(path.dirname(fixture), { recursive: true })
     fs.writeFileSync(fixture, `config: ${oldPath}\n`, "utf8")

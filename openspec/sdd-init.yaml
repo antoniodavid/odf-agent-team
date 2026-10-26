@@ -1,6 +1,6 @@
 sdd_init:
   project: odf-agent-team
-  workspace_root: /home/adruban/Workspace/Personal/odf-agent-team
+  workspace_root: .
   detected: "2026-06-17"
   artifact_store: openspec
 

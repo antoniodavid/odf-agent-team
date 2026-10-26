@@ -24,7 +24,7 @@ OpenCode V2 is stable, but ODF must keep V1 support while the V2 adapter is vali
 
 ## Authorized scope and route
 
-- Worktree: `/home/adruban/Workspace/Personal/odf-agent-team-worktrees/opencode-v2-migration`
+- Worktree: `$HOME/Workspace/odf-agent-team-worktrees/opencode-v2-migration`
 - Branch: `feat/opencode-v2-migration`
 - Route: delegated direct writer for multi-file host adapter and harness changes.
 - V1 support floor decision: validate and document OpenCode `1.18.29+`; retain a separate legacy entrypoint only if older V1 support is explicitly required.

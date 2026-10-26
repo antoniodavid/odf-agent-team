@@ -3,7 +3,7 @@ name: odf-verify
 description: "Quality gate for ODF: evidence-based risk tiers (0/1/4 lenses), spec compliance matrix, single-attempt correction budget. Trigger: Phase 4 (VERIFY) of /odf-new."
 license: MIT
 metadata:
-  author: adruban
+  author: antoniodavid
   version: "3.2"
 ---
 

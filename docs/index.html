@@ -1027,7 +1027,7 @@
   document.querySelectorAll("[data-copy]").forEach(btn => {
     btn.addEventListener("click", async () => {
       try { await navigator.clipboard.writeText(btn.dataset.copy); }
-      catch { /* clipboard blocked — select fallback skipped: ponytail */
+      catch { /* clipboard blocked — fall back to a temporary textarea */
         const ta = document.createElement("textarea");
         ta.value = btn.dataset.copy; document.body.appendChild(ta);
         ta.select(); document.execCommand("copy"); ta.remove();
@@ -1135,7 +1135,6 @@
   loaded = fetch("search-index.json").then(r => r.json()).then(d => { index = d; });
 })();
 </script>
-<!-- regenerate search index: see /tmp equivalent — command in repo docs history;
-     node script walks docs/*.md + diagrams + archive → docs/search-index.json -->
+<!-- Search index: generated from the Markdown sources by `npm run docs:build`. -->
 </body>
 </html>

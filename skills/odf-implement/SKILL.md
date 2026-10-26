@@ -3,7 +3,7 @@ name: odf-implement
 description: "Implement Odoo tasks from the plan required by the persisted workflow route. Write code following approved scope and route-specific inputs. Trigger: BUILD/IMPLEMENT after route approval."
 license: MIT
 metadata:
-  author: adruban
+  author: antoniodavid
   version: "2.5"
 ---
 
