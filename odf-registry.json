@@ -3,7 +3,7 @@
   "last_updated": "2026-10-26",
   "package": {
     "name": "odf-agent-team",
-    "version": "1.6.0",
+    "version": "1.6.1",
     "description": "ODF — spec-driven Odoo delivery on OpenCode",
     "repository": "https://github.com/antoniodavid/odf-agent-team",
     "dependencies": {

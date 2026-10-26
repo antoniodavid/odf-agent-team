@@ -2,11 +2,11 @@
 
 > **Spec-driven Odoo delivery on OpenCode** — a stage pipeline, 11 specialized agents, 87 skills, and deterministic CLIs so your AI team *finds* the codebase instead of inventing it.
 
-[![Tests](https://img.shields.io/badge/tests-1182%20unit%20%2B%20331%20YAML%20%2B%2018%20harness-brightgreen)](#development)
+[![Tests](https://img.shields.io/badge/tests-1370%20unit%20%2B%20331%20YAML%20%2B%2018%20harness-brightgreen)](#development)
 [![Registry](https://img.shields.io/badge/registry-87%20skills%20%C2%B7%2011%20agents-blue)](odf-registry.json)
 [![Odoo](https://img.shields.io/badge/Odoo-16%20%E2%80%93%2019-EE7048)](docs/intended-usage.md)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
-[![Version](https://img.shields.io/badge/version-1.6.0-informational)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-1.6.1-informational)](CHANGELOG.md)
 
 **ODF** — spec-driven Odoo delivery on OpenCode. Turns a generic AI assistant into a structured Odoo delivery team. An orchestrator routes every stage through a plugin that resolves the right agent, injects at most five skill rules, enforces Policy Gates, and seals evidence — so nothing ships on a guess.
 
@@ -20,7 +20,7 @@ odf-delegation plugin ──► task() ──► specialist agent ──► Odoo
 
 ```bash
 # 1. Install into ~/.config/opencode (release-pinned)
-curl -fsSL https://raw.githubusercontent.com/antoniodavid/odf-agent-team/v1.6.0/install.sh | BRANCH=v1.6.0 bash
+curl -fsSL https://raw.githubusercontent.com/antoniodavid/odf-agent-team/v1.6.1/install.sh | BRANCH=v1.6.1 bash
 
 # 2. Inside OpenCode, from any Odoo worktree:
 /odf-init           # detect version, modules, test runner
@@ -42,7 +42,7 @@ init → health/preflight → one resolved route → only its required stages �
 | `BUILD` | — | plan is closed |
 | `VERIFY` | — | verification required |
 
-The user sees one route selected by `work_type`; `micro/standard/full` is entry triage, not another workflow. Small changes use DECIDE → BUILD → VERIFY with inline QA; bugfixes use FIX → BUILD → VERIFY with inline regression QA; complex/high-risk routes use formal PLAN/QA-PLAN. The shadow prediction is advisory and does not alter execution. Full vocabulary: [docs/architecture.md](docs/architecture.md).
+The user sees one route selected by `work_type`; `micro/standard/full` is entry triage, not another workflow. Small changes and the default `feature-inline` route use DECIDE → BUILD → VERIFY with inline QA, where `feature-inline` runs one bounded ASSESS only when the deterministic entry gate selects `assess`; bugfixes use FIX → BUILD → VERIFY with inline regression QA; complex/high-risk routes use formal PLAN/QA-PLAN. After the gate and approved Expectations, one bounded Context Manifest is built and forwarded unchanged to ASSESS and BUILD. The shadow prediction is advisory and does not alter execution. Full vocabulary: [docs/architecture.md](docs/architecture.md) · route matrix: [docs/route-contract.md](docs/route-contract.md).
 
 **Interactive diagram →** [Phase flow & agent routing](docs/odf-agent-phase-flow.html) · [Harness architecture](docs/harness-architecture.html)
 
@@ -64,8 +64,9 @@ The user sees one route selected by `work_type`; `micro/standard/full` is entry 
 ## Why developers use it
 
 - **One round-trip, not fifty.** The plugin resolves agent + skills + profile in a single `odf_delegate` call — no grep/read loops to assemble context.
-- **Evidence over vibes.** Policy Gate, validation seals, attempt ledgers, and receipts run silently before IMPLEMENT/VERIFY.
+- **Evidence over vibes.** Policy Gate, validation seals, attempt ledgers, and receipts run silently before BUILD/VERIFY.
 - **Never invent IDs.** `odf-toolkit lookup` / `verify-refs` resolve every view XML ID and model against local Odoo source (exit 1 otherwise).
+- **Stops that explain themselves.** Every blocked or failed envelope carries a `stop_disposition` with the kind, whether a human is required, and the only allowed recovery.
 - **OCA-ready.** Governance skill enforces PR workflow, commit style, and maturity gates before publication.
 
 ## What's inside
@@ -82,14 +83,18 @@ The user sees one route selected by `work_type`; `micro/standard/full` is entry 
 
 **[docs/README.md](docs/README.md)** — full index. Start here:
 
-- [Intended usage](docs/intended-usage.md) — mental model, entry points, when to use what
+- [Intended usage](docs/intended-usage.md) — mental model, entry points, stopping safely, when to use what
 - [Architecture](docs/architecture.md) — thin-spine vocabulary, components, data flow
+- [Route & stage contract](docs/route-contract.md) — every route, stage, artifact, and gate
+- [Context contract](docs/context-contract.md) — the bounded, reference-only Context Manifest
+- [Decision evaluation](docs/decision-evaluation.md) — decision-quality report, local reviews, cadence
 - [Plugin reference](docs/plugin.md) — the 29 tools, modules, `odf_delegate` path
+- [Skill style guide](docs/skill-style-guide.md) — structure, frontmatter, compact rules, validation
 - [Archive](docs/archive/README.md) — completed roadmaps and plans
 
 ## Honest status
 
-- **Mature and tested locally**: 1182 unit tests + 331 YAML scenarios + 18 harness checks. Representative Odoo validation and end-to-end telemetry remain ODF 2.0 gates.
+- **Mature and tested locally**: 1370 unit tests + 331 YAML scenarios + 18 harness checks. Representative Odoo validation and end-to-end telemetry remain ODF 2.0 gates.
 - **Portable**: Linux/macOS/Windows (Git Bash/WSL), `XDG_CONFIG_HOME` resolution, author-path rewriting at install time.
 - **Known limitations**:
   - `plugins/odf-delegation.ts` (~6k lines) is still a monolith for the delegation/workflow core; cohesive sections already live in `odf-plugin/`.
@@ -112,12 +117,15 @@ Full matrix: `node <pack>/scripts/odf-toolkit.js deps`
 
 ```bash
 npm test              # full suite: unit + YAML + plugin
-npm run test:unit     # 1182 Vitest
+npm run test:unit     # 1370 Vitest
 npm run test:yaml     # 331 YAML scenarios
 npm run test:harness  # 18 harness checks
 npm run typecheck     # tsc --noEmit
+npm run validate:skills
 ODF_CONFIG_DIR=$PWD node scripts/odf-registry-validate.js
 ```
+
+`npm run validate:skills` enforces the Agent Skills contract (frontmatter, name/directory parity, bounded descriptions, compact rules); see [docs/skill-style-guide.md](docs/skill-style-guide.md).
 
 Versioning: `VERSION` + `package.json` + `package-lock.json` + `odf-registry.json` + `CHANGELOG.md` must stay in sync. Releases: semver tag + `gh release create`.
 

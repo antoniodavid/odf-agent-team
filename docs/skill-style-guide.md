@@ -57,6 +57,47 @@ Example:
 - Handle empty recordsets (for record in self:)
 ```
 
+### Compact-rule contract
+
+`compact_rules` is the only part of a skill most delegations ever see, so it is
+validated as a product surface:
+
+- 150–600 characters, ending on a complete sentence.
+- No ASCII banners (the box-drawing glyphs old skills carried) and no truncated
+  tails.
+- No two skills may share the same `compact_rules` string.
+- Regenerate them from the skill's own rules and best practices; never copy the
+  banner or the first paragraph.
+
+## Validation
+
+Every skill registered in `odf-registry.json` is checked by the Agent Skills
+validator:
+
+```bash
+npm run validate:skills          # errors fail; warnings report migration debt
+node scripts/odf-skill-validate.js --strict --json
+```
+
+Errors:
+
+- `SKILL.md` starts with YAML frontmatter and parses.
+- `name` is required, ≤64 characters, lowercase alphanumeric with single hyphens,
+  and equals its parent directory for a `SKILL.md`.
+- `description` is required and ≤1024 characters.
+- `path` exists, is a file, and stays inside the registry or config root.
+- `compact_rules` satisfies the contract above.
+
+Warnings (migration debt; failures under `--strict`):
+
+- Missing `license`, non-spec frontmatter keys, or a file that is not a
+  `SKILL.md`.
+- Body over 500 lines or ~20k characters, or absolute/personal paths.
+- Frontmatter name that differs from the registry entry.
+
+CI runs the validator, so a new skill reaches `main` only with valid frontmatter
+and conforming compact rules.
+
 ## Naming Conventions
 
 - Skill names use kebab-case: `odf-verify`, `oca-commit-messages`.
@@ -138,7 +179,8 @@ Before submitting a skill change:
 
 - [ ] Frontmatter is complete and valid YAML.
 - [ ] Sections follow the required structure.
-- [ ] Compact rules are concise and actionable.
+- [ ] Compact rules are concise, actionable, and satisfy the compact-rule contract.
+- [ ] `npm run validate:skills` passes with zero errors.
 - [ ] `odf-registry.json` is updated.
 - [ ] Path is relative when `use_relative_paths` is `true`.
 - [ ] Version and changelog are updated if behavior changed.
