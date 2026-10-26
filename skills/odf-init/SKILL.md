@@ -86,6 +86,6 @@ Return the complete shared ODF Result envelope, including every required common 
 
 ## References
 
-- `~/.config/opencode/skills/_shared/result-contract.md` — ODF Result envelope
-- `~/.config/opencode/skills/_shared/persistence-contract.md` — selected store and artifact references
-- `~/.config/opencode/skills/_shared/odoo-sources.md` — Local source paths
+- `../_shared/result-contract.md` — ODF Result envelope
+- `../_shared/persistence-contract.md` — selected store and artifact references
+- `../_shared/odoo-sources.md` — Local source paths

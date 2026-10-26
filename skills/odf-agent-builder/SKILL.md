@@ -52,5 +52,5 @@ Return the complete shared ODF Result envelope, including every required common 
 
 ## References
 
-- `~/.config/opencode/skills/_shared/result-contract.md` — ODF Result envelope
-- `~/.config/opencode/odf-registry.json` — Registry to update
+- `../_shared/result-contract.md` — ODF Result envelope
+- `odf-registry.json` — Registry to update (resolved by the plugin)
