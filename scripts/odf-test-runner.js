@@ -47,12 +47,18 @@ function loadRegistry() {
 
 const EXPLICIT_OCA_TARGET = /(?:^|[\s([{,;])target\s*=\s*oca(?:$|[\s)\]},;.!?])/i;
 
-function matchSkills(registry, _phase, context) {
+function matchSkills(registry, phase, context) {
   const matches = [];
   const taskLower = context.task?.toLowerCase() || '';
   const ocaTargeted = context.target?.trim().toLowerCase() === 'oca' || EXPLICIT_OCA_TARGET.test(context.task || '');
+  const normalizedPhase = phase?.toUpperCase() || null;
+  const canonicalName = normalizedPhase === 'QA-PLAN'
+    ? 'odf-qa'
+    : normalizedPhase
+      ? `odf-${normalizedPhase.toLowerCase()}`
+      : null;
 
-  for (const skill of registry.skills) {
+  for (const [order, skill] of registry.skills.entries()) {
     if (skill.removed) continue;
     if (skill.name === 'odf-oca-governance' && !ocaTargeted) continue;
     if (context.odooVersion && skill.odoo_versions?.length > 0) {
@@ -70,10 +76,16 @@ function matchSkills(registry, _phase, context) {
     for (const trigger of skill.triggers || []) {
       if (taskLower.includes(trigger.toLowerCase())) score += 1;
     }
-    if (score > 0 || (skill.name === 'odf-oca-governance' && ocaTargeted)) matches.push({ ...skill, _score: score });
+    const isCanonical = skill.name === canonicalName;
+    if (score > 0 || isCanonical || (skill.name === 'odf-oca-governance' && ocaTargeted)) {
+      matches.push({ ...skill, _score: score, _canonical: isCanonical, _order: order });
+    }
   }
 
-  matches.sort((a, b) => (b._score || 0) - (a._score || 0) || (b.compact_rules?.length || 0) - (a.compact_rules?.length || 0));
+  matches.sort((a, b) =>
+    Number(b._canonical) - Number(a._canonical) ||
+    (b._score || 0) - (a._score || 0) ||
+    (a._order ?? 0) - (b._order ?? 0));
   return matches.slice(0, 5);
 }
 
@@ -121,12 +133,13 @@ function runTestSuite(suite) {
     const contextFiles = tc.input.context?.files || [];
     const version = tc.input.context?.version;
     const target = tc.input.target || tc.input.context?.target;
-    const phase = tc.input.phase || suite.phase || 'DESIGN';
+    const declaredPhase = tc.input.phase || suite.phase || null;
+    const phase = declaredPhase || 'DESIGN';
 
     // Test 1: skill resolution
     test('resolves correct skill_resolution', () => {
-      // Keep skill matching contextual; phase is used for agent resolution.
-      const skills = matchSkills(registry, null, { task, files: contextFiles, target, odooVersion: version });
+      // A declared phase also selects the canonical skill for that stage.
+      const skills = matchSkills(registry, declaredPhase, { task, files: contextFiles, target, odooVersion: version });
       const resolution = skills.length > 0 ? 'self-discovered' : 'none';
       return resolution === tc.expected.skill_resolution;
     });
@@ -134,7 +147,7 @@ function runTestSuite(suite) {
     // Test 2: expected skills injected
     if (tc.expected.expected_skills) {
       test('injects expected skills', () => {
-        const skills = matchSkills(registry, null, { task, files: contextFiles, target, odooVersion: version });
+        const skills = matchSkills(registry, declaredPhase, { task, files: contextFiles, target, odooVersion: version });
         const skillNames = skills.map(s => s.name);
         return tc.expected.expected_skills.every(es => skillNames.includes(es));
       });

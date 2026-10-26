@@ -1,11 +1,11 @@
 ---
 name: karpathy-precision
-title: Precision Guardrails (Karpathy-Inspired)
 description: >-
-  Universal behavioral guardrails injected into every delegation. Reduces
-  hallucination, overcomplication, and unnecessary changes by enforcing Think
-  Before Coding, Simplicity First, Surgical Changes, and Goal-Driven Execution.
+  Use when implementing or delegating code that must stay minimal: state
+  assumptions, avoid scope creep, make surgical changes, and verify each step.
 license: MIT
+metadata:
+  title: Precision Guardrails (Karpathy-Inspired)
 ---
 
 # Precision Guardrails (Karpathy-Inspired)

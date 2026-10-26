@@ -1,6 +1,13 @@
 ---
-trigger: usar PR|checkout PR|obtener código|get PR code
+name: oca-pr-checkout
+description: "Use when fetching the code of an OCA pull request: read PR metadata, checkout with gh or a manual fetch, and handle dependency PRs first."
+license: MIT
+metadata:
+  author: antoniodavid
+  version: "1.0"
+  triggers: "usar PR|checkout PR|obtener código|get PR code"
 ---
+
 
 # Checkout OCA PR Code
 

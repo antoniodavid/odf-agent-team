@@ -1,6 +1,13 @@
 ---
-trigger: buscar en odoo|search odoo|find in odoo|código odoo|odoo code
+name: oca-odoo-local-search
+description: "Use when searching a local Odoo source tree: locate models, views, and tests with rg or find, and cite file:line evidence instead of guessing."
+license: MIT
+metadata:
+  author: antoniodavid
+  version: "1.0"
+  triggers: "buscar en odoo|search odoo|find in odoo|código odoo|odoo code"
 ---
+
 
 # Search Local Odoo Codebase
 

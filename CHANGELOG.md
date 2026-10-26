@@ -2,7 +2,13 @@
 
 ## Unreleased
 
+### Added
+- Agent Skills validation: `scripts/odf-skill-validate.js` (`npm run validate:skills`) checks frontmatter, name/directory parity, description limits, and the compact-rule contract; wired into CI and covered by dedicated tests.
+
 ### Changed
+- Regenerated all 87 `compact_rules` from each skill's own rules and best practices: 150–600 characters, complete sentences, no banners, no duplicates.
+- Skill selection now breaks score ties by registry order instead of `compact_rules` length, so prompt length no longer decides which skills are injected; the YAML runner honors an explicit `phase` for canonical selection.
+- Fixed invalid or incomplete frontmatter in five OCA tool skills, `karpathy-precision`, and the OCA index name.
 - Blocked delegate envelopes preserve the resolved agent, skills, profile and Policy Gate; Policy Gate blocks use a stable reason; community tools accept package uninstall; nested Expectations inputs are bounded.
 , validated and labeled profiles as advisory, corrected community tool detection/install, and refined skill, registry, receipt, and status previews.
 

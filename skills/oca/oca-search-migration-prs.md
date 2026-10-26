@@ -1,6 +1,13 @@
 ---
-trigger: buscar migración|hay PR para|existe migración|migration PR|oca-port
+name: oca-search-migration-prs
+description: "Use when looking for OCA migration pull requests: search [MIG] PRs for a module, parse PR titles, and report state and author."
+license: MIT
+metadata:
+  author: antoniodavid
+  version: "1.0"
+  triggers: "buscar migración|hay PR para|existe migración|migration PR|oca-port"
 ---
+
 
 # Search OCA Migration PRs
 
