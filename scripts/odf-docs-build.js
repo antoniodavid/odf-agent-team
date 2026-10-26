@@ -301,15 +301,21 @@ const HEADER = `<!DOCTYPE html>
 `
 
 function sidebar(current, base) {
+  const groups = []
+  for (const page of NAV) if (!groups.includes(page.group)) groups.push(page.group)
   let html = `<details class="side" open><summary>Documentation menu</summary><div class="side-inner"><a class="side-home" href="${base}docs.html">Documentation index</a>`
-  let group = ""
-  for (const page of NAV) {
-    if (page.group !== group) {
-      group = page.group
-      html += `<p class="side-group">${escapeHtml(group)}</p>`
+  for (const group of groups) {
+    if (group === "Project") {
+      html += `<p class="side-group">Diagrams</p>`
+      for (const diagram of DIAGRAMS) {
+        html += `<a href="${rel(current.out, diagram.href)}">${escapeHtml(diagram.title)}</a>`
+      }
     }
-    const active = page.out === current.out ? ' class="active" aria-current="page"' : ""
-    html += `<a href="${rel(current.out, page.out)}"${active}>${escapeHtml(page.label)}</a>`
+    html += `<p class="side-group">${escapeHtml(group)}</p>`
+    for (const page of NAV.filter((entry) => entry.group === group)) {
+      const active = page.out === current.out ? ' class="active" aria-current="page"' : ""
+      html += `<a href="${rel(current.out, page.out)}"${active}>${escapeHtml(page.label)}</a>`
+    }
   }
   return html + `</div></details>`
 }
