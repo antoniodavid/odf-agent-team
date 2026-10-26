@@ -51,6 +51,11 @@ returns strategy (standard-coverage / custom / extend-existing), scope, affected
 areas, risks, unknowns, and a bounded reason. It does not create `proposal`,
 `assess`, `design`, `qa-plan`, or `tasks` artifacts.
 
+The entry builds one bounded, reference-only Context Manifest after the gate and
+approved Expectations, and forwards it unchanged to ASSESS and BUILD. See
+[Context contract](context-contract.md). Redundancy is a gate signal here, not a
+blocking user question.
+
 ## Stage matrix
 
 | Stage | Roles | Canonical artifact | Completion | Gates | Stage commit |

@@ -11,9 +11,19 @@ export const CONTEXT_MANIFEST_LIMITS = {
   roots: 4,
   authority: 64,
   missing: 32,
+  redundancy_refs: 16,
+  gate_signals: 16,
+  reason: 512,
 } as const
 
 export type ContextStatus = "available" | "missing" | "unsafe" | "unavailable"
+export type AssessmentGateMode = "skip" | "assess" | "escalate"
+
+export interface ContextAssessmentGate {
+  mode: AssessmentGateMode
+  reason: string
+  signals: string[]
+}
 
 export interface ContextManifestInput {
   project?: unknown
@@ -27,6 +37,9 @@ export interface ContextManifestInput {
   missing_facts?: unknown
   candidate_digest?: unknown
   codegraph?: { status?: unknown; reference?: unknown } | unknown
+  redundancy?: { probed?: unknown; hits?: unknown; contradictions?: unknown; references?: unknown } | unknown
+  assessment_gate?: { mode?: unknown; reason?: unknown; signals?: unknown } | unknown
+  expectations_ref?: unknown
 }
 
 export interface ContextManifest {
@@ -44,6 +57,9 @@ export interface ContextManifest {
   missing_facts: string[]
   candidate_digest: string | null
   codegraph: { status: ContextStatus; reference: string | null }
+  redundancy: { probed: boolean; hits: number; contradictions: number; references: string[] }
+  assessment_gate: ContextAssessmentGate | null
+  expectations_ref: string | null
   manifest_digest: string
 }
 
@@ -57,6 +73,18 @@ function safeValue(value: unknown, pattern: RegExp, max = CONTEXT_MANIFEST_LIMIT
   return normalized.length > 0 && normalized.length <= max && !/[\0\r\n]/.test(normalized) && pattern.test(normalized)
     ? normalized
     : null
+}
+
+function safeText(value: unknown, max = CONTEXT_MANIFEST_LIMITS.reason): string | null {
+  if (typeof value !== "string") return null
+  const normalized = value.trim()
+  return normalized.length > 0 && normalized.length <= max && !/[\0\r\n]/.test(normalized)
+    ? normalized
+    : null
+}
+
+function safeCount(value: unknown): number | null {
+  return typeof value === "number" && Number.isInteger(value) && value >= 0 && value <= 1000 ? value : null
 }
 
 function safeReference(value: unknown): string | null {
@@ -105,6 +133,20 @@ function canonicalPayload(manifest: ContextManifest | Omit<ContextManifest, "man
     missing_facts: [...manifest.missing_facts].sort(),
     candidate_digest: manifest.candidate_digest,
     codegraph: { status: manifest.codegraph.status, reference: manifest.codegraph.reference },
+    redundancy: {
+      probed: manifest.redundancy.probed,
+      hits: manifest.redundancy.hits,
+      contradictions: manifest.redundancy.contradictions,
+      references: [...manifest.redundancy.references].sort(),
+    },
+    assessment_gate: manifest.assessment_gate
+      ? {
+        mode: manifest.assessment_gate.mode,
+        reason: manifest.assessment_gate.reason,
+        signals: [...manifest.assessment_gate.signals].sort(),
+      }
+      : null,
+    expectations_ref: manifest.expectations_ref,
   }
 }
 
@@ -172,6 +214,44 @@ export function buildContextManifest(input: ContextManifestInput = {}): ContextM
   } else codegraph = { status: "unsafe", reference: null }
   if (codegraph.status !== "available") missing.add(`codegraph:${codegraph.status}`)
 
+  const redundancyValue = raw.redundancy
+  const rawRedundancy = redundancyValue && typeof redundancyValue === "object" && !Array.isArray(redundancyValue)
+    ? redundancyValue as Record<string, unknown>
+    : null
+  const redundancyRefs = list(rawRedundancy?.references, CONTEXT_MANIFEST_LIMITS.redundancy_refs, true)
+  const redundancyHits = safeCount(rawRedundancy?.hits)
+  const redundancyContradictions = safeCount(rawRedundancy?.contradictions)
+  const redundancyInvalid = redundancyValue !== undefined && (
+    rawRedundancy === null ||
+    (rawRedundancy.probed !== undefined && typeof rawRedundancy.probed !== "boolean") ||
+    (rawRedundancy.hits !== undefined && redundancyHits === null) ||
+    (rawRedundancy.contradictions !== undefined && redundancyContradictions === null) ||
+    redundancyRefs.invalid
+  )
+  if (redundancyInvalid) missing.add("redundancy")
+  const redundancy = {
+    probed: rawRedundancy?.probed === true && !redundancyInvalid,
+    hits: redundancyHits ?? 0,
+    contradictions: redundancyContradictions ?? 0,
+    references: redundancyInvalid ? [] : redundancyRefs.values,
+  }
+
+  const gateValue = raw.assessment_gate
+  const rawGate = gateValue && typeof gateValue === "object" && !Array.isArray(gateValue)
+    ? gateValue as Record<string, unknown>
+    : null
+  const gateMode = rawGate?.mode
+  const gateReason = safeText(rawGate?.reason)
+  const gateSignals = list(rawGate?.signals, CONTEXT_MANIFEST_LIMITS.gate_signals)
+  const validGateMode = gateMode === "skip" || gateMode === "assess" || gateMode === "escalate"
+  const assessmentGate: ContextAssessmentGate | null = rawGate && validGateMode && gateReason && !gateSignals.invalid
+    ? { mode: gateMode as AssessmentGateMode, reason: gateReason, signals: gateSignals.values }
+    : null
+  if (gateValue !== undefined && !assessmentGate) missing.add("assessment-gate")
+
+  const expectationsRef = safeReference(raw.expectations_ref)
+  if (raw.expectations_ref !== undefined && !expectationsRef) missing.add("expectations-ref")
+
   const missingFacts = list(raw.missing_facts, CONTEXT_MANIFEST_LIMITS.missing, true)
   if (missingFacts.invalid) missing.add("missing-facts")
   const generatedMissing = [...missing].sort()
@@ -192,6 +272,9 @@ export function buildContextManifest(input: ContextManifestInput = {}): ContextM
     missing_facts: [...new Set(generatedMissing.concat(explicitMissing))].slice(0, CONTEXT_MANIFEST_LIMITS.missing),
     candidate_digest: candidateDigest,
     codegraph,
+    redundancy,
+    assessment_gate: assessmentGate,
+    expectations_ref: expectationsRef,
   }
   return { ...base, manifest_digest: computeContextManifestDigest(base) }
 }
@@ -218,6 +301,18 @@ export function createODFContextManifest(): ReturnType<typeof tool> {
         status: tool.schema.enum(["available", "indexed", "missing", "unavailable"]),
         reference: tool.schema.string().max(512).optional(),
       }).optional(),
+      redundancy: tool.schema.object({
+        probed: tool.schema.boolean().optional(),
+        hits: tool.schema.number().int().nonnegative().max(1000).optional(),
+        contradictions: tool.schema.number().int().nonnegative().max(1000).optional(),
+        references: tool.schema.array(tool.schema.string().max(512)).max(16).optional(),
+      }).optional().describe("Bounded redundancy probe result; counts and references only, never file contents"),
+      assessment_gate: tool.schema.object({
+        mode: tool.schema.enum(["skip", "assess", "escalate"]),
+        reason: tool.schema.string().max(512),
+        signals: tool.schema.array(tool.schema.string().max(128)).max(16).optional(),
+      }).optional().describe("Deterministic entry assessment gate recorded in the manifest"),
+      expectations_ref: tool.schema.string().max(512).optional().describe("Reference to the approved Expectations artifact"),
     },
     async execute(args: ContextManifestInput): Promise<string> {
       return JSON.stringify(buildContextManifest(args), null, 2)

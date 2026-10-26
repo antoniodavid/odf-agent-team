@@ -29,6 +29,7 @@ Normative rules enforced by the pipeline — agents and tests read these.
 |-----|---------|
 | [Design contract](design-contract.md) | closed-design rules before BUILD |
 | [Expectations contract](expectations-contract.md) | human-owned Expectations, revisions |
+| [Context contract](context-contract.md) | bounded, reference-only Context Manifest |
 | [Safety contract](safety-contract.md) | pre-tool safety, DB guardrails |
 | [Judge shadow contract](judge-shadow-contract.md) | adversarial review shadow |
 | [Learning loop contract](learning-loop-contract.md) | Engram learning loop |
