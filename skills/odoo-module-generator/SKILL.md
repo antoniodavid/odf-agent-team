@@ -207,7 +207,7 @@ Create an Odoo 18.0 module for tracking equipment assets with:
 **Agent Workflow**:
 1. Identify version: `18.0`
 2. Load: `references/versions/odoo-module-generator-18.md`
-3. Load: `../odoo-model-patterns/references/versions/odoo-model-patterns-18.md`
+3. Load: `../odoo-versioning/references/versions/odoo-model-patterns-18.md`
 4. Generate with v18 patterns:
    - `_check_company_auto = True`
    - `@api.model_create_multi`
@@ -224,7 +224,7 @@ Add custom discount approval workflow to Odoo 17.0 sales module
 **Agent Workflow**:
 1. Identify version: `17.0`
 2. Load: `references/versions/odoo-module-generator-17.md`
-3. Load: `../odoo-model-patterns/references/versions/odoo-model-patterns-17.md`
+3. Load: `../odoo-versioning/references/versions/odoo-model-patterns-17.md`
 4. Generate with v17 patterns:
    - Extend `sale.order`
    - `@api.model_create_multi`
@@ -240,7 +240,7 @@ Create a KPI dashboard for Odoo 18.0 with charts and real-time data
 
 **Agent Workflow**:
 1. Identify version: `18.0`
-2. Load: `../owl-components/references/versions/odoo-owl-components-18.md`
+2. Load: `../odoo-views-owl/references/versions/odoo-owl-components-18.md`
 3. Load: `references/versions/odoo-module-generator-18.md`
 4. Generate with v18 OWL 2.x patterns:
    - `/** @odoo-module **/`

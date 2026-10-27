@@ -16,7 +16,7 @@ describe("skill trigger evals", () => {
   it("the dataset covers the main skill families", () => {
     expect(queries.length).toBeGreaterThanOrEqual(50)
     const expected = new Set(queries.map((entry) => entry.expected))
-    expect(expected.size).toBeGreaterThanOrEqual(50)
+    expect(expected.size).toBeGreaterThanOrEqual(20)
   })
 
   for (const entry of queries) {

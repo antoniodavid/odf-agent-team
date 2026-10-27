@@ -3,6 +3,7 @@
 ## Unreleased
 
 ### Changed
+- Consolidated 41 pattern, testing, and version skills into 5 domain skills: `odoo-modeling`, `odoo-views-owl`, `odoo-business-flows`, `odoo-testing`, and `odoo-versioning`. Each former skill is now `references/<topic>.md` with its examples, and the registry drops from 87 to 51 entries.
 - Skill descriptions now lead with `Use when` and describe user intent instead of `Entity. Trigger: ...`; all 87 were rewritten.
 - Delegations also inject the body of the highest-scoring non-canonical skill (capped at 8,000 characters), so domain standards are usable without flooding the prompt.
 - Added a trigger-eval dataset (`scripts/odf-skill-evals/trigger-queries.json`, 57 realistic prompts) and a test that requires the expected skill in the top 3.

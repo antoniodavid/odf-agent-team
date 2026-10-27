@@ -203,93 +203,53 @@
       "last_updated": "2026-05-14"
     },
     {
-      "name": "computed-field-patterns",
-      "title": "Computed Field Patterns",
+      "name": "odoo-modeling",
+      "title": "Odoo Modeling",
       "category": "patterns/models",
       "triggers": [
-        "@api.depends",
         "computed",
+        "compute",
+        "api.depends",
         "store",
-        "inverse",
-        "compute"
-      ],
-      "compact_rules": "- Always iterate over self: Even for single records.\n- List all dependencies: Include all fields that affect the result.\n- Use store=True wisely: Only when needed for search/sort.\n- Optimize batch operations: Use read_group, mapped()\n- Handle empty values: Check for False/None.\n- Avoid circular dependencies: Field A depends on B, B depends on A.\n- Use related for simple cases: Cleaner than custom compute.\n- Add search for non-stored: If users need to filter.\n- Use compute_sudo=True only when elevated privileges are required; add inverse for writable computes.",
-      "path": "skills/computed-field-patterns/SKILL.md",
-      "odoo_versions": [
-        16,
-        17,
-        18,
-        19
-      ],
-      "sdd_phase": "DESIGN",
-      "version": "1.0",
-      "changelog": [
-        {
-          "version": "1.0",
-          "date": "2026-04-01",
-          "change": "Initial version"
-        }
-      ],
-      "last_updated": "2026-05-14"
-    },
-    {
-      "name": "inheritance-patterns",
-      "title": "Model Inheritance Patterns",
-      "category": "patterns/models",
-      "triggers": [
         "inherit",
         "extend",
         "override",
         "_inherit",
-        "_inherits"
-      ],
-      "compact_rules": "- Extension: _inherit only; add fields and methods to an existing model.\n- Classical: _name + _inherit creates a new model copying the parent's fields.\n- Delegation: _inherits maps a Many2one and proxies fields; use sparingly.\n- Abstract mixins: models.AbstractModel for shared behavior.\n- Inherit views with xpath and controllers by overriding routes; never copy core code.\n- Always call super() in overridden methods; use _sql_constraints for database-level rules.",
-      "path": "skills/inheritance-patterns/SKILL.md",
-      "odoo_versions": [
-        16,
-        17,
-        18,
-        19
-      ],
-      "sdd_phase": "DESIGN",
-      "version": "1.0",
-      "changelog": [
-        {
-          "version": "1.0",
-          "date": "2026-04-01",
-          "change": "Initial version"
-        }
-      ],
-      "last_updated": "2026-05-14"
-    },
-    {
-      "name": "constraint-patterns",
-      "title": "Constraint Patterns",
-      "category": "patterns/models",
-      "triggers": [
+        "_inherits",
         "constraint",
         "validation",
-        "check",
-        "_sql_constraints"
+        "domain",
+        "filter",
+        "with_context",
+        "sudo",
+        "onchange",
+        "field types",
+        "field type",
+        "migration script",
+        "openupgrade",
+        "usererror",
+        "validationerror",
+        "model patterns",
+        "orm patterns"
       ],
-      "compact_rules": "- Prefer SQL for simple checks: More efficient, database-level.\n- Use Python for complex logic: More flexibility.\n- Clear error messages: Tell user what's wrong and how to fix.\n- Validate early: Catch errors before processing.\n- Consider context: Skip validation during imports if appropriate.\n- Test constraints: Write tests for validation logic.\n- Don't over-constrain: Balance integrity vs usability.\n- Document constraints: Explain business rules.\n- Use @api.constrains for Python checks and _sql_constraints for database checks; raise ValidationError with a user-friendly message.",
-      "path": "skills/constraint-patterns/SKILL.md",
+      "compact_rules": "- Read the topic reference before writing model code.\n- Prefer computed fields over onchange for persisted values; list every dependency.\n- _inherit extends, _name + _inherit creates, _inherits delegates.\n- Validate with constraints, never with UI onchange alone.\n- Never interpolate SQL; use parameters or the ORM.\n- Add a regression test for every behavior change.",
+      "path": "skills/odoo-modeling/SKILL.md",
       "odoo_versions": [
         16,
         17,
         18,
         19
       ],
-      "sdd_phase": "DESIGN",
+      "sdd_phase": null,
       "version": "1.0",
       "changelog": [
         {
           "version": "1.0",
-          "date": "2026-04-01",
-          "change": "Initial version"
+          "date": "2026-10-27",
+          "change": "Consolidated domain skill"
         }
       ],
-      "last_updated": "2026-05-14"
+      "last_updated": "2026-10-27"
     },
     {
       "name": "security-guide",
@@ -323,166 +283,126 @@
       "last_updated": "2026-05-14"
     },
     {
-      "name": "odoo-view-patterns",
-      "title": "Odoo View Patterns",
+      "name": "odoo-views-owl",
+      "title": "Odoo Views and OWL",
       "category": "patterns/views",
       "triggers": [
         "view",
         "form",
         "tree",
+        "list",
         "kanban",
-        "search",
-        "xml"
+        "search view",
+        "xpath",
+        "action",
+        "act_window",
+        "window action",
+        "server action",
+        "dialog",
+        "wizard",
+        "notification",
+        "owl",
+        "component",
+        "javascript",
+        "static/src"
       ],
-      "compact_rules": "- Pick the view type: form, list/tree, kanban, search, calendar, pivot, or graph.\n- Inherit views with xpath instead of replacing them; keep the original priority.\n- Declare only the fields the view needs; use groups= for sensitive fields.\n- invisible/readonly/required use Python expressions (attrs removed in v17+).\n- Keep action, view, and menu XML IDs consistent and listed in the manifest.\n- Inline views for One2many; smart buttons with type=object or action; chatter via mail.thread.",
-      "path": "skills/odoo-view-patterns/SKILL.md",
+      "compact_rules": "- Inherit views with xpath; never copy core views.\n- v17+ uses invisible/readonly/required expressions; attrs is gone.\n- Restrict fields, menus, and actions with groups.\n- Window actions need res_model; wizards use target=new.\n- Handle dialog cancel explicitly.\n- Load the target version's OWL guide before writing components.",
+      "path": "skills/odoo-views-owl/SKILL.md",
       "odoo_versions": [
         16,
         17,
         18,
         19
       ],
-      "sdd_phase": "DESIGN",
+      "sdd_phase": null,
       "version": "1.0",
       "changelog": [
         {
           "version": "1.0",
-          "date": "2026-04-01",
-          "change": "Initial version"
+          "date": "2026-10-27",
+          "change": "Consolidated domain skill"
         }
       ],
-      "last_updated": "2026-05-14"
+      "last_updated": "2026-10-27"
     },
     {
-      "name": "owl-components",
-      "title": "OWL Component Patterns",
-      "category": "patterns/frontend",
-      "triggers": [
-        "OWL",
-        "component",
-        "JavaScript",
-        "JS",
-        "widget",
-        "static/src"
-      ],
-      "compact_rules": "- OWL API changes by version: load the version-specific guide before writing components.\n- Use ES modules and direct imports; odoo.define/require is legacy.\n- Define template and props as static class members in current versions.\n- Register components in the asset bundle declared in the manifest.\n- Test in the target version; do not assume hooks or props APIs match.",
-      "path": "skills/owl-components/SKILL.md",
-      "odoo_versions": [
-        16,
-        17,
-        18,
-        19
-      ],
-      "sdd_phase": "DESIGN",
-      "version": "1.2",
-      "changelog": [
-        {
-          "version": "1.2",
-          "date": "2026-08-03",
-          "change": "Corrected OWL 3.x claim for Odoo 19: Odoo 19 bundles OWL 2.8.4, still OWL 2.x line"
-        },
-        {
-          "version": "1.1",
-          "date": "2026-08-01",
-          "change": "Corrected Odoo 18 OWL version and added runtime/frontend compatibility gates"
-        },
-        {
-          "version": "1.0",
-          "date": "2026-04-01",
-          "change": "Initial version"
-        }
-      ],
-      "last_updated": "2026-08-01"
-    },
-    {
-      "name": "odoo-test-patterns",
-      "title": "Odoo Test Patterns",
+      "name": "odoo-testing",
+      "title": "Odoo Testing and Quality",
       "category": "patterns/testing",
       "triggers": [
         "test",
-        "TransactionCase",
-        "SavepointCase",
-        "HttpCase",
-        "tests/"
-      ],
-      "compact_rules": "- One test class per model; TransactionCase for ORM, SavepointCase for savepoints, HttpCase for tours.\n- Cover CRUD, computes, constraints, state transitions, access rights, record rules, onchange, and actions.\n- Use setUpClass and cls.env for shared data; tag at_install/post_install when needed.\n- Assert observable behavior, not private methods or implementation details.\n- Run the module suite with the project's test command; a skipped test is not a pass.",
-      "path": "skills/odoo-test-patterns/SKILL.md",
-      "odoo_versions": [
-        16,
-        17,
-        18,
-        19
-      ],
-      "sdd_phase": "IMPLEMENT",
-      "version": "1.0",
-      "changelog": [
-        {
-          "version": "1.0",
-          "date": "2026-04-01",
-          "change": "Initial version"
-        }
-      ],
-      "last_updated": "2026-05-14"
-    },
-    {
-      "name": "oca-compliance-check",
-      "title": "OCA Compliance Check",
-      "category": "patterns/testing",
-      "triggers": [
+        "transactioncase",
+        "httpcase",
+        "savepointcase",
+        "tour",
         "compliance",
         "pylint",
         "pre-commit",
-        "pre-PR checklist"
+        "performance",
+        "slow query",
+        "n+1",
+        "read_group",
+        "troubleshooting",
+        "debug error",
+        "module not loading",
+        "external id",
+        "fails to install",
+        "end to end"
       ],
-      "compact_rules": "- Manifest: name, version, license, OCA author, website, depends, data, installable.\n- Python: syntax, imports, no SQL interpolation, no cr.commit(), translations present.\n- XML: well-formed, no duplicate IDs, security files loaded before views.\n- Security: ir.model.access.csv per model/group, record rules, no broad base.group_user grants.\n- Run tests and pylint-odoo; a check without recorded evidence is not a pass.",
-      "path": "skills/oca-compliance-check/SKILL.md",
+      "compact_rules": "- Run the real module suite; a skipped test is not a pass.\n- Use TransactionCase, HttpCase, or Form for the behavior under test.\n- Cover CRUD, computes, constraints, access rights, and failure paths.\n- Run OCA compliance checks before opening a PR.\n- Measure performance before optimizing.\n- Diagnose errors against the target Odoo version.",
+      "path": "skills/odoo-testing/SKILL.md",
       "odoo_versions": [
         16,
         17,
         18,
         19
       ],
-      "sdd_phase": "VERIFY",
+      "sdd_phase": null,
       "version": "1.0",
       "changelog": [
         {
           "version": "1.0",
-          "date": "2026-04-01",
-          "change": "Initial version"
+          "date": "2026-10-27",
+          "change": "Consolidated domain skill"
         }
       ],
-      "last_updated": "2026-05-14"
+      "last_updated": "2026-10-27"
     },
     {
-      "name": "odoo-version-knowledge",
-      "title": "Odoo Version Knowledge",
+      "name": "odoo-versioning",
+      "title": "Odoo Versioning",
       "category": "patterns/version",
       "triggers": [
         "version",
         "migration",
         "upgrade",
-        "Odoo 16",
-        "Odoo 17",
-        "Odoo 18"
+        "odoo 16",
+        "odoo 17",
+        "odoo 18",
+        "odoo 19",
+        "editions",
+        "community enterprise",
+        "enterprise features",
+        "model patterns"
       ],
-      "compact_rules": "- Determine the target Odoo version first: manifest, requirements, or existing patterns. Never assume.\n- Versions 16-19 are supported; 15 is migration source only; 14 material is removed.\n- Load the version-specific knowledge file before generating code.\n- Detect version by decorators, Command class, attrs, check_company_auto, type hints, and SQL() builder.\n- Verify patterns against the target version's GitHub branch.",
-      "path": "skills/odoo-version-knowledge/SKILL.md",
+      "compact_rules": "- Determine the target Odoo version first; never assume.\n- 16-19 are supported; 15 is migration source only.\n- Load the version-specific file before writing or upgrading code.\n- Never copy a pattern across versions without checking the target API.\n- Community modules must not depend on Enterprise modules.\n- Verify XML IDs and model names against the target source.",
+      "path": "skills/odoo-versioning/SKILL.md",
       "odoo_versions": [
         16,
         17,
         18,
         19
       ],
-      "sdd_phase": "ASSESS",
+      "sdd_phase": null,
       "version": "1.0",
       "changelog": [
         {
           "version": "1.0",
-          "date": "2026-04-01",
-          "change": "Initial version"
+          "date": "2026-10-27",
+          "change": "Consolidated domain skill"
         }
       ],
-      "last_updated": "2026-05-14"
+      "last_updated": "2026-10-27"
     },
     {
       "name": "odf-assess",
@@ -1367,531 +1287,57 @@
       ]
     },
     {
-      "name": "accounting-patterns",
-      "title": "Accounting Patterns",
-      "category": "patterns",
+      "name": "odoo-business-flows",
+      "title": "Odoo Business Flows",
+      "category": "patterns/business",
       "triggers": [
         "accounting",
         "account move",
         "journal entry",
-        "chart of accounts",
+        "invoice",
+        "payment",
         "tax",
         "fiscal position",
-        "account/"
-      ],
-      "compact_rules": "- Always balance entries: Debits must equal credits.\n- Use correct account types: Receivable, payable, income, expense.\n- Post entries: Draft entries don't affect financials.\n- Handle multi-currency: Use currency conversion methods.\n- Respect fiscal year: Check date restrictions.\n- Use proper journals: Sales, purchase, bank, cash, general.\n- Reconcile regularly: Match payments to invoices.\n- Multi-company aware: Always filter by company.",
-      "path": "skills/accounting-patterns/SKILL.md",
-      "odoo_versions": [
-        16,
-        17,
-        18,
-        19
-      ],
-      "sdd_phase": null,
-      "version": "1.0",
-      "changelog": [
-        {
-          "version": "1.0",
-          "date": "2026-09-21",
-          "change": "Registered during skills audit"
-        }
-      ]
-    },
-    {
-      "name": "assets-bundling-patterns",
-      "title": "Assets Bundling Patterns",
-      "category": "patterns",
-      "triggers": [
-        "assets bundle",
-        "ir.assets",
-        "js/css assets",
-        "web.assets",
         "asset",
-        "bundle"
-      ],
-      "compact_rules": "- Use namespaced classes: Prefix with .o_my_module.\n- Follow directory structure: Consistent file organization.\n- Use SCSS variables: Leverage Bootstrap/Odoo variables.\n- Minimize bundle size: Only include what's needed.\n- Lazy load heavy libs: Don't slow initial load.\n- Support dark mode: Use CSS variables.\n- Test with debug=assets: Catch compilation errors.\n- Version compatibility: Check asset syntax for version.",
-      "path": "skills/assets-bundling-patterns/SKILL.md",
-      "odoo_versions": [
-        16,
-        17,
-        18,
-        19
-      ],
-      "sdd_phase": null,
-      "version": "1.0",
-      "changelog": [
-        {
-          "version": "1.0",
-          "date": "2026-09-21",
-          "change": "Registered during skills audit"
-        }
-      ]
-    },
-    {
-      "name": "attachment-binary-patterns",
-      "title": "Attachment Binary Patterns",
-      "category": "patterns",
-      "triggers": [
+        "bundle",
+        "attachment",
         "binary field",
-        "file attachment",
-        "ir.attachment",
-        "upload"
-      ],
-      "compact_rules": "- Use Image field for images: Auto-resize and optimization.\n- Store as attachment: attachment=True for large files.\n- Keep filename field: Pair Binary with Char for filename.\n- Validate file types: Security against malicious uploads.\n- Set size limits: Prevent memory issues.\n- Generate thumbnails: Multiple sizes for performance.\n- Use ir.attachment: For multiple files per record.\n- Clean up orphans: Remove unused attachments.",
-      "path": "skills/attachment-binary-patterns/SKILL.md",
-      "odoo_versions": [
-        16,
-        17,
-        18,
-        19
-      ],
-      "sdd_phase": null,
-      "version": "1.0",
-      "changelog": [
-        {
-          "version": "1.0",
-          "date": "2026-09-21",
-          "change": "Registered during skills audit"
-        }
-      ]
-    },
-    {
-      "name": "config-settings-patterns",
-      "title": "Config Settings Patterns",
-      "category": "patterns",
-      "triggers": [
-        "ir.config_parameter",
-        "settings model",
-        "res.config.settings",
-        "setting",
-        "settings"
-      ],
-      "compact_rules": "- Use config_parameter: For global settings stored in ir.config_parameter.\n- Use related company fields: For company-specific settings.\n- Use implied_group: For feature toggles that grant permissions.\n- Use module_ prefix: For settings that install modules.\n- Validate settings: Check values before saving.\n- Provide defaults: Set sensible default values.\n- Group logically: Use blocks to organize related settings.\n- Show/hide conditionally: Use invisible attribute.",
-      "path": "skills/config-settings-patterns/SKILL.md",
-      "odoo_versions": [
-        16,
-        17,
-        18,
-        19
-      ],
-      "sdd_phase": null,
-      "version": "1.0",
-      "changelog": [
-        {
-          "version": "1.0",
-          "date": "2026-09-21",
-          "change": "Registered during skills audit"
-        }
-      ]
-    },
-    {
-      "name": "controller-api-patterns",
-      "title": "Controller Api Patterns",
-      "category": "patterns",
-      "triggers": [
-        "http controller",
+        "settings",
+        "config_parameter",
+        "controller",
         "http.route",
-        "REST endpoint",
-        "website route"
-      ],
-      "compact_rules": "- Use appropriate auth: public for public APIs, user for authenticated.\n- Handle errors gracefully: Return proper HTTP status codes.\n- Validate input: Check required fields and types.\n- Use sudo carefully: Only when necessary for public endpoints.\n- CSRF protection: Disable only for legitimate API endpoints.\n- Rate limiting: Implement for public APIs.\n- Logging: Log API requests for debugging.\n- Documentation: Document endpoints for consumers.",
-      "path": "skills/controller-api-patterns/SKILL.md",
-      "odoo_versions": [
-        16,
-        17,
-        18,
-        19
-      ],
-      "sdd_phase": null,
-      "version": "1.0",
-      "changelog": [
-        {
-          "version": "1.0",
-          "date": "2026-09-21",
-          "change": "Registered during skills audit"
-        }
-      ]
-    },
-    {
-      "name": "cron-automation-patterns",
-      "title": "Cron Automation Patterns",
-      "category": "patterns",
-      "triggers": [
-        "ir.cron",
+        "rest api",
+        "cron",
         "scheduled action",
-        "automation job",
-        "cron"
-      ],
-      "compact_rules": "- Use ir.cron with a model method; set interval_number and interval_type explicitly.\n- Wrap each unit of work in a savepoint; never commit inside the loop.\n- Log start, success, and failures with _logger.exception; re-raise to surface errors.\n- Make the job idempotent and safe to re-run; guard against concurrent execution.\n- Use queue_job for heavy work instead of long crons; bind the right user and company.",
-      "path": "skills/cron-automation-patterns/SKILL.md",
-      "odoo_versions": [
-        16,
-        17,
-        18,
-        19
-      ],
-      "sdd_phase": null,
-      "version": "1.0",
-      "changelog": [
-        {
-          "version": "1.0",
-          "date": "2026-09-21",
-          "change": "Registered during skills audit"
-        }
-      ]
-    },
-    {
-      "name": "dashboard-kpi-patterns",
-      "title": "Dashboard Kpi Patterns",
-      "category": "patterns",
-      "triggers": [
         "dashboard",
-        "KPI",
-        "graph view",
-        "metrics"
-      ],
-      "compact_rules": "- Use database views: _auto=False for aggregated models.\n- Index key columns: Add indexes to frequently filtered fields.\n- Pre-aggregate: Calculate totals in SQL, not Python.\n- Cache expensive: Use Redis/Memcached for heavy queries.\n- Limit date ranges: Default to current month/quarter.\n- Add search filters: Make it easy to drill down.\n- Use measures wisely: Choose meaningful KPIs.\n- Refresh async: Use background jobs for heavy data.",
-      "path": "skills/dashboard-kpi-patterns/SKILL.md",
-      "odoo_versions": [
-        16,
-        17,
-        18,
-        19
-      ],
-      "sdd_phase": null,
-      "version": "1.0",
-      "changelog": [
-        {
-          "version": "1.0",
-          "date": "2026-09-21",
-          "change": "Registered during skills audit"
-        }
-      ]
-    },
-    {
-      "name": "external-api-patterns",
-      "title": "External Api Patterns",
-      "category": "patterns",
-      "triggers": [
+        "kpi",
+        "external api",
         "xmlrpc",
         "jsonrpc",
-        "external API",
-        "api client",
-        "odoo client",
-        "rest api",
-        "rest"
-      ],
-      "compact_rules": "- Never hardcode credentials: Use ir.config_parameter or dedicated config model.\n- Use HTTPS: Always use secure connections.\n- Implement retry logic: Handle transient failures.\n- Log all API calls: For debugging and audit.\n- Handle rate limits: Implement backoff strategies.\n- Validate responses: Don't trust external data.\n- Use timeouts: Prevent hanging requests.\n- Queue heavy operations: Don't block user actions.",
-      "path": "skills/external-api-patterns/SKILL.md",
-      "odoo_versions": [
-        16,
-        17,
-        18,
-        19
-      ],
-      "sdd_phase": null,
-      "version": "1.0",
-      "changelog": [
-        {
-          "version": "1.0",
-          "date": "2026-09-21",
-          "change": "Registered during skills audit"
-        }
-      ]
-    },
-    {
-      "name": "hr-employee-patterns",
-      "title": "Hr Employee Patterns",
-      "category": "patterns",
-      "triggers": [
-        "employee",
         "hr.employee",
-        "payslip",
-        "department"
-      ],
-      "compact_rules": "- Privacy: Use groups=\"hr.group_hr_user\" for sensitive fields.\n- Employee self-service: Separate views for employees vs HR.\n- Multi-company: Filter employees by company.\n- Manager hierarchy: Use parent_id for reporting structure.\n- Document management: Attach contracts, certificates.\n- Activity scheduling: Use activities for HR tasks.\n- Audit trail: Track changes to sensitive data.\n- Integration: Connect with payroll, expense, timesheet.",
-      "path": "skills/hr-employee-patterns/SKILL.md",
-      "odoo_versions": [
-        16,
-        17,
-        18,
-        19
-      ],
-      "sdd_phase": null,
-      "version": "1.0",
-      "changelog": [
-        {
-          "version": "1.0",
-          "date": "2026-09-21",
-          "change": "Registered during skills audit"
-        }
-      ]
-    },
-    {
-      "name": "import-export-patterns",
-      "title": "Import Export Patterns",
-      "category": "patterns",
-      "triggers": [
+        "employee",
         "import",
         "export",
-        "load",
-        "CSV import",
-        "odoo csv"
-      ],
-      "compact_rules": "- Validate first: Check all rows before creating any.\n- Use transactions: Rollback on errors.\n- Batch processing: Commit in chunks for large imports.\n- External IDs: Use for data that may be re-imported.\n- Error reporting: Show row numbers and specific errors.\n- Preview mode: Let users review before committing.\n- Template download: Provide import template.\n- Encoding: Handle UTF-8 properly.",
-      "path": "skills/import-export-patterns/SKILL.md",
-      "odoo_versions": [
-        16,
-        17,
-        18,
-        19
-      ],
-      "sdd_phase": null,
-      "version": "1.0",
-      "changelog": [
-        {
-          "version": "1.0",
-          "date": "2026-09-21",
-          "change": "Registered during skills audit"
-        }
-      ]
-    },
-    {
-      "name": "logging-debugging-patterns",
-      "title": "Logging Debugging Patterns",
-      "category": "patterns",
-      "triggers": [
         "logging",
-        "_logger",
-        "debug",
-        "traceback"
-      ],
-      "compact_rules": "- Use a module logger: _logger = logging.getLogger(__name__).\n- Lazy formatting: _logger.info(\"x=%s\", x), never f-strings.\n- Include context: record IDs, user, and operation name.\n- Use levels: DEBUG for development, INFO for operations, exception() for tracebacks.\n- Never log passwords, tokens, or PII; guard expensive formatting with isEnabledFor().",
-      "path": "skills/logging-debugging-patterns/SKILL.md",
-      "odoo_versions": [
-        16,
-        17,
-        18,
-        19
-      ],
-      "sdd_phase": null,
-      "version": "1.0",
-      "changelog": [
-        {
-          "version": "1.0",
-          "date": "2026-09-21",
-          "change": "Registered during skills audit"
-        }
-      ]
-    },
-    {
-      "name": "lot-serial-patterns",
-      "title": "Lot Serial Patterns",
-      "category": "patterns",
-      "triggers": [
-        "lot number",
-        "serial number",
-        "stock.quant",
-        "tracking"
-      ],
-      "compact_rules": "- Choose tracking wisely: Serial for unique items, lot for batches.\n- Use expiration dates: For perishables and regulated products.\n- Validate formats: Consistent naming conventions.\n- FEFO for perishables: First expiry, first out.\n- Track QC status: Before releasing to inventory.\n- Maintain traceability: For recalls and compliance.\n- Supplier lot mapping: Link to vendor's batch numbers.\n- Automate numbering: Use sequences for consistency.",
-      "path": "skills/lot-serial-patterns/SKILL.md",
-      "odoo_versions": [
-        16,
-        17,
-        18,
-        19
-      ],
-      "sdd_phase": null,
-      "version": "1.0",
-      "changelog": [
-        {
-          "version": "1.0",
-          "date": "2026-09-21",
-          "change": "Registered during skills audit"
-        }
-      ]
-    },
-    {
-      "name": "mail-notification-patterns",
-      "title": "Mail Notification Patterns",
-      "category": "patterns",
-      "triggers": [
+        "logger",
+        "lot",
+        "serial",
         "mail template",
-        "notification",
         "message_post",
-        "email template"
-      ],
-      "compact_rules": "- Use templates: Define email templates in XML for maintainability.\n- Handle missing emails: Always check partner_id.email before sending.\n- Use queues: Set force_send=False for batch operations.\n- Track important fields: Add tracking=True to key fields.\n- Custom subtypes: Create subtypes for different notification types.\n- Activity scheduling: Use activities for task management.\n- Follower management: Auto-subscribe relevant parties.\n- Test email rendering: Verify templates render correctly.",
-      "path": "skills/mail-notification-patterns/SKILL.md",
-      "odoo_versions": [
-        16,
-        17,
-        18,
-        19
-      ],
-      "sdd_phase": null,
-      "version": "1.0",
-      "changelog": [
-        {
-          "version": "1.0",
-          "date": "2026-09-21",
-          "change": "Registered during skills audit"
-        }
-      ]
-    },
-    {
-      "name": "menu-navigation-patterns",
-      "title": "Menu Navigation Patterns",
-      "category": "patterns",
-      "triggers": [
-        "menu item",
-        "ir.ui.menu",
-        "action window",
-        "menuitem"
-      ],
-      "compact_rules": "- Consistent naming: Use clear, action-oriented names.\n- Logical grouping: Group related menus together.\n- Sequence numbers: Leave gaps (10, 20, 30) for future insertions.\n- Security groups: Restrict sensitive menus.\n- Configuration last: Always sequence 90+.\n- App icon: Always provide for root menu.\n- Extend, don't duplicate: Add to existing apps when appropriate.\n- Keep it shallow: Max 3 levels of nesting.",
-      "path": "skills/menu-navigation-patterns/SKILL.md",
-      "odoo_versions": [
-        16,
-        17,
-        18,
-        19
-      ],
-      "sdd_phase": null,
-      "version": "1.0",
-      "changelog": [
-        {
-          "version": "1.0",
-          "date": "2026-09-21",
-          "change": "Registered during skills audit"
-        }
-      ]
-    },
-    {
-      "name": "portal-access-patterns",
-      "title": "Portal Access Patterns",
-      "category": "patterns",
-      "triggers": [
-        "portal user",
-        "public access",
-        "website security",
-        "portal"
-      ],
-      "compact_rules": "- Always validate tokens: Check existence and expiration.\n- Use HTTPS: Tokens in URLs require encrypted transport.\n- Regenerate on sharing: New token for each share request.\n- Limit token scope: One token per document.\n- Set expiration: Time-limit tokens when possible.\n- Log access: Track who accessed what and when.\n- Clean up expired: Regular cron to remove old tokens.\n- Check permissions: Even with token, verify allowed actions.",
-      "path": "skills/portal-access-patterns/SKILL.md",
-      "odoo_versions": [
-        16,
-        17,
-        18,
-        19
-      ],
-      "sdd_phase": null,
-      "version": "1.0",
-      "changelog": [
-        {
-          "version": "1.0",
-          "date": "2026-09-21",
-          "change": "Registered during skills audit"
-        }
-      ]
-    },
-    {
-      "name": "pricelist-pricing-patterns",
-      "title": "Pricelist Pricing Patterns",
-      "category": "patterns",
-      "triggers": [
+        "menu",
+        "portal",
         "pricelist",
-        "pricing rule",
-        "discount",
-        "price computation"
-      ],
-      "compact_rules": "- Use rule priority: Specific rules before global (sequence matters)\n- Date ranges: Use for promotions, not permanent pricing.\n- Test thoroughly: Verify all quantity breaks work.\n- Currency consistency: Match pricelist and partner currency.\n- Audit trail: Log price changes.\n- Performance: Cache frequent price lookups.\n- Multi-company: Separate pricelists per company.\n- Clear naming: Descriptive pricelist names.",
-      "path": "skills/pricelist-pricing-patterns/SKILL.md",
-      "odoo_versions": [
-        16,
-        17,
-        18,
-        19
-      ],
-      "sdd_phase": null,
-      "version": "1.0",
-      "changelog": [
-        {
-          "version": "1.0",
-          "date": "2026-09-21",
-          "change": "Registered during skills audit"
-        }
-      ]
-    },
-    {
-      "name": "product-variant-patterns",
-      "title": "Product Variant Patterns",
-      "category": "patterns",
-      "triggers": [
+        "pricing",
         "product variant",
-        "attribute",
         "product.template",
-        "product.product"
-      ],
-      "compact_rules": "- Use templates: Define shared data on template, unique on variant.\n- Choose variant mode: always for few combos, dynamic for many.\n- Price extras: Use for simple attribute-based pricing.\n- Separate SKUs: Each variant should have unique identifier.\n- Image strategy: Template image as fallback, variant when different.\n- Stock tracking: Always at variant level.\n- Limit combinations: Too many variants = performance issues.\n- Archive unused: Don't delete, archive discontinued variants.",
-      "path": "skills/product-variant-patterns/SKILL.md",
-      "odoo_versions": [
-        16,
-        17,
-        18,
-        19
-      ],
-      "sdd_phase": null,
-      "version": "1.0",
-      "changelog": [
-        {
-          "version": "1.0",
-          "date": "2026-09-21",
-          "change": "Registered during skills audit"
-        }
-      ]
-    },
-    {
-      "name": "project-task-patterns",
-      "title": "Project Task Patterns",
-      "category": "patterns",
-      "triggers": [
         "project task",
-        "project.task",
-        "milestone",
-        "timesheet"
-      ],
-      "compact_rules": "- Use stages for workflow, not custom fields.\n- Track dependencies for complex projects.\n- Time tracking: integrate with hr_timesheet.\n- Progress calculation: automate based on subtasks/checklists.\n- Notifications: notify on stage changes and deadlines.\n- Budget tracking: link costs to timesheets.\n- Hierarchy: use parent tasks for organization.\n- Templates: create project templates for recurring types.",
-      "path": "skills/project-task-patterns/SKILL.md",
-      "odoo_versions": [
-        16,
-        17,
-        18,
-        19
-      ],
-      "sdd_phase": null,
-      "version": "1.0",
-      "changelog": [
-        {
-          "version": "1.0",
-          "date": "2026-09-21",
-          "change": "Registered during skills audit"
-        }
-      ]
-    },
-    {
-      "name": "purchase-procurement-patterns",
-      "title": "Purchase Procurement Patterns",
-      "category": "patterns",
-      "triggers": [
         "purchase order",
         "procurement",
-        "rfq",
-        "vendor"
+        "vendor",
+        "setting"
       ],
-      "compact_rules": "- Vendor management: Track ratings, certifications, lead times.\n- Approval workflows: Amount-based approval for cost control.\n- Budget integration: Link POs to budgets/cost centers.\n- Multi-company: Handle inter-company purchases.\n- Receipt tracking: Monitor delivery performance.\n- Price history: Track vendor price changes.\n- Lead time accuracy: Compare promised vs actual.\n- Blanket orders: Use purchase agreements for contracts.",
-      "path": "skills/purchase-procurement-patterns/SKILL.md",
+      "compact_rules": "- Identify the business domain, then read its reference before coding.\n- Filter by company and respect record rules on every business model.\n- Prefer the ORM over SQL; never hardcode taxes, accounts, or currencies.\n- Use Monetary and Decimal for money, never float arithmetic.\n- Add tests for the workflow and its failure paths.\n- Load the target-version behavior before copying a pattern.",
+      "path": "skills/odoo-business-flows/SKILL.md",
       "odoo_versions": [
         16,
         17,
@@ -1903,265 +1349,11 @@
       "changelog": [
         {
           "version": "1.0",
-          "date": "2026-09-21",
-          "change": "Registered during skills audit"
+          "date": "2026-10-27",
+          "change": "Consolidated domain skill"
         }
-      ]
-    },
-    {
-      "name": "context-environment-patterns",
-      "title": "Context Environment Patterns",
-      "category": "patterns",
-      "triggers": [
-        "with_context",
-        "with_user",
-        "sudo",
-        "env context"
       ],
-      "compact_rules": "- Use with_context() for temporary context; never mutate self.env.context in place.\n- Common keys: lang, tz, company_id, allowed_company_ids, active_test, default_<field>.\n- Use with_context(active_test=False) only when archived records are intended.\n- Use sudo() narrowly and document why; it bypasses record rules.\n- In crons, bind the intended company and user explicitly; caches may be stale after writes.",
-      "path": "skills/context-environment-patterns/SKILL.md",
-      "odoo_versions": [
-        16,
-        17,
-        18,
-        19
-      ],
-      "sdd_phase": null,
-      "version": "1.0",
-      "changelog": [
-        {
-          "version": "1.0",
-          "date": "2026-09-21",
-          "change": "Registered during skills audit"
-        }
-      ]
-    },
-    {
-      "name": "data-migration-patterns",
-      "title": "Data Migration Patterns",
-      "category": "patterns",
-      "triggers": [
-        "migration script",
-        "openupgrade",
-        "data migration",
-        "pre-migrate"
-      ],
-      "compact_rules": "- Scripts live in migrations/<version>/pre|post-*.py and must be idempotent.\n- Use the OpenUpgrade analysis as the canonical source for renamed or removed fields.\n- Batch large updates and use savepoints; never call cr.commit().\n- Test on a copy of real data and verify counts and constraints before and after.\n- Rename fields through the ORM where possible; document irreversible steps.",
-      "path": "skills/data-migration-patterns/SKILL.md",
-      "odoo_versions": [
-        16,
-        17,
-        18,
-        19
-      ],
-      "sdd_phase": null,
-      "version": "1.0",
-      "changelog": [
-        {
-          "version": "1.0",
-          "date": "2026-09-21",
-          "change": "Registered during skills audit"
-        }
-      ]
-    },
-    {
-      "name": "domain-filter-patterns",
-      "title": "Domain Filter Patterns",
-      "category": "patterns",
-      "triggers": [
-        "domain",
-        "search filter",
-        "recordset filter",
-        "expression domain"
-      ],
-      "compact_rules": "- Use in operator for multiple values instead of multiple OR.\n- Index filtered fields for better performance.\n- Limit results when full result set not needed.\n- Use expression module for combining domains.\n- Test complex domains with actual data.\n- Document complex domains with comments.\n- Use child_of/parent_of for hierarchical data.\n- Prefer ilike over like for user searches.",
-      "path": "skills/domain-filter-patterns/SKILL.md",
-      "odoo_versions": [
-        16,
-        17,
-        18,
-        19
-      ],
-      "sdd_phase": null,
-      "version": "1.0",
-      "changelog": [
-        {
-          "version": "1.0",
-          "date": "2026-09-21",
-          "change": "Registered during skills audit"
-        }
-      ]
-    },
-    {
-      "name": "error-handling-patterns",
-      "title": "Error Handling Patterns",
-      "category": "patterns",
-      "triggers": [
-        "ValidationError",
-        "UserError",
-        "exception handling",
-        "raise"
-      ],
-      "compact_rules": "- Use appropriate exception types: UserError for business logic, ValidationError for constraints.\n- Provide clear messages: Include context and what to do.\n- Log before raising: Log technical details, show user-friendly message.\n- Don't catch too broadly: Be specific about what you catch.\n- Always re-raise UserError: Let it show to user.\n- Use savepoints for batches: Isolate failures.\n- Validate early: Check before doing work.\n- Return feedback: Use notifications for batch operations.",
-      "path": "skills/error-handling-patterns/SKILL.md",
-      "odoo_versions": [
-        16,
-        17,
-        18,
-        19
-      ],
-      "sdd_phase": null,
-      "version": "1.0",
-      "changelog": [
-        {
-          "version": "1.0",
-          "date": "2026-09-21",
-          "change": "Registered during skills audit"
-        }
-      ]
-    },
-    {
-      "name": "field-type-reference",
-      "title": "Field Type Reference",
-      "category": "patterns",
-      "triggers": [
-        "field types",
-        "Char Integer Monetary",
-        "Selection field",
-        "field reference",
-        "field type"
-      ],
-      "compact_rules": "- Strings: Char, Text, Html; numbers: Integer, Float, Monetary; Boolean, Date, Datetime.\n- Relational: Many2one, One2many (comodel + inverse), Many2many; set comodel_name explicitly.\n- Binary with attachment=True for large files; pair it with a filename Char.\n- Selection needs selection=[...]; derive values with compute and store when searchable.\n- Monetary requires currency_field; Float uses digits for precision.",
-      "path": "skills/field-type-reference/SKILL.md",
-      "odoo_versions": [
-        16,
-        17,
-        18,
-        19
-      ],
-      "sdd_phase": null,
-      "version": "1.0",
-      "changelog": [
-        {
-          "version": "1.0",
-          "date": "2026-09-21",
-          "change": "Registered during skills audit"
-        }
-      ]
-    },
-    {
-      "name": "onchange-dynamic-patterns",
-      "title": "Onchange Dynamic Patterns",
-      "category": "patterns",
-      "triggers": [
-        "onchange",
-        "@api.onchange",
-        "dynamic field",
-        "compute onchange"
-      ],
-      "compact_rules": "- onchange is UI-only and does not run on create, write, or import; use compute for persisted values.\n- Return {'domain': {...}, 'warning': {...}} from onchange; never write other records.\n- Computed fields with store=True need @api.depends and may need inverse or search.\n- For dynamic view domains use the domain attribute with Python expressions.\n- Never rely on onchange for integrity; enforce constraints.",
-      "path": "skills/onchange-dynamic-patterns/SKILL.md",
-      "odoo_versions": [
-        16,
-        17,
-        18,
-        19
-      ],
-      "sdd_phase": null,
-      "version": "1.0",
-      "changelog": [
-        {
-          "version": "1.0",
-          "date": "2026-09-21",
-          "change": "Registered during skills audit"
-        }
-      ]
-    },
-    {
-      "name": "action-patterns",
-      "title": "Action Patterns",
-      "category": "patterns",
-      "triggers": [
-        "ir.actions",
-        "server action",
-        "automated action",
-        "act_window",
-        "window action"
-      ],
-      "compact_rules": "- Use XML for static actions: Easier to maintain and override.\n- Use Python for dynamic actions: When domains/context depend on data.\n- Always set res_model: Required for window actions.\n- Use context wisely: Pass defaults and search filters.\n- binding_view_types: Specify where action appears.\n- target=new for wizards: Opens as dialog.\n- Return dict, not action record: More flexible.\n- Handle empty recordsets: Check before processing.",
-      "path": "skills/action-patterns/SKILL.md",
-      "odoo_versions": [
-        16,
-        17,
-        18,
-        19
-      ],
-      "sdd_phase": null,
-      "version": "1.0",
-      "changelog": [
-        {
-          "version": "1.0",
-          "date": "2026-09-21",
-          "change": "Registered during skills audit"
-        }
-      ]
-    },
-    {
-      "name": "odoo-dialog-service",
-      "title": "Odoo Dialog Service",
-      "category": "patterns",
-      "triggers": [
-        "dialog service",
-        "wizard",
-        "form dialog",
-        "owl dialog",
-        "dialog",
-        "confirmation dialog"
-      ],
-      "compact_rules": "- Always handle cancel/discard: User might close dialog without action.\n- Use appropriate sizes: Don't use full size for simple confirmations.\n- Set clear titles: User should know what they're confirming.\n- Use notifications for non-blocking: For success after background action.\n- Form dialogs for CRUD: Quick create/edit without leaving current view.\n- Custom dialogs for complex UI: Multi-step wizards, custom inputs.",
-      "path": "skills/odoo-dialog-service/SKILL.md",
-      "odoo_versions": [
-        16,
-        17,
-        18,
-        19
-      ],
-      "sdd_phase": null,
-      "version": "1.0",
-      "changelog": [
-        {
-          "version": "1.0",
-          "date": "2026-09-21",
-          "change": "Registered during skills audit"
-        }
-      ]
-    },
-    {
-      "name": "end-to-end-examples",
-      "title": "End To End Examples",
-      "category": "testing",
-      "triggers": [
-        "end to end example",
-        "complete module example",
-        "full module walkthrough"
-      ],
-      "compact_rules": "- Use the worked examples as templates: equipment tracking (v18), minimal module (v17), upgrade (v16 to v18).\n- Each example shows manifest, model, views, security, and tests; copy the structure, not the domain.\n- Adapt version-specific APIs before reuse; v17+ removes attrs and requires model_create_multi.\n- Keep the security file and tests in every generated module.\n- Verify XML IDs and model names against the local source.",
-      "path": "skills/end-to-end-examples/SKILL.md",
-      "odoo_versions": [
-        16,
-        17,
-        18,
-        19
-      ],
-      "sdd_phase": null,
-      "version": "1.0",
-      "changelog": [
-        {
-          "version": "1.0",
-          "date": "2026-09-21",
-          "change": "Registered during skills audit"
-        }
-      ]
+      "last_updated": "2026-10-27"
     },
     {
       "name": "oca-code-review",
@@ -2175,148 +1367,6 @@
       ],
       "compact_rules": "- Review order: compliance check, pattern match, improvement suggestions, compiled report.\n- Report critical and high issues separately with file, line, issue, and fix.\n- Classify findings by severity; never merge standards and spec findings.\n- State a verdict: ready, needs work, or cannot merge, with evidence.\n- Never fix during review; return findings to the orchestrator.",
       "path": "skills/oca-code-review/SKILL.md",
-      "odoo_versions": [
-        16,
-        17,
-        18,
-        19
-      ],
-      "sdd_phase": null,
-      "version": "1.0",
-      "changelog": [
-        {
-          "version": "1.0",
-          "date": "2026-09-21",
-          "change": "Registered during skills audit"
-        }
-      ]
-    },
-    {
-      "name": "odoo-editions",
-      "title": "Odoo Editions",
-      "category": "testing",
-      "triggers": [
-        "community enterprise",
-        "odoo editions",
-        "enterprise features"
-      ],
-      "compact_rules": "- Community is LGPL-3 and open source; Enterprise is OPL-1 and proprietary.\n- Enterprise modules live in odoo/enterprise; never depend on them from a Community module.\n- Detect Enterprise at runtime with a feature check, not a hard import.\n- Views with edition-specific elements must degrade gracefully.\n- Declare the correct license: LGPL-3 for Community, OPL-1 for Enterprise.",
-      "path": "skills/odoo-editions/SKILL.md",
-      "odoo_versions": [
-        16,
-        17,
-        18,
-        19
-      ],
-      "sdd_phase": null,
-      "version": "1.0",
-      "changelog": [
-        {
-          "version": "1.0",
-          "date": "2026-09-21",
-          "change": "Registered during skills audit"
-        }
-      ]
-    },
-    {
-      "name": "odoo-performance-guide",
-      "title": "Odoo Performance Guide",
-      "category": "testing",
-      "triggers": [
-        "performance",
-        "slow query",
-        "optimize",
-        "n+1",
-        "read_group"
-      ],
-      "compact_rules": "- Index fields used in domains, record rules, and date ranges; use trigram for ILIKE.\n- Prefetch with mapped() and filtered(); avoid N+1 loops over recordsets.\n- Use read_group or SQL for aggregates instead of Python loops.\n- store=True only when search or sort needs it; recompute is expensive.\n- Measure before optimizing; verify with query counts or profiling.",
-      "path": "skills/odoo-performance-guide/SKILL.md",
-      "odoo_versions": [
-        16,
-        17,
-        18,
-        19
-      ],
-      "sdd_phase": null,
-      "version": "1.0",
-      "changelog": [
-        {
-          "version": "1.0",
-          "date": "2026-09-21",
-          "change": "Registered during skills audit"
-        }
-      ]
-    },
-    {
-      "name": "odoo-tour-testing",
-      "title": "Odoo Tour Testing",
-      "category": "testing",
-      "triggers": [
-        "tour test",
-        "qUnit tour",
-        "HttpCase UI",
-        "chrome tour",
-        "tour"
-      ],
-      "compact_rules": "- Tours run as JS or Python HttpCase tests against a real browser.\n- Steps use CSS selectors, text content, or menu xmlids; give every action a trigger.\n- Keep tours deterministic: wait for elements, avoid timing-based sleeps.\n- Run with the module installed and the correct assets bundle.\n- Debug with the tour recorder; a passing tour does not replace unit tests.",
-      "path": "skills/odoo-tour-testing/SKILL.md",
-      "odoo_versions": [
-        16,
-        17,
-        18,
-        19
-      ],
-      "sdd_phase": null,
-      "version": "1.0",
-      "changelog": [
-        {
-          "version": "1.0",
-          "date": "2026-09-21",
-          "change": "Registered during skills audit"
-        }
-      ]
-    },
-    {
-      "name": "odoo-troubleshooting-guide",
-      "title": "Odoo Troubleshooting Guide",
-      "category": "testing",
-      "triggers": [
-        "troubleshooting",
-        "debug error",
-        "module not loading",
-        "common issues",
-        "external id",
-        "fails to install"
-      ],
-      "compact_rules": "- 'api' has no attribute 'multi' \u2014 Using @api.multi \u2014 v15+ \u2014 Remove decorator.\n- attrs attribute is no longer supported \u2014 Using attrs= \u2014 v17+ \u2014 Use invisible=.\n- create() takes 2 positional arguments \u2014 Single create() \u2014 v17+ \u2014 Use @api.model_create_multi.\n- check_company failed \u2014 Cross-company relation \u2014 v18+ \u2014 Add check_company=True.\n- SQL string query deprecated \u2014 String SQL \u2014 v19 \u2014 Use SQL() builder.\n- External ID not found \u2014 Missing XML reference \u2014 All \u2014 Check file order in manifest.",
-      "path": "skills/odoo-troubleshooting-guide/SKILL.md",
-      "odoo_versions": [
-        16,
-        17,
-        18,
-        19
-      ],
-      "sdd_phase": null,
-      "version": "1.0",
-      "changelog": [
-        {
-          "version": "1.0",
-          "date": "2026-09-21",
-          "change": "Registered during skills audit"
-        }
-      ]
-    },
-    {
-      "name": "odoo-model-patterns",
-      "title": "Odoo Model Patterns",
-      "category": "version",
-      "triggers": [
-        "model patterns",
-        "ORM patterns",
-        "version model guide"
-      ],
-      "compact_rules": "- Determine the target version first; never mix patterns across versions.\n- Load the version-specific model patterns file before writing model code.\n- v16+: Command class for x2many; v17+: model_create_multi mandatory, attrs removed.\n- v18+: _check_company_auto and check_company=True; v19: type hints and SQL() mandatory.\n- Detect version by decorators, Command, attrs, check_company_auto, and type hints.",
-      "path": "skills/odoo-model-patterns/SKILL.md",
       "odoo_versions": [
         16,
         17,

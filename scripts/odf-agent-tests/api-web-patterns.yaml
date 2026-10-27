@@ -9,7 +9,7 @@ tests:
         files: ["controllers/main.py"]
     expected:
       skill_resolution: "self-discovered"
-      expected_skills: ["controller-api-patterns"]
+      expected_skills: ["odoo-business-flows"]
       status_in: ["ok"]
 
   - name: "external api patterns resolve"
@@ -20,7 +20,7 @@ tests:
         files: []
     expected:
       skill_resolution: "self-discovered"
-      expected_skills: ["external-api-patterns"]
+      expected_skills: ["odoo-business-flows"]
       status_in: ["ok"]
 
   - name: "portal access patterns resolve"
@@ -31,5 +31,5 @@ tests:
         files: ["security/ir.model.access.csv"]
     expected:
       skill_resolution: "self-discovered"
-      expected_skills: ["portal-access-patterns"]
+      expected_skills: ["odoo-business-flows"]
       status_in: ["ok"]
