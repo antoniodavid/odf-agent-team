@@ -120,6 +120,16 @@ The host task inherits its model and runtime settings; these values are prompt g
 
 const EXPLICIT_OCA_TARGET = /(?:^|[\s([{,;])target\s*=\s*oca(?:$|[\s)\]},;.!?])/i
 
+function matchesTaskTrigger(text: string, trigger: string): boolean {
+  const value = trigger.trim().toLowerCase()
+  if (!value) return false
+  // Paths, dotted names, and multi-word phrases keep substring matching.
+  if (/[^a-z0-9]/.test(value)) return text.includes(value)
+  // Single words match at a word boundary so "review" never matches "view",
+  // "transaction" never matches "action", and "latest" never matches "test".
+  return text.split(/[^a-z0-9]+/).some((word) => word.startsWith(value))
+}
+
 function hasExplicitOcaTarget(context: { task?: string; target?: string | null }): boolean {
   return context.target?.trim().toLowerCase() === "oca" || EXPLICIT_OCA_TARGET.test(context.task || "")
 }
@@ -175,7 +185,7 @@ export function matchSkills(
 
     // Match by task context
     for (const trigger of triggers) {
-      if (typeof trigger === "string" && taskLower.includes(trigger.toLowerCase())) {
+      if (typeof trigger === "string" && matchesTaskTrigger(taskLower, trigger)) {
         score += 1
       }
     }
@@ -303,7 +313,12 @@ export async function formatDelegationSkills(skills: ODFSkill[]): Promise<string
   sections.push("")
 
   const canonical = skills.find((skill) => Boolean((skill as ODFSkill & { _canonical?: boolean })._canonical))
-  const standard = skills.find((skill) => !Boolean((skill as ODFSkill & { _canonical?: boolean })._canonical))
+  const standard = skills.find((skill) => {
+    const entry = skill as ODFSkill & { _canonical?: boolean; _score?: number }
+    if (entry._canonical) return false
+    const category = String((skill as ODFSkill & { category?: string }).category || "")
+    return category.startsWith("patterns") || (entry._score ?? 0) >= 2
+  })
   const bodyTargets = new Map<string, number>()
   if (canonical) bodyTargets.set(canonical.name, SKILL_BODY_LIMIT)
   if (standard) bodyTargets.set(standard.name, STANDARD_BODY_LIMIT)

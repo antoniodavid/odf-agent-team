@@ -36,6 +36,16 @@
 | Odoo 18.0 | `versions/odoo-version-knowledge-18.md` |
 | Odoo 19.0 | `versions/odoo-version-knowledge-19.md` |
 
+## Migration Guides
+
+| Migration Path | File |
+|----------------|------|
+| 15.0 → 16.0 | `versions/odoo-version-knowledge-15-16.md` |
+| 16.0 → 17.0 | `versions/odoo-version-knowledge-16-17.md` |
+| 17.0 → 18.0 | `versions/odoo-version-knowledge-17-18.md` |
+| 18.0 → 19.0 | `versions/odoo-version-knowledge-18-19.md` |
+| All versions | `versions/odoo-version-knowledge-all.md` |
+
 ## Breaking Changes Summary
 
 ### v15 → v16

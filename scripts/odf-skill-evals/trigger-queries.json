@@ -255,5 +255,21 @@
   {
     "query": "Investigate how Odoo handles taxes before changing it",
     "expected": "odf-explore"
+  },
+  {
+    "query": "Review the stock move module",
+    "expected": "oca-code-review"
+  },
+  {
+    "query": "The latest Odoo version and its breaking changes",
+    "expected": "odoo-versioning"
+  },
+  {
+    "query": "Fix the syntax error in the report",
+    "expected": "odf-fix"
+  },
+  {
+    "query": "Format the report for the customer",
+    "expected": "oca-cognitive-doc-design"
   }
 ]

@@ -4,8 +4,10 @@ import * as path from "node:path"
 const SAFE_TOKEN_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/
 const MAX_BYTES = 256 * 1024
 const MAX_BRANCHES = 3
-// A branch prompt now carries the canonical SKILL.md body (progressive disclosure).
-const MAX_PROMPT_BYTES = 32 * 1024
+// A branch prompt carries the canonical and domain SKILL.md bodies
+// (progressive disclosure). The tool accepts up to 200 KB prompts, so the join
+// bound must leave room for the skill block plus the caller's branch prompt.
+const MAX_PROMPT_BYTES = 64 * 1024
 const MAX_CONTEXT_FILES = 32
 const MAX_REF_BYTES = 256
 

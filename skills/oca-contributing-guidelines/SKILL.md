@@ -260,10 +260,11 @@ Ejemplo: 17.0.1.0.0
 
 ## 🔗 Relacionado
 
-- [[OCA-Commit-Messages]] - Commit message format
-- [[OCA-Development-Status]] - Maturity levels
-- [[OCA-PR-Checklist]] - PR checklist
-- [[OCA-Maintainer-Role]] - Maintainer responsibilities
-- [[OCA-Repository-Policy]] - Repository organization
+- `../oca-governance-commit-messages/SKILL.md` - Commit message format
+- `../oca-maturity-levels/SKILL.md` - Maturity levels
+- `../oca-governance-pr-workflow/SKILL.md` - PR checklist
+- `../oca-maintainer-role/SKILL.md` - Maintainer responsibilities
+- `../oca-repository-policy/SKILL.md` - Repository organization
+- `references/deprecated-guide.md` - Deprecated consolidated guide (historical)
 
 #oca #guidelines #contributing #odoo
