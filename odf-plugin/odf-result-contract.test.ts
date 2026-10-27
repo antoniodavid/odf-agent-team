@@ -29,6 +29,8 @@ describe("shared ODF Result contract", () => {
     expect(ODF_RESULT_CONTRACT_PROMPT).toContain("ok | warning | blocked | failed")
     expect(ODF_RESULT_CONTRACT_PROMPT).toContain("stop_disposition")
     expect(ODF_RESULT_CONTRACT_PROMPT).toContain("unclassified")
+    expect(ODF_RESULT_CONTRACT_PROMPT).toContain("`reason` (a non-empty string up to 500 characters; short kebab-case code identifying the stop)")
+    expect(ODF_RESULT_CONTRACT_PROMPT).toContain("`next_action` (a non-empty string up to 500 characters describing the next safe action)")
   })
 
   it("accepts valid phase extensions and rejects malformed common fields", () => {
