@@ -480,9 +480,14 @@ function computePolicyGateUnlocked(opts: PolicyGateOptions): PolicyGateDecision 
   let candidateDigest: string | null = null
   let baseHead: string | null = null
   let changedLines: number | null = null
-  let changedPaths: string[] = []
+  let changedPaths: string[] = opts.stage === "BUILD" ? extractChangedPaths(manifest) : []
   let riskTier: "LOW" | "MEDIUM" | "HIGH" = "MEDIUM"
   let correctionBudget: number | null = null
+
+  if (opts.stage === "BUILD" && classifyRiskTierWithContent(changedPaths, workspace) === "HIGH") {
+    // BUILD remains at least MEDIUM, but must not understate high-risk candidates.
+    riskTier = "HIGH"
+  }
 
   if (opts.stage === "VERIFY") {
     frozenDiffRef = head

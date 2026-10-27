@@ -1458,9 +1458,10 @@ function createODFPolicyGate(): ReturnType<typeof tool> {
     description: `Resolve and persist the ODF Policy Gate for a change before BUILD/VERIFY.
 
 Resolves the effective TDD mode (global flags.strict_tdd AND local <worktree>/.odf/tdd.off;
-any off or unreadable local → off, fail-closed) and, for VERIFY, freezes the diff ref
-(git rev-parse HEAD), counts the original changed lines, classifies the risk tier from the
-changed paths, and computes the correction budget (min(200, ceil(lines/2))).
+any off or unreadable local → off, fail-closed). BUILD classifies the current candidate paths
+for risk escalation while remaining at least MEDIUM, without freezing candidate evidence.
+VERIFY freezes the diff ref (git rev-parse HEAD), counts the original changed lines, classifies
+the risk tier from changed paths, and computes the correction budget (min(200, ceil(lines/2))).
 Persists the decision to <worktree>/.odf/policy-gate-{change}.json (idempotent for the same
 frozen diff ref). If persistence fails, the gate blocks instead of returning an unpersisted
 allow decision. The gate documents — the sub-agent applies, never recomputes.`,
