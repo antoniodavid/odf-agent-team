@@ -1392,7 +1392,7 @@
         "find oca skill",
         "skill catalog"
       ],
-      "compact_rules": "- Use this index to locate OCA guidance, then load the specific skill.\n- Categories: governance, development style, patterns, testing, version guides, core tools.\n- Prefer the specific skill over this index for actual work.\n- Version guides 16-19 are supported; 15 is migration source only.\n- Counts are approximate; the registry is authoritative.",
+      "compact_rules": "- Use this catalog to locate a standalone skill or a domain reference.\n- Categories: ODF stages, OCA governance/style, five Odoo domain routers, shared conventions, tools.\n- Prefer the specific skill or domain router over this catalog for actual work.\n- Version guides 16-19 are supported; 15 is migration source only.\n- The registry is authoritative; this catalog is a navigation aid.",
       "path": "skills/oca/SKILL.md",
       "odoo_versions": [
         16,
