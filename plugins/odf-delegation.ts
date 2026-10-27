@@ -6871,8 +6871,11 @@ function selectEngramSnapshot(
   activeOnly = false,
 ): EngramSnapshot | null {
   const changeMap = new Map<string, Map<string, { content: string; created: string | null }>>()
-  for (const obs of observations) {
-    const key = obs.topic_key || ""
+  for (const candidate of observations as unknown[]) {
+    if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) continue
+    const obs = candidate as EngramObservation
+    if (typeof obs.topic_key !== "string" || typeof obs.content !== "string") continue
+    const key = obs.topic_key
     const match = key.match(/^odf\/([^/]+)\/(.+)$/)
     if (!match) continue
     const [, change, artifactType] = match
@@ -9042,6 +9045,7 @@ function hasMalformedEngramObservations(observations: EngramObservation[] | null
     const candidate = observation as unknown
     if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) return true
     const record = candidate as Record<string, unknown>
+    if (!Object.prototype.hasOwnProperty.call(record, "topic_key")) return false
     if (typeof record.topic_key !== "string") return true
     const match = record.topic_key.match(/^odf\/([^/]+)\/(.+)$/)
     if (!match || !CHANGE_NAME_PATTERN.test(match[1])) return false
@@ -9184,6 +9188,7 @@ async function discoverActiveWorkflowCandidates(workspaceRoot: string): Promise<
         warnings.push("engram-export-invalid")
         continue
       }
+      if (!Object.prototype.hasOwnProperty.call(observation, "topic_key")) continue
       if (typeof observation.topic_key !== "string") {
         warnings.push("engram-export-invalid")
         continue
