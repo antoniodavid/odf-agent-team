@@ -103,6 +103,10 @@ part of the contract:
   Nested `- key: value` bullet lists are parsed as objects, but single-line JSON
   is the only shape guaranteed for deep structures.
 - `true`, `false`, and `null` are parsed as their JSON values.
+- For compatibility, the host also accepts a JSON object or bare top-level
+  `key: value` lines inside `## ODF Result`. Agents must continue to emit the
+  canonical Markdown form above; all accepted forms go through the same schema
+  validation.
 - The `## ODF Result` section is authoritative when present: the parser reads it
   first and never replaces it with an unrelated fenced JSON block. Without that
   section, the first fenced JSON block or the whole message is parsed as JSON.

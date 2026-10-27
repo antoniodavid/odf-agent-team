@@ -1228,27 +1228,52 @@ function resultValue(rawValue: string, key: string): unknown {
   return rawValue
 }
 
+function sanitizeResultJson(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(sanitizeResultJson)
+  if (!value || typeof value !== "object") return value
+
+  const sanitized: Record<string, unknown> = {}
+  for (const [key, nested] of Object.entries(value)) {
+    if (UNSAFE_RESULT_KEYS.has(resultKey(key))) continue
+    sanitized[key] = sanitizeResultJson(nested)
+  }
+  return sanitized
+}
+
 /**
  * Parse the `## ODF Result` section. Flat `- **key**: value` lines are the
- * contract; nested `- key: value` bullets under a key become nested objects,
- * and a bold line without the list marker (`**key**: value`) is accepted too.
- * Structured values are still expected as single-line JSON, which is the only
- * shape guaranteed for deep structures. `__proto__`-style keys are dropped so
- * agent text can never mutate prototypes.
+ * canonical form; JSON objects and bare top-level key/value lines are accepted
+ * for compatibility. Nested `- key: value` bullets under a key become nested
+ * objects, and a bold line without the list marker (`**key**: value`) is
+ * accepted too. Single-line JSON remains the guaranteed shape for deep
+ * structures. Unsafe keys are dropped so agent text can never mutate prototypes.
  */
 function parseResultSection(section: string): Record<string, unknown> {
+  const trimmed = section.trim()
+  if (trimmed.startsWith("{")) {
+    try {
+      const parsed: unknown = JSON.parse(trimmed)
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        return sanitizeResultJson(parsed) as Record<string, unknown>
+      }
+    } catch {
+      // Fall through to the line parser so malformed JSON still fails schema validation.
+    }
+  }
+
   const result: Record<string, unknown> = {}
   const stack: Array<{ indent: number; container: Record<string, unknown> }> = [{ indent: -1, container: result }]
   for (const line of section.split(/\r?\n/)) {
     const bold = line.match(/^(\s*)(?:-\s+)?\*\*([^*]+)\*\*:\s*(.*?)\s*$/)
     const item = bold ? null : line.match(/^(\s*)-\s+([A-Za-z0-9_.-]+):\s*(.*?)\s*$/)
-    const match = bold || item
+    const bare = bold || item ? null : line.match(/^()([A-Za-z0-9_.-]+):\s*(.*?)\s*$/)
+    const match = bold || item || bare
     if (!match) continue
     const indent = match[1].length
     const key = resultKey(match[2])
     if (!key || UNSAFE_RESULT_KEYS.has(key)) continue
     while (stack.length > 1 && indent <= stack[stack.length - 1].indent) stack.pop()
-    if (!bold && stack.length === 1) continue
+    if (item && stack.length === 1) continue
     const parent = stack[stack.length - 1].container
     const rawValue = match[3].trim()
     if (rawValue === "") {

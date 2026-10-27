@@ -3455,6 +3455,56 @@ describe("sessionResultFromText", () => {
     expect(result.skill_resolution).toBe("injected")
   })
 
+  it("parses a JSON object inside the authoritative ODF Result section", () => {
+    const expected = validOdfResult({
+      status: "blocked",
+      executive_summary: "No changes made",
+      strategy: "migration",
+      odoo_version: 16,
+      modules_affected: ["replika_branch_inter_warehouse"],
+      next_recommended: [{ step: "resume", count: 0 }],
+      metadata: { enabled: true, disabled: false, empty: null, nested: { ready: true } },
+    })
+
+    const result = sessionResultFromText(`## ODF Result\n${JSON.stringify(expected, null, 2)}`)
+
+    expect(result).toMatchObject(expected)
+  })
+
+  it("drops prototype-polluting keys from JSON objects inside the result section", () => {
+    const authority = JSON.parse('{"ok":true,"nested":{"__proto__":{"polluted":true},"constructor":"bad","safe":null}}')
+    const result = sessionResultFromText(`## ODF Result\n${JSON.stringify({
+      ...validOdfResult(),
+      source_authority: authority,
+    })}`)
+    const parsedAuthority = result.source_authority as Record<string, unknown>
+
+    expect(parsedAuthority.ok).toBe(true)
+    expect(parsedAuthority).toEqual({ ok: true, nested: { safe: null } })
+  })
+
+  it("parses bare top-level key/value lines inside the authoritative ODF Result section", () => {
+    const expected = validOdfResult({
+      status: "blocked",
+      executive_summary: "No changes made",
+      strategy: "migration",
+      odoo_version: 16,
+      modules_affected: ["replika_branch_inter_warehouse"],
+      next_recommended: [{ step: "resume", count: 0 }],
+      enabled: true,
+      disabled: false,
+      empty_value: null,
+      metadata: { count: 0, nested: { ready: true } },
+    })
+    const body = Object.entries(expected).map(([key, value]) =>
+      `${key}: ${typeof value === "string" ? value : JSON.stringify(value)}`,
+    ).join("\n")
+
+    const result = sessionResultFromText(`## ODF Result\n${body}`)
+
+    expect(result).toMatchObject(expected)
+  })
+
   it("still parses a pure JSON result when no ODF Result section exists", () => {
     const result = sessionResultFromText(JSON.stringify({
       status: "ok",
@@ -3471,6 +3521,15 @@ describe("sessionResultFromText", () => {
 
   it("fails closed when the section has no status", () => {
     expect(() => sessionResultFromText("## ODF Result\n- **design_closed**: true")).toThrow(/invalid-task-result/)
+    const fencedOnly = [
+      "## ODF Result",
+      "",
+      "unparsed text",
+      "```json",
+      JSON.stringify(validOdfResult()),
+      "```",
+    ].join("\n")
+    expect(() => sessionResultFromText(fencedOnly)).toThrow(/invalid-task-result/)
   })
 
   it("rejects a supported status when required common fields are missing", () => {
@@ -3480,6 +3539,8 @@ describe("sessionResultFromText", () => {
 
   it("rejects unresolved status templates and unsupported status values", () => {
     expect(() => sessionResultFromText("## ODF Result\n- **status**: ok | warning | blocked | failed")).toThrow(/status must be exactly/)
+    expect(() => sessionResultFromText('## ODF Result\n{"status":"success"}')).toThrow(/status must be exactly/)
+    expect(() => sessionResultFromText("## ODF Result\nstatus: ok | warning | blocked | failed")).toThrow(/status must be exactly/)
     expect(() => sessionResultFromText('{"status":"success"}')).toThrow(/status must be exactly/)
     expect(() => sessionResultFromText('{"status":"ok "}')).toThrow(/status must be exactly/)
   })
@@ -8236,6 +8297,113 @@ ${overrides}`
     expect(result.message).toContain("candidate-digest-mismatch: the receipt is bound to candidate")
     expect(fsSync.existsSync(path.join(repo, ".odf", `attempt-ledger-${change}.jsonl`))).toBe(false)
     expect(await fs.readFile(path.join(changeDir, "state.yaml"), "utf8")).toContain("canonical_stage: VERIFY")
+  })
+
+  const runBuildDigestTransition = async (
+    change: string,
+    options: {
+      receiptBinding?: Record<string, unknown>
+      persistedBinding?: { filePrefix: "policy-gate" | "validation-evidence"; content: Record<string, unknown> }
+    } = {},
+  ) => {
+    const repo = path.join(tempHome, `repo-${change}`)
+    initGitRepo(repo)
+    commitFile(repo, "a.py", 10)
+    appendLines(repo, "a.py", 100)
+
+    const changeDir = path.join(repo, "openspec", "changes", change)
+    await fs.mkdir(changeDir, { recursive: true })
+    await fs.writeFile(path.join(changeDir, "state.yaml"), [
+      "work_type: feature",
+      "canonical_stage: BUILD",
+      "completed_canonical_stages: [DECIDE, PLAN]",
+      "resumable: true",
+      "",
+    ].join("\n"), "utf8")
+    await fs.writeFile(path.join(changeDir, "implement-progress.md"), "- [x] implementation\n", "utf8")
+    const odfDir = path.join(repo, ".odf")
+    await fs.mkdir(odfDir, { recursive: true })
+    if (options.receiptBinding) {
+      await fs.writeFile(path.join(odfDir, `receipt-${change}.json`), JSON.stringify({
+        change,
+        status: "failed",
+        cause: "validation-failed",
+        evidence: { summary: "prior stage failed", frozen_diff_ref: null, failing: [], refs: [] },
+        action: { committed: "retry" },
+        review_gate: null,
+        frozen_diff_ref: null,
+        candidate_digest: "0".repeat(64),
+        resolved_at: new Date().toISOString(),
+        ...options.receiptBinding,
+      }), "utf8")
+    }
+    if (options.persistedBinding) {
+      await fs.writeFile(
+        path.join(odfDir, `${options.persistedBinding.filePrefix}-${change}.json`),
+        JSON.stringify(options.persistedBinding.content),
+        "utf8",
+      )
+    }
+
+    const statePath = path.join(changeDir, "state.yaml")
+    const stateBefore = await fs.readFile(statePath, "utf8")
+    const proof = workflowAdvance("IMPLEMENT")
+    const recomputed = advanceWorkflow({ route: resolveWorkflowRoute(proof.work_type), ...proof })
+    const result = await commitWorkflowTransition({
+      workspaceRoot: repo,
+      changeName: change,
+      artifactStore: "openspec",
+      proof,
+      expectedStage: "BUILD",
+      callerResult: recomputed,
+      phaseResultStatus: "ok",
+      validationStatus: "verified",
+      validation: { status: "verified", reason: "focused test evidence", commands_validated: 2 },
+    })
+    const stateAfter = await fs.readFile(statePath, "utf8")
+    return { result, stateBefore, stateAfter }
+  }
+
+  const buildReceiptBindings: Array<{
+    name: string
+    binding: Record<string, unknown>
+    expected: "blocked" | "committed"
+  }> = [
+    { name: "canonical same-stage", binding: { stage: "BUILD" }, expected: "blocked" },
+    { name: "legacy same-stage", binding: { phase: "IMPLEMENT" }, expected: "blocked" },
+    { name: "canonical prior-stage", binding: { stage: "DECIDE" }, expected: "committed" },
+    { name: "legacy prior-stage", binding: { phase: "ASSESS" }, expected: "committed" },
+    { name: "conflicting stage and phase", binding: { stage: "DECIDE", phase: "IMPLEMENT" }, expected: "blocked" },
+    { name: "unknown stage", binding: { stage: "UNKNOWN" }, expected: "blocked" },
+    { name: "unknown legacy phase", binding: { phase: "UNKNOWN" }, expected: "blocked" },
+    { name: "missing stage binding", binding: {}, expected: "blocked" },
+  ]
+
+  it.each(buildReceiptBindings)("digest-mismatch: handles $name when sealing BUILD", async ({ name, binding, expected }) => {
+    const change = `digest-mismatch-build-${name.replace(/\s+/g, "-")}`
+    const { result, stateBefore, stateAfter } = await runBuildDigestTransition(change, { receiptBinding: binding })
+
+    if (expected === "blocked") {
+      expect(result).toMatchObject({ status: "blocked", reason: "candidate-digest-mismatch", canonical_stage: "BUILD" })
+      expect(result.message).toContain("candidate-digest-mismatch: the receipt is bound to candidate")
+      expect(stateAfter).toBe(stateBefore)
+    } else {
+      expect(result).toMatchObject({ status: "committed", reason: "committed", canonical_stage: "BUILD" })
+    }
+  })
+
+  it.each([
+    { label: "policy gate", filePrefix: "policy-gate" as const },
+    { label: "validation evidence", filePrefix: "validation-evidence" as const },
+  ])("digest-mismatch: keeps the $label binding blocking during BUILD", async ({ label, filePrefix }) => {
+    const change = `digest-mismatch-build-${filePrefix}`
+    const { result, stateBefore, stateAfter } = await runBuildDigestTransition(change, {
+      persistedBinding: { filePrefix, content: { candidate_digest: "0".repeat(64) } },
+    })
+
+    expect(result).toMatchObject({ status: "blocked", reason: "candidate-digest-mismatch", canonical_stage: "BUILD" })
+    expect(result.message).toContain(`candidate-digest-mismatch: the ${label} is bound to candidate`)
+    expect(stateAfter).toBe(stateBefore)
   })
 
   it("compatibility: transitions with no candidate digests are not blocked by digest", async () => {

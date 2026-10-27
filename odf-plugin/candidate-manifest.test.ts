@@ -672,6 +672,78 @@ describe("candidate-manifest", () => {
     expect(second.risk_tier).toBe("HIGH")
   })
 
+  it("integration: BUILD escalates security candidates without freezing VERIFY evidence", async () => {
+    const repo = path.join(tmp, "build-risk")
+    initGitRepo(repo)
+    commitFile(repo, "base.txt")
+    const accessFile = path.join(repo, "security", "ir.model.access.csv")
+    await fs.mkdir(path.dirname(accessFile), { recursive: true })
+    await fs.writeFile(accessFile, "id,name\n", "utf8")
+
+    const build = computePolicyGate({
+      change: "build-risk",
+      stage: "BUILD",
+      workspaceDir: repo,
+      registry: registryWithTdd(false),
+    })
+    expect(build).toMatchObject({
+      gate: "allow",
+      risk_tier: "HIGH",
+      changed_paths: ["security/ir.model.access.csv"],
+      frozen_diff_ref: null,
+      candidate_digest: null,
+      base_head: null,
+      changed_lines: null,
+      correction_budget_lines: null,
+    })
+
+    const passiveRepo = path.join(tmp, "build-passive")
+    initGitRepo(passiveRepo)
+    commitFile(passiveRepo, "base.txt")
+    await fs.mkdir(path.join(passiveRepo, "docs"), { recursive: true })
+    await fs.writeFile(path.join(passiveRepo, "docs", "guide.md"), "guide\n", "utf8")
+
+    const passiveBuild = computePolicyGate({
+      change: "build-passive",
+      stage: "BUILD",
+      workspaceDir: passiveRepo,
+      registry: registryWithTdd(false),
+    })
+    expect(passiveBuild.risk_tier).toBe("MEDIUM")
+    expect(passiveBuild.changed_paths).toEqual(["docs/guide.md"])
+  })
+
+  it("integration: BUILD stays MEDIUM for passive, ordinary, and empty candidates", async () => {
+    for (const [name, candidatePath] of [
+      ["passive", "docs/guide.md"],
+      ["ordinary", "models/model.py"],
+      ["empty", null],
+    ] as const) {
+      const repo = path.join(tmp, `build-${name}`)
+      initGitRepo(repo)
+      commitFile(repo, "base.txt")
+      if (candidatePath) {
+        const filePath = path.join(repo, candidatePath)
+        await fs.mkdir(path.dirname(filePath), { recursive: true })
+        await fs.writeFile(filePath, "candidate\n", "utf8")
+      }
+
+      const gate = computePolicyGate({
+        change: `build-${name}`,
+        stage: "BUILD",
+        workspaceDir: repo,
+        registry: registryWithTdd(false),
+      })
+      expect(gate.risk_tier).toBe("MEDIUM")
+      expect(gate.changed_paths).toEqual(candidatePath ? [candidatePath] : [])
+      expect(gate.frozen_diff_ref).toBeNull()
+      expect(gate.candidate_digest).toBeNull()
+      expect(gate.base_head).toBeNull()
+      expect(gate.changed_lines).toBeNull()
+      expect(gate.correction_budget_lines).toBeNull()
+    }
+  })
+
   it("integration: VERIFY without git blocks instead of failing open (candidate not reproducible)", () => {
     const d = computePolicyGate({ change: "no-git", stage: "VERIFY", workspaceDir: tmp, registry: registryWithTdd(true) })
     expect(d.base_head).toBeNull()
