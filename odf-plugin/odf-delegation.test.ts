@@ -3992,8 +3992,8 @@ if (args[0] === "export") {
   const project = flag("--project")
   const all = JSON.parse(process.env.ODF_TEST_ENGRAM_EXPORT || "[]")
   const observations = project
-    ? all.filter((o) => !o.project || o.project === project)
-    : all.filter((o) => !o.project)
+    ? all.filter((o) => !o || typeof o !== "object" || !o.project || o.project === project)
+    : all.filter((o) => !o || typeof o !== "object" || !o.project)
   fs.writeFileSync(args[1], JSON.stringify({ observations }))
 }
 `,
@@ -4268,7 +4268,7 @@ describe("odf_workflow_status discovery and Engram fallback", () => {
       "",
     ].join("\n"), "utf8")
     const cleanup = await configureEngramExport([
-      { content: "malformed-observation-without-topic-key" },
+      { topic_key: 17, content: "malformed-observation-with-invalid-topic-key" },
     ])
 
     try {
@@ -4281,6 +4281,109 @@ describe("odf_workflow_status discovery and Engram fallback", () => {
           candidate_count: 1,
           warnings: ["engram-export-invalid"],
         },
+      })
+    } finally {
+      await cleanup()
+    }
+  })
+
+  it("ignores untagged Engram observations in explicit status and active discovery", async () => {
+    const workspace = path.join(tmp, "repo")
+    initGitRepo(workspace)
+    commitFile(workspace, "README.md", 1)
+    const cleanup = await configureEngramExport([
+      { content: "ordinary project observation" },
+      {
+        topic_key: "odf/active-change/state",
+        content: JSON.stringify({
+          work_type: "feature",
+          artifact_store: "engram",
+          canonical_stage: "BUILD",
+          completed_canonical_stages: ["DECIDE", "PLAN"],
+        }),
+        created_at: "2026-10-27T10:00:00Z",
+      },
+    ])
+
+    try {
+      const named = JSON.parse(await createODFWorkflowStatus().execute(
+        { change_name: "missing-change" },
+        { directory: workspace } as any,
+      ) as string)
+      expect(named).toMatchObject({ status: "not-found" })
+
+      const discovered = JSON.parse(await createODFWorkflowStatus().execute(
+        {},
+        { directory: workspace } as any,
+      ) as string)
+      expect(discovered).toMatchObject({
+        status: "found",
+        change: "active-change",
+        canonical_stage: "BUILD",
+        resumable: true,
+        active_change_resolution: { status: "unambiguous", candidate_count: 1 },
+      })
+      expect(discovered.warnings).not.toContain("engram-export-invalid")
+    } finally {
+      await cleanup()
+    }
+  })
+
+  it("fails closed on non-object Engram observations without throwing", async () => {
+    const workspace = path.join(tmp, "repo")
+    initGitRepo(workspace)
+    commitFile(workspace, "README.md", 1)
+    const cleanup = await configureEngramExport([
+      null as unknown as Record<string, unknown>,
+    ])
+
+    try {
+      const named = JSON.parse(await createODFWorkflowStatus().execute(
+        { change_name: "missing-change" },
+        { directory: workspace } as any,
+      ) as string)
+      expect(named).toMatchObject({ status: "blocked", reason: "engram-export-invalid" })
+
+      const discovered = JSON.parse(await createODFWorkflowStatus().execute(
+        {},
+        { directory: workspace } as any,
+      ) as string)
+      expect(discovered).toMatchObject({
+        status: "blocked",
+        reason: "active-change-discovery-incomplete",
+        active_change_resolution: { status: "incomplete", warnings: ["engram-export-invalid"] },
+      })
+    } finally {
+      await cleanup()
+    }
+  })
+
+  it("fails closed on non-string Engram artifact content without throwing", async () => {
+    const workspace = path.join(tmp, "repo")
+    initGitRepo(workspace)
+    commitFile(workspace, "README.md", 1)
+    const cleanup = await configureEngramExport([
+      {
+        topic_key: "odf/malformed-content/state",
+        content: 17 as unknown as string,
+      },
+    ])
+
+    try {
+      const named = JSON.parse(await createODFWorkflowStatus().execute(
+        { change_name: "malformed-content" },
+        { directory: workspace } as any,
+      ) as string)
+      expect(named).toMatchObject({ status: "blocked", reason: "engram-export-invalid" })
+
+      const discovered = JSON.parse(await createODFWorkflowStatus().execute(
+        {},
+        { directory: workspace } as any,
+      ) as string)
+      expect(discovered).toMatchObject({
+        status: "blocked",
+        reason: "active-change-discovery-incomplete",
+        active_change_resolution: { status: "incomplete", warnings: ["engram-export-invalid"] },
       })
     } finally {
       await cleanup()
@@ -4369,7 +4472,7 @@ describe("odf_workflow_status discovery and Engram fallback", () => {
     initGitRepo(workspace)
     commitFile(workspace, "README.md", 1)
     const cleanup = await configureEngramExport([
-      { content: "malformed-observation-without-topic-key" },
+      { topic_key: 17, content: "malformed-observation-with-invalid-topic-key" },
     ])
 
     try {
@@ -4394,7 +4497,7 @@ describe("odf_workflow_status discovery and Engram fallback", () => {
         topic_key: "odf/readable-change/state",
         content: JSON.stringify({ work_type: "feature", artifact_store: "engram", canonical_stage: "BUILD", completed_canonical_stages: ["DECIDE", "PLAN"] }),
       },
-      { content: "malformed-observation-without-topic-key" },
+      { topic_key: 17, content: "malformed-observation-with-invalid-topic-key" },
     ])
 
     try {
@@ -4451,7 +4554,7 @@ describe("odf_workflow_status discovery and Engram fallback", () => {
         topic_key: "odf/visible-change/state",
         content: JSON.stringify({ work_type: "feature", artifact_store: "engram", canonical_stage: "BUILD", completed_canonical_stages: ["DECIDE", "PLAN"] }),
       },
-      { content: "malformed-observation-without-topic-key" },
+      { topic_key: 17, content: "malformed-observation-with-invalid-topic-key" },
     ])
 
     try {
