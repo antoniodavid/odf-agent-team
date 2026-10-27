@@ -8,8 +8,8 @@ Objective: stop unrelated phase receipts from blocking BUILD, then resume the au
 2. **S2 — Resume the existing Replika process.** The session request was: “el proyecto es replika, continue y termina el proceso, completa el tutorial”; the authorized verification request was: “usando el mcp odoo-mcp instancia odoo-16 y el chrome-devtools haz una corrida del modulo, con datos de prueba para verificar que esta resuelto el requerimiento y que se cumple con todo el pedido del cliente, luego actualiza la documentacion como el manual de usuario en html”. Continue `ses_ea08deda6ffe4jGyKK50IZFkM3` through the existing ODF workflow, preserve all pre-existing work, use the authorized Odoo 16 test instance and Chrome DevTools, and update the HTML user manual. Do not bypass BUILD/VERIFY/archive gates or report completion without observed evidence.
 
 ## Tasks
-- T1 — S1 — inline — complete — Risk: item 2 (workflow guard); commit pending. Focused regression, clean full unit suite, typecheck, YAML suite, and independent S1 verification pass.
-- T2 — S2 — parent/native ODF continuation — needs your selection: two active changes match in Replika — commit not applicable. Resume only the selected change through native status/transitions; do not replay unrelated stages or mutate unrelated repository state.
+- T1 — S1 — inline — complete — Risk: item 2 (workflow guard); commit `1532f49`. Focused regression, clean full unit suite, typecheck, YAML suite, and independent S1 verification pass.
+- T2 — S2 — parent/native ODF continuation — needs your selection: two active changes match in Replika — commit not applicable. Resume only the selected change through native workflow status and transitions; do not replay unrelated stages or mutate unrelated repository state.
 
 ## Log
 - L1: “solucionalo, buscar la forma de continuar con la session hasta terminar el proceso”
@@ -25,3 +25,4 @@ Objective: stop unrelated phase receipts from blocking BUILD, then resume the au
 - L11: User decision, 2026-10-26: “B” — wait for a clean full Vitest run before resuming Replika.
 - L12: A full thread-pool run passed cleanly: 54 test files, 1,487 tests, no errors (`npm run test:unit -- --pool=threads --maxWorkers=2 --minWorkers=1 --reporter=dot`). T1 now has the required proof; proceed with T2 through native workflow status and transitions.
 - L13: Native `odf_workflow_status` found two resumable active Replika changes and required explicit selection: `inter-warehouse-branch-reception` (PLAN, pending BUILD, migration, resolved failed receipt with retry) and `inter-warehouse-multi-source` (BUILD, pending VERIFY, feature, resolved failed receipt with retry). No change was selected and no Replika files were modified.
+- L14: T1 implementation, regression tests, and the feature log were committed locally as `1532f49` (`fix(workflow): scope receipt digests by stage`). No unrelated paths were staged.
