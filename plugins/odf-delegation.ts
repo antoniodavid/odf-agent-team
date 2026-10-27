@@ -197,8 +197,10 @@ import {
   type WorkflowRoute,
 } from "../odf-plugin/odf-workflow.js"
 import {
+  PHASE_STAGE,
   resolveDelegationTarget,
   delegationPhase,
+  isDelegationStage,
   isStageTerminalRole,
   type DelegationRole,
   type DelegationStage,
@@ -8300,7 +8302,11 @@ function writeArchiveWorkflow(
  * workspace. Returns null when git is unavailable or no artifact carries a
  * digest (legacy flows stay unblocked; T3 makes the digest mandatory).
  */
-function candidateDigestMismatchReason(workspaceRoot: string, changeName: string): string | null {
+function candidateDigestMismatchReason(
+  workspaceRoot: string,
+  changeName: string,
+  expectedStage: DelegationStage,
+): string | null {
   const fresh = candidateDigestOrNull(workspaceRoot, changeName)
   if (fresh === null) return null
 
@@ -8318,8 +8324,28 @@ function candidateDigestMismatchReason(workspaceRoot: string, changeName: string
     if (typeof evidence.candidate_digest === "string") bindings.push({ label: "validation evidence", digest: evidence.candidate_digest })
   } catch { /* no persisted evidence */ }
   const receiptRead = readReceiptFile(workspaceRoot, changeName)
-  const receiptDigest = receiptRead.receipt?.candidate_digest
-  if (typeof receiptDigest === "string") bindings.push({ label: "receipt", digest: receiptDigest })
+  const receipt = receiptRead.receipt
+  const receiptDigest = receipt?.candidate_digest
+  // Receipts belong to the stage that produced them. A resolved receipt from a
+  // different stage is historical evidence, not a binding for this transition.
+  // Keep unknown/legacy stage values fail-closed so old or malformed receipts
+  // retain the digest protection until their binding can be established.
+  const receiptStageValue = receipt?.stage
+  const legacyReceiptPhase = receipt?.phase
+  const hasReceiptStage = receiptStageValue !== undefined && receiptStageValue !== null
+  const hasLegacyPhase = legacyReceiptPhase !== undefined && legacyReceiptPhase !== null
+  const canonicalReceiptStage = isDelegationStage(receiptStageValue) ? receiptStageValue : null
+  const projectedLegacyStage = typeof legacyReceiptPhase === "string" &&
+    Object.prototype.hasOwnProperty.call(PHASE_STAGE, legacyReceiptPhase)
+    ? PHASE_STAGE[legacyReceiptPhase as keyof typeof PHASE_STAGE]
+    : null
+  const receiptStage = hasReceiptStage && hasLegacyPhase
+    ? canonicalReceiptStage && canonicalReceiptStage === projectedLegacyStage ? canonicalReceiptStage : null
+    : hasReceiptStage ? canonicalReceiptStage : projectedLegacyStage
+  if (typeof receiptDigest === "string" &&
+    (receiptStage === null || receiptStage === expectedStage)) {
+    bindings.push({ label: "receipt", digest: receiptDigest })
+  }
 
   for (const binding of bindings) {
     if (binding.digest !== fresh) {
@@ -8563,7 +8589,7 @@ export async function commitWorkflowTransition(opts: {
     // is intentionally checked only before delegation.
     const digestMismatch = fastLanePolicy?.enabled && opts.expectedStage === "BUILD"
       ? null
-      : candidateDigestMismatchReason(opts.workspaceRoot, opts.changeName)
+      : candidateDigestMismatchReason(opts.workspaceRoot, opts.changeName, opts.expectedStage)
     if (digestMismatch) {
       return makeResult(
         "blocked",
