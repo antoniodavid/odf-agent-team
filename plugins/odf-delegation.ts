@@ -974,7 +974,8 @@ function withAttemptLedgerLock<T>(workspaceRoot: string, ledgerPath: string, ope
   let lockFd: number | null = null
 
   try {
-    if (!ensureSafeOdfDirectory(workspaceRoot) || !safeWorkspaceStatePath(workspaceRoot, ledgerPath) || !safeWorkspaceStatePath(workspaceRoot, lockPath)) {
+    if (!ensureSafeOdfDirectory(workspaceRoot) || !safeWorkspaceStatePath(workspaceRoot, ledgerPath) ||
+      !safeWorkspaceStatePath(workspaceRoot, lockPath) || !safeWorkspaceStatePath(workspaceRoot, `${lockPath}.recovery.lock`)) {
       return { locked: false, error: "attempt-ledger-unsafe-path" }
     }
     try {
@@ -982,8 +983,17 @@ function withAttemptLedgerLock<T>(workspaceRoot: string, ledgerPath: string, ope
       lockFd = fsSync.openSync(lockPath, "wx")
     } catch (err) {
       const code = (err as NodeJS.ErrnoException).code
-      return { locked: false, error: code === "EEXIST" ? "attempt-ledger-locked" : "attempt-ledger-lock-failed" }
+      if (code !== "EEXIST") return { locked: false, error: "attempt-ledger-lock-failed" }
+      const recovered = recoverStaleFileLock(workspaceRoot, lockPath, () => isStaleAttemptLedgerLock(lockPath))
+      if (!recovered) return { locked: false, error: "attempt-ledger-locked" }
+      try {
+        lockFd = fsSync.openSync(lockPath, "wx")
+      } catch (retryError) {
+        const retryCode = (retryError as NodeJS.ErrnoException).code
+        return { locked: false, error: retryCode === "EEXIST" ? "attempt-ledger-locked" : "attempt-ledger-lock-failed" }
+      }
     }
+    if (!writeLockOwnerMetadata(lockFd)) return { locked: false, error: "attempt-ledger-lock-failed" }
     return { locked: true, value: operation() }
   } catch {
     return { locked: false, error: "attempt-ledger-lock-failed" }
@@ -8001,20 +8011,29 @@ function workflowLockPath(workspaceRoot: string, changeName: string): string {
   return path.join(workspaceRoot, ".odf", `workflow-${changeName}${WORKFLOW_LOCK_SUFFIX}`)
 }
 
-const DEFAULT_WORKFLOW_LOCK_STALE_MS = 60_000
-
-/** TTL for locks whose owner cannot be probed (dead/other host/malformed). */
-function workflowLockStaleMs(): number {
-  const raw = Number(process.env.ODF_WORKFLOW_LOCK_STALE_MS)
-  return Number.isFinite(raw) && raw >= 0 ? raw : DEFAULT_WORKFLOW_LOCK_STALE_MS
-}
-
-function readWorkflowLockOwner(lockPath: string): Record<string, unknown> | null {
+function readLockOwner(lockPath: string): Record<string, unknown> | null {
   try {
     const parsed: unknown = JSON.parse(fsSync.readFileSync(lockPath, "utf8"))
     return parsed !== null && typeof parsed === "object" && !Array.isArray(parsed) ? parsed as Record<string, unknown> : null
   } catch {
     return null
+  }
+}
+
+function writeLockOwnerMetadata(lockFd: number): boolean {
+  try {
+    const metadata = Buffer.from(JSON.stringify({
+      pid: process.pid,
+      hostname: os.hostname(),
+      started_at: new Date().toISOString(),
+      token: nodeCrypto.randomUUID(),
+    }), "utf8")
+    const written = fsSync.writeSync(lockFd, metadata, 0, metadata.length, 0)
+    if (written !== metadata.length) return false
+    fsSync.fsyncSync(lockFd)
+    return true
+  } catch {
+    return false
   }
 }
 
@@ -8030,37 +8049,51 @@ function lockOwnerAlive(pid: unknown): boolean | null {
   }
 }
 
-/** A lock is stale when its owner is provably dead, or when it is old enough
- * that a crashed/partial acquisition (empty file) cannot belong to a live
- * operation. A live owner on this host is never considered stale. */
-function isStaleWorkflowLock(lockPath: string, staleMs: number): boolean {
-  let ageMs: number
-  try {
-    ageMs = Date.now() - fsSync.statSync(lockPath).mtimeMs
-  } catch {
-    return true // The lock vanished; the retry will arbitrate through `wx`.
-  }
-  const owner = readWorkflowLockOwner(lockPath)
-  if (owner && typeof owner.hostname === "string" && owner.hostname === os.hostname()) {
-    const alive = lockOwnerAlive(owner.pid)
-    if (alive !== null) return !alive
-  }
-  return ageMs >= staleMs
+/** Only a positively dead local owner can be recovered automatically. */
+function isStaleWorkflowLock(lockPath: string): boolean {
+  const owner = readLockOwner(lockPath)
+  if (!owner || owner.hostname !== os.hostname()) return false
+  return lockOwnerAlive(owner.pid) === false
 }
 
-/** Remove an orphan lock. Re-checks staleness first so a concurrent recovery
- * cannot unlink a lock acquired after the first check. Returns false when the
- * lock is no longer provably stale. */
-function recoverStaleWorkflowLock(lockPath: string, staleMs: number): boolean {
-  if (!isStaleWorkflowLock(lockPath, staleMs)) return false
-  const tombstone = `${lockPath}.stale-${process.pid}-${nodeCrypto.randomUUID()}`
+function isStaleAttemptLedgerLock(lockPath: string): boolean {
+  const owner = readLockOwner(lockPath)
+  if (!owner || owner.hostname !== os.hostname()) return false
+  return lockOwnerAlive(owner.pid) === false
+}
+
+/**
+ * Serialize stale-lock recovery so another contender cannot rename a fresh
+ * lock installed after the first recovery. The guarded section is synchronous
+ * and excludes the user's operation; existing recovery guards fail closed.
+ */
+function recoverStaleFileLock(workspaceRoot: string, lockPath: string, isStale: () => boolean): boolean {
+  const recoveryPath = `${lockPath}.recovery.lock`
+  if (!safeWorkspaceStatePath(workspaceRoot, lockPath) || !safeWorkspaceStatePath(workspaceRoot, recoveryPath)) return false
+  let recoveryFd: number | null = null
   try {
-    fsSync.renameSync(lockPath, tombstone)
+    recoveryFd = fsSync.openSync(recoveryPath, "wx")
   } catch {
     return false
   }
-  try { fsSync.unlinkSync(tombstone) } catch { /* best-effort */ }
-  return true
+
+  try {
+    if (!writeLockOwnerMetadata(recoveryFd) || !isStale()) return false
+    const tombstone = `${lockPath}.stale-${process.pid}-${nodeCrypto.randomUUID()}`
+    if (!safeWorkspaceStatePath(workspaceRoot, tombstone)) return false
+    fsSync.renameSync(lockPath, tombstone)
+    try { fsSync.unlinkSync(tombstone) } catch { /* best-effort */ }
+    return true
+  } catch {
+    return false
+  } finally {
+    try { fsSync.closeSync(recoveryFd) } catch { /* best-effort */ }
+    try { fsSync.unlinkSync(recoveryPath) } catch { /* best-effort */ }
+  }
+}
+
+function recoverStaleWorkflowLock(workspaceRoot: string, lockPath: string): boolean {
+  return recoverStaleFileLock(workspaceRoot, lockPath, () => isStaleWorkflowLock(lockPath))
 }
 
 function workflowStateReference(store: ArtifactStore, changeName: string): string {
@@ -8083,7 +8116,9 @@ async function withWorkflowLock<T>(
       return { locked: false, error: "workflow-lock-unsafe-path" }
     }
     lockPath = workflowLockPath(realWorkspace, changeName)
-    if (!isWithinRoot(path.resolve(lockPath), lockDirectory)) {
+    if (!isWithinRoot(path.resolve(lockPath), lockDirectory) ||
+      !safeWorkspaceStatePath(realWorkspace, lockPath) ||
+      !safeWorkspaceStatePath(realWorkspace, `${lockPath}.recovery.lock`)) {
       return { locked: false, error: "workflow-lock-unsafe-path" }
     }
     try {
@@ -8091,27 +8126,18 @@ async function withWorkflowLock<T>(
     } catch (error) {
       const code = (error as NodeJS.ErrnoException).code
       if (code !== "EEXIST") return { locked: false, error: "workflow-lock-failed" }
-      const staleMs = workflowLockStaleMs()
-      if (!isStaleWorkflowLock(lockPath, staleMs)) return { locked: false, error: "workflow-state-locked" }
-      const recovered = recoverStaleWorkflowLock(lockPath, staleMs)
+      if (!isStaleWorkflowLock(lockPath)) return { locked: false, error: "workflow-state-locked" }
+      recoverStaleWorkflowLock(realWorkspace, lockPath)
       try {
         lockFd = fsSync.openSync(lockPath, "wx")
-      } catch {
-        return { locked: false, error: recovered ? "workflow-state-locked" : "workflow-lock-failed" }
+      } catch (retryError) {
+        const retryCode = (retryError as NodeJS.ErrnoException).code
+        return { locked: false, error: retryCode === "EEXIST" ? "workflow-state-locked" : "workflow-lock-failed" }
       }
     }
-    // Owner metadata makes a crashed holder recoverable; `wx` remains the
-    // arbiter, so a failed write never weakens mutual exclusion.
-    try {
-      fsSync.writeSync(lockFd, JSON.stringify({
-        pid: process.pid,
-        hostname: os.hostname(),
-        started_at: new Date().toISOString(),
-        token: nodeCrypto.randomUUID(),
-      }))
-    } catch {
-      // Best-effort: the lock is still held through the open file descriptor.
-    }
+    // Metadata must be durable before the async operation starts; otherwise
+    // a peer could mistake a live but unidentifiable lock for an orphan.
+    if (!writeLockOwnerMetadata(lockFd)) return { locked: false, error: "workflow-lock-failed" }
     return { locked: true, value: await operation() }
   } catch {
     return { locked: false, error: "workflow-lock-failed" }
