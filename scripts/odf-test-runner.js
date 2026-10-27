@@ -47,6 +47,13 @@ function loadRegistry() {
 
 const EXPLICIT_OCA_TARGET = /(?:^|[\s([{,;])target\s*=\s*oca(?:$|[\s)\]},;.!?])/i;
 
+function matchesTaskTrigger(text, trigger) {
+  const value = String(trigger || '').trim().toLowerCase();
+  if (!value) return false;
+  if (/[^a-z0-9]/.test(value)) return text.includes(value);
+  return text.split(/[^a-z0-9]+/).some((word) => word.startsWith(value));
+}
+
 function matchSkills(registry, phase, context) {
   const matches = [];
   const taskLower = context.task?.toLowerCase() || '';
@@ -74,7 +81,7 @@ function matchSkills(registry, phase, context) {
       }
     }
     for (const trigger of skill.triggers || []) {
-      if (taskLower.includes(trigger.toLowerCase())) score += 1;
+      if (matchesTaskTrigger(taskLower, trigger)) score += 1;
     }
     const isCanonical = skill.name === canonicalName;
     if (score > 0 || isCanonical || (skill.name === 'odf-oca-governance' && ocaTargeted)) {

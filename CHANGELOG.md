@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+### Fixed
+- Single-word skill triggers now match at a word boundary: `review` no longer selects the views skill via `view`, `transaction` no longer selects actions via `action`, and `latest` no longer selects testing via `test`.
+- The parallel branch prompt bound is 64 KB, leaving room for the canonical and domain skill bodies.
+- Linked the previously unreachable version references and replaced the OCA contributing wikilinks with real skill paths.
+
 ### Changed
 - Consolidated 41 pattern, testing, and version skills into 5 domain skills: `odoo-modeling`, `odoo-views-owl`, `odoo-business-flows`, `odoo-testing`, and `odoo-versioning`. Each former skill is now `references/<topic>.md` with its examples, and the registry drops from 87 to 51 entries.
 - Skill descriptions now lead with `Use when` and describe user intent instead of `Entity. Trigger: ...`; all 87 were rewritten.

@@ -2876,6 +2876,36 @@ describe("matchSkills", () => {
     expect(skills.map((skill: ODFSkill) => skill.name)).toEqual(["first-skill", "second-skill"])
   })
 
+  it("matches single-word triggers only at a word boundary", () => {
+    const template = baseRegistry.skills[0]
+    const registry = {
+      ...baseRegistry,
+      skills: [{ ...template, name: "views", title: "Views", triggers: ["view"], compact_rules: "- View.", category: "patterns/views" }],
+    }
+    expect(matchSkills(registry, null, { task: "review the code", files: [] })).toEqual([])
+    expect(matchSkills(registry, null, { task: "open the view", files: [] }).map((skill: ODFSkill) => skill.name)).toContain("views")
+  })
+
+  it("matches inflected forms without matching unrelated words", () => {
+    const template = baseRegistry.skills[0]
+    const registry = {
+      ...baseRegistry,
+      skills: [{ ...template, name: "testing", title: "Testing", triggers: ["test"], compact_rules: "- Test.", category: "patterns/testing" }],
+    }
+    expect(matchSkills(registry, null, { task: "write tests", files: [] }).map((skill: ODFSkill) => skill.name)).toContain("testing")
+    expect(matchSkills(registry, null, { task: "the latest odoo version", files: [] })).toEqual([])
+  })
+
+  it("does not match an action trigger inside transaction", () => {
+    const template = baseRegistry.skills[0]
+    const registry = {
+      ...baseRegistry,
+      skills: [{ ...template, name: "actions", title: "Actions", triggers: ["action"], compact_rules: "- Action.", category: "patterns/views" }],
+    }
+    expect(matchSkills(registry, null, { task: "create a transaction record", files: [] })).toEqual([])
+    expect(matchSkills(registry, null, { task: "create a window action", files: [] }).map((skill: ODFSkill) => skill.name)).toContain("actions")
+  })
+
   it("filters by Odoo version", () => {
     const skills = matchSkills(baseRegistry, "DESIGN", {
       task: "Design a model",

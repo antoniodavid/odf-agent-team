@@ -90,6 +90,23 @@ describe("formatDelegationSkills", () => {
     expect(output).toContain("### Precision Guardrails")
   })
 
+
+  it("skips a governance body with a weak match and prefers a pattern domain", async () => {
+    const governance = path.join(dir, "governance", "SKILL.md")
+    const pattern = path.join(dir, "pattern", "SKILL.md")
+    await fs.mkdir(path.dirname(governance), { recursive: true })
+    await fs.mkdir(path.dirname(pattern), { recursive: true })
+    await fs.writeFile(governance, "---\nname: governance\n---\n\n## Governance body\n", "utf8")
+    await fs.writeFile(pattern, "---\nname: pattern\n---\n\n## Pattern body\n", "utf8")
+
+    const output = await formatDelegationSkills([
+      makeSkill({ name: "governance", title: "Governance", path: governance, compact_rules: "- Governance rule.", category: "governance", _score: 1 }),
+      makeSkill({ name: "pattern", title: "Pattern", path: pattern, compact_rules: "- Pattern rule.", category: "patterns/business", _score: 1 }),
+    ])
+    expect(output).not.toContain("Governance body")
+    expect(output).toContain("Pattern body")
+  })
+
   it("falls back to compact rules when the canonical body is unavailable", async () => {
     const output = await formatDelegationSkills([
       makeSkill({ name: "canonical", title: "Canonical Stage", path: path.join(dir, "missing.md"), compact_rules: "- Fallback rule.", _canonical: true }),
@@ -107,8 +124,8 @@ describe("formatDelegationSkills", () => {
     await fs.writeFile(second, "---\nname: second\n---\n\n## Second standard body\n", "utf8")
 
     const output = await formatDelegationSkills([
-      makeSkill({ name: "first", title: "First Standard", path: first, compact_rules: "- First rule." }),
-      makeSkill({ name: "second", title: "Second Standard", path: second, compact_rules: "- Second rule." }),
+      makeSkill({ name: "first", title: "First Standard", path: first, compact_rules: "- First rule.", category: "patterns/business", _score: 2 }),
+      makeSkill({ name: "second", title: "Second Standard", path: second, compact_rules: "- Second rule.", category: "patterns/business", _score: 1 }),
     ])
     expect(output).toContain("First standard body")
     expect(output).not.toContain("Second standard body")
@@ -120,7 +137,7 @@ describe("formatDelegationSkills", () => {
     await fs.mkdir(path.dirname(file), { recursive: true })
     await fs.writeFile(file, `---\nname: extra\n---\n\n${"y".repeat(9_000)}\n`, "utf8")
     const output = await formatDelegationSkills([
-      makeSkill({ name: "extra", title: "Extra Standard", path: file, compact_rules: "- Extra rule." }),
+      makeSkill({ name: "extra", title: "Extra Standard", path: file, compact_rules: "- Extra rule.", category: "patterns/testing", _score: 2 }),
     ])
     expect(output).toContain("truncated at 8000 characters")
     expect(output.length).toBeLessThan(10_000)

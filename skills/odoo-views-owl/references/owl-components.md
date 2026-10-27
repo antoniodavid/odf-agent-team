@@ -23,7 +23,10 @@
 | Target Version | OWL guidance | File to Use |
 |----------------|-------------|-------------|
 | Odoo 15.0 | Migration source: verify branch's bundled OWL API | `versions/odoo-owl-components-15.md` |
-| Odoo 16.0+ | Verify the branch's bundled OWL API before choosing a pattern | Matching version file |
+| Odoo 16.0 | Verify the branch's bundled OWL API | `versions/odoo-owl-components-16.md` |
+| Odoo 17.0 | Verify the branch's bundled OWL API | `versions/odoo-owl-components-17.md` |
+| Odoo 18.0 | Verify the branch's bundled OWL API | `versions/odoo-owl-components-18.md` |
+| Odoo 19.0 | Verify the branch's bundled OWL API | `versions/odoo-owl-components-19.md` |
 | All versions | Concepts only; not a compatibility claim | `versions/odoo-owl-components-all.md` |
 
 ## Migration Guides

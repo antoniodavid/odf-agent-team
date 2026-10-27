@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Changelog — ODF Agent Team · ODF Docs</title>
-  <meta name="description" content="Consolidated 41 pattern, testing, and version skills into 5 domain skills: `odoo-modeling`, `odoo-views-owl`, `odoo-business-flows`, `odoo-testing`, and `odoo-versioning`. Each former skill is now `references/&lt;topic&gt;.md`">
+  <meta name="description" content="Single-word skill triggers now match at a word boundary: `review` no longer selects the views skill via `view`, `transaction` no longer selects actions via `action`, and `latest` no longer selects testing via `test`.">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -50,8 +50,14 @@
     </nav>
     <article class="prose">
       <h1>Changelog — ODF Agent Team</h1>
-      <p class="doc-meta">17 min read</p>
+      <p class="doc-meta">18 min read</p>
       <h2 id="unreleased" tabindex="-1"><a class="anchor" href="#unreleased" aria-label="Link to this section">#</a>Unreleased</h2>
+<h3 id="fixed" tabindex="-1"><a class="anchor" href="#fixed" aria-label="Link to this section">#</a>Fixed</h3>
+<ul>
+<li>Single-word skill triggers now match at a word boundary: <code>review</code> no longer selects the views skill via <code>view</code>, <code>transaction</code> no longer selects actions via <code>action</code>, and <code>latest</code> no longer selects testing via <code>test</code>.</li>
+<li>The parallel branch prompt bound is 64 KB, leaving room for the canonical and domain skill bodies.</li>
+<li>Linked the previously unreachable version references and replaced the OCA contributing wikilinks with real skill paths.</li>
+</ul>
 <h3 id="changed" tabindex="-1"><a class="anchor" href="#changed" aria-label="Link to this section">#</a>Changed</h3>
 <ul>
 <li>Consolidated 41 pattern, testing, and version skills into 5 domain skills: <code>odoo-modeling</code>, <code>odoo-views-owl</code>, <code>odoo-business-flows</code>, <code>odoo-testing</code>, and <code>odoo-versioning</code>. Each former skill is now <code>references/&lt;topic&gt;.md</code> with its examples, and the registry drops from 87 to 51 entries.</li>
@@ -78,7 +84,7 @@
 <li>The tracked timesheet binary is rebuilt with <code>go build -trimpath -ldflags=&quot;-s -w&quot;</code> (9.8 MB → 7.9 MB) and no longer embeds build-machine paths (#188).</li>
 <li>The landing page links locally, keeps search inside the site, and documents the 1.6.2 docs and privacy work.</li>
 </ul>
-<h3 id="fixed" tabindex="-1"><a class="anchor" href="#fixed" aria-label="Link to this section">#</a>Fixed</h3>
+<h3 id="fixed-1" tabindex="-1"><a class="anchor" href="#fixed-1" aria-label="Link to this section">#</a>Fixed</h3>
 <ul>
 <li>The safety contract shows <code>password=&lt;value&gt;</code> instead of a literal-looking password (#188).</li>
 <li>Removed stale internal notes and a <code>/tmp</code> reference from the landing page source (#188).</li>
@@ -120,7 +126,7 @@
 <li>The legacy dual-read compatibility layer, legacy status projection, and legacy state read path (#164, #166, #167).</li>
 <li><code>odf_notebooklm_lookup</code> and the <code>notebooklm_sources</code> registry map (#176); NotebookLM enrichment, when used, stays external to ODF.</li>
 </ul>
-<h3 id="fixed-1" tabindex="-1"><a class="anchor" href="#fixed-1" aria-label="Link to this section">#</a>Fixed</h3>
+<h3 id="fixed-2" tabindex="-1"><a class="anchor" href="#fixed-2" aria-label="Link to this section">#</a>Fixed</h3>
 <ul>
 <li>Cancellation and aborts: parent cancellation propagates to delegated children, cancelled delegations stop cleanly, and aborted children bind with a precise seal reason (#149, #159, #161).</li>
 <li>Late seal verifies the prepared prompt without an assistant result (#162), and aborted native children no longer dead-end recovery (#159).</li>
@@ -149,7 +155,7 @@
 <li>Online feedback is user-rated telemetry, not benchmark evidence. This release makes no efficacy claim and does not include an ODF-hosted collection service or npm publication.</li>
 </ul>
 <h2 id="151-2026-10-03" tabindex="-1"><a class="anchor" href="#151-2026-10-03" aria-label="Link to this section">#</a>1.5.1 (2026-10-03)</h2>
-<h3 id="fixed-2" tabindex="-1"><a class="anchor" href="#fixed-2" aria-label="Link to this section">#</a>Fixed</h3>
+<h3 id="fixed-3" tabindex="-1"><a class="anchor" href="#fixed-3" aria-label="Link to this section">#</a>Fixed</h3>
 <ul>
 <li>Workflow persistence and recovery: Policy Gate writes fail closed, ARCHIVE retries repair partial OpenSpec/Engram writes, and replanning invalidates downstream artifacts (#104–#106).</li>
 <li>Native delegation safety: restore V2 delegation, guard direct tool calls, check seal context before child launch, and bind recovery to the exact idle child; handle multiline prompts, V2 result text, and transport banners safely (#86, #89, #93, #100, #101, #107, #108).</li>
@@ -181,7 +187,7 @@
 <li>Orchestrator and phase commands document the native single and parallel delegation flows, their recovery reasons, and the fast-lane / cross-domain boundaries.</li>
 <li>Native seals record one aggregate <code>subagent</code> metric (the replayed delegate metrics are suppressed), including join counts for parallel BUILD.</li>
 </ul>
-<h3 id="fixed-3" tabindex="-1"><a class="anchor" href="#fixed-3" aria-label="Link to this section">#</a>Fixed</h3>
+<h3 id="fixed-4" tabindex="-1"><a class="anchor" href="#fixed-4" aria-label="Link to this section">#</a>Fixed</h3>
 <ul>
 <li>Heavy phases: VERIFY gets the same 900000 ms timeout budget as ASSESS/QA-PLAN/DESIGN, and the orchestrator documents expected duration, child-session visibility (<code>ODF &lt;phase&gt; → &lt;agent&gt; · &lt;change&gt;</code>, <code>/sessions</code> on the legacy path) and interruption semantics — interrupting aborts the child, settles the attempt as failed, applies the single transport relaunch, and <code>/odf-continue</code> resumes (#80).</li>
 <li>Parallel BUILD recovery: a persisted join left <code>running</code> after a host restart is recovered instead of dead-ending BUILD (#74, #75).</li>
@@ -211,7 +217,7 @@ a V1 host will not register the ODF plugin.</p>
 <li><strong>OpenCode V2 only</strong>: the entrypoint <code>plugins/odf-delegation.ts</code> now default-exports the official <code>Plugin.define({ id, setup })</code> shape. The V1 <code>server</code> export, <code>OdfDelegationPlugin</code> and <code>createODFRuntimeHooks</code> were removed along with their V1 contract fixtures.</li>
 <li>Runtime code no longer imports <code>@opencode-ai/plugin</code>. The shared <code>tool</code> helper moved to <code>odf-plugin/odf-tool.ts</code> (identity function + <code>zod</code> schema namespace), so the plugin graph carries only the host-provided <code>@opencode/plugin</code> plus the declared <code>zod</code> and <code>yaml</code> dependencies. <code>@opencode-ai/plugin</code> and <code>@opencode-ai/sdk</code> are now devDependencies, used for types and the V1/V2 schema-parity fixtures.</li>
 </ul>
-<h3 id="fixed-4" tabindex="-1"><a class="anchor" href="#fixed-4" aria-label="Link to this section">#</a>Fixed</h3>
+<h3 id="fixed-5" tabindex="-1"><a class="anchor" href="#fixed-5" aria-label="Link to this section">#</a>Fixed</h3>
 <ul>
 <li>Registry/telemetry warm-up used to live inside the retired V1 <code>server</code> entrypoint, so the V2 host silently lost it. It is now <code>startOdfRuntime()</code>, awaited by <code>setupODFV2</code>: metrics flushing, the skills/permissions cache refresh, unregistered-skill discovery and the learning loop all run under OpenCode V2.</li>
 <li>OpenCode V2 now injects the one-shot context-pressure notice through the <code>session.context</code> hook, restoring parity with the retired V1 <code>experimental.chat.system.transform</code> seam.</li>
@@ -233,7 +239,7 @@ a V1 host will not register the ODF plugin.</p>
 <li>This release is OpenCode V2 only (see the breaking note above); a V1 host cannot register the plugin.</li>
 </ul>
 <h2 id="131-2026-09-24" tabindex="-1"><a class="anchor" href="#131-2026-09-24" aria-label="Link to this section">#</a>1.3.1 (2026-09-24)</h2>
-<h3 id="fixed-5" tabindex="-1"><a class="anchor" href="#fixed-5" aria-label="Link to this section">#</a>Fixed</h3>
+<h3 id="fixed-6" tabindex="-1"><a class="anchor" href="#fixed-6" aria-label="Link to this section">#</a>Fixed</h3>
 <ul>
 <li>Installer: <code>curl | bash</code> no longer dies silently — non-interactive stdin continues with an explicit notice (the TTY prompt is kept and tolerates EOF); regression tests cover the piped script and stdin at EOF (#17).</li>
 <li>OpenCode V2 entry authorization: the prompt hook detects the expanded <code>/odf-new</code> command document, and the V2 adapter shares the entry-authorization maps between the loop guard and the registered tools, so the capability minted after <code>odf_health</code> reaches <code>odf_workflow_bind</code> (#18).</li>
@@ -268,7 +274,7 @@ a V1 host will not register the ODF plugin.</p>
 <li>Gate de precisión: <code>odf-toolkit lookup</code> (IDs de vista/modelos/campos en el source local con file:line) y <code>verify-refs</code> (cada ref=/model= del módulo debe resolverse; exit 1 si no). Reglas &quot;nunca inventar IDs&quot; en odoo-sources, odf-design, odf-implement y backend engineer; el orquestador reenvía <code>odoo_source_root</code>.</li>
 <li>README reescrito: estado honesto, matriz de dependencias/degradación, pipeline, CLIs y gate de precisión.</li>
 </ul>
-<h3 id="fixed-6" tabindex="-1"><a class="anchor" href="#fixed-6" aria-label="Link to this section">#</a>Fixed</h3>
+<h3 id="fixed-7" tabindex="-1"><a class="anchor" href="#fixed-7" aria-label="Link to this section">#</a>Fixed</h3>
 <ul>
 <li>TUI: Enter en <code>(Y/n)</code> confirmaba en vez de cancelar; listener raw que se tragaba el Enter siguiente; guard no-TTY con hint de automatización.</li>
 </ul>
@@ -283,7 +289,7 @@ a V1 host will not register the ODF plugin.</p>
 <li>Completion criteria en odf-assess/design/implement/verify; smell baseline Fowler para el lens de readability; seams-first y anti-patrones de tests en implement/tdd; feedback-loop-first + redacción en odf-fix; handoff con Suggested Skills</li>
 <li>Descubrimiento de artefactos OpenSpec anidados (<code>design/design.md</code>, <code>qa-plan/plan.md</code>, ...)</li>
 </ul>
-<h3 id="fixed-7" tabindex="-1"><a class="anchor" href="#fixed-7" aria-label="Link to this section">#</a>Fixed</h3>
+<h3 id="fixed-8" tabindex="-1"><a class="anchor" href="#fixed-8" aria-label="Link to this section">#</a>Fixed</h3>
 <ul>
 <li>Agente DESIGN/PLAN bloqueado por <code>design_closed: &quot;true&quot;</code> (string): coerción <code>asBoolean</code> en el validador</li>
 <li>Resolver de agentes elegía frontend por el token genérico &quot;odoo&quot;: scoring por coincidencias + stop word</li>
@@ -346,7 +352,7 @@ a V1 host will not register the ODF plugin.</p>
 <li>Registry convertido a formato named profiles</li>
 <li>Plugin de 766→1044 líneas con metrics + learning loop</li>
 </ul>
-<h3 id="fixed-8" tabindex="-1"><a class="anchor" href="#fixed-8" aria-label="Link to this section">#</a>Fixed</h3>
+<h3 id="fixed-9" tabindex="-1"><a class="anchor" href="#fixed-9" aria-label="Link to this section">#</a>Fixed</h3>
 <ul>
 <li>Rutas relativas de skills → absolutas (34 archivos)</li>
 <li>Permisos de agentes (12 agentes con acceso completo)</li>
@@ -364,7 +370,7 @@ a V1 host will not register the ODF plugin.</p>
     </article>
     <nav class="pager" aria-label="Documentation pagination"><a class="pager-link prev" href="readme.html"><span>Previous</span><b>README</b></a><a class="pager-link next" href="agents.html"><span>Next</span><b>Contributing</b></a></nav>
   </main>
-  <aside class="toc" aria-label="On this page"><p class="toc-title">On this page</p><nav><a class="toc-l2" href="#unreleased">Unreleased</a><a class="toc-l3" href="#changed">Changed</a><a class="toc-l2" href="#162-2026-10-26">1.6.2 (2026-10-26)</a><a class="toc-l3" href="#added">Added</a><a class="toc-l3" href="#changed-1">Changed</a><a class="toc-l3" href="#fixed">Fixed</a><a class="toc-l3" href="#verification-boundary">Verification boundary</a><a class="toc-l2" href="#161-2026-10-26">1.6.1 (2026-10-26)</a><a class="toc-l3" href="#added-1">Added</a><a class="toc-l3" href="#changed-2">Changed</a><a class="toc-l3" href="#removed">Removed</a><a class="toc-l3" href="#fixed-1">Fixed</a><a class="toc-l3" href="#verification-boundary-1">Verification boundary</a><a class="toc-l2" href="#160-2026-10-09">1.6.0 (2026-10-09)</a><a class="toc-l3" href="#added-2">Added</a><a class="toc-l3" href="#changed-3">Changed</a><a class="toc-l3" href="#verification-boundary-2">Verification boundary</a><a class="toc-l2" href="#151-2026-10-03">1.5.1 (2026-10-03)</a><a class="toc-l3" href="#fixed-2">Fixed</a><a class="toc-l3" href="#changed-4">Changed</a><a class="toc-l3" href="#verification-boundary-3">Verification boundary</a><a class="toc-l2" href="#150-2026-09-29">1.5.0 (2026-09-29)</a><a class="toc-l3" href="#added-3">Added</a><a class="toc-l3" href="#changed-5">Changed</a><a class="toc-l3" href="#fixed-3">Fixed</a><a class="toc-l3" href="#verification-boundary-4">Verification boundary</a><a class="toc-l2" href="#140-2026-09-28">1.4.0 (2026-09-28)</a><a class="toc-l3" href="#added-4">Added</a><a class="toc-l3" href="#changed-6">Changed</a><a class="toc-l3" href="#fixed-4">Fixed</a><a class="toc-l3" href="#verification-boundary-5">Verification boundary</a><a class="toc-l2" href="#131-2026-09-24">1.3.1 (2026-09-24)</a><a class="toc-l3" href="#fixed-5">Fixed</a><a class="toc-l3" href="#added-5">Added</a><a class="toc-l3" href="#verification-boundary-6">Verification boundary</a><a class="toc-l2" href="#130-2026-09-21">1.3.0 (2026-09-21)</a><a class="toc-l3" href="#added-6">Added</a><a class="toc-l3" href="#verification-boundary-7">Verification boundary</a><a class="toc-l2" href="#121-2026-08-23">1.2.1 (2026-08-23)</a><a class="toc-l3" href="#added-7">Added</a><a class="toc-l3" href="#fixed-6">Fixed</a><a class="toc-l2" href="#120-2026-08-22">1.2.0 (2026-08-22)</a><a class="toc-l3" href="#added-8">Added</a><a class="toc-l3" href="#fixed-7">Fixed</a><a class="toc-l2" href="#110-2026-06-18">1.1.0 (2026-06-18)</a><a class="toc-l3" href="#added-9">Added</a><a class="toc-l3" href="#changed-7">Changed</a><a class="toc-l2" href="#100-2026-05-14">1.0.0 (2026-05-14)</a><a class="toc-l3" href="#added-10">Added</a><a class="toc-l3" href="#changed-8">Changed</a><a class="toc-l3" href="#fixed-8">Fixed</a><a class="toc-l2" href="#010-2026-04-01">0.1.0 (2026-04-01)</a><a class="toc-l3" href="#added-11">Added</a></nav></aside>
+  <aside class="toc" aria-label="On this page"><p class="toc-title">On this page</p><nav><a class="toc-l2" href="#unreleased">Unreleased</a><a class="toc-l3" href="#fixed">Fixed</a><a class="toc-l3" href="#changed">Changed</a><a class="toc-l2" href="#162-2026-10-26">1.6.2 (2026-10-26)</a><a class="toc-l3" href="#added">Added</a><a class="toc-l3" href="#changed-1">Changed</a><a class="toc-l3" href="#fixed-1">Fixed</a><a class="toc-l3" href="#verification-boundary">Verification boundary</a><a class="toc-l2" href="#161-2026-10-26">1.6.1 (2026-10-26)</a><a class="toc-l3" href="#added-1">Added</a><a class="toc-l3" href="#changed-2">Changed</a><a class="toc-l3" href="#removed">Removed</a><a class="toc-l3" href="#fixed-2">Fixed</a><a class="toc-l3" href="#verification-boundary-1">Verification boundary</a><a class="toc-l2" href="#160-2026-10-09">1.6.0 (2026-10-09)</a><a class="toc-l3" href="#added-2">Added</a><a class="toc-l3" href="#changed-3">Changed</a><a class="toc-l3" href="#verification-boundary-2">Verification boundary</a><a class="toc-l2" href="#151-2026-10-03">1.5.1 (2026-10-03)</a><a class="toc-l3" href="#fixed-3">Fixed</a><a class="toc-l3" href="#changed-4">Changed</a><a class="toc-l3" href="#verification-boundary-3">Verification boundary</a><a class="toc-l2" href="#150-2026-09-29">1.5.0 (2026-09-29)</a><a class="toc-l3" href="#added-3">Added</a><a class="toc-l3" href="#changed-5">Changed</a><a class="toc-l3" href="#fixed-4">Fixed</a><a class="toc-l3" href="#verification-boundary-4">Verification boundary</a><a class="toc-l2" href="#140-2026-09-28">1.4.0 (2026-09-28)</a><a class="toc-l3" href="#added-4">Added</a><a class="toc-l3" href="#changed-6">Changed</a><a class="toc-l3" href="#fixed-5">Fixed</a><a class="toc-l3" href="#verification-boundary-5">Verification boundary</a><a class="toc-l2" href="#131-2026-09-24">1.3.1 (2026-09-24)</a><a class="toc-l3" href="#fixed-6">Fixed</a><a class="toc-l3" href="#added-5">Added</a><a class="toc-l3" href="#verification-boundary-6">Verification boundary</a><a class="toc-l2" href="#130-2026-09-21">1.3.0 (2026-09-21)</a><a class="toc-l3" href="#added-6">Added</a><a class="toc-l3" href="#verification-boundary-7">Verification boundary</a><a class="toc-l2" href="#121-2026-08-23">1.2.1 (2026-08-23)</a><a class="toc-l3" href="#added-7">Added</a><a class="toc-l3" href="#fixed-7">Fixed</a><a class="toc-l2" href="#120-2026-08-22">1.2.0 (2026-08-22)</a><a class="toc-l3" href="#added-8">Added</a><a class="toc-l3" href="#fixed-8">Fixed</a><a class="toc-l2" href="#110-2026-06-18">1.1.0 (2026-06-18)</a><a class="toc-l3" href="#added-9">Added</a><a class="toc-l3" href="#changed-7">Changed</a><a class="toc-l2" href="#100-2026-05-14">1.0.0 (2026-05-14)</a><a class="toc-l3" href="#added-10">Added</a><a class="toc-l3" href="#changed-8">Changed</a><a class="toc-l3" href="#fixed-9">Fixed</a><a class="toc-l2" href="#010-2026-04-01">0.1.0 (2026-04-01)</a><a class="toc-l3" href="#added-11">Added</a></nav></aside>
 </div>
 <div class="overlay" id="overlay" role="dialog" aria-modal="true" aria-label="Search documentation">
   <div class="palette">

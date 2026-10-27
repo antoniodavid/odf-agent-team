@@ -265,7 +265,7 @@ git branch -d <type>/<short-description>
 agent/              — 11 agent instructions (orchestrator + 10 sub-agents)
 command/            — 23 slash command definitions (Markdown)
 plugins/            — odf-delegation.ts (OpenCode plugin)
-scripts/            — test runner (1469 Vitest tests + 331 YAML scenarios), CLI wrapper, registry and skill validators
+scripts/            — test runner (1477 Vitest tests + 331 YAML scenarios), CLI wrapper, registry and skill validators
 skills/              — 51 skills, one directory per skill (`skills/<name>/SKILL.md`)
   _shared/          — shared conventions (result contract, persistence, Odoo sources)
 openspec/           — SDD change artifacts (when artifact_store=openspec)
@@ -304,7 +304,7 @@ ODF is a superset of the generic SDD workflow:
 ## Tests
 
 ```bash
-npm test              # 1469 Vitest tests + 331 YAML scenarios
+npm test              # 1477 Vitest tests + 331 YAML scenarios
 npm run test:yaml     # YAML scenario runner only
 npm run test:unit     # Vitest only
 npm run typecheck     # tsc --noEmit
