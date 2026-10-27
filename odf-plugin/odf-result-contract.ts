@@ -143,7 +143,7 @@ export const ODF_RESULT_CONTRACT_PROMPT = [
   "- `artifacts_saved` must be an array; each saved item uses `name` and canonical `artifact_ref: {store, ref}`. Use `[]` when nothing was saved.",
   "- `next_recommended` and `modules_affected` must be arrays; use `[]` when none apply.",
   "- `strategy` is one of standard, custom, migration, or integration; follow any narrower phase/agent restriction.",
-  `- When status is blocked or failed, include \`stop_disposition\` with kind (${ODF_STOP_KINDS.join(" | ")}), user_action_required, automatic_recovery (${ODF_STOP_RECOVERIES.join(" | ")}), a short kebab-case reason code, and the next safe action. Never label an unknown or safety-related stop as repairable.`,
+  `- When status is blocked or failed, include \`stop_disposition\` with exactly these required fields: \`kind\` (one of ${ODF_STOP_KINDS.join(" | ")}), \`user_action_required\` (boolean), \`automatic_recovery\` (one of ${ODF_STOP_RECOVERIES.join(" | ")}), \`reason\` (a non-empty string up to 500 characters; short kebab-case code identifying the stop), and \`next_action\` (a non-empty string up to 500 characters describing the next safe action). Never label an unknown or safety-related stop as repairable.`,
   "- `odoo_version` is 16, 17, 18, or 19; `skill_resolution` is injected, self-discovered, or none.",
   "- Structured values must be single-line JSON. Do not copy placeholder text or omit common fields.",
 ].join("\n")
