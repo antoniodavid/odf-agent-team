@@ -9,7 +9,7 @@ tests:
         files: ["models/account_move.py"]
     expected:
       skill_resolution: "self-discovered"
-      expected_skills: ["accounting-patterns"]
+      expected_skills: ["odoo-business-flows"]
       status_in: ["ok"]
 
   - name: "mail notification patterns resolve"
@@ -20,7 +20,7 @@ tests:
         files: ["models/sale_order.py"]
     expected:
       skill_resolution: "self-discovered"
-      expected_skills: ["mail-notification-patterns"]
+      expected_skills: ["odoo-business-flows"]
       status_in: ["ok"]
 
   - name: "cron automation patterns resolve"
@@ -31,5 +31,5 @@ tests:
         files: []
     expected:
       skill_resolution: "self-discovered"
-      expected_skills: ["cron-automation-patterns"]
+      expected_skills: ["odoo-business-flows"]
       status_in: ["ok"]

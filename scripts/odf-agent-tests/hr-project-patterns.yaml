@@ -9,7 +9,7 @@ tests:
         files: ["models/hr_employee.py"]
     expected:
       skill_resolution: "self-discovered"
-      expected_skills: ["hr-employee-patterns"]
+      expected_skills: ["odoo-business-flows"]
       status_in: ["ok"]
 
   - name: "project task patterns resolve"
@@ -20,7 +20,7 @@ tests:
         files: ["models/project_task.py"]
     expected:
       skill_resolution: "self-discovered"
-      expected_skills: ["project-task-patterns"]
+      expected_skills: ["odoo-business-flows"]
       status_in: ["ok"]
 
   - name: "pricelist pricing patterns resolve"
@@ -31,5 +31,5 @@ tests:
         files: ["models/product_pricelist.py"]
     expected:
       skill_resolution: "self-discovered"
-      expected_skills: ["pricelist-pricing-patterns"]
+      expected_skills: ["odoo-business-flows"]
       status_in: ["ok"]

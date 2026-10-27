@@ -9,22 +9,22 @@ metadata:
 
 # OCA Skills - Complete Index
 
-Skills for OCA compliance and Odoo development. Each entry below is a standalone Agent Skill. The registry (`odf-registry.json`) is authoritative; Odoo 15 guides are retained as **migration source only** (preflight supports 16-19).
+Skills for OCA compliance and Odoo development. Most entries below are standalone Agent Skills. Pattern, testing, and version topics are consolidated into `odoo-modeling`, `odoo-views-owl`, `odoo-business-flows`, `odoo-testing`, and `odoo-versioning`, where each topic is a `references/<topic>.md` file. The registry (`odf-registry.json`) is authoritative; Odoo 15 guides are retained as **migration source only** (preflight supports 16-19).
 
 ## Quick Navigation
 
-| Category | Count | Purpose |
-|----------|-------|---------|
-| **Governance** | 5 | OCA policies, PR workflow, commit messages |
-| **Development Style** | 17 | Python, XML, manifest, naming, generators |
-| **Patterns** | 40 | Implementation patterns by area |
-| **Testing** | 8 | Test patterns, compliance, review |
-| **Version** | 36 | Version-specific guides (16-19 active; 15 migration source) |
-| **Core Tools** | 13 | OCA search, migration, PR tools |
+| Category | Purpose |
+|----------|---------|
+| **Governance** | OCA policies, PR workflow, commit messages |
+| **Development Style** | Python, XML, manifest, naming, generators |
+| **Patterns** | Implementation patterns, now references inside the five domain skills |
+| **Testing** | Test patterns, compliance, review |
+| **Version** | Version-specific guides (16-19 active; 15 migration source) |
+| **Core Tools** | OCA search, migration, PR tools |
 
 ---
 
-## Category 1: OCA Governance (5 skills)
+## Category 1: OCA Governance
 
 OCA policies, contribution workflow, and community governance.
 
@@ -38,7 +38,7 @@ OCA policies, contribution workflow, and community governance.
 
 ---
 
-## Category 2: Development Style (18 skills)
+## Category 2: Development Style
 
 Code style standards for Python, XML, manifest, and naming.
 
@@ -68,7 +68,9 @@ Code style standards for Python, XML, manifest, and naming.
 
 ---
 
-## Category 3: Patterns (42 skills)
+## Category 3: Patterns
+
+> These topics are references inside `odoo-modeling`, `odoo-views-owl`, `odoo-business-flows`, `odoo-testing`, and `odoo-versioning`. Load the domain skill and read the matching reference.
 
 Implementation patterns organized by functional area.
 
@@ -132,7 +134,9 @@ Implementation patterns organized by functional area.
 
 ---
 
-## Category 4: Testing (8 skills)
+## Category 4: Testing
+
+> Test, compliance, tour, performance, and troubleshooting topics are references inside `odoo-testing`; `oca-code-review` remains standalone.
 
 | Skill | Purpose |
 |-------|---------|
@@ -147,7 +151,9 @@ Implementation patterns organized by functional area.
 
 ---
 
-## Category 5: Version-Specific (39 skills)
+## Category 5: Version-Specific
+
+> These topics are references inside `odoo-versioning`, including `references/versions/` for 16-19.
 
 ### Model Patterns (11 skills)
 

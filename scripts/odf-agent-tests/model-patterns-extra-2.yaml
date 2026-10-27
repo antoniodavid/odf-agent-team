@@ -9,7 +9,7 @@ tests:
         files: ["models/sale_order.py"]
     expected:
       skill_resolution: "self-discovered"
-      expected_skills: ["context-environment-patterns"]
+      expected_skills: ["odoo-modeling"]
       status_in: ["ok"]
 
   - name: "domain filter patterns resolve"
@@ -20,7 +20,7 @@ tests:
         files: ["models/sale_order.py"]
     expected:
       skill_resolution: "self-discovered"
-      expected_skills: ["domain-filter-patterns"]
+      expected_skills: ["odoo-modeling"]
       status_in: ["ok"]
 
   - name: "onchange dynamic patterns resolve"
@@ -31,5 +31,5 @@ tests:
         files: ["models/sale_order.py"]
     expected:
       skill_resolution: "self-discovered"
-      expected_skills: ["onchange-dynamic-patterns"]
+      expected_skills: ["odoo-modeling"]
       status_in: ["ok"]

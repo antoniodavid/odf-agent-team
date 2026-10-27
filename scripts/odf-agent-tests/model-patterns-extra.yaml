@@ -9,7 +9,7 @@ tests:
         files: ["migrations/18.0.1.0.0/pre-migrate.py"]
     expected:
       skill_resolution: "self-discovered"
-      expected_skills: ["data-migration-patterns"]
+      expected_skills: ["odoo-modeling"]
       status_in: ["ok"]
 
   - name: "field type reference resolve"
@@ -20,7 +20,7 @@ tests:
         files: ["models/product.py"]
     expected:
       skill_resolution: "self-discovered"
-      expected_skills: ["field-type-reference"]
+      expected_skills: ["odoo-modeling"]
       status_in: ["ok"]
 
   - name: "error handling patterns resolve"
@@ -31,5 +31,5 @@ tests:
         files: ["models/sale_order.py"]
     expected:
       skill_resolution: "self-discovered"
-      expected_skills: ["error-handling-patterns"]
+      expected_skills: ["odoo-modeling"]
       status_in: ["ok"]

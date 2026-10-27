@@ -59,8 +59,8 @@ Use the bundled skills as the curated reference:
 |-------|-------|
 | OCA governance and PR rules | `../oca-governance-pr-workflow/SKILL.md` |
 | OCA style | `../oca-python-style/SKILL.md`, `../oca-xml-style/SKILL.md` |
-| OWL components | `../owl-components/SKILL.md` |
-| Odoo patterns | `../computed-field-patterns/SKILL.md` and sibling pattern skills |
+| OWL components | `../odoo-views-owl/SKILL.md` |
+| Odoo patterns | `../odoo-modeling/SKILL.md` and sibling pattern skills |
 
 ## OCA Skills
 
@@ -68,7 +68,7 @@ When specialized OCA analysis is needed, load the matching skill:
 
 | Need | Skill File |
 |------|------------|
-| Code compliance check | `../oca-compliance-check/SKILL.md` |
+| Code compliance check | `../odoo-testing/SKILL.md` |
 | Pattern search in Odoo/OCA source | `../oca-pattern-match/SKILL.md` |
 | API/model documentation | `../oca-api-lookup/SKILL.md` |
 | Code review | `../oca-code-review/SKILL.md` |

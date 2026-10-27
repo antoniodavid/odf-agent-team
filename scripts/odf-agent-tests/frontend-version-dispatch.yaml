@@ -9,7 +9,7 @@ tests:
         files: ["static/src/js/component.js"]
     expected:
       skill_resolution: "self-discovered"
-      expected_skills: ["owl-components"]
+      expected_skills: ["odoo-views-owl"]
       status_in: ["ok"]
 
   - name: "version knowledge dispatcher resolves"
@@ -20,7 +20,7 @@ tests:
         files: []
     expected:
       skill_resolution: "self-discovered"
-      expected_skills: ["odoo-version-knowledge"]
+      expected_skills: ["odoo-versioning"]
       status_in: ["ok"]
 
   - name: "security guide dispatcher resolves"

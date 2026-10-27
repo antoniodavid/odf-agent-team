@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Changelog — ODF Agent Team · ODF Docs</title>
-  <meta name="description" content="Skill descriptions now lead with `Use when` and describe user intent instead of `Entity. Trigger: ...`; all 87 were rewritten.">
+  <meta name="description" content="Consolidated 41 pattern, testing, and version skills into 5 domain skills: `odoo-modeling`, `odoo-views-owl`, `odoo-business-flows`, `odoo-testing`, and `odoo-versioning`. Each former skill is now `references/&lt;topic&gt;.md`">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -54,6 +54,7 @@
       <h2 id="unreleased" tabindex="-1"><a class="anchor" href="#unreleased" aria-label="Link to this section">#</a>Unreleased</h2>
 <h3 id="changed" tabindex="-1"><a class="anchor" href="#changed" aria-label="Link to this section">#</a>Changed</h3>
 <ul>
+<li>Consolidated 41 pattern, testing, and version skills into 5 domain skills: <code>odoo-modeling</code>, <code>odoo-views-owl</code>, <code>odoo-business-flows</code>, <code>odoo-testing</code>, and <code>odoo-versioning</code>. Each former skill is now <code>references/&lt;topic&gt;.md</code> with its examples, and the registry drops from 87 to 51 entries.</li>
 <li>Skill descriptions now lead with <code>Use when</code> and describe user intent instead of <code>Entity. Trigger: ...</code>; all 87 were rewritten.</li>
 <li>Delegations also inject the body of the highest-scoring non-canonical skill (capped at 8,000 characters), so domain standards are usable without flooding the prompt.</li>
 <li>Added a trigger-eval dataset (<code>scripts/odf-skill-evals/trigger-queries.json</code>, 57 realistic prompts) and a test that requires the expected skill in the top 3.</li>

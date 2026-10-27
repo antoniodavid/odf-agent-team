@@ -9,7 +9,7 @@ tests:
         files: ["tests/test_tour.py"]
     expected:
       skill_resolution: "self-discovered"
-      expected_skills: ["odoo-tour-testing"]
+      expected_skills: ["odoo-testing"]
       status_in: ["ok"]
 
   - name: "performance guide resolves"
@@ -20,7 +20,7 @@ tests:
         files: ["models/sale_order.py"]
     expected:
       skill_resolution: "self-discovered"
-      expected_skills: ["odoo-performance-guide"]
+      expected_skills: ["odoo-testing"]
       status_in: ["ok"]
 
   - name: "troubleshooting guide resolves"
@@ -31,5 +31,5 @@ tests:
         files: []
     expected:
       skill_resolution: "self-discovered"
-      expected_skills: ["odoo-troubleshooting-guide"]
+      expected_skills: ["odoo-testing"]
       status_in: ["ok"]

@@ -116,7 +116,7 @@ escalation.
 
 ### Skills system
 
-87 skills covering:
+51 skills covering:
 
 - **OCA governance**: PR workflow, maturity levels, commit messages, contribution guidelines
 - **OCA style**: Python, XML, JavaScript/CSS standards
@@ -266,12 +266,12 @@ agent/              — 11 agent instructions (orchestrator + 10 sub-agents)
 command/            — 23 slash command definitions (Markdown)
 plugins/            — odf-delegation.ts (OpenCode plugin)
 scripts/            — test runner (1469 Vitest tests + 331 YAML scenarios), CLI wrapper, registry and skill validators
-skills/              — 87 skills, one directory per skill (`skills/<name>/SKILL.md`)
+skills/              — 51 skills, one directory per skill (`skills/<name>/SKILL.md`)
   _shared/          — shared conventions (result contract, persistence, Odoo sources)
 openspec/           — SDD change artifacts (when artifact_store=openspec)
 docs/               — intended-usage, architecture, skill-style-guide
 install.sh          — idempotent installer (backup, --dry-run, --force)
-odf-registry.json   — SINGLE SOURCE OF TRUTH (87 skills, 11 agents, 2 profiles, community tools)
+odf-registry.json   — SINGLE SOURCE OF TRUTH (51 skills, 11 agents, 2 profiles, community tools)
 ```
 
 ## Quick start

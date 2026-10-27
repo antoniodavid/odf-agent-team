@@ -9,7 +9,7 @@ tests:
         files: ["data/import_template.csv"]
     expected:
       skill_resolution: "self-discovered"
-      expected_skills: ["import-export-patterns"]
+      expected_skills: ["odoo-business-flows"]
       status_in: ["ok"]
 
   - name: "attachment binary patterns resolve"
@@ -20,7 +20,7 @@ tests:
         files: ["models/ir_attachment.py"]
     expected:
       skill_resolution: "self-discovered"
-      expected_skills: ["attachment-binary-patterns"]
+      expected_skills: ["odoo-business-flows"]
       status_in: ["ok"]
 
   - name: "logging debugging patterns resolve"
@@ -31,5 +31,5 @@ tests:
         files: ["models/sale_order.py"]
     expected:
       skill_resolution: "self-discovered"
-      expected_skills: ["logging-debugging-patterns"]
+      expected_skills: ["odoo-business-flows"]
       status_in: ["ok"]

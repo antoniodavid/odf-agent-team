@@ -67,7 +67,7 @@ describe("odf-skill-validate", () => {
   it("accepts the real registry with zero errors", () => {
     const result = run(REPO)
     expect(result.status).toBe(0)
-    expect(result.json.skills).toBe(87)
+    expect(result.json.skills).toBe(51)
     expect(result.json.errors).toBe(0)
   })
 

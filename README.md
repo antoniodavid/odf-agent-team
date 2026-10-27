@@ -1,9 +1,9 @@
 # ODF Agent Team
 
-> **Spec-driven Odoo delivery on OpenCode** — a stage pipeline, 11 specialized agents, 87 skills, and deterministic CLIs so your AI team *finds* the codebase instead of inventing it.
+> **Spec-driven Odoo delivery on OpenCode** — a stage pipeline, 11 specialized agents, 51 skills, and deterministic CLIs so your AI team *finds* the codebase instead of inventing it.
 
 [![Tests](https://img.shields.io/badge/tests-1469%20unit%20%2B%20331%20YAML%20%2B%2018%20harness-brightgreen)](#development)
-[![Registry](https://img.shields.io/badge/registry-87%20skills%20%C2%B7%2011%20agents-blue)](odf-registry.json)
+[![Registry](https://img.shields.io/badge/registry-51%20skills%20%C2%B7%2011%20agents-blue)](odf-registry.json)
 [![Odoo](https://img.shields.io/badge/Odoo-16%20%E2%80%93%2019-EE7048)](docs/intended-usage.md)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![Version](https://img.shields.io/badge/version-1.6.2-informational)](CHANGELOG.md)
@@ -73,7 +73,7 @@ The user sees one route selected by `work_type`; `micro/standard/full` is entry 
 
 | Piece | Count / location |
 |-------|------------------|
-| Skills | 87 (`skills/` — OCA governance/style, Odoo patterns, ODF stage roles) |
+| Skills | 51 (`skills/` — OCA governance/style, Odoo patterns, ODF stage roles) |
 | Agents | 11 (`agent/` — orchestrator + 10 specialists) |
 | Commands | 23 (`command/`) |
 | Plugin tools | 29 injected at runtime (`plugins/odf-delegation.ts` + `odf-plugin/`) |
@@ -134,7 +134,7 @@ Versioning: `VERSION` + `package.json` + `package-lock.json` + `odf-registry.jso
 ```
 agent/            11 agent instructions (orchestrator + 10 specialists)
 command/          23 slash commands
-skills/           87 skills (OCA + ODF + shared)
+skills/           51 skills (OCA + ODF + shared)
 odf-plugin/       deterministic modules (workflow, triage, policy, …)
 plugins/          odf-delegation.ts — plugin entrypoint, 29 tools
 scripts/          CLIs + test runner + registry validator
