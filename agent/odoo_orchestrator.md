@@ -68,12 +68,12 @@ user disposition.
 | Mode | Behavior |
 |---|---|
 | `interactive` | Run the required question rounds and pause after every stage role and BUILD batch for approval. |
-| `batch` | Skip voluntary question/approval rounds and auto-continue for inner `ok` or `warning`. For `blocked`/`failed`, follow `stop_disposition`; allow only its explicit bounded repair/retry when no receipt or safety gate blocks it. |
-| `auto` | Piloto automático: no voluntary approval pauses. Continue after `ok`/`warning` when no receipt is pending, validation evidence is verified (IMPLEMENT/VERIFY), and no product/scope decision is required. A stop may use only the single bounded recovery explicitly allowed by `stop_disposition`; NEVER skip mandatory safety gates. |
+| `batch` | Skip voluntary question/approval rounds and auto-continue for inner `ok` or `warning`. For `blocked`/`failed`, follow `stop_disposition`; stop the affected stage and dependent work, not unrelated authorized work. Allow only its explicit bounded repair/retry when no receipt or safety gate blocks it. |
+| `auto` | Piloto automático: no voluntary approval pauses. Continue after `ok`/`warning` when no receipt is pending, validation evidence is verified (IMPLEMENT/VERIFY), and no product/scope decision is required. A blocked stage may use only the single bounded recovery explicitly allowed by `stop_disposition`; independent authorized work may continue. NEVER skip mandatory safety gates. |
 
 - In `interactive`, prefer `question` with one approval envelope: stage role, summary, and the ordered choices `approve` -> next stage, `adjust` -> revise/re-run the current role, `cancel` -> stop.
-- In `batch`, do not ask voluntary approval questions; continue for inner `ok` or `warning`. For `blocked`/`failed`, use `stop_disposition`: perform at most one `repair-in-phase` in the same approved scope, or one `retry-once` only when the original child is confirmed idle and no side effect or receipt is pending. A `wait`, `none`, user-action-required, or unclassified disposition stops for the named dependency or user disposition.
-- In `auto`, apply the same bounded stop handling as `batch`; after recovery, re-check every normal gate before continuing. There is no retry for a pending receipt, Policy Gate/safety block, missing or invalid validation evidence, candidate digest mismatch, unresolved product/scope decision, or blocked parallel join. Expectations are approved once at entry (reuse byte-equivalent approved Expectations; otherwise collect and confirm once).
+- In `batch`, do not ask voluntary approval questions; continue for inner `ok` or `warning`. For `blocked`/`failed`, use `stop_disposition` for the affected stage: perform at most one `repair-in-phase` in the same approved scope, or one `retry-once` only when the original child is confirmed idle and no side effect or receipt is pending. A `wait`, `none`, user-action-required, or unclassified disposition blocks the dependent work; continue other authorized work that does not depend on it.
+- In `auto`, apply the same bounded recovery as `batch`; after recovery, re-check every normal gate before continuing the dependent stage. There is no retry for a pending receipt, Policy Gate/safety block, missing or invalid validation evidence, candidate digest mismatch, unresolved product/scope decision, or blocked parallel join. Expectations are approved once at entry (reuse byte-equivalent approved Expectations; otherwise collect and confirm once). Independent authorized work remains eligible.
 - If `question` is unavailable, print the identical stage role, summary, option labels, values, and order as plain text, then wait; never choose silently. This fallback is identical in all modes whenever input is required.
 - PROPOSE runs its interactive grilling (frontier rounds) in `interactive`; `batch` and `auto` skip that voluntary round. Any required product/user disposition still stops every mode.
 
@@ -89,6 +89,7 @@ user disposition.
 - Exploration stays read-only with respect to source and workflow state unless the user explicitly asks to implement the finding. On that explicit request, carry forward only the relevant findings and safe artifact references into a fresh, authorized workflow; do not treat exploration as approval to edit code.
 - `/odf-continue [name]` and a clear natural-language request to continue/resume ODF work use `odf_workflow_status` once. Continue only when discovery is complete and exactly one active candidate is resumable; advance to its next persisted canonical gate, never replay completed stages or infer a new route.
 - If status reports multiple candidates or incomplete discovery, remain read-only and ask one grouped clarification. A pending receipt or non-resumable state requires its existing disposition/recovery path. If child liveness is `busy` or `retry`, report the attempt as pending and wait for that exact child; never relaunch, settle, or call unknown/missing liveness idle. Never choose the newest change to break a tie. An explicit change name may resolve candidate ambiguity, but does not clear receipts or bypass a gate.
+- When an external tool fails, scope the failure to that dependency: preserve its operation as pending/retryable and continue other already-authorized work that does not depend on it. Block only affected stages and transitions requiring its state or evidence. Never treat a failed read as empty state or success, switch the selected artifact store, bypass a gate, or repeat an unchanged call outside its documented bounded recovery. If no independent work remains, report the exact blocker and wait.
 - Bare backchannels such as `continue`, `continúa`, or `dale` are not standalone ODF starts/continuations outside an explicit pending ODF question or a known interrupted ODF request. After an abort, resume only the pending request using already obtained context; do not restart stable discovery.
 - When scope, Expectations, work type, or a business decision changes, stop for user disposition. Require explicit consent for destructive actions; auto-run only verified safe, idempotent recovery. Same-session health/bind authorization and every downstream gate remain mandatory.
 - Before any recovery that mutates an attempt, receipt, capability, or join, explain the observed cause, the specific status/evidence references, the proposed bounded action, and its possible effects. Missing or contradictory evidence means stop, not infer. Afterward, report exactly what was persisted, what remains pending, and the next safe action; capability issuance or attempt settlement is never phase completion.
@@ -99,8 +100,9 @@ user disposition.
 `/odf-new ... --fast` skips voluntary approval gates after PROPOSE through
 ASSESS, QA-PLAN, and DESIGN. It never skips preflight, the IMPLEMENT approval
 (even in `batch`), the Policy Gate, validation evidence, VERIFY, or failure
-disposition. Inner `blocked`/`failed` results and any correction or
-product/user disposition always stop the run.
+disposition. Inner `blocked`/`failed` results stop the affected stage and its
+dependent transitions; independent authorized work may continue. Any required
+correction or product/user disposition still blocks the dependent work.
 
 The `--fast` flag does not enable the bounded fast-lane executor. That executor
 requires an explicit validated `fast_lane_policy` persisted with an eligible
@@ -119,10 +121,12 @@ FIX runs without human stage approvals by design; micro, `small-change`,
 when no explicit mode was chosen. The human approves once at entry only when
 intent/Expectations are missing, then supervises.
 
-- Stops are limited to genuine decisions: product/scope, destructive-operation
-  consent, architectural escalation that changes the route, or an unrecoverable
-  failure after the bounded retry. Mechanical hiccups self-heal — they never stop
-  the run.
+- A blocked external operation stops only that operation and dependent stages.
+  Continue other already-authorized work when independent. Mechanical failures
+  may use only documented bounded recovery; never repeat an unchanged call or
+  treat a failure as success.
+- Genuine decisions still block their dependent work: product/scope, destructive-
+  operation consent, or architectural escalation that changes the route.
 - Preflight defaults for these routes: derive `execution_mode: auto`,
   `artifact_store`, `odoo_version`, `review_budget_lines: 400`,
   `delivery_strategy: ask-on-risk`, `chain_strategy: none`, and `tdd_mode` from
@@ -280,10 +284,14 @@ implementation is not part of a customer-project task.
   Expectations stay unchanged. On resume, reuse the approved Expectations and
   rebuild it once; report `manifest-stale` if the facts changed.
 - **Blocked or inconsistent state:** use the relevant ODF status/receipt tool
-  and documented recovery once. If that does not resolve it, stop and report
+  and documented recovery once. If unresolved, keep only work requiring that
+  state blocked, preserve its exact evidence and pending context, and continue
+  other already-authorized independent work. Do not treat unreadable state as
+  absent, switch stores, or bypass a gate. If no independent work remains, report
   the evidence and blocker; do not diagnose by reading/searching installed
-  plugin, support-module, or internal script source. Resolve skill guidance
-  through the ODF skill tools/injection, not filesystem searches.
+  plugin, support-module, or internal script source unless the user explicitly
+  asks to debug the harness. Resolve skill guidance through the ODF skill tools,
+  not filesystem searches.
 - Read customer-project files and referenced workflow artifacts only as the
   approved task requires. Inspect ODF source only when the user explicitly asks
   to develop or debug the harness itself.
@@ -712,7 +720,7 @@ them.
 - **Stop validation:** IMPLEMENT closes only with a fresh, bound, tier-valid evidence artifact and `validation.status === "verified"`.
 - **VERIFY controls:** risk comes from path/content evidence; the frozen ref and single correction budget are reused; no auto-loop.
 - **Failure disposition:** VERIFY FAIL writes a receipt before the single user question; pending receipts are rediscovered by `/odf-continue`.
-- **Interruptions:** interrupting a running stage role aborts the child and settles the attempt as failed; the single transport relaunch (rule 10) applies and a second interruption stops the run. Resume with `/odf-continue <change>`.
+- **Interruptions:** interrupting a running stage role aborts the child and settles the attempt as failed; the single transport relaunch (rule 10) applies and a second interruption blocks that stage and dependent transitions. Continue only work independent of that child. Resume with `/odf-continue <change>`.
 - **Metrics:** delegation metrics remain bounded, session-hashed, canonical JSONL data consumed by the metrics command.
 
 ## Safety Rules
