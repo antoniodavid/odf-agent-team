@@ -1,281 +1,173 @@
 ---
 name: oca
-description: "Use when you need to find an OCA skill: catalog of governance, style, patterns, testing, version, and tool skills."
+description: "Use when you need to find an OCA skill: catalog of standalone skills and the five Odoo domain routers with their topic references."
 license: MIT
 metadata:
   author: antoniodavid
-  version: "1.0"
+  version: "2.0"
 ---
 
-# OCA Skills - Complete Index
+# OCA and Odoo Skill Index
 
-Skills for OCA compliance and Odoo development. Most entries below are standalone Agent Skills. Pattern, testing, and version topics are consolidated into `odoo-modeling`, `odoo-views-owl`, `odoo-business-flows`, `odoo-testing`, and `odoo-versioning`, where each topic is a `references/<topic>.md` file. The registry (`odf-registry.json`) is authoritative; Odoo 15 guides are retained as **migration source only** (preflight supports 16-19).
+Use this catalog to find a standalone skill or the domain reference that owns a topic.
+The registry (`odf-registry.json`) is authoritative; this page is a navigation aid.
 
-## Quick Navigation
+## Domain routers
 
-| Category | Purpose |
-|----------|---------|
-| **Governance** | OCA policies, PR workflow, commit messages |
-| **Development Style** | Python, XML, manifest, naming, generators |
-| **Patterns** | Implementation patterns, now references inside the five domain skills |
-| **Testing** | Test patterns, compliance, review |
-| **Version** | Version-specific guides (16-19 active; 15 migration source) |
-| **Core Tools** | OCA search, migration, PR tools |
+| Domain | Topics | Load |
+|--------|--------|------|
+| `odoo-modeling` | 9 | `../odoo-modeling/SKILL.md` |
+| `odoo-views-owl` | 4 | `../odoo-views-owl/SKILL.md` |
+| `odoo-business-flows` | 19 | `../odoo-business-flows/SKILL.md` |
+| `odoo-testing` | 6 | `../odoo-testing/SKILL.md` |
+| `odoo-versioning` | 3 | `../odoo-versioning/SKILL.md` |
 
----
+## Topic references
 
-## Category 1: OCA Governance
+### odoo-modeling
 
-OCA policies, contribution workflow, and community governance.
+| Topic | Reference |
+|-------|-----------|
+| `computed-field-patterns` | `../odoo-modeling/references/computed-field-patterns.md` |
+| `inheritance-patterns` | `../odoo-modeling/references/inheritance-patterns.md` |
+| `constraint-patterns` | `../odoo-modeling/references/constraint-patterns.md` |
+| `context-environment-patterns` | `../odoo-modeling/references/context-environment-patterns.md` |
+| `domain-filter-patterns` | `../odoo-modeling/references/domain-filter-patterns.md` |
+| `error-handling-patterns` | `../odoo-modeling/references/error-handling-patterns.md` |
+| `field-type-reference` | `../odoo-modeling/references/field-type-reference.md` |
+| `onchange-dynamic-patterns` | `../odoo-modeling/references/onchange-dynamic-patterns.md` |
+| `data-migration-patterns` | `../odoo-modeling/references/data-migration-patterns.md` |
 
-| Skill | Purpose |
+### odoo-views-owl
+
+| Topic | Reference |
+|-------|-----------|
+| `odoo-view-patterns` | `../odoo-views-owl/references/odoo-view-patterns.md` |
+| `action-patterns` | `../odoo-views-owl/references/action-patterns.md` |
+| `odoo-dialog-service` | `../odoo-views-owl/references/odoo-dialog-service.md` |
+| `owl-components` | `../odoo-views-owl/references/owl-components.md` |
+
+### odoo-business-flows
+
+| Topic | Reference |
+|-------|-----------|
+| `accounting-patterns` | `../odoo-business-flows/references/accounting-patterns.md` |
+| `assets-bundling-patterns` | `../odoo-business-flows/references/assets-bundling-patterns.md` |
+| `attachment-binary-patterns` | `../odoo-business-flows/references/attachment-binary-patterns.md` |
+| `config-settings-patterns` | `../odoo-business-flows/references/config-settings-patterns.md` |
+| `controller-api-patterns` | `../odoo-business-flows/references/controller-api-patterns.md` |
+| `cron-automation-patterns` | `../odoo-business-flows/references/cron-automation-patterns.md` |
+| `dashboard-kpi-patterns` | `../odoo-business-flows/references/dashboard-kpi-patterns.md` |
+| `external-api-patterns` | `../odoo-business-flows/references/external-api-patterns.md` |
+| `hr-employee-patterns` | `../odoo-business-flows/references/hr-employee-patterns.md` |
+| `import-export-patterns` | `../odoo-business-flows/references/import-export-patterns.md` |
+| `logging-debugging-patterns` | `../odoo-business-flows/references/logging-debugging-patterns.md` |
+| `lot-serial-patterns` | `../odoo-business-flows/references/lot-serial-patterns.md` |
+| `mail-notification-patterns` | `../odoo-business-flows/references/mail-notification-patterns.md` |
+| `menu-navigation-patterns` | `../odoo-business-flows/references/menu-navigation-patterns.md` |
+| `portal-access-patterns` | `../odoo-business-flows/references/portal-access-patterns.md` |
+| `pricelist-pricing-patterns` | `../odoo-business-flows/references/pricelist-pricing-patterns.md` |
+| `product-variant-patterns` | `../odoo-business-flows/references/product-variant-patterns.md` |
+| `project-task-patterns` | `../odoo-business-flows/references/project-task-patterns.md` |
+| `purchase-procurement-patterns` | `../odoo-business-flows/references/purchase-procurement-patterns.md` |
+
+### odoo-testing
+
+| Topic | Reference |
+|-------|-----------|
+| `odoo-test-patterns` | `../odoo-testing/references/odoo-test-patterns.md` |
+| `oca-compliance-check` | `../odoo-testing/references/oca-compliance-check.md` |
+| `end-to-end-examples` | `../odoo-testing/references/end-to-end-examples.md` |
+| `odoo-tour-testing` | `../odoo-testing/references/odoo-tour-testing.md` |
+| `odoo-performance-guide` | `../odoo-testing/references/odoo-performance-guide.md` |
+| `odoo-troubleshooting-guide` | `../odoo-testing/references/odoo-troubleshooting-guide.md` |
+
+### odoo-versioning
+
+| Topic | Reference |
+|-------|-----------|
+| `odoo-version-knowledge` | `../odoo-versioning/references/odoo-version-knowledge.md` |
+| `odoo-model-patterns` | `../odoo-versioning/references/odoo-model-patterns.md` |
+| `odoo-editions` | `../odoo-versioning/references/odoo-editions.md` |
+
+## Standalone skills
+
+### ODF stage skills
+
+| Skill | Use for |
 |-------|---------|
-| `oca-pr-workflow` | PR checklist, submission, review, merge |
-| `oca-maturity-levels` | Alpha/Beta/Stable/Mature requirements |
-| `oca-commit-messages` | Commit message format, tags, examples |
-| `oca-repository-policy` | Repository structure, governance, stability |
-| `oca-maintainer-role` | Maintainer responsibilities, PSC |
+| `../odf-assess/SKILL.md` | Assess Odoo Requirement |
+| `../odf-design/SKILL.md` | Design Odoo Module |
+| `../odf-implement/SKILL.md` | Implement Odoo Tasks |
+| `../odf-batch-implement/SKILL.md` | Bounded Odoo Batch Implementation |
+| `../odf-verify/SKILL.md` | Verify Odoo Implementation |
+| `../odf-agent-builder/SKILL.md` | ODF Agent Builder |
+| `../odf-fix/SKILL.md` | ODF Bugfix Flow |
+| `../odf-explore/SKILL.md` | ODF Codebase Exploration |
+| `../odf-init/SKILL.md` | ODF Project Init |
+| `../odf-qa/SKILL.md` | ODF QA Workflow |
+| `../odf-propose/SKILL.md` | ODF Business Proposal |
+| `../odf-tdd/SKILL.md` | ODF Strict TDD |
 
----
+### OCA governance and style
 
-## Category 2: Development Style
-
-Code style standards for Python, XML, manifest, and naming.
-
-### Code Style (4 skills)
-| Skill | Purpose |
+| Skill | Use for |
 |-------|---------|
-| `oca-python-style` | Import order, model structure, SQL, idioms |
-| `oca-xml-style` | XML format, inheritance, IDs |
-| `oca-manifest-format` | Manifest structure, external dependencies |
-| `oca-naming-conv` | Module, file, XML ID naming conventions |
+| `../oca-governance-pr-workflow/SKILL.md` | OCA PR Workflow |
+| `../oca-governance-commit-messages/SKILL.md` | OCA Commit Messages |
+| `../oca-contributing-guidelines/SKILL.md` | OCA Contributing Guidelines |
+| `../oca-python-style/SKILL.md` | OCA Python Style |
+| `../oca-xml-style/SKILL.md` | OCA XML Style |
+| `../oca-manifest-format/SKILL.md` | OCA Manifest Format |
+| `../oca-work-unit-commits/SKILL.md` | OCA Work Unit Commits |
+| `../oca-cognitive-doc-design/SKILL.md` | OCA Cognitive Doc Design |
+| `../oca-comment-writer/SKILL.md` | OCA Comment Writer |
+| `../oca-chained-pr/SKILL.md` | OCA Chained PRs |
+| `../odf-oca-governance/SKILL.md` | OCA AI Governance |
+| `../oca-maintainer-role/SKILL.md` | Oca Maintainer Role |
+| `../oca-maturity-levels/SKILL.md` | Oca Maturity Levels |
+| `../oca-repository-policy/SKILL.md` | Oca Repository Policy |
+| `../common-module-templates/SKILL.md` | Common Module Templates |
+| `../oca-naming-conv/SKILL.md` | Oca Naming Conv |
+| `../odoo-module-generator/SKILL.md` | Odoo Module Generator |
 
-### Module Generators (13 skills)
-| Skill | Purpose |
+### OCA tools
+
+| Skill | Use for |
 |-------|---------|
-| `odoo-module-generator` | Generic module generator |
-| `odoo-module-generator-15` | Odoo 15 template (migration source) |
-| `odoo-module-generator-16` | Odoo 16 template |
-| `odoo-module-generator-17` | Odoo 17 template |
-| `odoo-module-generator-18` | Odoo 18 template |
-| `odoo-module-generator-19` | Odoo 19 template |
-| `odoo-module-generator-all` | All versions combined |
-| `odoo-module-generator-15-16` | 15-16 compatibility |
-| `odoo-module-generator-16-17` | 16-17 compatibility |
-| `odoo-module-generator-17-18` | 17-18 compatibility |
-| `odoo-module-generator-18-19` | 18-19 compatibility |
-| `common-module-templates` | Common module structures |
+| `../oca-api-lookup/SKILL.md` | Oca Api Lookup |
+| `../oca-documentation-gen/SKILL.md` | Oca Documentation Gen |
+| `../oca-lookup-guideline/SKILL.md` | Oca Lookup Guideline |
+| `../oca-migration-assist/SKILL.md` | Oca Migration Assist |
+| `../oca-migration-status/SKILL.md` | Oca Migration Status |
+| `../oca-odoo-local-search/SKILL.md` | Oca Odoo Local Search |
+| `../oca-pattern-match/SKILL.md` | Oca Pattern Match |
+| `../oca-pr-checkout/SKILL.md` | Oca Pr Checkout |
+| `../oca-pr-dependencies/SKILL.md` | Oca Pr Dependencies |
+| `../oca-search-migration-prs/SKILL.md` | Oca Search Migration Prs |
+| `../oca-suggest-improve/SKILL.md` | Oca Suggest Improve |
+| `../oca-upgrade-analysis/SKILL.md` | Oca Upgrade Analysis |
 
----
+### Shared conventions
 
-## Category 3: Patterns
-
-> These topics are references inside `odoo-modeling`, `odoo-views-owl`, `odoo-business-flows`, `odoo-testing`, and `odoo-versioning`. Load the domain skill and read the matching reference.
-
-Implementation patterns organized by functional area.
-
-### Models (9 skills)
-| Skill | Purpose |
+| Skill | Use for |
 |-------|---------|
-| `inheritance-patterns` | Model/view inheritance, delegation |
-| `computed-field-patterns` | @api.depends, stored/computed |
-| `constraint-patterns` | @api.constrains, _sql_constraints |
-| `field-type-reference` | All Odoo field types |
-| `context-environment-patterns` | with_context, with_user, sudo |
-| `domain-filter-patterns` | Domains, filtering, record sets |
-| `onchange-dynamic-patterns` | @api.onchange, dynamic fields |
-| `data-migration-patterns` | Migration scripts |
-| `error-handling-patterns` | Exception handling, logging |
+| `../skill-resolver/SKILL.md` | Skill Resolver Protocol |
+| `../karpathy-precision/SKILL.md` | Karpathy Precision |
 
-### Views (3 skills)
-| Skill | Purpose |
+### Security and review
+
+| Skill | Use for |
 |-------|---------|
-| `odoo-view-patterns` | Form, List, Kanban, Calendar, Pivot |
-| `odoo-dialog-service` | Dialog service, wizards |
-| `action-patterns` | Server actions, automated actions |
+| `../security-guide/SKILL.md` | Odoo Security Guide |
+| `../oca-code-review/SKILL.md` | Oca Code Review |
 
-### Business (19 skills)
-| Skill | Purpose |
-|-------|---------|
-| `external-api-patterns` | XML-RPC, JSON-RPC, API clients |
-| `controller-api-patterns` | HTTP controllers, routes |
-| `cron-automation-patterns` | ir.cron, scheduled actions |
-| `mail-notification-patterns` | Email templates, notifications |
-| `menu-navigation-patterns` | Menu items, actions |
-| `accounting-patterns` | Chart of accounts, fiscal positions |
-| `config-settings-patterns` | ir.config_parameter usage |
-| `dashboard-kpi-patterns` | Dashboard widgets, KPI calculations |
-| `hr-employee-patterns` | Employee management |
-| `import-export-patterns` | Data import/export |
-| `lot-serial-patterns` | Lot/serial number management |
-| `portal-access-patterns` | Public access, portal users |
-| `pricelist-pricing-patterns` | Pricelists, discount rules |
-| `product-variant-patterns` | Product variants, attributes |
-| `project-task-patterns` | Project management patterns |
-| `purchase-procurement-patterns` | Purchase flow, procurement |
-| `assets-bundling-patterns` | JS/CSS asset management |
-| `attachment-binary-patterns` | File attachments, binary fields |
-| `logging-debugging-patterns` | _logger, debug patterns |
+## Loading
 
-### Frontend (11 skills)
-| Skill | Purpose |
-|-------|---------|
-| `odoo-owl-components` | Generic OWL patterns |
-| `odoo-owl-components-15` | OWL 1.x (Odoo 15, migration source) |
-| `odoo-owl-components-16` | OWL 2.x (Odoo 16-17) |
-| `odoo-owl-components-17` | OWL 2.x (Odoo 17) |
-| `odoo-owl-components-18` | OWL 2.x (Odoo 18) |
-| `odoo-owl-components-19` | OWL 2.8.x (Odoo 19) |
-| `odoo-owl-components-15-16` | OWL 15-16 transition |
-| `odoo-owl-components-16-17` | OWL 16-17 continuity |
-| `odoo-owl-components-17-18` | OWL 17-18 transition |
-| `odoo-owl-components-18-19` | OWL 18-19 transition |
-| `odoo-owl-components-all` | All versions |
-
----
-
-## Category 4: Testing
-
-> Test, compliance, tour, performance, and troubleshooting topics are references inside `odoo-testing`; `oca-code-review` remains standalone.
-
-| Skill | Purpose |
-|-------|---------|
-| `odoo-test-patterns` | TransactionCase, HttpCase, fixtures |
-| `odoo-tour-testing` | QUnit tours, HTTPCase, UI automation |
-| `odoo-performance-guide` | Performance optimization |
-| `odoo-troubleshooting-guide` | Common issues and fixes |
-| `odoo-editions` | Community vs Enterprise differences |
-| `end-to-end-examples` | Complete module examples |
-| `oca-compliance-check` | Pre-PR validation checklist |
-| `oca-code-review` | Code review process |
-
----
-
-## Category 5: Version-Specific
-
-> These topics are references inside `odoo-versioning`, including `references/versions/` for 16-19.
-
-### Model Patterns (11 skills)
-
-| Version | Skill |
-|---------|-------|
-| All | `odoo-model-patterns-all` |
-| Odoo 19 | `odoo-model-patterns-19` |
-| Odoo 18 | `odoo-model-patterns-18` |
-| Odoo 17 | `odoo-model-patterns-17` |
-| Odoo 16 | `odoo-model-patterns-16` |
-| Odoo 15 | `odoo-model-patterns-15` (migration source) |
-| 15-16 | `odoo-model-patterns-15-16` |
-| 16-17 | `odoo-model-patterns-16-17` |
-| 17-18 | `odoo-model-patterns-17-18` |
-| 18-19 | `odoo-model-patterns-18-19` |
-| Generic | `odoo-model-patterns` |
-
-### Security Guides (8 skills)
-
-| Version | Skill |
-|---------|-------|
-| All | `odoo-security-guide-all` |
-| Odoo 19 | `odoo-security-guide-19` |
-| Odoo 18 | `odoo-security-guide-18` |
-| Odoo 17 | `odoo-security-guide-17` |
-| Odoo 16 | `odoo-security-guide-16` |
-| Odoo 15 | `odoo-security-guide-15` (migration source) |
-| Generic | `odoo-security-guide` |
-
-### Version Knowledge (11 skills)
-
-| Version | Skill |
-|---------|-------|
-| All | `odoo-version-knowledge-all` |
-| Odoo 19 | `odoo-version-knowledge-19` |
-| Odoo 18 | `odoo-version-knowledge-18` |
-| Odoo 17 | `odoo-version-knowledge-17` |
-| Odoo 16 | `odoo-version-knowledge-16` |
-| Odoo 15 | `odoo-version-knowledge-15` (migration source) |
-| 15-16 | `odoo-version-knowledge-15-16` |
-| 16-17 | `odoo-version-knowledge-16-17` |
-| 17-18 | `odoo-version-knowledge-17-18` |
-| 18-19 | `odoo-version-knowledge-18-19` |
-| Generic | `odoo-version-knowledge` |
-
----
-
-## Core OCA Tools (13 skills)
-
-OCA-specific tools for search, migration, and PR operations.
-
-| Skill | Purpose |
-|-------|---------|
-| `oca-lookup-guideline` | Quick OCA reference |
-| `oca-odoo-local-search` | Local Odoo codebase search |
-| `oca-search-migration-prs` | Find open migration PRs |
-| `oca-pr-checkout` | Get code from pending PR |
-| `oca-pr-dependencies` | Analyze PR dependencies |
-| `oca-migration-status` | Repo migration status |
-| `oca-migration-assist` | Migration guidance |
-| `oca-upgrade-analysis` | OpenUpgrade analysis |
-| `oca-api-lookup` | Odoo API docs |
-| `oca-pattern-match` | Find patterns in odoo/odoo + OCA/* |
-| `oca-suggest-improve` | Suggest improvements |
-| `oca-documentation-gen` | Generate docs |
-
----
-
-## Tools
-
-| Tool | Purpose |
-|------|---------|
-| CodeGraph | Structural codebase navigation when indexed |
-| OpenCode `Glob` / `Grep` / `Read` | Native path, text, and file inspection |
-| `gh` | GitHub CLI for PR operations |
-
----
-
-## Usage
-
-### Finding Skills
-
-1. **Use CodeGraph first** for structural questions, then native OpenCode
-   `Glob`, `Grep`, and `Read` for focused inspection.
-
-2. **Use this SKILL.md** for complete index
-
-3. **Use `skill_finder` agent** for targeted lookups (extracts 20-50 lines)
-
-### Loading Skills
-
-Load a skill by reading the file:
-```
-Read: `../<skill-name>/SKILL.md` (skills are flat under `skills/`)
+```text
+Read: ../odoo-business-flows/SKILL.md          # domain router
+Read: ../odoo-business-flows/references/accounting-patterns.md  # one topic
+Read: ../oca-governance-pr-workflow/SKILL.md   # standalone skill
 ```
 
-Example:
-```
-Read: ../oca-python-style/SKILL.md
-```
-
----
-
-## Skill Size Guidelines
-
-| Type | Lines | Use |
-|------|-------|-----|
-| **Reference** | 50-100 | Quick lookup with code |
-| **Guide** | 100-300 | Complete topic coverage |
-| **Pattern** | 200-500 | Code examples and templates |
-| **Compendium** | 500+ | Use via skill_finder agent |
-
----
-
-## Backwards Compatibility
-
-Some skills have been reorganized. The original files are kept as aliases:
-
-| Old Location | New Location |
-|--------------|--------------|
-| `oca-contributing-guide` | Split into `oca-contributing-guidelines`, `oca-python-style`, `oca-xml-style`, `oca-manifest-format`, and `oca-naming-conv`; the deprecated file is at `oca-contributing-guidelines/references/deprecated-guide.md`. |
-
----
-
-Last updated: 2026-09-21
+Read the domain router first; it lists the cross-cutting rules and the topic map.
