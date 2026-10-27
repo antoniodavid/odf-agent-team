@@ -21,7 +21,7 @@ Acceptance: Existing bounded retries, single-store authority, receipt handling, 
 Checks: Regression scenarios retain existing stop/retry behavior for required gates and dependent transitions.
 
 ## Tasks
-- T1 — S1-S2; route: inline; status: complete; commit: pending post-commit recording. Updated the orchestrator contract and YAML prompt scenario; focused/suite checks and independent verification passed.
+- T1 — S1-S2; route: inline; status: complete; commit: `49b8470`. Updated the orchestrator contract and YAML prompt scenario; focused/suite checks and independent verification passed.
 
 ## Log
 - L1 — User request, verbatim: “y porque el harness esta tan dependiente de engram, si responde mal, ya no se podra continuar con el trbajo?, me parece un error de arquitectura, se debe resolver que si engram o cualquier tool externa presenta algun error, el harness mantiene su integridad y continua el trabajo”
@@ -32,3 +32,4 @@ Checks: Regression scenarios retain existing stop/retry behavior for required ga
 - L6 — Verification: `npm run test:unit` passed (54 files, 1,492 tests); `npm run validate:skills` passed (51 skills, 0 errors). Receipt-driven development is explicitly off globally; no native review lifecycle is due under the user-owned switch.
 - L7 — Independent verification: S1 and S2 both met with no blockers. The verifier ran `npm run test:yaml` on baseline and candidate scratch copies (331 passed, 0 failed in each), plus candidate `npm run test:unit` (54 files, 1,492 tests), `npm run validate:skills` (51 skills, 0 errors), and `npm run typecheck` (ok). Parent spot-check reran `npm run test:yaml` (331 passed, 0 failed); `git diff --check` passed. Verifier scratch was removed.
 - L8 — Risk: item 3 (the orchestrator instructions define a shared workflow contract consumed by downstream ODF runs; incorrect failure-continuation behavior could alter those contracts).
+- L9 — Work-unit commit: `49b8470` (`fix(odf): degrade safely on external tool failures`) contains T1 and its regression fixture. This tracking-document update closes the feature.
