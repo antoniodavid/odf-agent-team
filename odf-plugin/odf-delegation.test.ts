@@ -3,6 +3,7 @@ import * as path from "node:path"
 import * as fs from "node:fs/promises"
 import * as fsSync from "node:fs"
 import * as os from "node:os"
+import { createHash } from "node:crypto"
 import { execSync, spawnSync } from "node:child_process"
 import YAML from "yaml"
 import { tool as v1Tool } from "@opencode-ai/plugin"
@@ -553,7 +554,7 @@ describe("createODFWorkflowOverride", () => {
     expect(fsSync.existsSync(lockPath)).toBe(false)
   })
 
-  it("recovers a stale empty workflow lock but keeps a fresh one blocking", async () => {
+  it("keeps empty workflow locks blocked even after the stale interval", async () => {
     const tool = await seedState("DECIDE", ["DECIDE"])
     const lockPath = path.join(root, ".odf", "workflow-ov-change.workflow.lock")
     await fs.mkdir(path.dirname(lockPath), { recursive: true })
@@ -564,11 +565,12 @@ describe("createODFWorkflowOverride", () => {
 
     const past = new Date(Date.now() - 120_000)
     await fs.utimes(lockPath, past, past)
-    const recovered = JSON.parse(await tool.execute(baseArgs(), {} as any) as string)
-    expect(recovered).toMatchObject({ status: "overridden" })
+    const stale = JSON.parse(await tool.execute(baseArgs(), {} as any) as string)
+    expect(stale).toMatchObject({ status: "blocked", reason: "workflow-state-locked" })
+    expect(await fs.readFile(lockPath, "utf8")).toBe("")
   })
 
-  it("never steals a lock held by a live process and recovers corrupted stale metadata", async () => {
+  it("never steals a lock held by a live process or with corrupted metadata", async () => {
     const tool = await seedState("DECIDE", ["DECIDE"])
     const lockPath = path.join(root, ".odf", "workflow-ov-change.workflow.lock")
     await fs.mkdir(path.dirname(lockPath), { recursive: true })
@@ -582,8 +584,53 @@ describe("createODFWorkflowOverride", () => {
     await fs.writeFile(lockPath, "{corrupted", "utf8")
     const past = new Date(Date.now() - 120_000)
     await fs.utimes(lockPath, past, past)
-    const recovered = JSON.parse(await tool.execute(baseArgs(), {} as any) as string)
-    expect(recovered).toMatchObject({ status: "overridden" })
+    const corrupted = JSON.parse(await tool.execute(baseArgs(), {} as any) as string)
+    expect(corrupted).toMatchObject({ status: "blocked", reason: "workflow-state-locked" })
+    expect(await fs.readFile(lockPath, "utf8")).toBe("{corrupted")
+  })
+
+  it("does not reclaim an old workflow lock owned by another host", async () => {
+    const tool = await seedState("DECIDE", ["DECIDE"])
+    const lockPath = path.join(root, ".odf", "workflow-ov-change.workflow.lock")
+    const statePath = path.join(root, "openspec", "changes", "ov-change", "state.yaml")
+    await fs.mkdir(path.dirname(lockPath), { recursive: true })
+    await fs.writeFile(lockPath, JSON.stringify({
+      pid: 12345, hostname: "another-host", started_at: new Date().toISOString(), token: "remote-owner",
+    }), "utf8")
+    const past = new Date(Date.now() - 120_000)
+    await fs.utimes(lockPath, past, past)
+    const lockBefore = await fs.readFile(lockPath, "utf8")
+    const stateHashBefore = createHash("sha256").update(await fs.readFile(statePath)).digest("hex")
+
+    const output = JSON.parse(await tool.execute(baseArgs(), {} as any) as string)
+
+    expect(output).toMatchObject({ status: "blocked", reason: "workflow-state-locked" })
+    expect(await fs.readFile(lockPath, "utf8")).toBe(lockBefore)
+    expect(createHash("sha256").update(await fs.readFile(statePath)).digest("hex")).toBe(stateHashBefore)
+  })
+
+  it("does not recover a stale workflow lock while another recovery guard exists", async () => {
+    const tool = await seedState("DECIDE", ["DECIDE"])
+    const lockPath = path.join(root, ".odf", "workflow-ov-change.workflow.lock")
+    const recoveryLockPath = `${lockPath}.recovery.lock`
+    const statePath = path.join(root, "openspec", "changes", "ov-change", "state.yaml")
+    await fs.mkdir(path.dirname(lockPath), { recursive: true })
+    const dead = spawnSync(process.execPath, ["-e", "process.exit(0)"])
+    await fs.writeFile(lockPath, JSON.stringify({
+      pid: dead.pid, hostname: os.hostname(), started_at: new Date().toISOString(), token: "dead-before-recovery",
+    }), "utf8")
+    await fs.writeFile(recoveryLockPath, JSON.stringify({
+      pid: process.pid, hostname: os.hostname(), started_at: new Date().toISOString(), token: "recovery-owner",
+    }), "utf8")
+    const lockBefore = await fs.readFile(lockPath, "utf8")
+    const stateHashBefore = createHash("sha256").update(await fs.readFile(statePath)).digest("hex")
+
+    const output = JSON.parse(await tool.execute(baseArgs(), {} as any) as string)
+
+    expect(output).toMatchObject({ status: "blocked", reason: "workflow-state-locked" })
+    expect(await fs.readFile(lockPath, "utf8")).toBe(lockBefore)
+    expect(fsSync.existsSync(recoveryLockPath)).toBe(true)
+    expect(createHash("sha256").update(await fs.readFile(statePath)).digest("hex")).toBe(stateHashBefore)
   })
 
   it("re-plans from DECIDE with an approved Expectations revision", async () => {
@@ -6796,8 +6843,10 @@ ${overrides}`
     const delegateTool = createODFDelegate(undefined, tempHome)
     const ledgerPath = path.join(tempHome, ".odf", "attempt-ledger-lock-contention.jsonl")
     const lockPath = `${ledgerPath}.lock`
+    const statePath = path.join(tempHome, "openspec", "changes", "lock-contention", "state.yaml")
     await fs.mkdir(path.dirname(ledgerPath), { recursive: true })
     await fs.writeFile(lockPath, "held\n")
+    const stateHashBefore = createHash("sha256").update(await fs.readFile(statePath)).digest("hex")
 
     const output = await delegateTool.execute({
       stage: "BUILD",
@@ -6812,6 +6861,36 @@ ${overrides}`
     expect(JSON.parse(output as string)).toMatchObject({ status: "blocked", reason: "attempt-ledger-locked" })
     expect(taskApi).not.toHaveBeenCalled()
     expect(await fs.readFile(lockPath, "utf8")).toBe("held\n")
+    expect(createHash("sha256").update(await fs.readFile(statePath)).digest("hex")).toBe(stateHashBefore)
+    expect(fsSync.existsSync(ledgerPath)).toBe(false)
+  })
+
+  it("recovers a locally owned attempt-ledger lock after its process exits", async () => {
+    const { createODFDelegate } = await import("./odf-delegation.js")
+    const taskApi = vi.fn().mockResolvedValue({ status: "ok" })
+    await prepareWorkflowState("attempt-orphan-lock", "IMPLEMENT")
+    await writeValidationEvidence("attempt-orphan-lock")
+    const delegateTool = createODFDelegate(undefined, tempHome)
+    const ledgerPath = path.join(tempHome, ".odf", "attempt-ledger-attempt-orphan-lock.jsonl")
+    const lockPath = `${ledgerPath}.lock`
+    const dead = spawnSync(process.execPath, ["-e", "process.exit(0)"])
+    await fs.writeFile(lockPath, JSON.stringify({
+      pid: dead.pid, hostname: os.hostname(), started_at: new Date().toISOString(), token: "dead-ledger-owner",
+    }), "utf8")
+
+    const output = JSON.parse(await delegateTool.execute({
+      stage: "BUILD",
+      change: "attempt-orphan-lock",
+      artifact_store: "openspec",
+      attempt_id: "orphan-lock-1",
+      prompt: "Implement the change",
+      context_files: [],
+      workflow_advance: workflowAdvance("IMPLEMENT"),
+    }, { sessionID: "s1", task: taskApi } as any) as string)
+
+    expect(output.status).toBe("delegated")
+    expect(taskApi).toHaveBeenCalledTimes(1)
+    expect(fsSync.existsSync(lockPath)).toBe(false)
   })
 
   it("allows a new attempt only after the previous attempt failed", async () => {
