@@ -3455,6 +3455,56 @@ describe("sessionResultFromText", () => {
     expect(result.skill_resolution).toBe("injected")
   })
 
+  it("parses a JSON object inside the authoritative ODF Result section", () => {
+    const expected = validOdfResult({
+      status: "blocked",
+      executive_summary: "No changes made",
+      strategy: "migration",
+      odoo_version: 16,
+      modules_affected: ["replika_branch_inter_warehouse"],
+      next_recommended: [{ step: "resume", count: 0 }],
+      metadata: { enabled: true, disabled: false, empty: null, nested: { ready: true } },
+    })
+
+    const result = sessionResultFromText(`## ODF Result\n${JSON.stringify(expected, null, 2)}`)
+
+    expect(result).toMatchObject(expected)
+  })
+
+  it("drops prototype-polluting keys from JSON objects inside the result section", () => {
+    const authority = JSON.parse('{"ok":true,"nested":{"__proto__":{"polluted":true},"constructor":"bad","safe":null}}')
+    const result = sessionResultFromText(`## ODF Result\n${JSON.stringify({
+      ...validOdfResult(),
+      source_authority: authority,
+    })}`)
+    const parsedAuthority = result.source_authority as Record<string, unknown>
+
+    expect(parsedAuthority.ok).toBe(true)
+    expect(parsedAuthority).toEqual({ ok: true, nested: { safe: null } })
+  })
+
+  it("parses bare top-level key/value lines inside the authoritative ODF Result section", () => {
+    const expected = validOdfResult({
+      status: "blocked",
+      executive_summary: "No changes made",
+      strategy: "migration",
+      odoo_version: 16,
+      modules_affected: ["replika_branch_inter_warehouse"],
+      next_recommended: [{ step: "resume", count: 0 }],
+      enabled: true,
+      disabled: false,
+      empty_value: null,
+      metadata: { count: 0, nested: { ready: true } },
+    })
+    const body = Object.entries(expected).map(([key, value]) =>
+      `${key}: ${typeof value === "string" ? value : JSON.stringify(value)}`,
+    ).join("\n")
+
+    const result = sessionResultFromText(`## ODF Result\n${body}`)
+
+    expect(result).toMatchObject(expected)
+  })
+
   it("still parses a pure JSON result when no ODF Result section exists", () => {
     const result = sessionResultFromText(JSON.stringify({
       status: "ok",
@@ -3471,6 +3521,15 @@ describe("sessionResultFromText", () => {
 
   it("fails closed when the section has no status", () => {
     expect(() => sessionResultFromText("## ODF Result\n- **design_closed**: true")).toThrow(/invalid-task-result/)
+    const fencedOnly = [
+      "## ODF Result",
+      "",
+      "unparsed text",
+      "```json",
+      JSON.stringify(validOdfResult()),
+      "```",
+    ].join("\n")
+    expect(() => sessionResultFromText(fencedOnly)).toThrow(/invalid-task-result/)
   })
 
   it("rejects a supported status when required common fields are missing", () => {
@@ -3480,6 +3539,8 @@ describe("sessionResultFromText", () => {
 
   it("rejects unresolved status templates and unsupported status values", () => {
     expect(() => sessionResultFromText("## ODF Result\n- **status**: ok | warning | blocked | failed")).toThrow(/status must be exactly/)
+    expect(() => sessionResultFromText('## ODF Result\n{"status":"success"}')).toThrow(/status must be exactly/)
+    expect(() => sessionResultFromText("## ODF Result\nstatus: ok | warning | blocked | failed")).toThrow(/status must be exactly/)
     expect(() => sessionResultFromText('{"status":"success"}')).toThrow(/status must be exactly/)
     expect(() => sessionResultFromText('{"status":"ok "}')).toThrow(/status must be exactly/)
   })
