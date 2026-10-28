@@ -229,8 +229,8 @@ export function inspectEngramHealth(io: HealthIo): EngramInspection {
     cliPath = io.locateExecutable("engram")
   } catch (error) {
     const code = healthErrorCode(error)
-    if (code === "ETIMEDOUT") return unavailable("runtime-timeout: Engram CLI discovery timed out", true)
-    if (code === "EACCES" || code === "EPERM") return unavailable("permission-denied: Engram CLI discovery", true)
+    if (code === "ETIMEDOUT") return unavailable("runtime-timeout: Engram CLI discovery timed out")
+    if (code === "EACCES" || code === "EPERM") return unavailable("permission-denied: Engram CLI discovery")
     return unavailable("engram-cli-unavailable")
   }
   if (!cliPath) return unavailable("engram-cli-unavailable")
@@ -241,8 +241,8 @@ export function inspectEngramHealth(io: HealthIo): EngramInspection {
     if (version) engram.version = version
   } catch (error) {
     const code = healthErrorCode(error)
-    if (code === "ETIMEDOUT") return { engram, warnings: ["runtime-timeout: Engram version discovery timed out"], blocked: true }
-    if (code === "EACCES" || code === "EPERM") return { engram, warnings: ["permission-denied: Engram version discovery"], blocked: true }
+    if (code === "ETIMEDOUT") return { engram, warnings: ["runtime-timeout: Engram version discovery timed out"], blocked: false }
+    if (code === "EACCES" || code === "EPERM") return { engram, warnings: ["permission-denied: Engram version discovery"], blocked: false }
     // Version output is optional; a working executable is still available.
   }
   return { engram, warnings: [], blocked: false }
@@ -416,25 +416,72 @@ type NativeTaskFunction = ((input: NativeTaskInput) => Promise<unknown>) & {
   abort?: TaskApi["abort"]
 }
 
+export interface InvalidTaskResultDiagnostics {
+  kind: "invalid-task-result"
+  message: string
+  output_type: "string" | "object" | "array" | "number" | "boolean" | "null" | "undefined" | "other"
+}
+
+/** Strict validation failures retain only bounded metadata from the native Task wrapper. */
+export class InvalidNativeTaskResultError extends Error {
+  readonly code = "invalid-task-result" as const
+  readonly task_session_id?: string
+  readonly result_diagnostics: InvalidTaskResultDiagnostics
+
+  constructor(message: string, sessionId: string | null, outputType: InvalidTaskResultDiagnostics["output_type"]) {
+    const boundedMessage = message.replace(/[\u0000-\u001f\u007f]/g, " ").slice(0, 400)
+    super(boundedMessage)
+    this.name = "InvalidNativeTaskResultError"
+    if (sessionId) this.task_session_id = sessionId
+    this.result_diagnostics = { kind: "invalid-task-result", message: boundedMessage, output_type: outputType }
+  }
+}
+
+function safeNativeTaskSessionId(value: unknown): string | null {
+  return typeof value === "string" && value.length > 0 && value.length <= 256 && !/[\0\r\n]/.test(value)
+    ? value
+    : null
+}
+
+function nativeTaskOutputType(value: unknown): InvalidTaskResultDiagnostics["output_type"] {
+  if (value === null) return "null"
+  if (Array.isArray(value)) return "array"
+  const type = typeof value
+  if (type === "string" || type === "object" || type === "number" || type === "boolean" || type === "undefined") return type
+  return "other"
+}
+
 export function normalizeNativeTaskResult(response: unknown): unknown {
   if (isCancellation(response)) throw new Error("task-cancelled: task() was cancelled")
   if (isEmptyTaskResult(response)) throw new Error("empty-task-result: task() returned no usable result")
 
   const nativeEnvelope = response && typeof response === "object" && !Array.isArray(response) && "output" in response
+  const envelope = nativeEnvelope ? response as Record<string, unknown> : null
   if (!nativeEnvelope && typeof response === "object" && response !== null && !Array.isArray(response)) return response
-  const output = nativeEnvelope ? (response as Record<string, unknown>).output : response
-  if (isCancellation(output)) throw new Error("task-cancelled: task() was cancelled")
-  if (isEmptyTaskResult(output)) throw new Error("empty-task-result: task() returned no usable output")
-  if (typeof output === "string") {
-    const taskResult = output.match(/<task_result>\s*([\s\S]*?)\s*<\/task_result>/i)?.[1] || output
-    if (isCancellation(taskResult)) throw new Error("task-cancelled: task() was cancelled")
-    return sessionResultFromText(taskResult)
+  const output = envelope ? envelope.output : response
+  try {
+    if (isCancellation(output)) throw new Error("task-cancelled: task() was cancelled")
+    if (isEmptyTaskResult(output)) throw new Error("empty-task-result: task() returned no usable output")
+    if (typeof output === "string") {
+      const taskResult = output.match(/<task_result>\s*([\s\S]*?)\s*<\/task_result>/i)?.[1] || output
+      if (isCancellation(taskResult)) throw new Error("task-cancelled: task() was cancelled")
+      return sessionResultFromText(taskResult)
+    }
+    if (!output || typeof output !== "object" || Array.isArray(output)) {
+      throw new Error("invalid-task-result: task() returned an invalid output")
+    }
+    if (typeof (output as Record<string, unknown>).status === "string") return validateODFResult(output as Record<string, unknown>)
+    return sessionPromptResult(output)
+  } catch (error) {
+    if (envelope && error instanceof Error && error.message.startsWith("invalid-task-result:")) {
+      throw new InvalidNativeTaskResultError(
+        error.message,
+        safeNativeTaskSessionId(envelope.sessionID),
+        nativeTaskOutputType(output),
+      )
+    }
+    throw error
   }
-  if (!output || typeof output !== "object" || Array.isArray(output)) {
-    throw new Error("invalid-task-result: task() returned an invalid output")
-  }
-  if (typeof (output as Record<string, unknown>).status === "string") return validateODFResult(output as Record<string, unknown>)
-  return sessionPromptResult(output)
 }
 
 function createNativeTaskApi(nativeTask: NativeTaskFunction): TaskApi {
