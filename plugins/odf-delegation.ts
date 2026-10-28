@@ -7484,9 +7484,9 @@ async function materializeStageCompletion(opts: {
       // mismatch (e.g. assessment.md vs assess.md) is visible at the block.
       const artifactsSeen = read.snapshot.artifacts.map((artifact) => {
         const normalized = normalizeArtifactKey(artifact.key)
-        return normalized.group
-          ? `${normalized.original} (${normalized.type} → ${normalized.group})`
-          : `${normalized.original} (unrecognized phase artifact)`
+        if (normalized.group) return `${normalized.original} (${normalized.type} → ${normalized.group})`
+        if (normalized.type === "expectations") return `${normalized.original} (shared Expectations)`
+        return `${normalized.original} (unrecognized phase artifact)`
       }).slice(0, 12)
       const requirement = expectedPrefix.length === 1
         ? `${opts.stage} requires its terminal artifacts`

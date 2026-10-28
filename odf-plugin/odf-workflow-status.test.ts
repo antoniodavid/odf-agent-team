@@ -167,6 +167,62 @@ describe("workflow status adapter", () => {
     expect(complete).not.toHaveProperty("legacy_phase")
   })
 
+  it("treats assessed DECIDE artifacts as terminal while keeping Expectations shared", () => {
+    const change = "assessed-decision"
+    const decisionRef = `odf/${change}/decision`
+    const expectationsRef = `odf/${change}/expectations`
+    const status = deriveWorkflowStatus({
+      change,
+      state: {
+        work_type: "feature",
+        artifact_store: "engram",
+        canonical_stage: "DECIDE",
+      },
+      artifacts: {
+        [decisionRef]: { status: "assessed", content: "status: assessed\n" },
+        [expectationsRef]: expectationsContent(change),
+      },
+      source: { state: "engram", artifacts: [decisionRef, expectationsRef] },
+    })
+
+    expect(status.completed_canonical_stages).toEqual(["DECIDE"])
+    expect(status.pending_stage).toBe("PLAN")
+    expect(status.next_handoff).toMatchObject({
+      artifacts: [{ stage: "DECIDE", name: "decision", artifact_ref: { store: "engram", ref: decisionRef } }],
+      shared_artifacts: [{ stage: "SHARED", name: "expectations", artifact_ref: { store: "engram", ref: expectationsRef } }],
+    })
+
+    const assessedRole = deriveWorkflowStatus({
+      change: "assessed-role",
+      state: {
+        work_type: "feature",
+        artifact_store: "engram",
+        canonical_stage: "DECIDE",
+      },
+      artifacts: {
+        "odf/assessed-role/propose": { status: "passed" },
+        "odf/assessed-role/assess": { status: "assessed" },
+      },
+      source: { state: "engram", artifacts: ["odf/assessed-role/propose", "odf/assessed-role/assess"] },
+    })
+    expect(assessedRole.completed_canonical_stages).toEqual(["DECIDE"])
+
+    const assessedPlan = deriveWorkflowStatus({
+      change: "assessed-plan",
+      state: {
+        work_type: "feature",
+        artifact_store: "engram",
+        canonical_stage: "PLAN",
+      },
+      artifacts: {
+        "odf/assessed-plan/decision": { status: "passed" },
+        "odf/assessed-plan/plan": { status: "assessed" },
+      },
+      source: { state: "engram", artifacts: ["odf/assessed-plan/decision", "odf/assessed-plan/plan"] },
+    })
+    expect(assessedPlan.completed_canonical_stages).not.toContain("PLAN")
+  })
+
   it("ignores stale phase artifacts and requires a committed stage for refreshed evidence", () => {
     const state = {
       work_type: "feature",
