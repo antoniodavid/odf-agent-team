@@ -144,7 +144,10 @@ changes and bugfixes keep the test/check plan inline and need no separate
 <code>qa-plan</code> artifact; formal QA-PLAN is used when the resolved route requires PLAN
 or risk/complexity explicitly escalates it. QA-REVIEW/QA-AGGREGATE/QA-REPORT are
 conditional lenses, not universal handoffs. Legacy phase names remain adapters
-(<code>DECIDE = PROPOSE + ASSESS</code>, <code>PLAN = QA-PLAN + DESIGN</code>, <code>BUILD = IMPLEMENT</code>).</p>
+(<code>DECIDE = PROPOSE + ASSESS</code>, <code>PLAN = QA-PLAN + DESIGN</code>, <code>BUILD = IMPLEMENT</code>).
+For DECIDE artifacts, <code>status: assessed</code> is terminal only on canonical <code>decision</code>
+and <code>assess</code> artifacts. Expectations remain shared context: they inform the
+decision but do not complete a workflow stage.</p>
 <p>Ask for a human decision only at a required approval or when scope/Expectations
 are unresolved; adapter transitions do not add approval pauses. The selected
 artifact store is <code>openspec</code>, <code>engram</code>, or <code>hybrid</code>; state-machine helpers

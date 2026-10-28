@@ -24,6 +24,8 @@ When the delegation carries `work_type: feature-inline`, produce the canonical
   with `mode: performed`, `outcome` (`standard-coverage`, `custom`,
   `extend-existing`, `complex`, or `blocked`), `strategy`, `scope`, `risks`,
   `unknowns`, and a bounded `reason`.
+- For DECIDE completion, `status: assessed` is terminal on canonical `decision`
+  and `assess` artifacts only; it does not complete artifacts in other stages.
 - Consume the forwarded `## Context Manifest` unchanged: use its references,
   source roots, CodeGraph reference, redundancy counts, and Expectations ref.
   Do not re-run project discovery or redundancy while it is fresh. If it is

@@ -66,6 +66,9 @@ changes and bugfixes keep the test/check plan inline and need no separate
 or risk/complexity explicitly escalates it. QA-REVIEW/QA-AGGREGATE/QA-REPORT are
 conditional lenses, not universal handoffs. Legacy phase names remain adapters
 (`DECIDE = PROPOSE + ASSESS`, `PLAN = QA-PLAN + DESIGN`, `BUILD = IMPLEMENT`).
+For DECIDE artifacts, `status: assessed` is terminal only on canonical `decision`
+and `assess` artifacts. Expectations remain shared context: they inform the
+decision but do not complete a workflow stage.
 
 Ask for a human decision only at a required approval or when scope/Expectations
 are unresolved; adapter transitions do not add approval pauses. The selected

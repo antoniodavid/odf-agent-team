@@ -371,7 +371,9 @@ function successful(artifact: InternalArtifact): boolean {
   // A VERIFY warning means the report is complete with non-blocking caveats;
   // its separate validation-evidence gate still applies. Other artifacts need
   // an explicit success status.
-  return SUCCESS_STATUSES.has(status) || artifact.normalized.type === "verify-report" && status === "warning"
+  const { group, type } = artifact.normalized
+  const assessedDecisionArtifact = group === "DECIDE" && ["decision", "assess"].includes(type) && status === "assessed"
+  return SUCCESS_STATUSES.has(status) || assessedDecisionArtifact || type === "verify-report" && status === "warning"
 }
 function isTerminal(artifact: InternalArtifact): boolean {
   const status = artifactStatus(artifact)

@@ -7551,6 +7551,7 @@ ${overrides}`
     ].join("\n"), "utf8")
     await fs.writeFile(path.join(changeDir, "propose.yaml"), "status: passed\n", "utf8")
     await fs.writeFile(path.join(changeDir, "assess.yaml"), "status: pending\n", "utf8")
+    await fs.writeFile(path.join(changeDir, "expectations.yaml"), "status: approved\n", "utf8")
 
     const taskApi = vi.fn().mockResolvedValue({ status: "ok", executive_summary: "assessed" })
     const output = JSON.parse(await createODFDelegate(undefined, tempHome).execute({
@@ -7566,7 +7567,13 @@ ${overrides}`
       workflow_materialization: { status: "blocked" },
     })
     expect((output as any).workflow_materialization.artifacts_seen).toEqual(
-      expect.arrayContaining([expect.stringContaining("assess.yaml")]),
+      expect.arrayContaining([
+        expect.stringContaining("assess.yaml"),
+        expect.stringContaining("expectations.yaml (shared Expectations)"),
+      ]),
+    )
+    expect((output as any).workflow_materialization.artifacts_seen).not.toEqual(
+      expect.arrayContaining([expect.stringContaining("expectations.yaml (unrecognized phase artifact)")]),
     )
     expect(YAML.parse(await fs.readFile(path.join(changeDir, "state.yaml"), "utf8"))).toMatchObject({
       canonical_stage: "DECIDE",
