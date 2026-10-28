@@ -385,6 +385,10 @@ plugin
 then submits the same string directly through <code>session.prompt</code>. The seal
 independently hashes the child transcript; a successful API call or returned
 session ID is not proof of receipt.</li>
+<li>Session ancestry follows the canonical directories: a task targeting the
+parent's directory uses <code>parentID</code> and omits <code>location</code>, so OpenCode places it
+under the parent. A task targeting a different directory uses <code>location</code>
+without <code>parentID</code> and remains an independent session.</li>
 <li>A durable launch record binds parent and child IDs. Retries reuse the same
 session and never resend prompts in <code>sending</code>, <code>uncertain</code>, or <code>interrupted</code>
 states. Only a persisted <code>created</code> state can resume submission.</li>
