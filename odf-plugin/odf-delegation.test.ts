@@ -3247,6 +3247,32 @@ describe("findTaskApi", () => {
     expect(result).toEqual(validOdfResult({ executive_summary: "done" }))
   })
 
+  it("attaches bounded native wrapper diagnostics to an invalid result error", async () => {
+    const taskFn = vi.fn().mockResolvedValue({
+      sessionID: "ses_invalid-child-result",
+      status: "completed",
+      output: JSON.stringify({ status: "unexpected", executive_summary: "private child output" }),
+    })
+    const api = findTaskApi({ task: taskFn, sessionID: "parent" } as any)
+    let rejection: unknown
+    try {
+      await api!.taskApi({ agent: "odoo_backend_engineer", prompt: "Build it" })
+    } catch (error) {
+      rejection = error
+    }
+
+    expect(rejection).toMatchObject({
+      code: "invalid-task-result",
+      task_session_id: "ses_invalid-child-result",
+      result_diagnostics: {
+        kind: "invalid-task-result",
+        message: expect.stringContaining("ODF Result status"),
+        output_type: "string",
+      },
+    })
+    expect(String(rejection)).not.toContain("private child output")
+  })
+
   it("detects sdk.session without toolCtx.task or client.task", () => {
     const client = {
       task: vi.fn(),
@@ -7536,6 +7562,58 @@ ${overrides}`
     expect(taskApi).toHaveBeenCalledTimes(3)
   })
 
+  it("keeps hybrid stage materialization committed and repairs its Engram mirror on retry", async () => {
+    const { createODFDelegate } = await import("./odf-delegation.js")
+    const change = "hybrid-stage-mirror-repair"
+    const changeDir = path.join(tempHome, "openspec", "changes", change)
+    await fs.mkdir(changeDir, { recursive: true })
+    await fs.writeFile(path.join(changeDir, "state.yaml"), [
+      "work_type: feature",
+      "artifact_store: hybrid",
+      "canonical_stage: DECIDE",
+      "completed_canonical_stages: []",
+      "resumable: true",
+      "",
+    ].join("\n"), "utf8")
+    await fs.writeFile(path.join(changeDir, "proposal.md"), "status: passed\n", "utf8")
+    await fs.writeFile(path.join(changeDir, "assessment.md"), "status: passed\n", "utf8")
+    const fake = await configureFakeEngram()
+    fake.setFailureTopic(`odf/${change}/state`)
+    const taskApi = vi.fn().mockResolvedValue({ status: "ok", executive_summary: "assessed" })
+    const delegate = createODFDelegate(undefined, tempHome)
+    const input = {
+      stage: "DECIDE" as const,
+      role: "ASSESS" as const,
+      change,
+      prompt: "Assess the requested feature",
+      context_files: [],
+    }
+
+    try {
+      const first = JSON.parse(await delegate.execute(input, { sessionID: "hybrid-stage-mirror", task: taskApi } as any) as string)
+      expect(first).toMatchObject({
+        status: "delegated",
+        workflow_materialization: {
+          status: "committed",
+          reason: "engram-mirror-pending",
+          canonical_stage: "DECIDE",
+          degradation: { component: "engram-mirror", status: "pending", reason: "engram-save-failed", repairable: true },
+        },
+      })
+
+      fake.setFailureTopic(null)
+      const retry = JSON.parse(await delegate.execute(input, { sessionID: "hybrid-stage-mirror-retry", task: taskApi } as any) as string)
+      expect(retry).toMatchObject({
+        status: "delegated",
+        workflow_materialization: { status: "committed", reason: "engram-mirror-repaired", canonical_stage: "DECIDE" },
+      })
+      const calls = JSON.parse(await fs.readFile(fake.logPath, "utf8")) as string[][]
+      expect(calls.filter(call => call[0] === "save" && call.includes(`odf/${change}/state`))).toHaveLength(2)
+    } finally {
+      await fake.cleanup()
+    }
+  })
+
   it("blocks the stage commit when the role artifact is not terminal", async () => {
     const { createODFDelegate } = await import("./odf-delegation.js")
     const change = "legacy-boundary-nonterminal"
@@ -8322,6 +8400,52 @@ ${overrides}`
       process.env.PATH = previousPath
       delete process.env.ODF_TEST_ENGRAM_SAVE_LOG
       await fs.rm(bin, { recursive: true, force: true })
+    }
+  })
+
+  it("commits hybrid OpenSpec transitions when the Engram mirror fails and repairs it on retry", async () => {
+    const change = "hybrid-build-mirror-repair"
+    const changeDir = path.join(tempHome, "openspec", "changes", change)
+    await fs.mkdir(changeDir, { recursive: true })
+    await fs.writeFile(path.join(changeDir, "state.yaml"), "work_type: feature\nartifact_store: hybrid\ncanonical_stage: BUILD\ncompleted_canonical_stages: [DECIDE, PLAN]\nresumable: true\n", "utf8")
+    await fs.writeFile(path.join(changeDir, "implement-progress.md"), "- [x] implementation\n", "utf8")
+    const proof = workflowAdvance("IMPLEMENT")
+    const callerResult = advanceWorkflow({ route: resolveWorkflowRoute(proof.work_type), ...proof })
+    const fake = await configureFakeEngram()
+    fake.setFailureTopic(`odf/${change}/state`)
+
+    try {
+      const first = await commitWorkflowTransition({
+        workspaceRoot: tempHome, changeName: change, artifactStore: "hybrid", proof,
+        expectedStage: "BUILD", callerResult,
+        phaseResultStatus: "warning", validationStatus: "verified",
+        validation: { status: "verified", reason: "focused test evidence", commands_validated: 2 },
+      })
+      expect(first).toMatchObject({
+        status: "committed",
+        reason: "engram-mirror-pending",
+        canonical_stage: "BUILD",
+        degradation: {
+          component: "engram-mirror",
+          status: "pending",
+          reason: "engram-save-failed",
+          repairable: true,
+        },
+      })
+      expect(YAML.parse(await fs.readFile(path.join(changeDir, "state.yaml"), "utf8"))).toMatchObject({ canonical_stage: "BUILD" })
+
+      fake.setFailureTopic(null)
+      const retry = await commitWorkflowTransition({
+        workspaceRoot: tempHome, changeName: change, artifactStore: "hybrid", proof,
+        expectedStage: "BUILD", callerResult,
+        phaseResultStatus: "warning", validationStatus: "verified",
+        validation: { status: "verified", reason: "focused test evidence", commands_validated: 2 },
+      })
+      expect(retry).toMatchObject({ status: "committed", reason: "engram-mirror-repaired", canonical_stage: "BUILD" })
+      const calls = JSON.parse(await fs.readFile(fake.logPath, "utf8")) as string[][]
+      expect(calls.filter(call => call[0] === "save" && call.includes(`odf/${change}/state`))).toHaveLength(2)
+    } finally {
+      await fake.cleanup()
     }
   })
 
@@ -9285,8 +9409,16 @@ ${overrides}`
 
     try {
       const first = await commitWorkflowTransition(archiveTransitionInput(tempHome, change, "hybrid"))
-      expect(first.status).toBe("blocked")
-      expect(first.reason).toBe(failurePoint === "state" ? "engram-save-failed" : "archive-report-save-failed")
+      expect(first).toMatchObject({
+        status: "committed",
+        reason: "engram-mirror-pending",
+        degradation: {
+          component: "engram-mirror",
+          status: "pending",
+          reason: failurePoint === "state" ? "engram-save-failed" : "archive-report-save-failed",
+          repairable: true,
+        },
+      })
       expect(YAML.parse(await fs.readFile(path.join(changeDir, "state.yaml"), "utf8")).canonical_stage).toBe("ARCHIVED")
 
       fake.setFailureTopic(null)
@@ -9706,6 +9838,35 @@ ${overrides}`
     expect(metrics).toHaveLength(2)
     expect(metrics.at(-1)).toMatchObject({ event: "run", status: "error", error: expect.stringContaining("task service down"), lifecycle: "finished" })
     expect(metrics.at(-2)).toMatchObject({ event: "span", status: "error", error: expect.stringContaining("task service down"), lifecycle: "finished" })
+  })
+
+  it("blocks invalid native task results while preserving bounded diagnostics and the child session id", async () => {
+    const { createODFDelegate } = await import("./odf-delegation.js")
+    const taskApi = vi.fn().mockResolvedValue({
+      sessionID: "ses_invalid-child-result",
+      status: "completed",
+      output: JSON.stringify({ status: "unexpected", executive_summary: "private child output" }),
+    })
+
+    const output = await createODFDelegate(undefined, tempHome).execute({
+      stage: "PLAN", role: "DESIGN", prompt: "Design a model", context_files: [],
+    }, { sessionID: "parent", task: taskApi } as any)
+    const envelope = JSON.parse(output as string)
+
+    expect(envelope).toMatchObject({
+      status: "blocked",
+      reason: "invalid-task-result",
+      result: null,
+      task_session_id: "ses_invalid-child-result",
+      result_diagnostics: {
+        kind: "invalid-task-result",
+        message: expect.stringContaining("ODF Result status"),
+        output_type: "string",
+      },
+    })
+    expect(envelope.message).toContain("invalid-task-result")
+    expect(JSON.stringify(envelope)).not.toContain("private child output")
+    expect(JSON.stringify(envelope.result_diagnostics).length).toBeLessThan(600)
   })
 
   it("keeps a child error containing 'timed out' as a task error", async () => {
@@ -11778,7 +11939,7 @@ describe("odf_health", () => {
     readFile: (filePath: string) => fs.readFile(filePath, "utf8"),
     stat: (filePath: string) => fs.stat(filePath),
     access: (filePath: string) => fs.access(filePath),
-    locateExecutable: () => {
+    locateExecutable: (): string => {
       const error = Object.assign(new Error("engram not found"), { code: "ENOENT" })
       throw error
     },
@@ -11990,22 +12151,52 @@ describe("odf_health", () => {
     expect(result.warnings).toContain("task-api-unavailable")
   })
 
-  it("blocks a bounded Engram metadata timeout without exporting observations", async () => {
+  it.each([
+    ["ETIMEDOUT", "runtime-timeout: Engram CLI discovery timed out"],
+    ["EACCES", "permission-denied: Engram CLI discovery"],
+    ["EPERM", "permission-denied: Engram CLI discovery"],
+  ] as const)("warns on optional Engram CLI discovery failure (%s) without blocking entry", async (code, warning) => {
     const baseIo = noEngramIo()
     const timeoutIo = {
       ...baseIo,
       locateExecutable: () => {
-        const error = Object.assign(new Error("timed out"), { code: "ETIMEDOUT" })
+        const error = Object.assign(new Error("Engram discovery failed"), { code })
         throw error
       },
     }
     const taskApi = vi.fn()
-    const result = await runHealth({ task: taskApi }, timeoutIo)
+    const session = {
+      create: vi.fn(), get: vi.fn(), prompt: vi.fn(), wait: vi.fn(), context: vi.fn(), interrupt: vi.fn(),
+    }
+    const result = await runHealth({ task: taskApi, [ODF_V2_SESSION]: session }, timeoutIo)
 
-    expect(result.status).toBe("blocked")
+    expect(result.status).toBe("warning")
     expect(result.engram).toEqual({ cli: "unavailable", export_probe: "not-run" })
-    expect(result.warnings).toContain("runtime-timeout: Engram CLI discovery timed out")
+    expect(result.warnings).toContain(warning)
     expect(taskApi).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ["ETIMEDOUT", "runtime-timeout: Engram version discovery timed out"],
+    ["EACCES", "permission-denied: Engram version discovery"],
+    ["EPERM", "permission-denied: Engram version discovery"],
+  ] as const)("warns on optional Engram version lookup failure (%s) without blocking entry", async (code, warning) => {
+    const baseIo = noEngramIo()
+    const versionIo = {
+      ...baseIo,
+      locateExecutable: () => "/usr/bin/engram",
+      readVersion: () => {
+        throw Object.assign(new Error("Engram version lookup failed"), { code })
+      },
+    }
+    const session = {
+      create: vi.fn(), get: vi.fn(), prompt: vi.fn(), wait: vi.fn(), context: vi.fn(), interrupt: vi.fn(),
+    }
+    const result = await runHealth({ task: vi.fn(), [ODF_V2_SESSION]: session }, versionIo)
+
+    expect(result.status).toBe("warning")
+    expect(result.engram).toMatchObject({ cli: "available", path: "/usr/bin/engram", export_probe: "not-run" })
+    expect(result.warnings).toContain(warning)
   })
 })
 

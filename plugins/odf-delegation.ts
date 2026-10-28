@@ -101,6 +101,7 @@ import {
   defaultHealthIo,
   findTaskApi,
   hostTelemetryFromContext,
+  InvalidNativeTaskResultError,
   isCancellation,
   isEmptyTaskResult,
   inspectODFHealth,
@@ -2884,6 +2885,8 @@ Use this instead of generic task() for ODF workflow delegation.`,
             }, null, 2)
         } catch (err) {
           const errorMessage = err instanceof Error ? err.message : String(err)
+          const invalidTaskResult = err instanceof InvalidNativeTaskResultError ? err : null
+          const isInvalidTaskResult = Boolean(invalidTaskResult) || errorMessage.startsWith("invalid-task-result:")
           const errorCode = err && typeof err === "object" && typeof (err as { code?: unknown }).code === "string"
             ? (err as { code: string }).code
             : null
@@ -2894,7 +2897,9 @@ Use this instead of generic task() for ODF workflow delegation.`,
             ? "task-cancelled"
             : isEmpty
               ? "empty-task-result"
-              : "task-error"
+              : isInvalidTaskResult
+                ? "invalid-task-result"
+                : "task-error"
           if (acquiredAttempt && !executionOptions.suppress_attempt_settlement) {
             const ledgerResultStatus: Exclude<AttemptLedgerResultStatus, "running"> = isTimeout
               ? "timeout"
@@ -2902,18 +2907,22 @@ Use this instead of generic task() for ODF workflow delegation.`,
                 ? "cancelled"
                 : errorMessage.startsWith("empty-task-result")
                   ? "empty-task-result"
-                  : "error"
+                  : isInvalidTaskResult
+                    ? "validation-failed"
+                    : "error"
             const ledgerReason: Exclude<AttemptLedgerReason, "acquired"> = isTimeout
               ? "task-timeout"
               : isCancelled
                 ? "task-cancelled"
                 : isEmpty
                   ? "empty-task-result"
-                  : "task-error"
+                  : isInvalidTaskResult
+                    ? "validation-failed"
+                    : "task-error"
             settleAttempt(acquiredAttempt, "failed", ledgerResultStatus, ledgerReason)
           }
           recordLifecycle("finished", {
-            status: isTimeout ? "timeout" : isCancelled || isEmpty ? "blocked" : "error",
+            status: isTimeout ? "timeout" : isCancelled || isEmpty || isInvalidTaskResult ? "blocked" : "error",
             candidate_digest: policyGate?.candidate_digest ?? undefined,
             error: errorMessage,
           })
@@ -2924,8 +2933,8 @@ Use this instead of generic task() for ODF workflow delegation.`,
               change: policyGate.change,
               stage: target.stage,
               role: target.role,
-              status: isCancelled || isEmpty ? "blocked" : "failed",
-              cause: isTimeout ? "timeout" : "error",
+              status: isCancelled || isEmpty || isInvalidTaskResult ? "blocked" : "failed",
+              cause: isTimeout ? "timeout" : isInvalidTaskResult ? "validation-failed" : "error",
               evidence: {
                 summary: errorMessage,
                 frozen_diff_ref: policyGate.frozen_diff_ref,
@@ -2940,7 +2949,7 @@ Use this instead of generic task() for ODF workflow delegation.`,
             mergeReceipt(workspaceRoot, receipt)
           }
           return JSON.stringify({
-            status: isTimeout ? "timeout" : isCancelled || isEmpty ? "blocked" : "error",
+            status: isTimeout ? "timeout" : isCancelled || isEmpty || isInvalidTaskResult ? "blocked" : "error",
             reason,
             stop_disposition: classifyODFStop(isTimeout ? "task-timeout" : reason || "task-error"),
             stage: target.stage,
@@ -2953,6 +2962,8 @@ Use this instead of generic task() for ODF workflow delegation.`,
             receipt: null,
             task_api_source: taskApiInfo.source,
             result: null,
+            ...(invalidTaskResult?.task_session_id ? { task_session_id: invalidTaskResult.task_session_id } : {}),
+            ...(invalidTaskResult ? { result_diagnostics: invalidTaskResult.result_diagnostics } : {}),
             message: errorMessage,
           }, null, 2)
         }
@@ -7265,6 +7276,22 @@ interface TransitionInspection {
   completed: CanonicalStage[]
 }
 
+export interface WorkflowDegradation {
+  component: "engram-mirror"
+  status: "pending"
+  reason: string
+  repairable: true
+}
+
+interface WorkflowPersistenceOutcome {
+  authoritativeError: string | null
+  mirrorError: string | null
+}
+
+function engramMirrorDegradation(reason: string): WorkflowDegradation {
+  return { component: "engram-mirror", status: "pending", reason, repairable: true }
+}
+
 export interface WorkflowCommitResult {
   status: "committed" | "already-committed" | "batch-verified" | "blocked"
   reason: string
@@ -7275,6 +7302,7 @@ export interface WorkflowCommitResult {
   completed_stages: CanonicalStage[]
   validation: ValidationVerdict | null
   workflow_result: ReturnType<typeof advanceWorkflow> | null
+  degradation?: WorkflowDegradation
 }
 
 interface WorkflowStageMaterialization {
@@ -7287,6 +7315,7 @@ interface WorkflowStageMaterialization {
   completed_stages: CanonicalStage[]
   /** P2 adapter diagnostics: what the harness saw when a phase boundary blocked. */
   artifacts_seen?: string[]
+  degradation?: WorkflowDegradation
 }
 
 const WORKFLOW_LOCK_SUFFIX = ".workflow.lock"
@@ -7417,17 +7446,27 @@ function writeWorkflowState(
   workType: WorkType,
   canonicalStage: WorkflowStage,
   completedStages: CanonicalStage[],
-): string | null {
+  target?: WorkflowTarget,
+  governance?: OcaGovernanceEvidence,
+  acknowledgment?: GovernanceAcknowledgment,
+): WorkflowPersistenceOutcome {
   if (store === "openspec") {
-    return writeOpenSpecWorkflowState(workspaceRoot, changeName, stateContent, workType, canonicalStage, completedStages)
+    return {
+      authoritativeError: writeOpenSpecWorkflowState(workspaceRoot, changeName, stateContent, workType, canonicalStage, completedStages, target, governance, acknowledgment),
+      mirrorError: null,
+    }
   }
   if (store === "engram") {
-    return writeEngramWorkflowState(workspaceRoot, changeName, stateContent, workType, canonicalStage, completedStages)
+    return {
+      authoritativeError: writeEngramWorkflowState(workspaceRoot, changeName, stateContent, workType, canonicalStage, completedStages, target, governance, acknowledgment),
+      mirrorError: null,
+    }
   }
 
-  const openSpecError = writeOpenSpecWorkflowState(workspaceRoot, changeName, stateContent, workType, canonicalStage, completedStages)
-  if (openSpecError) return openSpecError
-  return writeEngramWorkflowState(workspaceRoot, changeName, stateContent, workType, canonicalStage, completedStages)
+  const authoritativeError = writeOpenSpecWorkflowState(workspaceRoot, changeName, stateContent, workType, canonicalStage, completedStages, target, governance, acknowledgment)
+  if (authoritativeError) return { authoritativeError, mirrorError: null }
+  const mirrorError = writeEngramWorkflowState(workspaceRoot, changeName, stateContent, workType, canonicalStage, completedStages, target, governance, acknowledgment)
+  return { authoritativeError: null, mirrorError }
 }
 
 async function materializeStageCompletion(opts: {
@@ -7512,6 +7551,43 @@ async function materializeStageCompletion(opts: {
       ? read.snapshot.state.canonical_stage.toUpperCase()
       : ""
     if (sameStages(persisted, newCompleted) && stateStage === newStage) {
+      if (store === "hybrid") {
+        const mirrorRead = await readSelectedWorkflowState(opts.workspaceRoot, opts.changeName, "engram")
+        const mirror = mirrorRead.snapshot
+        const mirrorComplete = mirror?.status.canonical_stage === newStage &&
+          sameStages(persistedCompletedStages(mirror, route), newCompleted)
+        if (!mirrorComplete) {
+          const mirrorError = writeEngramWorkflowState(
+            opts.workspaceRoot,
+            opts.changeName,
+            read.snapshot.stateContent,
+            workType as WorkType,
+            newStage,
+            newCompleted,
+          )
+          if (mirrorError) {
+            return {
+              status: "committed",
+              reason: "engram-mirror-pending",
+              message: `The ${newStage} stage is committed in authoritative OpenSpec state, but its Engram mirror is pending and can be repaired by retrying this transition.`,
+              store,
+              state_ref: stateRef,
+              canonical_stage: newStage,
+              completed_stages: newCompleted,
+              degradation: engramMirrorDegradation(mirrorError),
+            }
+          }
+          return {
+            status: "committed",
+            reason: "engram-mirror-repaired",
+            message: `Repaired the Engram mirror from authoritative OpenSpec state for ${newStage}.`,
+            store,
+            state_ref: stateRef,
+            canonical_stage: newStage,
+            completed_stages: newCompleted,
+          }
+        }
+      }
       return {
         status: "already-committed",
         reason: "already-committed",
@@ -7539,16 +7615,28 @@ async function materializeStageCompletion(opts: {
     parsed.document.set("canonical_stage", newStage)
     parsed.document.set("completed_canonical_stages", newCompleted)
     parsed.document.set("last_updated", new Date().toISOString())
-    const writeError = writeWorkflowState(store, opts.workspaceRoot, opts.changeName, serializeOpenSpecState(parsed.document), workType as WorkType, newStage, newCompleted)
-    if (writeError) {
+    const persistence = writeWorkflowState(store, opts.workspaceRoot, opts.changeName, serializeOpenSpecState(parsed.document), workType as WorkType, newStage, newCompleted)
+    if (persistence.authoritativeError) {
       return {
         status: "blocked",
-        reason: writeError,
+        reason: persistence.authoritativeError,
         message: "The canonical stage could not be persisted.",
         store,
         state_ref: stateRef,
         canonical_stage: read.snapshot.status.canonical_stage,
         completed_stages: persisted,
+      }
+    }
+    if (persistence.mirrorError) {
+      return {
+        status: "committed",
+        reason: "engram-mirror-pending",
+        message: `Committed ${newStage} in authoritative OpenSpec state; its Engram mirror is pending and can be repaired by retrying this transition.`,
+        store,
+        state_ref: stateRef,
+        canonical_stage: newStage,
+        completed_stages: newCompleted,
+        degradation: engramMirrorDegradation(persistence.mirrorError),
       }
     }
     return {
@@ -8317,13 +8405,24 @@ function writeArchiveWorkflow(
   target?: WorkflowTarget,
   governance?: OcaGovernanceEvidence,
   acknowledgment?: GovernanceAcknowledgment,
-): string | null {
-  if (store === "openspec") return writeOpenSpecArchive(workspaceRoot, changeName, stateContent, workType, completedStages, target, governance, acknowledgment)
-  if (store === "engram") return writeEngramArchive(workspaceRoot, changeName, stateContent, workType, completedStages, target, governance, acknowledgment)
+): WorkflowPersistenceOutcome {
+  if (store === "openspec") {
+    return {
+      authoritativeError: writeOpenSpecArchive(workspaceRoot, changeName, stateContent, workType, completedStages, target, governance, acknowledgment),
+      mirrorError: null,
+    }
+  }
+  if (store === "engram") {
+    return {
+      authoritativeError: writeEngramArchive(workspaceRoot, changeName, stateContent, workType, completedStages, target, governance, acknowledgment),
+      mirrorError: null,
+    }
+  }
   // OpenSpec is the hybrid authority; Engram is an idempotent recovery mirror.
   const openSpecError = writeOpenSpecArchive(workspaceRoot, changeName, stateContent, workType, completedStages, target, governance, acknowledgment)
-  if (openSpecError) return openSpecError
-  return writeEngramArchive(workspaceRoot, changeName, stateContent, workType, completedStages, target, governance, acknowledgment)
+  if (openSpecError) return { authoritativeError: openSpecError, mirrorError: null }
+  const mirrorError = writeEngramArchive(workspaceRoot, changeName, stateContent, workType, completedStages, target, governance, acknowledgment)
+  return { authoritativeError: null, mirrorError }
 }
 
 /**
@@ -8410,6 +8509,7 @@ export async function commitWorkflowTransition(opts: {
     validation: ValidationVerdict | null,
     workflowResult: ReturnType<typeof advanceWorkflow> | null,
     canonicalStage: WorkflowStage | null = snapshot?.status.canonical_stage || null,
+    degradation?: WorkflowDegradation,
   ): WorkflowCommitResult => ({
     status,
     reason,
@@ -8420,6 +8520,7 @@ export async function commitWorkflowTransition(opts: {
     completed_stages: completedStages,
     validation,
     workflow_result: workflowResult,
+    ...(degradation ? { degradation } : {}),
   })
 
   if (opts.expectedStage !== "BUILD" && opts.expectedStage !== "VERIFY" && opts.expectedStage !== "ARCHIVE") {
@@ -8490,7 +8591,17 @@ export async function commitWorkflowTransition(opts: {
           route.stages,
         )
         if (mirrorError) {
-          return makeResult("blocked", mirrorError, "The authoritative archive is committed, but the Engram mirror could not be repaired.", read.snapshot, completed, opts.validation, null, "ARCHIVED")
+          return makeResult(
+            "committed",
+            "engram-mirror-pending",
+            "The authoritative archive is committed, but the Engram mirror is pending and can be repaired by retrying archive.",
+            read.snapshot,
+            completed,
+            opts.validation,
+            null,
+            "ARCHIVED",
+            engramMirrorDegradation(mirrorError),
+          )
         }
         return makeResult("committed", "committed", "Repaired the Engram archive mirror from authoritative OpenSpec state.", read.snapshot, route.stages, opts.validation, null, "ARCHIVED")
       }
@@ -8556,7 +8667,7 @@ export async function commitWorkflowTransition(opts: {
         const reason = archiveValidation?.status === "missing" ? "verification-evidence-missing" : "verification-evidence-invalid"
         return makeResult("blocked", reason, archiveValidation?.reason || "Valid VERIFY evidence is required before archiving.", read.snapshot, completed, archiveValidation, null)
       }
-      const writeError = writeArchiveWorkflow(
+      const persistence = writeArchiveWorkflow(
         opts.artifactStore,
         opts.workspaceRoot,
         opts.changeName,
@@ -8567,8 +8678,21 @@ export async function commitWorkflowTransition(opts: {
         governanceEvidence,
         opts.governance_acknowledgment || opts.proof.governance_acknowledgment,
       )
-      if (writeError) {
-        return makeResult("blocked", writeError, "The archive state and report could not be synchronized.", read.snapshot, completed, archiveValidation, null)
+      if (persistence.authoritativeError) {
+        return makeResult("blocked", persistence.authoritativeError, "The archive state and report could not be synchronized.", read.snapshot, completed, archiveValidation, null)
+      }
+      if (persistence.mirrorError) {
+        return makeResult(
+          "committed",
+          "engram-mirror-pending",
+          "Archived in authoritative OpenSpec state; the Engram mirror is pending and can be repaired by retrying archive.",
+          read.snapshot,
+          route.stages,
+          archiveValidation,
+          null,
+          "ARCHIVED",
+          engramMirrorDegradation(persistence.mirrorError),
+        )
       }
       return makeResult("committed", "committed", `Archived workflow state to ${opts.artifactStore}.`, read.snapshot, route.stages, archiveValidation, null, "ARCHIVED")
     }
@@ -8578,9 +8702,61 @@ export async function commitWorkflowTransition(opts: {
       expectedStage: opts.expectedStage,
       callerResult: opts.callerResult,
     })
-    if (!inspection.ok || inspection.alreadyCommitted) {
+    if (!inspection.ok) {
       return makeResult(
-        inspection.alreadyCommitted ? "already-committed" : "blocked",
+        "blocked",
+        inspection.reason,
+        inspection.message,
+        read.snapshot,
+        inspection.completed,
+        opts.validation,
+        null,
+      )
+    }
+    if (inspection.alreadyCommitted) {
+      if (opts.artifactStore === "hybrid") {
+        const mirrorRead = await readSelectedWorkflowState(opts.workspaceRoot, opts.changeName, "engram")
+        const mirror = mirrorRead.snapshot
+        const authoritativeStage = read.snapshot.status.canonical_stage
+        const authoritativeCompleted = persistedCompletedStages(read.snapshot, inspection.route)
+        const mirrorComplete = mirror?.status.canonical_stage === authoritativeStage &&
+          sameStages(persistedCompletedStages(mirror, inspection.route), authoritativeCompleted)
+        if (!mirrorComplete) {
+          const mirrorError = writeEngramWorkflowState(
+            opts.workspaceRoot,
+            opts.changeName,
+            read.snapshot.stateContent,
+            opts.proof.work_type,
+            authoritativeStage,
+            authoritativeCompleted,
+          )
+          if (mirrorError) {
+            return makeResult(
+              "committed",
+              "engram-mirror-pending",
+              `The authoritative ${opts.expectedStage} transition is committed, but its Engram mirror is pending and can be repaired by retrying this transition.`,
+              read.snapshot,
+              authoritativeCompleted,
+              opts.validation,
+              null,
+              authoritativeStage,
+              engramMirrorDegradation(mirrorError),
+            )
+          }
+          return makeResult(
+            "committed",
+            "engram-mirror-repaired",
+            `Repaired the Engram mirror from authoritative OpenSpec state for ${opts.expectedStage}.`,
+            read.snapshot,
+            authoritativeCompleted,
+            opts.validation,
+            null,
+            authoritativeStage,
+          )
+        }
+      }
+      return makeResult(
+        "already-committed",
         inspection.reason,
         inspection.message,
         read.snapshot,
@@ -8743,23 +8919,42 @@ export async function commitWorkflowTransition(opts: {
       )
     }
 
-    // OpenSpec is the hybrid authority; Engram is an idempotent recovery mirror.
-    // Both stores must be written for hybrid, matching writeArchiveWorkflow.
-    const writeError = opts.artifactStore === "openspec"
-      ? writeOpenSpecWorkflowState(opts.workspaceRoot, opts.changeName, read.snapshot.stateContent, opts.proof.work_type, opts.expectedStage, postResult.completed_stages, governanceTarget, governanceEvidence, opts.governance_acknowledgment || opts.proof.governance_acknowledgment)
-      : opts.artifactStore === "engram"
-        ? writeEngramWorkflowState(opts.workspaceRoot, opts.changeName, read.snapshot.stateContent, opts.proof.work_type, opts.expectedStage, postResult.completed_stages, governanceTarget, governanceEvidence, opts.governance_acknowledgment || opts.proof.governance_acknowledgment)
-        : writeOpenSpecWorkflowState(opts.workspaceRoot, opts.changeName, read.snapshot.stateContent, opts.proof.work_type, opts.expectedStage, postResult.completed_stages, governanceTarget, governanceEvidence, opts.governance_acknowledgment || opts.proof.governance_acknowledgment)
-          ?? writeEngramWorkflowState(opts.workspaceRoot, opts.changeName, read.snapshot.stateContent, opts.proof.work_type, opts.expectedStage, postResult.completed_stages, governanceTarget, governanceEvidence, opts.governance_acknowledgment || opts.proof.governance_acknowledgment)
-    if (writeError) {
+    // OpenSpec is the hybrid authority; a failed Engram mirror is degraded but
+    // does not undo or negate a transition already committed to that authority.
+    const persistence = writeWorkflowState(
+      opts.artifactStore,
+      opts.workspaceRoot,
+      opts.changeName,
+      read.snapshot.stateContent,
+      opts.proof.work_type,
+      opts.expectedStage,
+      postResult.completed_stages,
+      governanceTarget,
+      governanceEvidence,
+      opts.governance_acknowledgment || opts.proof.governance_acknowledgment,
+    )
+    if (persistence.authoritativeError) {
       return makeResult(
         "blocked",
-        writeError,
+        persistence.authoritativeError,
         "The selected workflow state could not be committed.",
         read.snapshot,
         inspection.completed,
         validation,
         postResult,
+      )
+    }
+    if (persistence.mirrorError) {
+      return makeResult(
+        "committed",
+        "engram-mirror-pending",
+        `Committed ${opts.expectedStage} in authoritative OpenSpec state; its Engram mirror is pending and can be repaired by retrying this transition.`,
+        read.snapshot,
+        postResult.completed_stages,
+        validation,
+        postResult,
+        opts.expectedStage,
+        engramMirrorDegradation(persistence.mirrorError),
       )
     }
     return makeResult(
