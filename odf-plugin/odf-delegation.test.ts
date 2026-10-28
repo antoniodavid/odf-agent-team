@@ -3321,9 +3321,9 @@ describe("findTaskApi", () => {
     await expect(api!.taskApi({ agent: "odoo_backend_engineer", prompt: "Build it", context_files: ["models/x.py"] }))
       .resolves.toEqual(latestResult)
     expect(session.create).toHaveBeenCalledWith({
+      parentID: "parent",
       agent: "odoo_backend_engineer",
       model: { providerID: "opencode-go", id: "kimi-k2.6" },
-      location: { directory: "/workspace" },
     })
     expect(session.prompt).toHaveBeenCalledWith({
       sessionID: "v2-child",

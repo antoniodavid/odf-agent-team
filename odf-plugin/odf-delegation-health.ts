@@ -15,6 +15,7 @@ import {
   getOdfConfigDir,
   ODF_REGISTERED_TOOLS,
   resolvePath,
+  sameCanonicalDirectory,
   type ODFRegistry,
 } from "./odf-delegation-shared.js"
 import type { DelegationMetricInput, DelegationMetrics } from "./odf-delegation-metrics.js"
@@ -1008,11 +1009,17 @@ export function createV2SessionTaskApi(toolCtx: ToolContext, session: V2SessionA
           // The parent model is optional; OpenCode can select the default model.
         }
       }
+      const childDirectory = targetDirectory(input)
+      // OpenCode places parentID-linked sessions at the parent's location.
+      // Preserve explicit cross-directory delegations as independent sessions.
+      const parentLink = sameCanonicalDirectory(directory, childDirectory)
+        ? { parentID: toolCtx.sessionID }
+        : { location: { directory: childDirectory } }
       const created = await callV2(() => session.create({
+        ...parentLink,
         agent: input.agent,
         ...(model ? { model: { providerID: model.providerID, id: model.modelID } } : {}),
         ...(input.title ? { title: input.title } : {}),
-        location: { directory: targetDirectory(input) },
       }), "session-create-error", false)
       const createdValue = created && typeof created === "object" && !Array.isArray(created)
         ? created as Record<string, unknown>
