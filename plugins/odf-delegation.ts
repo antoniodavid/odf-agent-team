@@ -2544,6 +2544,7 @@ Use this instead of generic task() for ODF workflow delegation.`,
         tool: "odf_delegate",
         args: { prompt: args.prompt },
         authorized_roots: [workspaceRoot],
+        stage: target.stage,
       })
       if (safety.blocked) {
         const message = `Pre-tool safety blocked delegation to ${agentName}: ${safety.classes.join(", ")}. ${safety.safe_continuation || "Request explicit user consent for the exact target."}`
@@ -4070,6 +4071,7 @@ function createODFDelegationPrepare(canonicalDirectory?: string): ReturnType<typ
         tool: "subagent",
         args: { prompt: args.prompt },
         authorized_roots: [workspaceRoot],
+        stage: target.stage,
       })
       if (inputSafety.blocked) {
         return blocked(
@@ -4222,6 +4224,7 @@ function createODFDelegationPrepare(canonicalDirectory?: string): ReturnType<typ
         tool: "subagent",
         args: { prompt: finalPrompt },
         authorized_roots: [workspaceRoot],
+        stage: target.stage,
       })
       if (safety.blocked) {
         return fail(

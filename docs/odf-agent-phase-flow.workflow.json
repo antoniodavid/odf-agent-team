@@ -91,7 +91,7 @@
       "dot": "cyan",
       "title": "Coordination agents",
       "items": [
-        "odoo_orchestrator · odoo_proposer · odoo_functional_consultant"
+        "odoo_orchestrator · odoo_proposer · odoo_functional_consultant · odoo_explorer"
       ]
     },
     {

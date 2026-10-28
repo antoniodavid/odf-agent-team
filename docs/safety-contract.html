@@ -63,7 +63,8 @@ tool runs. This is the first line of defense and stays authoritative.</p>
 payload</strong>: a destructive command passed to <code>bash</code>, a <code>../</code> escape in a <code>read</code>
 arg, a secret literal being echoed, or prompt-injection text being delegated to
 a sub-agent. <code>scripts/odf-safety.js</code> inspects those argument strings
-deterministically before <code>odf_delegate</code> launches a sub-agent.</p>
+deterministically before native prepare or legacy <code>odf_delegate</code> launches a
+sub-agent.</p>
 <p>It never executes commands — it only matches regexes against string/args and
 returns an <code>allow</code>/<code>block</code> decision.</p>
 <h2 id="classes-blocked" tabindex="-1"><a class="anchor" href="#classes-blocked" aria-label="Link to this section">#</a>Classes blocked</h2>
@@ -120,6 +121,15 @@ get explicit authorization for the external path.&quot;</li>
 via <code>$VARIABLE</code> at runtime, never inline.&quot;</li>
 <li><code>injection</code>/<code>jailbreak</code>: &quot;Pass data as arguments, never concatenated into a prompt.&quot;</li>
 </ul>
+<h2 id="explore-read-scope" tabindex="-1"><a class="anchor" href="#explore-read-scope" aria-label="Link to this section">#</a>EXPLORE read scope</h2>
+<p>EXPLORE is intentionally read-only and may inspect local files outside the
+workspace and public web sources. The <code>path-escape</code> text pattern is therefore
+not applied to EXPLORE delegation prompts; other safety classes remain active,
+and <code>cross-root-write</code> still blocks writes outside <code>authorized_roots</code>. The
+dedicated <code>odoo_explorer</code> agent denies edits, shell, and ODF workflow tools,
+allows external-directory reads and web search/fetch, and searches the web on
+every EXPLORE run. This exception does not grant write or database-mutation
+authority.</p>
 <h2 id="how-false-positives-are-measured-before-widening-policy" tabindex="-1"><a class="anchor" href="#how-false-positives-are-measured-before-widening-policy" aria-label="Link to this section">#</a>How false positives are measured before widening policy</h2>
 <p>The corpus is deliberately narrow to keep the false-positive rate near zero on
 normal ODF flow. Two guards enforce this:</p>
@@ -143,7 +153,7 @@ false-positive rate stays zero; only widen scope for a proven real argument gap
     </article>
     <nav class="pager" aria-label="Documentation pagination"><a class="pager-link prev" href="context-contract.html"><span>Previous</span><b>Context Manifest</b></a><a class="pager-link next" href="judge-shadow-contract.html"><span>Next</span><b>Judge shadow</b></a></nav>
   </main>
-  <aside class="toc" aria-label="On this page"><p class="toc-title">On this page</p><nav><a class="toc-l2" href="#what-native-permissions-already-do">What native permissions already do</a><a class="toc-l2" href="#what-this-adapter-adds">What this adapter adds</a><a class="toc-l2" href="#classes-blocked">Classes blocked</a><a class="toc-l2" href="#every-rejection-names-an-executable-continuation">Every rejection names an executable continuation</a><a class="toc-l2" href="#how-false-positives-are-measured-before-widening-policy">How false positives are measured before widening policy</a><a class="toc-l2" href="#schema">Schema</a></nav></aside>
+  <aside class="toc" aria-label="On this page"><p class="toc-title">On this page</p><nav><a class="toc-l2" href="#what-native-permissions-already-do">What native permissions already do</a><a class="toc-l2" href="#what-this-adapter-adds">What this adapter adds</a><a class="toc-l2" href="#classes-blocked">Classes blocked</a><a class="toc-l2" href="#every-rejection-names-an-executable-continuation">Every rejection names an executable continuation</a><a class="toc-l2" href="#explore-read-scope">EXPLORE read scope</a><a class="toc-l2" href="#how-false-positives-are-measured-before-widening-policy">How false positives are measured before widening policy</a><a class="toc-l2" href="#schema">Schema</a></nav></aside>
 </div>
 <div class="overlay" id="overlay" role="dialog" aria-modal="true" aria-label="Search documentation">
   <div class="palette">

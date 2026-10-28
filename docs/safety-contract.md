@@ -16,7 +16,8 @@ Native permissions cannot see **dangerous arguments inside an allowed tool's
 payload**: a destructive command passed to `bash`, a `../` escape in a `read`
 arg, a secret literal being echoed, or prompt-injection text being delegated to
 a sub-agent. `scripts/odf-safety.js` inspects those argument strings
-deterministically before `odf_delegate` launches a sub-agent.
+deterministically before native prepare or legacy `odf_delegate` launches a
+sub-agent.
 
 It never executes commands — it only matches regexes against string/args and
 returns an `allow`/`block` decision.
@@ -44,6 +45,17 @@ run instead, never a dead-end like "stop". Examples:
 - `secrets-pii`: "Store the value in the environment or a secret manager; read it
   via `$VARIABLE` at runtime, never inline."
 - `injection`/`jailbreak`: "Pass data as arguments, never concatenated into a prompt."
+
+## EXPLORE read scope
+
+EXPLORE is intentionally read-only and may inspect local files outside the
+workspace and public web sources. The `path-escape` text pattern is therefore
+not applied to EXPLORE delegation prompts; other safety classes remain active,
+and `cross-root-write` still blocks writes outside `authorized_roots`. The
+dedicated `odoo_explorer` agent denies edits, shell, and ODF workflow tools,
+allows external-directory reads and web search/fetch, and searches the web on
+every EXPLORE run. This exception does not grant write or database-mutation
+authority.
 
 ## How false positives are measured before widening policy
 

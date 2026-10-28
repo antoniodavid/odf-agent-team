@@ -163,9 +163,18 @@ const baseRegistry: ODFRegistry = {
       name: "odoo_functional_consultant",
       mode: "subagent",
       description: "Standard vs custom assessment, functional analysis",
-      phases: ["ASSESS", "EXPLORE"],
+      phases: ["ASSESS"],
       model: null,
       path: "/tmp/odoo_functional_consultant.md",
+      installed: true,
+    },
+    {
+      name: "odoo_explorer",
+      mode: "subagent",
+      description: "Read-only Odoo investigation across local files and current web sources",
+      phases: ["EXPLORE"],
+      model: null,
+      path: "/tmp/odoo_explorer.md",
       installed: true,
     },
     {
@@ -3051,7 +3060,7 @@ describe("resolveAgent", () => {
     expect(resolveAgent(baseRegistry, "DESIGN", [])).toBe("odoo_backend_engineer")
     expect(resolveAgent(baseRegistry, "IMPLEMENT", [])).toBe("odoo_backend_engineer")
     expect(resolveAgent(baseRegistry, "VERIFY", [])).toBe("odoo_qa_engineer")
-    expect(resolveAgent(baseRegistry, "EXPLORE", [])).toBe("odoo_functional_consultant")
+    expect(resolveAgent(baseRegistry, "EXPLORE", [])).toBe("odoo_explorer")
   })
 
   it("enforces the phase matrix while preserving specialist and bounded routing", () => {
@@ -3061,7 +3070,7 @@ describe("resolveAgent", () => {
     expect(resolveAgent(baseRegistry, "DESIGN", ["frontend", "OWL"])).toBe("odoo_frontend_engineer")
     expect(resolveAgent(baseRegistry, "IMPLEMENT", ["bounded", "batch", "T8", "T9", "T10"])).toBe("odoo_batch_implementer")
     expect(resolveAgent(baseRegistry, "VERIFY", ["review", "coverage"])).toBe("odoo_qa_engineer")
-    expect(resolveAgent(baseRegistry, "EXPLORE", ["migration", "patterns"])).toBe("odoo_functional_consultant")
+    expect(resolveAgent(baseRegistry, "EXPLORE", ["migration", "patterns"])).toBe("odoo_explorer")
     expect(resolveAgent(baseRegistry, "FIX", ["Python", "model", "constraint"])).toBe("odoo_backend_engineer")
   })
 
@@ -6638,6 +6647,22 @@ ${overrides}`
     expect(taskApi).toHaveBeenCalledTimes(1)
   })
 
+  it("allows parent-relative read paths in read-only EXPLORE", async () => {
+    const { createODFDelegate } = await import("./odf-delegation.js")
+    const taskApi = vi.fn().mockResolvedValue({ status: "ok" })
+    const output = await createODFDelegate(undefined, tempHome).execute({
+      stage: "EXPLORE",
+      change: "explore-parent-relative-read",
+      prompt: "Read ../shared/stock.py and compare it with current online documentation.",
+      context_files: [],
+    }, { sessionID: "explore-parent-relative-read", task: taskApi } as any)
+
+    const envelope = JSON.parse(output as string)
+    expect(envelope.status).toBe("delegated")
+    expect(envelope.agent).toBe("odoo_explorer")
+    expect(taskApi).toHaveBeenCalledTimes(1)
+  })
+
   it("uses a persisted pending receipt instead of caller receipt_state none", async () => {
     const { createODFDelegate } = await import("./odf-delegation.js")
     const change = "persisted-pending-receipt"
@@ -10211,7 +10236,7 @@ ${overrides}`
     expect(taskApi).not.toHaveBeenCalled()
   })
 
-  it("accepts EXPLORE phase and delegates to the functional consultant agent", async () => {
+  it("accepts EXPLORE phase and delegates to the read-only explorer agent", async () => {
     const { createODFDelegate, clearMetricsBuffer, getMetricsBuffer } = await import("./odf-delegation.js")
     clearMetricsBuffer()
     const taskResult = { status: "ok", executive_summary: "explored" }
@@ -10228,11 +10253,11 @@ ${overrides}`
     expect(envelope.status).toBe("delegated")
     expect(envelope.stage).toBe("EXPLORE")
     expect(envelope.role).toBeNull()
-    expect(envelope.agent).toBe("odoo_functional_consultant")
+    expect(envelope.agent).toBe("odoo_explorer")
 
     const metrics = getMetricsBuffer()
     expect(metrics.filter(metric => metric.event === "run")).toHaveLength(1)
-    expect(metrics.find(metric => metric.event === "run")).toMatchObject({ stage: "EXPLORE", role: null, agent: "odoo_functional_consultant" })
+    expect(metrics.find(metric => metric.event === "run")).toMatchObject({ stage: "EXPLORE", role: null, agent: "odoo_explorer" })
   })
 
   it("accepts PROPOSE phase and delegates to the proposal agent", async () => {

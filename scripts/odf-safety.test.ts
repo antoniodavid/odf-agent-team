@@ -8,7 +8,7 @@ import {
   type SafetyInspectionResult,
 } from "./odf-safety.js"
 
-const block = (arg: string, extra: { authorized_roots?: string[] } = {}): SafetyInspectionResult =>
+const block = (arg: string, extra: { authorized_roots?: string[]; stage?: string } = {}): SafetyInspectionResult =>
   inspectToolArgs({ tool: "bash", args: arg, ...extra })
 
 const MANDATORY_DATABASE_GUARD =
@@ -66,6 +66,52 @@ describe("blocks-path-escape", () => {
     const r = block(arg)
     expect(r.blocked).toBe(true)
     expect(r.classes).toContain("path-escape")
+  })
+})
+
+describe("read-only EXPLORE path access", () => {
+  it("allows parent-relative path references in EXPLORE prompts", () => {
+    const result = inspectToolArgs({
+      tool: "subagent",
+      args: { prompt: "Read ../../shared/stock.py for context; do not modify it." },
+      authorized_roots: ["/workspace/project"],
+      stage: "EXPLORE",
+    })
+
+    expect(result.blocked).toBe(false)
+    expect(result.classes).not.toContain("path-escape")
+  })
+
+  it("continues blocking parent-relative paths outside EXPLORE", () => {
+    const result = inspectToolArgs({
+      tool: "subagent",
+      args: { prompt: "Read ../../shared/stock.py for context." },
+      authorized_roots: ["/workspace/project"],
+      stage: "ASSESS",
+    })
+
+    expect(result.blocked).toBe(true)
+    expect(result.classes).toContain("path-escape")
+  })
+
+  it("keeps outside-root writes and destructive commands blocked in EXPLORE", () => {
+    const write = inspectToolArgs({
+      tool: "subagent",
+      args: { prompt: "Explore the module, then write results > /tmp/explore.txt" },
+      authorized_roots: ["/workspace/project"],
+      stage: "EXPLORE",
+    })
+    const destructive = inspectToolArgs({
+      tool: "subagent",
+      args: { prompt: "Run DROP DATABASE prod;" },
+      authorized_roots: ["/workspace/project"],
+      stage: "EXPLORE",
+    })
+
+    expect(write.blocked).toBe(true)
+    expect(write.classes).toContain("cross-root-write")
+    expect(destructive.blocked).toBe(true)
+    expect(destructive.classes).toContain("destructive")
   })
 })
 

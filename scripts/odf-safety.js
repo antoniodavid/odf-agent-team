@@ -303,6 +303,7 @@ export function inspectToolArgs({
   tool: toolName,
   args,
   authorized_roots = [],
+  stage,
 }) {
   const texts = [];
   if (typeof args === "string") {
@@ -330,6 +331,10 @@ export function inspectToolArgs({
   const classes = new Set();
   const destructiveHaystack = haystack.replace(DESTRUCTIVE_PROTECTION, "");
   for (const rule of SAFETY_RULES) {
+    // EXPLORE is explicitly read-only and may inspect external directories.
+    // Its dedicated agent has read access but no edit/ODF tools; keep all other
+    // safety classes and the separate cross-root-write check active.
+    if (rule.id === "path-escape" && stage === "EXPLORE") continue;
     for (const re of rule.patterns) {
       const source =
         rule.class === "destructive" ? destructiveHaystack : haystack;
