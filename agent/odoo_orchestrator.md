@@ -223,6 +223,7 @@ replace a default when their role and triggers match.
 |---|---|
 | PROPOSE | `odoo_proposer` |
 | ASSESS (including context) | `odoo_functional_consultant` |
+| EXPLORE | `odoo_explorer` |
 | QA-PLAN, VERIFY | `odoo_qa_engineer` |
 | IMPLEMENT bounded batch | `odoo_batch_implementer` |
 | DESIGN, IMPLEMENT backend | `odoo_backend_engineer` |

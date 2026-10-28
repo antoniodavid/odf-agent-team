@@ -763,7 +763,7 @@
         "investigate",
         "how does"
       ],
-      "compact_rules": "- Search the local Odoo source for the target version before concluding.\n- Read the actual models, views, and tests; never guess behavior.\n- Check whether standard Odoo already covers the need.\n- Cite file:line for every claim; recollection is not evidence.\n- Stay read-only: report findings, do not modify code.",
+      "compact_rules": "- Search local Odoo source first and read the actual models, views, and tests.\n- Always use websearch during EXPLORE; verify with current, version-specific primary sources and cite URLs.\n- Read external directories when needed; EXPLORE remains read-only.\n- Check whether standard Odoo already covers the need.\n- Cite local file:line and web URLs for claims; separate evidence from assumptions.",
       "path": "skills/odf-explore/SKILL.md",
       "odoo_versions": [
         16,
@@ -1851,11 +1851,21 @@
       "mode": "subagent",
       "description": "Standard vs custom assessment, functional analysis",
       "phases": [
-        "ASSESS",
-        "EXPLORE"
+        "ASSESS"
       ],
       "model": null,
       "path": "agent/odoo_functional_consultant.md",
+      "installed": true
+    },
+    {
+      "name": "odoo_explorer",
+      "mode": "subagent",
+      "description": "Read-only Odoo investigation across local files and current web sources",
+      "phases": [
+        "EXPLORE"
+      ],
+      "model": null,
+      "path": "agent/odoo_explorer.md",
       "installed": true
     },
     {

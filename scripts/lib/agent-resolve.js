@@ -72,7 +72,7 @@ export const DEFAULT_AGENTS = {
   DESIGN: "odoo_backend_engineer",
   IMPLEMENT: "odoo_backend_engineer",
   VERIFY: "odoo_qa_engineer",
-  EXPLORE: "odoo_functional_consultant",
+  EXPLORE: "odoo_explorer",
   FIX: "odoo_backend_engineer",
 }
 

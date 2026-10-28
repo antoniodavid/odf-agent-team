@@ -259,6 +259,24 @@ describe("native prepare/seal delegation", () => {
     expect(read.record?.launch_mode).toBe("programmatic")
   }, 10_000)
 
+  it("prepares EXPLORE with parent-relative source paths", async () => {
+    const { odf_delegation_prepare } = await tools()
+    const change = "native-explore-parent-path"
+    const output = JSON.parse(await odf_delegation_prepare.execute({
+      stage: "EXPLORE",
+      change,
+      prompt: "Read ../../shared/stock.py and compare its behavior with the relevant Odoo documentation.",
+      context_files: [],
+    }, { sessionID: "explore-parent-path" } as any) as string)
+
+    expect(output).toMatchObject({ status: "prepared", change, stage: "EXPLORE", agent: "odoo_explorer" })
+    expect(output.delegation.prompt).toContain("../../shared/stock.py")
+    expect(readDelegationToken(tempHome, change, output.token).record).toMatchObject({
+      status: "prepared",
+      agent: "odoo_explorer",
+    })
+  })
+
   it("submits the exact prepared prompt through the V2 session API", async () => {
     await writeDesignBoundaryFixture(tempHome, "native-design")
     const prepared = await prepareDesign("native-design", "prepare-session")

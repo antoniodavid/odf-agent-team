@@ -25,6 +25,7 @@ export function inspectToolArgs(input: {
   tool: string
   args: unknown
   authorized_roots?: string[]
+  stage?: string
 }): SafetyInspectionResult
 
 export const corpus: Array<{ class: string; arg: string }>

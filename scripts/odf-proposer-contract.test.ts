@@ -55,7 +55,7 @@ describe("odoo proposer persistence contract", () => {
   })
 
   it("uses explicit V2 effective permissions for every ODF child agent", () => {
-    expect(Object.keys(agentFrontmatters)).toHaveLength(11)
+    expect(Object.keys(agentFrontmatters)).toHaveLength(12)
     for (const [name, config] of Object.entries(agentFrontmatters)) {
       expect(config, name).not.toHaveProperty("permission")
       expect(config, name).not.toHaveProperty("temperature")
@@ -77,6 +77,7 @@ describe("odoo proposer persistence contract", () => {
       odoo_dba_devops: ["ask", "ask"],
       odoo_frontend_engineer: ["allow", "allow"],
       odoo_functional_consultant: ["deny", "ask"],
+      odoo_explorer: ["deny", "deny"],
       odoo_proposer: ["deny", "deny"],
       odoo_qa_engineer: ["deny", "allow"],
       odoo_upgrade_migrator: ["ask", "ask"],
@@ -100,6 +101,12 @@ describe("odoo proposer persistence contract", () => {
       proposerRules.findIndex(rule => rule.action === "odf_proposal_write" && rule.effect === "allow"),
     )
     expect(permissionEffect(agentFrontmatters.odoo_proposer, "odf_proposal_write")).toBe("allow")
+
+    expect(agentFrontmatters.odoo_explorer.permissions).toEqual(expect.arrayContaining([
+      { action: "external_directory", resource: "*", effect: "allow" },
+      { action: "websearch", resource: "*", effect: "allow" },
+      { action: "webfetch", resource: "*", effect: "allow" },
+    ]))
   })
 
   it("requires persistence before returning the phase result", () => {

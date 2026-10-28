@@ -42,7 +42,7 @@ The route determines which stages and roles apply; not every request runs every 
 | **BUILD** | — | Agent by task domain | Code + focused tests/checks, in batches, when the route includes BUILD | Pause only at a required gate or real decision |
 | **VERIFY** | — | `odoo_qa_engineer` | Test run, lint, spec compliance when required by the route | PASS or FAIL; evidence gate remains mandatory |
 | **FIX** | — | Agent by task domain | Root-cause analysis + minimal regression for the bugfix route | Evidence gate remains mandatory |
-| **EXPLORE** | — | `odoo_functional_consultant` | Investigation report; ephemeral, not a bound workflow | — |
+| **EXPLORE** | — | `odoo_explorer` | Read-only investigation using local and web sources; ephemeral, not a bound workflow | — |
 | **ARCHIVED** | — | (auto) | Retrospective saved to Engram; only for VERIFY-terminal routes | — |
 
 These are available stage roles, not a promise that every request runs every row.
@@ -56,26 +56,29 @@ escalation.
 ## Architecture
 
 ```
-                   ┌──────────────────────┐
-                   │   odoo_orchestrator   │  ← NEVER writes code, only delegates
-                   │   (AGENT)             │
-                   └──────┬───────┬───────┘
-                          │       │
-              ┌───────────┘       └───────────┐
-              ▼                               ▼
-   ┌──────────────────────┐       ┌──────────────────────┐
-    │   odf-delegation.ts  │       │   10 sub-agents       │
-   │   (PLUGIN)           │──────▶│   (via task())        │
-   │                      │       │                       │
-   │   Registry cache     │       │  odoo_backend_engineer │
-   │   Profile resolution │       │  odoo_frontend_enginee │
-   │   Skill injection    │       │  odoo_qa_engineer      │
-   │   Status resolver    │       │  odoo_functional_con.  │
-   │   Community tools    │       │  odoo_code_reviewer    │
-   └──────────────────────┘       │  odoo_api_integrator   │
-                                  │  odoo_dba_devops       │
-                                   │  odoo_upgrade_migrator │
-                                  └──────────────────────┘
+                    ┌──────────────────────┐
+                    │   odoo_orchestrator   │  ← NEVER writes code, only delegates
+                    │   (AGENT)             │
+                    └──────┬───────┬───────┘
+                           │       │
+               ┌───────────┘       └───────────┐
+               ▼                               ▼
+    ┌──────────────────────┐      ┌───────────────────────────────┐
+    │   odf-delegation.ts  │      │       11 sub-agents           │
+    │   (PLUGIN)           │─────▶│         (via task())          │
+    │                      │      │                               │
+    │   Registry cache     │      │ odoo_proposer                 │
+    │   Profile resolution │      │ odoo_functional_consultant    │
+    │   Skill injection    │      │ odoo_qa_engineer              │
+    │   Status resolver    │      │ odoo_batch_implementer        │
+    │   Community tools    │      │ odoo_backend_engineer         │
+    └──────────────────────┘      │ odoo_frontend_engineer        │
+                                  │ odoo_api_integrator           │
+                                  │ odoo_dba_devops               │
+                                  │ odoo_upgrade_migrator         │
+                                  │ odoo_code_reviewer            │
+                                  │ odoo_explorer                 │
+                                  └───────────────────────────────┘
 ```
 
 ### Plugin tools (`odf-delegation.ts`)
@@ -262,7 +265,7 @@ git branch -d <type>/<short-description>
 ## Key structure
 
 ```
-agent/              — 11 agent instructions (orchestrator + 10 sub-agents)
+agent/              — 12 agent instructions (orchestrator + 11 sub-agents)
 command/            — 23 slash command definitions (Markdown)
 plugins/            — odf-delegation.ts (OpenCode plugin)
 scripts/            — test runner (1477 Vitest tests + 331 YAML scenarios), CLI wrapper, registry and skill validators
@@ -271,7 +274,7 @@ skills/              — 51 skills, one directory per skill (`skills/<name>/SKIL
 openspec/           — SDD change artifacts (when artifact_store=openspec)
 docs/               — intended-usage, architecture, skill-style-guide
 install.sh          — idempotent installer (backup, --dry-run, --force)
-odf-registry.json   — SINGLE SOURCE OF TRUTH (51 skills, 11 agents, 2 profiles, community tools)
+odf-registry.json   — SINGLE SOURCE OF TRUTH (51 skills, 12 agents, 2 profiles, community tools)
 ```
 
 ## Quick start

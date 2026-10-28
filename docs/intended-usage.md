@@ -8,7 +8,7 @@ This document describes the mental model for using ODF inside OpenCode.
 
 ODF is an OpenCode skill/agent pack that turns a generic AI assistant into a structured Odoo delivery team. It provides:
 
-- A **registry** of 51 skills and 11 agents.
+- A **registry** of 51 skills and 12 agents.
 - A **conversational orchestrator** that runs a preflight gate, resolves the thin-spine workflow route, builds one bounded Context Manifest, and delegates work stages.
 - A **plugin** (`odf-delegation.ts`) that resolves skills/agents, enforces the Policy Gate and validation evidence, uses a native task adapter when the host exposes one, falls back to an SDK child session, and derives canonical status from OpenSpec/Engram.
 - An **installer** that deploys the pack idempotently into `~/.config/opencode`.
@@ -21,7 +21,7 @@ ODF is an OpenCode skill/agent pack that turns a generic AI assistant into a str
 | `/odf-new <name>` | You want to start a change on its resolved route. Runs health/preflight first and shows one route. |
 | `/odf-continue [name]` | You want to resume an active change from the last completed stage. |
 | `/odf-status [name]` | You want to see active changes or inspect one in detail (canonical thin-spine status). |
-| `/odf-explore <topic>` | You want to research a topic without creating a formal change. |
+| `/odf-explore <topic>` | You want a read-only investigation across local files and current web sources, without creating a formal change. |
 | `/odf-fix <topic>` | You have a focused bug: diagnose → BUILD → VERIFY, escalating to full ODF when architecture changes are needed. |
 | `/odf-apply` | BUILD alias for an existing planned change (legacy IMPLEMENT adapter). |
 | `/odf-verify` | You finished implementation and want the quality gate. |
